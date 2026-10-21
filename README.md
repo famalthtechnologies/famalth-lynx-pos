@@ -51,8 +51,8 @@
 ## 🚀 Retailer Installation & Updates
 
 For automated production deployments on Windows terminals:
-* 📥 **[Download Backend Installer (v1.0.0.0)](https://github.com/studentsdav/RetailSale/releases/download/1.0.0.0/backend_Installer.exe)** - Run this **first time** on the main server to setup database, runtimes, and local configurations automatically.
-* 📥 **[Download Famalth Lynx Client Installer (v1.0.0.0)](https://github.com/studentsdav/RetailSale/releases/download/1.0.0.0/Retailpos_Installer.exe)** - Run this to **update** existing terminals, or to install secondary billing clients on the network.
+* 📥 **[Download Backend Installer (v1.0.0.0)](https://github.com/famalthtechnologies/famalth-lynx-pos/releases/download/1.0.0.0/backend_Installer.exe)** - Run this **first time** on the main server to setup database, runtimes, and local configurations automatically.
+* 📥 **[Download Famalth Lynx Client Installer (v1.0.0.0)](https://github.com/famalthtechnologies/famalth-lynx-pos/releases/download/1.0.0.0/Famalth_Lynx_Installer.exe)** - Run this to **update** existing terminals, or to install secondary billing clients on the network.
 
 For step-by-step setup details, see the **[Retailer Installation & Update Guide](./Docs/Retailer-Installation-Guide.md)**.
 

@@ -36,7 +36,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](./
 
 We follow standard GitHub Flow:
 
-1. **Fork the Repository**: Create a personal fork of `studentsdav/RetailSale`.
+1. **Fork the Repository**: Create a personal fork of `famalthtechnologies/famalth-lynx-pos`.
 2. **Clone your Fork**:
    ```bash
    git clone https://github.com/YOUR-USERNAME/RetailSale.git

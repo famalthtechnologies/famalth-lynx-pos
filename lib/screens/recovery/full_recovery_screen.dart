@@ -162,13 +162,13 @@ class _InstallerDownloadDialogState extends State<InstallerDownloadDialog> {
 
     try {
       Uri url = Uri.parse(
-          'https://github.com/studentsdav/Retailpos/releases/download/1.0.0.0/Famalth_Lynx_Installer.exe');
+          'https://github.com/famalthtechnologies/famalth-lynx-pos/releases/download/1.0.0.0/Famalth_Lynx_Installer.exe');
       if (message == "Partial Recovery") {
         url = Uri.parse(
-            'https://github.com/studentsdav/Retailpos/releases/download/1.0.0.0/Famalth_Lynx_Installer.exe');
+            'https://github.com/famalthtechnologies/famalth-lynx-pos/releases/download/1.0.0.0/Famalth_Lynx_Installer.exe');
       } else {
         url = Uri.parse(
-            'https://github.com/studentsdav/Retailpos/releases/download/1.0.0.0/backend_Installer.exe');
+            'https://github.com/famalthtechnologies/famalth-lynx-pos/releases/download/1.0.0.0/backend_Installer.exe');
       }
 
       final httpClient = HttpClient();

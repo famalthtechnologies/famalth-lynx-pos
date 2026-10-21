@@ -483,7 +483,7 @@ async function verifyRecoveryOtp(req, res) {
 async function triggerAutoReinstall(req, res) {
     const candidatePaths = [path.join(rootDir, 'Famalth_Lynx_Installer.exe'), path.join(rootDir, 'Retailpos_Installer.exe')];
     const localInstallerPath = candidatePaths.find(p => fs.existsSync(p)) || candidatePaths[0];
-    const onlineUrl = "https://github.com/studentsdav/Retailpos/releases/download/1.0.0.0/Famalth_Lynx_Installer.exe";
+    const onlineUrl = "https://github.com/famalthtechnologies/famalth-lynx-pos/releases/download/1.0.0.0/Famalth_Lynx_Installer.exe";
     const downloadDest = path.join(rootDir, 'Famalth_Lynx_Installer_Downloaded.exe');
 
     // const launchInstaller = (exePath) => {

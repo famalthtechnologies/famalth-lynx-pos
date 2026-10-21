@@ -21,7 +21,7 @@ If you are setting up the POS system for the very first time on your primary ser
 
 ### Step 1: Download the Backend Bootstrapper
 Download the full bootstrap installer:
-👉 **[Download Backend Installer (v1.0.0.0)](https://github.com/studentsdav/RetailSale/releases/download/1.0.0.0/backend_Installer.exe)**
+👉 **[Download Backend Installer (v1.0.0.0)](https://github.com/famalthtechnologies/famalth-lynx-pos/releases/download/1.0.0.0/backend_Installer.exe)**
 
 ### Step 2: Install the Backend and Database
 1. Locate the downloaded `backend_Installer.exe`.
@@ -47,7 +47,7 @@ When a new version is released, or if you want to connect a secondary cashier te
 
 ### Step 1: Download the Update Installer
 Download the latest application update:
-👉 **[Download Famalth Lynx Client Installer (v1.0.0.0)](https://github.com/studentsdav/RetailSale/releases/download/1.0.0.0/Retailpos_Installer.exe)**
+👉 **[Download Famalth Lynx Client Installer (v1.0.0.0)](https://github.com/famalthtechnologies/famalth-lynx-pos/releases/download/1.0.0.0/Famalth_Lynx_Installer.exe)**
 
 ### Step 2: Perform the Update (or Client Setup)
 1. Run `Retailpos_Installer.exe` (Famalth Lynx Client Setup) as **Administrator**.
