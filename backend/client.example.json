@@ -1,0 +1,18 @@
+[
+  {
+    "client_id": "00000000-0000-0000-0000-000000000000",
+    "folderId": "EXAMPLE_GOOGLE_DRIVE_FOLDER_ID",
+    "outlet_code": "OUTLET202601010000",
+    "outlet_id": 1,
+    "property_name": "Famalth Retail Demo",
+    "machine_id": "DEMO_TERMINAL",
+    "db_name": "POSINVRETAIL",
+    "created_at": "2026-01-01T00:00:00.000Z",
+    "status": "ACTIVE",
+    "expiry_date": "",
+    "contact_email": "help@famalth.com",
+    "contact_phone": "0000000000",
+    "tax_id": "TAX_DEFAULT",
+    "pin": "$2b$10$EXAMPLE_HASH_PLACEHOLDER_FOR_PIN"
+  }
+]

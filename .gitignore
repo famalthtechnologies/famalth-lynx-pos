@@ -51,6 +51,10 @@ config.enc
 sysConfig.enc
 license.key
 security.dat
+client.json
+backend/client.json
+!client.example.json
+!backend/client.example.json
 .env
 .env.*
 !.env.example
