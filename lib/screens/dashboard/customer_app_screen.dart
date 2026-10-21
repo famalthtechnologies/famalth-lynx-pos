@@ -1,0 +1,9003 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import '../../core/api/api_client.dart';
+import '../../core/config/app_config.dart';
+import '../../core/config/app_brand.dart';
+import '../../core/auth/token_storage.dart';
+import '../../controllers/dashboard/dashboard_controller.dart'
+    as UserProfiledata;
+import '../../models/security/app_user_model.dart';
+import 'retailer_console_screen.dart';
+import 'rider_console_screen.dart';
+import '../../core/printing/pos_invoice_printer.dart';
+import '../../models/inventory/sale_order_model.dart';
+import '../../models/inventory/sale_item_model.dart';
+import '../../models/inventory/billing_charge_model.dart';
+import '../../models/inventory/tax_breakdown_model.dart';
+import '../../models/common/property_info_model.dart';
+import '../../controllers/settings/property_info_controller.dart';
+import '../../controllers/settings/notification_services.dart';
+import '../../utils/order_status_display.dart';
+import 'package:provider/provider.dart';
+import '../../controllers/settings/system_settings_controller.dart';
+import '../../core/currency/currency_service.dart';
+import '../../core/utils/country_tax_helper.dart';
+import '../../core/settings/local_preferences.dart';
+import 'package:collection/collection.dart';
+import '../../models/inventory/purchase_order_model.dart';
+import '../../models/inventory/purchase_item_model.dart';
+import '../../models/inventory/supplier_model.dart';
+import '../../controllers/purchase/purchase_order_controller.dart';
+import '../../controllers/inventory/supplier_controller.dart';
+import '../../controllers/inventory/document_sequence_controller.dart';
+
+class CustomerAppScreen extends StatefulWidget {
+  final String? initialOutletId;
+  final String? initialVendorName;
+  final bool isB2BMode;
+  final PropertyInfo? buyerPropertyInfo;
+
+  const CustomerAppScreen({
+    super.key,
+    this.initialOutletId,
+    this.initialVendorName,
+    this.isB2BMode = false,
+    this.buyerPropertyInfo,
+  });
+
+  @override
+  State<CustomerAppScreen> createState() => _CustomerAppScreenState();
+}
+
+class _CustomerAppScreenState extends State<CustomerAppScreen> {
+  UserProfile? _currentUser;
+  bool _isLoading = false;
+
+  // --- Customer Tab State ---
+  List<dynamic> _catalogItems = [];
+  List<dynamic> get _groupedCatalogItems {
+    final List<dynamic> representatives = [];
+    final Set<int> templateIdsAdded = {};
+
+    for (var item in _catalogItems) {
+      final int? templateId = item['product_template_id'];
+      if (templateId == null) {
+        representatives.add(item);
+      } else {
+        if (!templateIdsAdded.contains(templateId)) {
+          representatives.add(item);
+          templateIdsAdded.add(templateId);
+        }
+      }
+    }
+    return representatives;
+  }
+
+  double _getGroupedCartQty(int? templateId, int itemId) {
+    if (templateId != null) {
+      double sum = 0.0;
+      _cart.forEach((key, value) {
+        if (value['item'] != null && value['item']['product_template_id'] == templateId) {
+          sum += double.tryParse(value['qty'].toString()) ?? 0.0;
+        }
+      });
+      return sum;
+    }
+    return _cart.containsKey(itemId) ? double.tryParse(_cart[itemId]!['qty'].toString()) ?? 0.0 : 0.0;
+  }
+  final Map<int, Map<String, dynamic>> _cart =
+      {}; // item_id -> { 'item': Map, 'qty': double }
+  final TextEditingController _custNameCtrl = TextEditingController();
+  final TextEditingController _custPhoneCtrl = TextEditingController();
+  final TextEditingController _custAddressCtrl = TextEditingController();
+  String? _paymentMode; // UNPAID (CoD) or PAID (Prepaid)
+  String? _chosenPaymentMethod; // CASH, CARD, UPI
+  double _minDeliveryOrderValue = 0.0;
+  double _deliveryCharge = 0.0;
+  double _deliveryGstPercent = 18.0;
+  double _platformFee = 10.0;
+  double _platformGstPercent = 18.0;
+  double _otherCharges = 0.0;
+  double _otherChargesGstPercent = 18.0;
+  List<dynamic> _customCharges = [];
+  List<dynamic> _coupons = [];
+  final TextEditingController _couponCodeCtrl = TextEditingController();
+  Map<String, dynamic>? _appliedCoupon;
+  int? _activeOrderId;
+  bool _isExchangeAvailable = true;
+  bool _isRefundAvailable = true;
+  bool _enablePaymentGateway = false;
+  String _paymentGatewayProvider = 'SANDBOX';
+  String _paymentGatewayApiKey = '';
+  String _merchantUpiId = '';
+  List<dynamic> _subscriptions = [];
+  bool _isSubscriptionsLoading = false;
+  int _historySubTabIndex = 0; // 0 for Orders, 1 for Subscriptions
+  Map<String, dynamic>? _activeOrder;
+  Timer? _trackingTimer;
+  Timer? _notificationTimer;
+  final Set<int> _shownNotificationIds = {};
+
+  // Search, Category, and Pagination state
+  int _currentPage = 1;
+  int _totalPages = 1;
+  String _searchQuery = '';
+  String _selectedCategory = '';
+  List<String> _categories = [];
+  final ScrollController _scrollController = ScrollController();
+  bool _isMoreLoading = false;
+
+  // Customer Auth & History State
+  Map<String, dynamic>? _loggedInCustomer;
+  bool _showRegisterForm = false;
+  bool _allowGuestBrowsing = true;
+  int _customerSubTabIndex = 0; // 0 for Shop, 1 for Cart, 2 for Purchases
+  List<dynamic> _historyOrders = [];
+  List<dynamic> _historySales = [];
+
+  final TextEditingController _loginPhoneCtrl = TextEditingController();
+  final TextEditingController _loginPasswordCtrl = TextEditingController();
+  final TextEditingController _regNameCtrl = TextEditingController();
+  final TextEditingController _regPhoneCtrl = TextEditingController();
+  final TextEditingController _regEmailCtrl = TextEditingController();
+  final TextEditingController _regPasswordCtrl = TextEditingController();
+  final TextEditingController _regAddressCtrl = TextEditingController();
+  final TextEditingController _custGstinCtrl = TextEditingController();
+  String _gstin = '';
+  String _billFormat = 'A4'; // loaded from system settings
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_scrollListener);
+    _loadUserAndData();
+    Future.microtask(() async {
+      try {
+        final settingsCtrl = context.read<SystemSettingsController>();
+        if (settingsCtrl.settings == null) {
+          await settingsCtrl.load();
+        }
+      } catch (_) {}
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_scrollListener);
+    _scrollController.dispose();
+    _custNameCtrl.dispose();
+    _custPhoneCtrl.dispose();
+    _custAddressCtrl.dispose();
+    _loginPhoneCtrl.dispose();
+    _loginPasswordCtrl.dispose();
+    _regNameCtrl.dispose();
+    _regPhoneCtrl.dispose();
+    _regEmailCtrl.dispose();
+    _regPasswordCtrl.dispose();
+    _regAddressCtrl.dispose();
+    _custGstinCtrl.dispose();
+    _couponCodeCtrl.dispose();
+    _stopTrackingOrder();
+    _notificationTimer?.cancel();
+    super.dispose();
+  }
+
+  Map<String, dynamic> _marketplaceItemOverrides = {};
+  bool get _isB2BWholesaleMode => widget.isB2BMode || _gstin.trim().isNotEmpty;
+
+  Map<String, dynamic>? _getOverrideForItem(Map<String, dynamic> item) {
+    final itemIdStr = item['id']?.toString() ?? '';
+    final itemCodeStr = item['item_code']?.toString() ?? '';
+
+    if (itemIdStr.isNotEmpty && _marketplaceItemOverrides.containsKey(itemIdStr)) {
+      final val = _marketplaceItemOverrides[itemIdStr];
+      if (val is Map) return Map<String, dynamic>.from(val);
+    }
+    if (itemCodeStr.isNotEmpty && _marketplaceItemOverrides.containsKey(itemCodeStr)) {
+      final val = _marketplaceItemOverrides[itemCodeStr];
+      if (val is Map) return Map<String, dynamic>.from(val);
+    }
+    return null;
+  }
+
+  double _getItemPrice(Map<String, dynamic> item) {
+    final override = _getOverrideForItem(item);
+
+    if (_isB2BWholesaleMode) {
+      // 1. Highest priority: Wholesale rate configured in Marketplace & Vendor Settings
+      if (override != null && override['b2b_price'] != null) {
+        final double op = double.tryParse(override['b2b_price'].toString()) ?? 0.0;
+        if (op > 0) return op;
+      }
+      // 2. Direct item b2b fields
+      final double itemB2B = double.tryParse(item['b2b_price']?.toString() ?? '') ??
+          double.tryParse(item['b2b_rate']?.toString() ?? '') ??
+          0.0;
+      if (itemB2B > 0) return itemB2B;
+
+      // 3. Item's base purchase cost / rate
+      final double itemRate = double.tryParse(item['rate']?.toString() ?? '') ?? 0.0;
+      if (itemRate > 0) return itemRate;
+
+      // 4. Default wholesale fallback: 15% discount on retail price
+      final double b2cBase = double.tryParse(override?['b2c_price']?.toString() ?? '') ??
+          double.tryParse(item['retail_sale_price']?.toString() ?? '') ??
+          double.tryParse(item['mrp']?.toString() ?? '') ??
+          0.0;
+      if (b2cBase > 0) return b2cBase * 0.85;
+      return 0.0;
+    } else {
+      // B2C Customer Retail Mode
+      // 1. Retail price configured in Marketplace & Vendor Settings
+      if (override != null && override['b2c_price'] != null) {
+        final double op = double.tryParse(override['b2c_price'].toString()) ?? 0.0;
+        if (op > 0) return op;
+      }
+      // 2. Special Promo Price if valid
+      final specialPrice = double.tryParse(item['special_price']?.toString() ?? '');
+      final originalPrice = double.tryParse(item['original_price']?.toString() ?? '');
+      if (specialPrice != null && originalPrice != null && specialPrice < originalPrice && specialPrice > 0) {
+        return specialPrice;
+      }
+      // 3. Retail Sale Price / Rate / MRP
+      final double rsp = double.tryParse(item['retail_sale_price']?.toString() ?? '') ??
+          double.tryParse(item['b2c_price']?.toString() ?? '') ??
+          double.tryParse(item['rate']?.toString() ?? '') ??
+          double.tryParse(item['mrp']?.toString() ?? '') ??
+          0.0;
+      return rsp;
+    }
+  }
+
+  void _scrollListener() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      if (!_isMoreLoading && _currentPage < _totalPages) {
+        _loadNextPage();
+      }
+    }
+  }
+
+  Future<void> _loadUserAndData() async {
+    setState(() => _isLoading = true);
+    _currentUser = await UserProfiledata.load();
+
+    try {
+      _marketplaceItemOverrides = await LocalPreferences.getMarketplaceItemOverrides();
+    } catch (e) {
+      debugPrint('Error loading marketplace rate overrides: $e');
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final customerDataStr = prefs.getString('delivery_logged_in_customer');
+      if (customerDataStr != null) {
+        final Map<String, dynamic> customerData = jsonDecode(customerDataStr);
+        _loggedInCustomer = customerData;
+        _custNameCtrl.text = customerData['name'] ?? '';
+        _custPhoneCtrl.text = customerData['phone'] ?? '';
+        _custAddressCtrl.text = customerData['address'] ?? '';
+      }
+    } catch (e) {
+      debugPrint('Error loading saved customer: $e');
+    }
+
+    PropertyInfo? onboardedProperty = widget.buyerPropertyInfo;
+    if (onboardedProperty == null) {
+      try {
+        final propCtrl = PropertyInfoController();
+        await propCtrl.load();
+        if (propCtrl.data != null &&
+            (propCtrl.data!.propertyName.isNotEmpty ||
+                propCtrl.data!.legalName.isNotEmpty ||
+                propCtrl.data!.mobile.isNotEmpty)) {
+          onboardedProperty = propCtrl.data;
+        }
+      } catch (_) {}
+    }
+
+    if (onboardedProperty != null) {
+      final b = onboardedProperty;
+      final buyerName = b.propertyName.isNotEmpty ? b.propertyName : b.legalName;
+      final buyerPhone = b.mobile.isNotEmpty ? b.mobile : '9999999999';
+      final buyerAddress = '${b.address}, ${b.city}'.trim();
+      final buyerGstin = b.gstNo;
+
+      _custNameCtrl.text = buyerName;
+      _custPhoneCtrl.text = buyerPhone;
+      _custAddressCtrl.text = buyerAddress;
+      if (buyerGstin.isNotEmpty) {
+        _custGstinCtrl.text = buyerGstin;
+        _gstin = buyerGstin;
+      }
+
+      // Auto-create / set onboarded profile so no login screen is ever shown
+      _loggedInCustomer = {
+        'name': buyerName,
+        'phone': buyerPhone,
+        'address': buyerAddress,
+        'gstin': buyerGstin,
+        'email': b.email,
+        'is_b2b_buyer': true,
+      };
+
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('delivery_logged_in_customer', jsonEncode(_loggedInCustomer));
+      } catch (_) {}
+    } else if (_currentUser != null && _loggedInCustomer == null) {
+      final buyerName = _currentUser!.name.isNotEmpty ? _currentUser!.name : _currentUser!.username;
+      final buyerPhone = _custPhoneCtrl.text.isNotEmpty ? _custPhoneCtrl.text : '9999999999';
+      _custNameCtrl.text = buyerName;
+      _custPhoneCtrl.text = buyerPhone;
+      _loggedInCustomer = {
+        'name': buyerName,
+        'phone': buyerPhone,
+        'address': '',
+        'is_b2b_buyer': true,
+      };
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('delivery_logged_in_customer', jsonEncode(_loggedInCustomer));
+      } catch (_) {}
+    }
+
+    setState(() => _isLoading = false);
+    _fetchDeliverySettings();
+    _fetchCatalog();
+    if (_activeOrderId != null) {
+      _startTrackingOrder();
+    }
+    if (_loggedInCustomer != null) {
+      _fetchHistory();
+      _startCustomerNotificationTimer();
+    }
+  }
+
+  void _startCustomerNotificationTimer() {
+    _notificationTimer?.cancel();
+    Future<void> fetchCustNotifs() async {
+      if (!mounted) return;
+      final phone = _loggedInCustomer?['phone'];
+      if (phone == null) return;
+      try {
+        final outletCode = _loggedInCustomer?['outlet_id'] ??
+            _currentUser?.outletCode ??
+            (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+        final res = await ApiClient.get(
+            '/api/delivery/customer/notifications?customer_phone=${Uri.encodeComponent(phone)}&outlet_id=$outletCode');
+        final data = (res['data'] as List? ?? []);
+        for (final n in data) {
+          final id = n['id'] as int? ?? 0;
+          if (id > 0 && n['is_read'] == false && !_shownNotificationIds.contains(id)) {
+            _shownNotificationIds.add(id);
+            await NotificationService.show(
+              id,
+              n['title']?.toString() ?? 'Notification',
+              n['message']?.toString() ?? '',
+              uniqueKey: 'cust_notif_$id',
+            );
+          }
+        }
+      } catch (_) {}
+    }
+
+    fetchCustNotifs();
+    _notificationTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
+      await fetchCustNotifs();
+    });
+  }
+
+  // ================= API CALLS =================
+
+  Future<void> _fetchDeliverySettings() async {
+    try {
+      final outletCode = _loggedInCustomer?['outlet_id'] ??
+          _currentUser?.outletCode ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+      if (outletCode.isEmpty) return;
+      final res = await ApiClient.get(
+          '/api/delivery/retailer/return-settings?outlet_id=$outletCode');
+      if (res['success'] == true) {
+        setState(() {
+          final data = res['data'] ?? {};
+          _minDeliveryOrderValue = double.tryParse(
+                  data['min_delivery_order_value']?.toString() ?? '0.0') ??
+              0.0;
+          _deliveryCharge =
+              double.tryParse(data['delivery_charge']?.toString() ?? '0.0') ??
+                  0.0;
+          _deliveryGstPercent = double.tryParse(
+                  data['delivery_gst_percent']?.toString() ?? '18.0') ??
+              18.0;
+          _platformFee =
+              double.tryParse(data['platform_fee']?.toString() ?? '10.0') ??
+                  10.0;
+          _platformGstPercent = double.tryParse(
+                  data['platform_gst_percent']?.toString() ?? '18.0') ??
+              18.0;
+          _otherCharges =
+              double.tryParse(data['other_charges']?.toString() ?? '0.0') ??
+                  0.0;
+          _otherChargesGstPercent = double.tryParse(
+                  data['other_charges_gst_percent']?.toString() ?? '18.0') ??
+              18.0;
+          _customCharges = List<dynamic>.from(data['custom_charges'] ?? []);
+          _coupons = List<dynamic>.from(data['coupons'] ?? []);
+          if (_appliedCoupon != null) {
+            final exists = _coupons.any((c) =>
+                c['code']?.toString().toUpperCase() ==
+                    _appliedCoupon!['code']?.toString().toUpperCase() &&
+                c['is_active'] != false);
+            if (!exists) {
+              _appliedCoupon = null;
+              _couponCodeCtrl.clear();
+            }
+          }
+          _isExchangeAvailable = data['is_exchange_available'] ?? true;
+          _isRefundAvailable = data['is_refund_available'] ?? true;
+          _enablePaymentGateway = data['enable_payment_gateway'] ?? false;
+          _paymentGatewayProvider = data['payment_gateway_provider'] ?? 'SANDBOX';
+          _paymentGatewayApiKey = data['payment_gateway_api_key'] ?? '';
+          _merchantUpiId = data['merchant_upi_id'] ?? '';
+        });
+      }
+      // Load system settings to get bill_format (only if we have an admin/user token)
+      final token = await TokenStorage.read();
+      if (token != null) {
+        try {
+          final sysRes = await ApiClient.get('/api/inventory/settings');
+          if (sysRes['data'] != null) {
+            setState(() {
+              _billFormat = sysRes['data']['bill_format']?.toString() ?? 'A4';
+            });
+          }
+        } catch (_) {
+          // Safe to ignore if not authorized as admin
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching delivery settings: $e');
+    }
+  }
+
+  String _itemImageUrl(String imagePath) {
+    final path = imagePath.trim();
+    if (path.isEmpty) return '';
+    if (path.startsWith('http')) return path;
+    return AppConfig.baseUrl.endsWith('/')
+        ? '${AppConfig.baseUrl}${path.startsWith('/') ? path.substring(1) : path}'
+        : '${AppConfig.baseUrl}${path.startsWith('/') ? path : '/$path'}';
+  }
+
+  Widget _buildAddButton({
+    required bool isOutOfStock,
+    required bool isInCart,
+    required double qty,
+    required VoidCallback onAdd,
+    required VoidCallback onRemove,
+    required ThemeData theme,
+  }) {
+    if (isOutOfStock) {
+      return Container(
+        width: 72,
+        height: 32,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade300, width: 1),
+        ),
+        child: Text(
+          'OUT',
+          style: TextStyle(
+            color: Colors.grey.shade500,
+            fontWeight: FontWeight.bold,
+            fontSize: 11,
+          ),
+        ),
+      );
+    }
+
+    if (!isInCart) {
+      return InkWell(
+        onTap: onAdd,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 72,
+          height: 32,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: theme.colorScheme.primary, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: theme.colorScheme.primary.withOpacity(0.04),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'ADD',
+                style: TextStyle(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(Icons.add, size: 14, color: theme.colorScheme.primary),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 72,
+      height: 32,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.primary.withOpacity(0.15),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          InkWell(
+            onTap: onRemove,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(8),
+              bottomLeft: Radius.circular(8),
+            ),
+            child: const SizedBox(
+              width: 24,
+              height: 32,
+              child: Icon(Icons.remove, color: Colors.white, size: 14),
+            ),
+          ),
+          Text(
+            qty.toStringAsFixed(0),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+          InkWell(
+            onTap: onAdd,
+            borderRadius: const BorderRadius.only(
+              topRight: Radius.circular(8),
+              bottomRight: Radius.circular(8),
+            ),
+            child: const SizedBox(
+              width: 24,
+              height: 32,
+              child: Icon(Icons.add, color: Colors.white, size: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _fetchCatalog() async {
+    try {
+      try {
+        _marketplaceItemOverrides = await LocalPreferences.getMarketplaceItemOverrides();
+      } catch (_) {}
+
+      final outletCode = widget.initialOutletId ??
+          _loggedInCustomer?['outlet_id'] ??
+          _currentUser?.outletCode ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+      if (outletCode.isEmpty) return;
+      _currentPage = 1;
+      final query =
+          'outlet_id=$outletCode&page=1&search=${Uri.encodeComponent(_searchQuery)}&category=${Uri.encodeComponent(_selectedCategory)}&limit=10&gstin=${Uri.encodeComponent(_gstin)}';
+      final res = await ApiClient.get('/api/delivery/catalog?$query');
+      if (res['success'] == true) {
+        setState(() {
+          _catalogItems = res['data'] ?? [];
+          _categories = List<String>.from(res['categories'] ?? []);
+          if (res['pagination'] != null) {
+            _totalPages = res['pagination']['totalPages'] ?? 1;
+            _currentPage = res['pagination']['currentPage'] ?? 1;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching catalog: $e');
+    }
+  }
+
+  Future<void> _loadNextPage() async {
+    final outletCode = widget.initialOutletId ??
+        _loggedInCustomer?['outlet_id'] ??
+        _currentUser?.outletCode ??
+        (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+    if (outletCode.isEmpty) return;
+    setState(() {
+      _isMoreLoading = true;
+    });
+    try {
+      final nextPage = _currentPage + 1;
+      final query =
+          'outlet_id=$outletCode&page=$nextPage&search=${Uri.encodeComponent(_searchQuery)}&category=${Uri.encodeComponent(_selectedCategory)}&limit=10&gstin=${Uri.encodeComponent(_gstin)}';
+      final res = await ApiClient.get('/api/delivery/catalog?$query');
+      if (res['success'] == true) {
+        setState(() {
+          final newItems = res['data'] ?? [];
+          _catalogItems.addAll(newItems);
+          if (res['pagination'] != null) {
+            _totalPages = res['pagination']['totalPages'] ?? 1;
+            _currentPage = res['pagination']['currentPage'] ?? 1;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading next page: $e');
+    } finally {
+      setState(() {
+        _isMoreLoading = false;
+      });
+    }
+  }
+
+  Future<void> _registerCustomer() async {
+    if (_regNameCtrl.text.isEmpty ||
+        _regPhoneCtrl.text.isEmpty ||
+        _regEmailCtrl.text.isEmpty ||
+        _regPasswordCtrl.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Please fill in Name, Phone, Email, and Password.')),
+      );
+      return;
+    }
+    if (!_regEmailCtrl.text.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid email address.')),
+      );
+      return;
+    }
+    setState(() => _isLoading = true);
+    try {
+      final outletCode = _currentUser?.outletCode ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+      final body = {
+        'outlet_id': outletCode,
+        'name': _regNameCtrl.text.trim(),
+        'phone': _regPhoneCtrl.text.trim(),
+        'email': _regEmailCtrl.text.trim(),
+        'password': _regPasswordCtrl.text.trim(),
+        'address': _regAddressCtrl.text.trim(),
+      };
+      final res = await ApiClient.post('/api/delivery/customer/register', body);
+      if (res['success'] == true) {
+        final customerData = res['data'];
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(
+              'delivery_logged_in_customer', jsonEncode(customerData));
+        } catch (e) {
+          debugPrint('Error saving registered customer data: $e');
+        }
+        setState(() {
+          _loggedInCustomer = customerData;
+          _custNameCtrl.text = _loggedInCustomer!['name'] ?? '';
+          _custPhoneCtrl.text = _loggedInCustomer!['phone'] ?? '';
+          _custAddressCtrl.text = _loggedInCustomer!['address'] ?? '';
+          _showRegisterForm = false;
+          if (_cart.isNotEmpty) {
+            _customerSubTabIndex = 1;
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(
+                  'Registered successfully! Welcome, ${_loggedInCustomer!['name']}')),
+        );
+        _fetchHistory();
+        _startCustomerNotificationTimer();
+      }
+    } catch (e) {
+      debugPrint('Error registering customer: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loginCustomer() async {
+    if (_loginPhoneCtrl.text.isEmpty || _loginPasswordCtrl.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter Phone and Password.')),
+      );
+      return;
+    }
+    setState(() => _isLoading = true);
+    try {
+      final outletCode = _currentUser?.outletCode ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+      final body = {
+        'outlet_id': outletCode,
+        'phone': _loginPhoneCtrl.text.trim(),
+        'password': _loginPasswordCtrl.text.trim(),
+      };
+      final res = await ApiClient.post('/api/delivery/customer/login', body);
+      if (res['success'] == true) {
+        final customerData = res['data'];
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(
+              'delivery_logged_in_customer', jsonEncode(customerData));
+        } catch (e) {
+          debugPrint('Error saving logged-in customer data: $e');
+        }
+        setState(() {
+          _loggedInCustomer = customerData;
+          _custNameCtrl.text = _loggedInCustomer!['name'] ?? '';
+          _custPhoneCtrl.text = _loggedInCustomer!['phone'] ?? '';
+          _custAddressCtrl.text = _loggedInCustomer!['address'] ?? '';
+          if (_cart.isNotEmpty) {
+            _customerSubTabIndex = 1;
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(
+                  'Logged in successfully! Welcome, ${_loggedInCustomer!['name']}')),
+        );
+        _fetchHistory();
+        _startCustomerNotificationTimer();
+      }
+    } catch (e) {
+      debugPrint('Error logging in customer: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _logoutCustomer() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('delivery_logged_in_customer');
+    } catch (e) {
+      debugPrint('Error removing customer data on logout: $e');
+    }
+    setState(() {
+      _loggedInCustomer = null;
+      _historyOrders.clear();
+      _historySales.clear();
+      _custNameCtrl.clear();
+      _custPhoneCtrl.clear();
+      _custAddressCtrl.clear();
+      _loginPhoneCtrl.clear();
+      _loginPasswordCtrl.clear();
+      _regNameCtrl.clear();
+      _regPhoneCtrl.clear();
+      _regEmailCtrl.clear();
+      _regPasswordCtrl.clear();
+      _regAddressCtrl.clear();
+      _customerSubTabIndex = 0;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Logged out successfully.')),
+    );
+  }
+
+  void _setSubTabIndex(int index) {
+    setState(() {
+      _customerSubTabIndex = index;
+    });
+    if (index == 2) {
+      _fetchHistory();
+    }
+  }
+
+  Future<void> _fetchHistory() async {
+    if (_loggedInCustomer == null) return;
+    try {
+      final phone = _loggedInCustomer!['phone'];
+      final res =
+          await ApiClient.get('/api/delivery/customer/history?phone=$phone');
+      if (res['success'] == true) {
+        setState(() {
+          _historyOrders = res['data']['onlineOrders'] ?? [];
+          _historySales = res['data']['inStoreSales'] ?? [];
+        });
+      }
+      _fetchSubscriptions();
+    } catch (e) {
+      debugPrint('Error fetching history: $e');
+    }
+  }
+
+  Future<void> _fetchSubscriptions() async {
+    if (_loggedInCustomer == null) return;
+    setState(() => _isSubscriptionsLoading = true);
+    try {
+      final phone = _loggedInCustomer!['phone'];
+      final outletCode = _loggedInCustomer?['outlet_id'] ??
+          _currentUser?.outletCode ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+      final res = await ApiClient.get(
+          '/api/sales/subscriptions/customer?customer_phone=$phone&outlet_id=$outletCode');
+      if (res['success'] == true) {
+        setState(() {
+          _subscriptions = res['data'] ?? [];
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching subscriptions: $e');
+    } finally {
+      setState(() => _isSubscriptionsLoading = false);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _showDirectUpiQrDialog(double amount) async {
+    final upiUrl = 'upi://pay?pa=$_merchantUpiId&pn=${Uri.encodeComponent(AppBrand.companyName)}&am=${amount.toStringAsFixed(2)}&cu=INR&tn=DeliveryOrder';
+    final qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${Uri.encodeComponent(upiUrl)}';
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogCtx) {
+        final theme = Theme.of(dialogCtx);
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              elevation: 8,
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      'UPI Direct QR Payment',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Scan and pay using any UPI App (GPay/PhonePe/Paytm)',
+                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+                      textAlign: TextAlign.center,
+                    ),
+                    const Divider(height: 24),
+                    Text(
+                      'Amount to Pay',
+                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      CurrencyService.format(amount),
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Beautiful QR frame
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.grey.shade200, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Image.network(
+                        qrUrl,
+                        width: 200,
+                        height: 200,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            width: 200,
+                            height: 200,
+                            color: Colors.grey.shade50,
+                            alignment: Alignment.center,
+                            child: const CircularProgressIndicator(),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            width: 200,
+                            height: 200,
+                            color: Colors.grey.shade100,
+                            alignment: Alignment.center,
+                            child: const Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.wifi_off_outlined, color: Colors.red, size: 36),
+                                SizedBox(height: 8),
+                                Text(
+                                  'QR load failed',
+                                  style: TextStyle(fontSize: 11, color: Colors.red),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'UPI ID: $_merchantUpiId',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'monospace'),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.08),
+                        border: Border.all(color: Colors.green.withOpacity(0.3)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.verified_user_outlined, size: 16, color: Colors.green),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Please scan the QR, complete the payment on your device, and click "I Have Paid" below.',
+                              style: TextStyle(fontSize: 11, color: Colors.green.shade900),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(null),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () async {
+                              // Show circular loading indicator
+                              showDialog(
+                                context: dialogCtx,
+                                barrierDismissible: false,
+                                builder: (context) => const Center(
+                                  child: Card(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(24),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          CircularProgressIndicator(),
+                                          SizedBox(height: 16),
+                                          Text('Verifying payment...'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+
+                              // Simulate verifying delay
+                              await Future.delayed(const Duration(seconds: 2));
+
+                              // Pop the loading spinner
+                              if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
+
+                              final txnId = 'upi_qr_${DateTime.now().millisecondsSinceEpoch}';
+                              if (dialogCtx.mounted) {
+                                Navigator.of(dialogCtx).pop({
+                                  'success': true,
+                                  'provider': 'DIRECT_UPI_QR',
+                                  'txn_id': txnId,
+                                  'status': 'PAID',
+                                  'amount': amount,
+                                  'payment_method': 'UPI',
+                                  'upi_details': 'Direct Scan QR',
+                                  'paid_at': DateTime.now().toIso8601String(),
+                                });
+                              }
+                            },
+                            style: FilledButton.styleFrom(backgroundColor: Colors.green),
+                            child: const Text('I Have Paid'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>?> _showPaymentGatewayDialog(double amount) async {
+    String testStatus = 'SUCCESS'; // 'SUCCESS' or 'FAILURE'
+    String paymentMethod = 'CARD'; // 'CARD', 'UPI'
+    
+    final TextEditingController cardNoCtrl = TextEditingController(text: '4111 2222 3333 4444');
+    final TextEditingController cardExpiryCtrl = TextEditingController(text: '12/28');
+    final TextEditingController cardCvvCtrl = TextEditingController(text: '123');
+    final TextEditingController upiCtrl = TextEditingController(text: 'customer@okaxis');
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogCtx) {
+        final theme = Theme.of(dialogCtx);
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              elevation: 8,
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Secure Checkout',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _paymentGatewayProvider,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.primary,
+                                letterSpacing: 1.1,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.lock_outline, size: 14, color: theme.colorScheme.primary),
+                              const SizedBox(width: 4),
+                              Text(
+                                'SECURE',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 24),
+                    Text(
+                      'Amount to Pay',
+                      style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      CurrencyService.format(amount),
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Select Payment Method',
+                      style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Text('Card'),
+                            selected: paymentMethod == 'CARD',
+                            onSelected: (selected) {
+                              if (selected) setModalState(() => paymentMethod = 'CARD');
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Text('UPI ID'),
+                            selected: paymentMethod == 'UPI',
+                            onSelected: (selected) {
+                              if (selected) setModalState(() => paymentMethod = 'UPI');
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (paymentMethod == 'CARD') ...[
+                      TextField(
+                        controller: cardNoCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Card Number',
+                          prefixIcon: Icon(Icons.credit_card_outlined),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: cardExpiryCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Expiry (MM/YY)',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: cardCvvCtrl,
+                              obscureText: true,
+                              decoration: const InputDecoration(
+                                labelText: 'CVV',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      TextField(
+                        controller: upiCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'UPI ID',
+                          prefixIcon: Icon(Icons.qr_code_outlined),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withOpacity(0.08),
+                        border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.bug_report_outlined, size: 16, color: Colors.amber),
+                              SizedBox(width: 6),
+                              Text(
+                                'TEST SANDBOX MODE',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.amber,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Text('Simulate Status: ', style: TextStyle(fontSize: 12)),
+                              const SizedBox(width: 8),
+                              DropdownButton<String>(
+                                value: testStatus,
+                                underline: const SizedBox(),
+                                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
+                                items: const [
+                                  DropdownMenuItem(value: 'SUCCESS', child: Text('SUCCESS (Approve)')),
+                                  DropdownMenuItem(value: 'FAILURE', child: Text('FAILURE (Decline)')),
+                                ],
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setModalState(() => testStatus = val);
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(null),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () async {
+                              // Show circular loading indicator
+                              showDialog(
+                                context: dialogCtx,
+                                barrierDismissible: false,
+                                builder: (context) => const Center(
+                                  child: Card(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(24),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          CircularProgressIndicator(),
+                                          SizedBox(height: 16),
+                                          Text('Processing transaction...'),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+
+                              // Simulate processing delay
+                              await Future.delayed(const Duration(seconds: 2));
+
+                              // Pop the loading spinner
+                              if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
+
+                              if (testStatus == 'SUCCESS') {
+                                final txnId = 'pay_${_paymentGatewayProvider.toLowerCase()}_${DateTime.now().millisecondsSinceEpoch}';
+                                final cardNo = cardNoCtrl.text.trim();
+                                final maskedCard = cardNo.length >= 4 
+                                    ? 'Card **** ${cardNo.substring(cardNo.length - 4)}' 
+                                    : 'Card';
+                                final maskedUpi = upiCtrl.text.trim();
+                                if (dialogCtx.mounted) {
+                                  Navigator.of(dialogCtx).pop({
+                                    'success': true,
+                                    'provider': _paymentGatewayProvider,
+                                    'txn_id': txnId,
+                                    'status': 'PAID',
+                                    'amount': amount,
+                                    'payment_method': paymentMethod,
+                                    'card_details': paymentMethod == 'CARD' ? maskedCard : null,
+                                    'upi_details': paymentMethod == 'UPI' ? maskedUpi : null,
+                                    'paid_at': DateTime.now().toIso8601String(),
+                                  });
+                                }
+                              } else {
+                                if (dialogCtx.mounted) {
+                                  ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Payment Declined. Please try a different card or UPI ID.'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                  Navigator.of(dialogCtx).pop(null);
+                                }
+                              }
+                            },
+                            child: const Text('Pay Now'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showPaymentMethodSelectionDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(Icons.payment, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              const Text('Select Payment Method'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Please choose how you would like to pay for your delivery order:',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.amber.shade50,
+                  child: Icon(Icons.delivery_dining, color: Colors.amber.shade800),
+                ),
+                title: const Text('Cash on Delivery (CoD)', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('Pay with cash or delivery card machine when delivered'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() {
+                    _paymentMode = 'UNPAID';
+                    _chosenPaymentMethod = 'CASH';
+                  });
+                  _placeOrder();
+                },
+              ),
+              if (_merchantUpiId.isNotEmpty) ...[
+                const Divider(),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blue.shade50,
+                    child: Icon(Icons.qr_code_scanner, color: Colors.blue.shade800),
+                  ),
+                  title: const Text('Direct Store UPI (0% Fee)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('Pay directly to $_merchantUpiId (Scan Soundbox / QR)'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _paymentMode = 'PAID';
+                      _chosenPaymentMethod = 'UPI';
+                    });
+                    _placeOrder();
+                  },
+                ),
+              ],
+              if (_enablePaymentGateway) ...[
+                const Divider(),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.green.shade50,
+                    child: Icon(Icons.payment_outlined, color: Colors.green.shade800),
+                  ),
+                  title: const Text('Pay Online via Gateway', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Credit/Debit Card, NetBanking, Wallets'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _paymentMode = 'PAID';
+                      _chosenPaymentMethod = 'CARD';
+                    });
+                    _placeOrder();
+                  },
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _placeOrder() async {
+    if (_cart.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please add items to cart first.')),
+      );
+      return;
+    }
+
+    final bool isB2bOrPosUser = widget.isB2BMode ||
+        widget.buyerPropertyInfo != null ||
+        _currentUser != null;
+    if (_loggedInCustomer == null && !isB2bOrPosUser) {
+      final shouldLogin = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Sign In Required'),
+          content: const Text(
+              'Please sign in or create an account to place and track your delivery order.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Sign In / Register'),
+            ),
+          ],
+        ),
+      );
+      if (shouldLogin == true) {
+        _setSubTabIndex(2);
+      }
+      return;
+    }
+
+    if (_paymentMode == null || _chosenPaymentMethod == null) {
+      _showPaymentMethodSelectionDialog();
+      return;
+    }
+    if (_custNameCtrl.text.isEmpty ||
+        _custPhoneCtrl.text.isEmpty ||
+        _custAddressCtrl.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill out customer details.')),
+      );
+      return;
+    }
+
+    bool hasExcessQty = false;
+    _cart.forEach((itemId, value) {
+      if (value['qty'] > 5.0) {
+        hasExcessQty = true;
+      }
+    });
+    if (hasExcessQty && _gstin.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Maximum order quantity for any item is 5 without a GSTIN.')),
+      );
+      return;
+    }
+    setState(() => _isLoading = true);
+
+    try {
+      double subTotal = 0;
+      _cart.forEach((itemId, value) {
+        final item = value['item'];
+        final qty = value['qty'];
+        final rate = _getItemPrice(item);
+        subTotal += rate * qty;
+      });
+
+      double nonSubscriptionSubTotal = 0;
+      _cart.forEach((itemId, value) {
+        final item = value['item'];
+        final qty = value['qty'];
+        final rate = _getItemPrice(item);
+        final sub = _subscriptions.firstWhere(
+          (s) => s['item_id'] == itemId && (s['active_subscription'] == true || s['status'] == 'ACTIVE'),
+          orElse: () => null,
+        );
+        double coveredQty = 0.0;
+        if (sub != null) {
+          final double remainingQty = double.tryParse(sub['today_remaining_qty']?.toString() ?? '0') ?? 0.0;
+          coveredQty = qty < remainingQty ? qty : remainingQty;
+        }
+        final double paidQty = qty - coveredQty;
+        nonSubscriptionSubTotal += rate * paidQty;
+      });
+
+      double couponDiscount = _calculateCouponDiscount(subTotal);
+      double discountRatio = nonSubscriptionSubTotal > 0 ? (nonSubscriptionSubTotal - couponDiscount) / nonSubscriptionSubTotal : 1.0;
+
+      double tax = 0;
+      double subscriptionDiscount = 0.0;
+      double subscriptionTaxDiscount = 0.0;
+      final List<Map<String, dynamic>> itemsList = [];
+
+      double calculatedSubTotalExclusive = 0.0;
+      double calculatedCouponDiscountExclusive = 0.0;
+      double calculatedSubscriptionDiscountExclusive = 0.0;
+
+      _cart.forEach((itemId, value) {
+        final item = value['item'];
+        final qty = value['qty'];
+        final rate = _getItemPrice(item);
+        final itemTotal = rate * qty;
+
+        final sub = _subscriptions.firstWhere(
+          (s) => s['item_id'] == itemId && (s['active_subscription'] == true || s['status'] == 'ACTIVE'),
+          orElse: () => null,
+        );
+        double coveredQty = 0.0;
+        if (sub != null) {
+          final double remainingQty = double.tryParse(sub['today_remaining_qty']?.toString() ?? '0') ?? 0.0;
+          coveredQty = qty < remainingQty ? qty : remainingQty;
+        }
+        final double paidQty = qty - coveredQty;
+        final double paidItemTotal = rate * paidQty;
+        final double freeItemTotal = rate * coveredQty;
+
+        final double discountedPaidItemTotal = paidItemTotal * discountRatio;
+        final double discountedItemTotal = discountedPaidItemTotal + freeItemTotal;
+
+        final bool isInclusive = item['is_tax_inclusive'] == true ||
+            item['is_tax_inclusive'] == 1 ||
+            item['is_tax_inclusive'].toString() == 'true';
+        final itemTaxPercent =
+            double.tryParse(item['tax_percent']?.toString() ?? '0') ?? 0.0;
+
+        double taxableAmount;
+        double itemTaxAmount;
+
+        if (isInclusive) {
+          taxableAmount = discountedItemTotal / (1 + itemTaxPercent / 100);
+          itemTaxAmount = discountedItemTotal - taxableAmount;
+          
+          calculatedSubTotalExclusive += (rate * qty) / (1 + itemTaxPercent / 100);
+          calculatedCouponDiscountExclusive += (paidItemTotal - discountedPaidItemTotal) / (1 + itemTaxPercent / 100);
+          if (coveredQty > 0) {
+            final double subTaxable = (rate * coveredQty) / (1 + itemTaxPercent / 100);
+            calculatedSubscriptionDiscountExclusive += subTaxable;
+            subscriptionDiscount += rate * coveredQty;
+            subscriptionTaxDiscount += (rate * coveredQty) - subTaxable;
+          }
+        } else {
+          taxableAmount = discountedItemTotal;
+          itemTaxAmount = discountedItemTotal * itemTaxPercent / 100.0;
+          
+          calculatedSubTotalExclusive += rate * qty;
+          calculatedCouponDiscountExclusive += paidItemTotal - discountedPaidItemTotal;
+          if (coveredQty > 0) {
+            calculatedSubscriptionDiscountExclusive += rate * coveredQty;
+            subscriptionDiscount += rate * coveredQty;
+            subscriptionTaxDiscount += (rate * coveredQty) * itemTaxPercent / 100.0;
+          }
+        }
+        tax += itemTaxAmount;
+
+        itemsList.add({
+          'item_id': itemId,
+          'item_code': item['item_code'],
+          'item_name': item['item_name'],
+          'brand': item['brand'] ?? '',
+          'unit': item['unit'] ?? '',
+          'qty': qty,
+          'rate': rate,
+          'amount': itemTotal,
+          'tax_type': item['tax_type'] ?? 'GST',
+          'tax_percent': itemTaxPercent,
+          'tax_group_id': item['tax_group_id'],
+          'tax_group': item['tax_group'],
+          'tax_group_components': item['tax_group_components'] ?? item['tax_group']?['components'],
+          'is_tax_inclusive': isInclusive,
+          'taxable_amount': taxableAmount,
+          'tax_amount': itemTaxAmount,
+          'line_total': taxableAmount + itemTaxAmount,
+        });
+      });
+
+      subTotal = calculatedSubTotalExclusive;
+      couponDiscount = calculatedCouponDiscountExclusive;
+      subscriptionDiscount = calculatedSubscriptionDiscountExclusive;
+
+      double delivery =
+          (subTotal < _minDeliveryOrderValue) ? _deliveryCharge : 0.00;
+      double deliveryGst = (delivery * _deliveryGstPercent) / 100.0;
+
+      final List<Map<String, dynamic>> chargesList = [];
+      if (delivery > 0) {
+        chargesList.add({
+          'name': 'Delivery Charge',
+          'code': 'DELIVERY_CHARGE',
+          'amount': delivery,
+          'taxable': _deliveryGstPercent > 0,
+          'tax_percent': _deliveryGstPercent,
+          'tax_amount': deliveryGst,
+          'taxable_amount': delivery
+        });
+      }
+
+      double customChargesTotal = 0.0;
+      double customChargesGstTotal = 0.0;
+      for (final charge in _customCharges) {
+        final double amt =
+            double.tryParse(charge['charge']?.toString() ?? '0.0') ?? 0.0;
+        final double gstRate =
+            double.tryParse(charge['gst_percentage']?.toString() ?? '0.0') ??
+                0.0;
+        final double gstAmt = (amt * gstRate) / 100.0;
+        customChargesTotal += amt;
+        customChargesGstTotal += gstAmt;
+        if (amt > 0) {
+          chargesList.add({
+            'name': charge['name'] ?? 'Charge',
+            'code': 'CUSTOM_CHARGE',
+            'amount': amt,
+            'taxable': gstRate > 0,
+            'tax_percent': gstRate,
+            'tax_amount': gstAmt,
+            'taxable_amount': amt
+          });
+        }
+      }
+
+      // couponDiscount is already calculated above
+      if (couponDiscount > 0 && _appliedCoupon != null) {
+        chargesList.add({
+          'name': 'Coupon Discount (${_appliedCoupon!['code']})',
+          'code': 'COUPON_DISCOUNT',
+          'amount': -couponDiscount,
+          'taxable': false,
+          'tax_percent': 0.0,
+          'tax_amount': 0.0,
+          'taxable_amount': 0.0
+        });
+      }
+
+      if (subscriptionDiscount > 0) {
+        chargesList.add({
+          'name': 'Subscription Discount',
+          'code': 'SUBSCRIPTION_DISCOUNT',
+          'amount': -subscriptionDiscount,
+          'taxable': false,
+          'tax_percent': 0.0,
+          'tax_amount': -subscriptionTaxDiscount,
+          'taxable_amount': -subscriptionDiscount
+        });
+      }
+
+      double totalCharges = delivery + customChargesTotal;
+      double totalChargesTax = deliveryGst + customChargesGstTotal;
+      double finalTax = (tax - subscriptionTaxDiscount) + totalChargesTax;
+      if (finalTax < 0) finalTax = 0.0;
+      double netAmount = subTotal + finalTax + totalCharges - couponDiscount - subscriptionDiscount;
+      if (netAmount < 0) netAmount = 0.0;
+
+      Map<String, dynamic>? gatewayDetails;
+      if (_paymentMode == 'PAID' && _enablePaymentGateway) {
+        setState(() => _isLoading = false);
+        gatewayDetails = await _showPaymentGatewayDialog(netAmount);
+        if (gatewayDetails == null) {
+          // Cancelled or failed payment
+          return;
+        }
+        setState(() => _isLoading = true);
+      } else if (_paymentMode == 'PAID' && !_enablePaymentGateway && _merchantUpiId.isNotEmpty) {
+        setState(() => _isLoading = false);
+        gatewayDetails = await _showDirectUpiQrDialog(netAmount);
+        if (gatewayDetails == null) {
+          // Cancelled or failed payment
+          return;
+        }
+        setState(() => _isLoading = true);
+      }
+
+      final outletCode = _loggedInCustomer?['outlet_id'] ??
+          _currentUser?.outletCode ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+      final body = {
+        'outlet_id': outletCode,
+        'customer_name': _custNameCtrl.text.trim(),
+        'customer_phone': _custPhoneCtrl.text.trim(),
+        'customer_address': _custAddressCtrl.text.trim(),
+        'items': itemsList,
+        'sub_total': subTotal,
+        'tax_amount': finalTax,
+        'delivery_charge': totalCharges,
+        'net_amount': netAmount,
+        'payment_status': gatewayDetails != null ? 'PAID' : _paymentMode,
+        'payment_mode': gatewayDetails != null ? gatewayDetails['payment_method'] : _chosenPaymentMethod,
+        'gstin': _gstin.isEmpty ? null : _gstin,
+        'charges': chargesList,
+        'coupon_code': _appliedCoupon != null ? _appliedCoupon!['code'] : null,
+        'payment_gateway_details': gatewayDetails,
+      };
+
+      final res = await ApiClient.post('/api/delivery/orders', body);
+      if (res['success'] == true) {
+        final order = res['data'];
+        final dynamic orderId = order['id'];
+
+        String? generatedPoNo;
+        final bool isB2bOrMarketplace = widget.isB2BMode ||
+            _isB2BWholesaleMode ||
+            (widget.initialVendorName != null && widget.initialVendorName!.isNotEmpty) ||
+            widget.buyerPropertyInfo != null;
+
+        if (isB2bOrMarketplace && _cart.isNotEmpty) {
+          try {
+            // 1. Resolve or auto-create Supplier for this Marketplace Vendor
+            int supplierId = 1;
+            final vendorName = widget.initialVendorName?.trim().isNotEmpty == true
+                ? widget.initialVendorName!.trim()
+                : (_loggedInCustomer?['name']?.toString().trim().isNotEmpty == true
+                    ? _loggedInCustomer!['name'].toString().trim()
+                    : 'Marketplace Vendor');
+            final vendorCode = widget.initialOutletId?.trim().isNotEmpty == true
+                ? widget.initialOutletId!.trim()
+                : 'MKT-VEN-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+
+            final supplierCtrl = SupplierController();
+            await supplierCtrl.load();
+
+            final matchedSupplier = supplierCtrl.list.firstWhereOrNull((s) =>
+                s.supplierName.toLowerCase() == vendorName.toLowerCase() ||
+                s.supplierCode.toLowerCase() == vendorCode.toLowerCase() ||
+                ((s.gstin ?? '').isNotEmpty && (s.gstin ?? '').toLowerCase() == _gstin.toLowerCase()));
+
+            if (matchedSupplier != null) {
+              supplierId = matchedSupplier.id;
+            } else {
+              try {
+                final newSupplier = Supplier(
+                  id: 0,
+                  supplierCode: vendorCode,
+                  supplierName: vendorName,
+                  address: _custAddressCtrl.text.trim().isNotEmpty
+                      ? _custAddressCtrl.text.trim()
+                      : 'Marketplace Supplier',
+                  phone: _custPhoneCtrl.text.trim(),
+                  gstin: _gstin.isNotEmpty ? _gstin : null,
+                  isActive: true,
+                );
+                await supplierCtrl.create(newSupplier);
+                await supplierCtrl.load();
+                final created = supplierCtrl.list.firstWhereOrNull((s) =>
+                    s.supplierName.toLowerCase() == vendorName.toLowerCase() ||
+                    s.supplierCode.toLowerCase() == vendorCode.toLowerCase());
+                if (created != null) {
+                  supplierId = created.id;
+                } else if (supplierCtrl.list.isNotEmpty) {
+                  supplierId = supplierCtrl.list.last.id;
+                }
+              } catch (suppErr) {
+                debugPrint('Auto-supplier creation note: $suppErr');
+                if (supplierCtrl.list.isNotEmpty) {
+                  supplierId = supplierCtrl.list.first.id;
+                }
+              }
+            }
+
+            // 2. Build PO Number & Items from the cart following document sequence
+            final now = DateTime.now();
+            String poNumber = '';
+            try {
+              final docSeqCtrl = DocumentSequenceController();
+              poNumber = await docSeqCtrl.getNextPoNo(now);
+            } catch (e) {
+              debugPrint('Error fetching PO sequence number in customer app: $e');
+            }
+
+            if (poNumber.isEmpty || poNumber == "0") {
+              poNumber = 'PO-1-${now.year.toString().substring(2)}';
+            }
+
+            final List<PurchaseItem> poItems = [];
+            _cart.forEach((itemId, value) {
+              final item = value['item'] as Map<String, dynamic>? ?? {};
+              final double qty = double.tryParse(value['qty']?.toString() ?? '1') ?? 1.0;
+              final double rate = _getItemPrice(item);
+              final double itemTax = double.tryParse(item['tax_percent']?.toString() ?? '0') ?? 0.0;
+
+              poItems.add(PurchaseItem(
+                itemId: itemId,
+                itemCode: (item['item_code'] ?? 'ITEM-$itemId').toString(),
+                itemName: (item['item_name'] ?? 'Product').toString(),
+                brand: (item['brand'] ?? '').toString(),
+                unit: (item['unit'] ?? 'PCS').toString(),
+                qty: qty,
+                rate: rate,
+                tax: itemTax,
+                department: (item['department'] ?? 'GENERAL').toString(),
+                lineStatus: 'OPEN',
+              ));
+            });
+
+            final purchaseOrder = PurchaseOrder(
+              poNo: poNumber,
+              manualNo: 'MKT-ORD-#$orderId',
+              supplierId: supplierId,
+              poDate: now,
+              createdAt: now,
+              items: poItems,
+            );
+
+            // 3. Create PO via PurchaseOrderController
+            final poCtrl = PurchaseOrderController();
+            await poCtrl.create(purchaseOrder);
+            generatedPoNo = poNumber;
+            debugPrint('Marketplace PO created successfully: $poNumber for Order #$orderId');
+          } catch (poErr) {
+            debugPrint('Error generating PO for marketplace order: $poErr');
+          }
+        }
+
+        setState(() {
+          _activeOrderId = order['id'];
+          _cart.clear();
+          _appliedCoupon = null;
+          _couponCodeCtrl.clear();
+        });
+
+        final successMessage = generatedPoNo != null
+            ? 'Order #$orderId placed successfully!\nPurchase Order ($generatedPoNo) has been generated in your Inventory.'
+            : 'Order #$orderId placed successfully!';
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(successMessage),
+            backgroundColor: Colors.green.shade800,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        _startTrackingOrder();
+        _fetchHistory();
+      }
+    } catch (e) {
+      debugPrint('Error placing order: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _startTrackingOrder() {
+    _trackingTimer?.cancel();
+    _fetchActiveOrderTracking();
+    _trackingTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      _fetchActiveOrderTracking();
+    });
+  }
+
+  void _stopTrackingOrder() {
+    _trackingTimer?.cancel();
+    _trackingTimer = null;
+  }
+
+  Future<void> _fetchActiveOrderTracking() async {
+    if (_activeOrderId == null) return;
+    try {
+      final res =
+          await ApiClient.get('/api/delivery/orders/$_activeOrderId/track');
+      if (res['success'] == true) {
+        setState(() {
+          _activeOrder = res['data'];
+        });
+        if (_activeOrder?['status'] == 'DELIVERED' ||
+            _activeOrder?['status'] == 'CANCELLED') {
+          _stopTrackingOrder();
+          _fetchHistory();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error tracking order: $e');
+    }
+  }
+
+  Future<void> _cancelOrderAsCustomer(dynamic orderId) async {
+    String selectedReason = 'Changed my mind';
+    final TextEditingController otherReasonCtrl = TextEditingController();
+    bool isOther = false;
+
+    final String? reason = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(builder: (context, setStateDialog) {
+        return AlertDialog(
+          title: const Text('Cancel Order Reason'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Please select a reason for cancelling this order:',
+                    style: TextStyle(fontSize: 14)),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedReason,
+                  decoration: const InputDecoration(
+                    labelText: 'Select Reason',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    'Changed my mind',
+                    'Incorrect items ordered',
+                    'Delivery taking too long',
+                    'Found a better price',
+                    'Other'
+                  ]
+                      .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                      .toList(),
+                  onChanged: (val) {
+                    setStateDialog(() {
+                      selectedReason = val!;
+                      isOther = val == 'Other';
+                    });
+                  },
+                ),
+                if (isOther) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: otherReasonCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Write cancellation reason',
+                      hintText: 'Please specify...',
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 2,
+                  ),
+                ]
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, null),
+              child: const Text('Back'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final String finalReason =
+                    isOther ? otherReasonCtrl.text.trim() : selectedReason;
+                if (isOther && finalReason.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Please write a cancellation reason.')),
+                  );
+                  return;
+                }
+                Navigator.pop(context, finalReason);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Cancel Order'),
+            ),
+          ],
+        );
+      }),
+    );
+
+    if (reason == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final res = await ApiClient.post(
+          '/api/delivery/orders/$orderId/cancel', {'reason': reason});
+      if (res['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Order cancelled successfully.')),
+        );
+        if (_activeOrderId == orderId) {
+          setState(() {
+            _activeOrderId = null;
+            _activeOrder = null;
+          });
+          _stopTrackingOrder();
+        }
+        _fetchHistory();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res['message'] ?? 'Failed to cancel order.')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error cancelling order: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _submitFeedbackDialog(dynamic orderId) async {
+    double selectedRating = 5;
+    final TextEditingController commentCtrl = TextEditingController();
+
+    final bool? success = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(builder: (context, setStateDialog) {
+        return AlertDialog(
+          title: const Text('Order Feedback'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Rate your order experience:',
+                    style: TextStyle(fontSize: 14)),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (index) {
+                    final starVal = index + 1;
+                    return IconButton(
+                      icon: Icon(
+                        starVal <= selectedRating
+                            ? Icons.star
+                            : Icons.star_border,
+                        color: Colors.amber,
+                        size: 32,
+                      ),
+                      onPressed: () {
+                        setStateDialog(() {
+                          selectedRating = starVal.toDouble();
+                        });
+                      },
+                    );
+                  }),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: commentCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Comments (Optional)',
+                    hintText: 'Share your feedback with us...',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Note: Feedback is shared with the retailer for internal improvement purposes only.',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey,
+                      fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Submit'),
+            ),
+          ],
+        );
+      }),
+    );
+
+    if (success != true) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final res =
+          await ApiClient.post('/api/delivery/orders/$orderId/feedback', {
+        'rating': selectedRating,
+        'comment': commentCtrl.text.trim(),
+      });
+      if (res['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Feedback submitted successfully. Thank you!')),
+        );
+        _fetchHistory();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(res['message'] ?? 'Failed to submit feedback.')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error submitting feedback: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  double _calculateOrderSavings(dynamic order) {
+    double savings = 0.0;
+    final charges = order['charges'] as List?;
+    if (charges != null) {
+      for (var charge in charges) {
+        if (charge is Map && charge['code'] == 'COUPON_DISCOUNT') {
+          final amt =
+              double.tryParse(charge['amount']?.toString() ?? '0') ?? 0.0;
+          savings += amt.abs();
+        }
+      }
+    }
+    return savings;
+  }
+
+  String _formatReturnedItems(dynamic order) {
+    final returnedItems = order['returned_items'] as List?;
+    if (returnedItems != null && returnedItems.isNotEmpty) {
+      final List<String> itemsFormatted = [];
+      for (var it in returnedItems) {
+        final q = double.tryParse(it['qty']?.toString() ?? '1') ?? 1.0;
+        itemsFormatted.add('${it['item_name']} x${q.toStringAsFixed(0)}');
+      }
+      return '[${itemsFormatted.join(", ")}]';
+    }
+    if (order['return_item_name'] != null &&
+        order['return_item_name'].toString().isNotEmpty) {
+      return '[${order['return_item_name']}]';
+    }
+    return '';
+  }
+
+  Future<void> _requestReturnDialog(dynamic orderId) async {
+    final order = _historyOrders.firstWhere((o) => o['id'] == orderId,
+        orElse: () => null);
+    if (order == null) return;
+    final itemsList = order['items'] as List? ?? [];
+    if (itemsList.isEmpty) return;
+
+    final Set<Map<String, dynamic>> selectedItemsSet = {};
+    String returnType = _isRefundAvailable ? 'REFUND' : 'EXCHANGE';
+
+    final bool? submit = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Request Return / Exchange'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Select Items to Return:',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ...itemsList.map((it) {
+                  final itemMap = it as Map<String, dynamic>;
+                  final isChecked = selectedItemsSet
+                      .any((x) => x['item_id'] == itemMap['item_id']);
+                  final q =
+                      double.tryParse(itemMap['qty']?.toString() ?? '1') ?? 1.0;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8.0),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      border: Border.all(color: Colors.teal.shade200, width: 1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CheckboxListTile(
+                          activeColor: Colors.teal.shade700,
+                          title: Text(
+                            '${itemMap['item_name']} x ${q.toStringAsFixed(0)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                              'Rate: ${CurrencyService.format(double.tryParse(itemMap['rate']?.toString() ?? '0') ?? 0.0)} • Total: ${CurrencyService.format(double.tryParse(itemMap['amount']?.toString() ?? '0') ?? 0.0)}'),
+                          value: isChecked,
+                          onChanged: (val) {
+                            setDialogState(() {
+                              if (val == true) {
+                                selectedItemsSet.add(itemMap);
+                              } else {
+                                selectedItemsSet.removeWhere(
+                                    (x) => x['item_id'] == itemMap['item_id']);
+                              }
+                            });
+                          },
+                        ),
+                        Padding(
+                          padding:
+                              const EdgeInsets.only(left: 16.0, bottom: 8.0),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.teal.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              _isRefundAvailable && _isExchangeAvailable
+                                  ? 'Eligible for Refund & Exchange'
+                                  : _isRefundAvailable
+                                      ? 'Eligible for Refund'
+                                      : 'Eligible for Exchange',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.teal.shade800,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                if (_isRefundAvailable || _isExchangeAvailable) ...[
+                  const Divider(),
+                  const Text('Choose Return Type:',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  if (_isRefundAvailable)
+                    RadioListTile<String>(
+                      title: const Text('Refund'),
+                      value: 'REFUND',
+                      groupValue: returnType,
+                      onChanged: (val) {
+                        setDialogState(() {
+                          returnType = val!;
+                        });
+                      },
+                    ),
+                  if (_isExchangeAvailable)
+                    RadioListTile<String>(
+                      title: const Text('Exchange'),
+                      value: 'EXCHANGE',
+                      groupValue: returnType,
+                      onChanged: (val) {
+                        setDialogState(() {
+                          returnType = val!;
+                        });
+                      },
+                    ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: selectedItemsSet.isEmpty
+                  ? null
+                  : () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.primary),
+              child: const Text('Submit Request'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (submit != true || selectedItemsSet.isEmpty) return;
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+            'Confirm ${returnType == 'REFUND' ? 'Refund' : 'Exchange'} Request'),
+        content: Text(
+            'Are you sure you want to request a ${returnType.toLowerCase()} for the selected items? This request cannot be cancelled once submitted.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('No, Go Back'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.primary),
+            child: const Text('Yes, Submit'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final res = await ApiClient.post('/api/delivery/orders/$orderId/return', {
+        'return_type': returnType,
+        'outlet_id': order['outlet_id'],
+        'returned_items': selectedItemsSet
+            .map((x) => {
+                  'item_id': x['item_id'],
+                  'item_code': x['item_code'],
+                  'item_name': x['item_name'],
+                  'qty': x['qty'],
+                  'rate': x['rate'],
+                  'amount': x['amount']
+                })
+            .toList(),
+      });
+      if (res['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Return request submitted successfully.')),
+        );
+        _fetchHistory();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text(res['message'] ?? 'Failed to submit return request.')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error submitting return: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  SaleOrder _mapRecordToSaleOrder(dynamic record) {
+    double parseNum(dynamic value) =>
+        double.tryParse(value?.toString() ?? '') ?? 0.0;
+
+    final settings = context.read<SystemSettingsController>().settings;
+    final country = record['billing_country']?.toString() ?? settings?.billingCountry ?? 'India';
+    final taxMode = record['billing_tax_mode']?.toString() ?? settings?.billingTaxMode ?? (CountryTaxHelper.isIndiaCountry(country) ? 'CGST_SGST' : 'VAT');
+    final bool isIndia = CountryTaxHelper.isIndiaCountry(country);
+
+    final rawItems = record['received_items'] as List? ?? record['items'] as List? ?? [];
+    List<SaleItem> saleItems = [];
+    double calculatedSubTotal = 0.0;
+    double calculatedTotalQty = 0.0;
+    
+    for (var it in rawItems) {
+      final qty = parseNum(it['qty'] ?? 1.0);
+      final rate = parseNum(it['rate'] ?? 0.0);
+      calculatedSubTotal += (qty * rate);
+      calculatedTotalQty += qty;
+      saleItems.add(SaleItem.fromJson(Map<String, dynamic>.from(it)));
+    }
+
+    List<BillingCharge> billingCharges = [];
+    final rawCharges = record['charges'] as List?;
+    if (rawCharges != null) {
+      for (var ch in rawCharges) {
+        billingCharges.add(BillingCharge.fromJson(Map<String, dynamic>.from(ch)));
+      }
+    }
+    
+    final delivery = parseNum(record['delivery_charge'] ?? record['charge_total'] ?? 0.0);
+    final hasDeliveryCharge = billingCharges.any((c) => c.code == 'DELIVERY' || c.name.toUpperCase() == 'DELIVERY');
+    if (delivery > 0 && !hasDeliveryCharge) {
+      billingCharges.add(BillingCharge(
+        name: 'DELIVERY',
+        code: 'DELIVERY',
+        amount: delivery,
+        taxable: false,
+        autoApply: false,
+        isEnabled: true,
+        taxType: 'GST',
+        taxPercent: 0.0,
+      ));
+    }
+
+    final netAmt = parseNum(record['net_amount'] ?? 0.0);
+    final taxAmt = parseNum(record['tax_amount'] ?? record['total_tax'] ?? 0.0);
+
+    final String status = record['status']?.toString() ?? 'COMPLETED';
+    final String? returnType = record['return_type']?.toString();
+    final String paymentMode = record['payment_mode']?.toString() ?? '';
+    final String notes = record['notes']?.toString() ?? '';
+    final exchangeAgainstBillNo = RegExp(r'against bill #(\S+)', caseSensitive: false)
+        .firstMatch(notes)
+        ?.group(1);
+    final bool hasBillNo = (record['bill_no']?.toString() ?? record['sale_no']?.toString() ?? '').trim().isNotEmpty;
+    final bool isExchange = returnType == 'EXCHANGE' ||
+        paymentMode.toUpperCase() == 'EXCHANGE' ||
+        notes.toLowerCase().contains('exchange order for return');
+    final String saleNo = (record['sale_no']?.toString() ?? record['bill_no']?.toString() ?? '').trim().isNotEmpty
+        ? (record['sale_no']?.toString() ?? record['bill_no']?.toString() ?? '').trim()
+        : (record['id']?.toString() ?? '');
+
+    double refundAmt = 0.0;
+    if (record['refund_amount'] != null) {
+      refundAmt = double.tryParse(record['refund_amount'].toString()) ?? 0.0;
+    }
+    if (refundAmt == 0.0) {
+      final refund = record['refund_details'];
+      if (refund != null) {
+        final paid = double.tryParse(refund['amount_paid']?.toString() ?? '0.0') ?? 0.0;
+        final pending = double.tryParse(refund['amount_pending']?.toString() ?? '0.0') ?? 0.0;
+        refundAmt = paid > 0 ? paid : pending;
+      }
+    }
+    final gatewayDetails = record['payment_gateway_details'];
+    if (gatewayDetails != null) {
+      try {
+        final dynamic details = gatewayDetails is String ? jsonDecode(gatewayDetails) : gatewayDetails;
+        if (details != null && details['refund_amount'] != null) {
+          refundAmt = double.tryParse(details['refund_amount'].toString()) ?? refundAmt;
+        }
+      } catch (_) {}
+    }
+
+    final String? returnStatus = record['return_status']?.toString();
+    final String refundPaymentMode = isExchange
+        ? 'EXCHANGE'
+        : (record['refund_payment_mode']?.toString() ?? record['payment_mode']?.toString() ?? 'CASH');
+    final DateTime? refundPaidAt = DateTime.tryParse(
+      record['refund_paid_at']?.toString() ?? record['updated_at']?.toString() ?? '',
+    );
+    final String? mappedReturnType = isExchange ? 'EXCHANGE' : returnType;
+
+    List<dynamic> returnedItemsList = [];
+    if (record['returned_items'] != null && (record['returned_items'] as List).isNotEmpty) {
+      returnedItemsList = List<dynamic>.from(record['returned_items']);
+    } else if (record['return_item_id'] != null) {
+      returnedItemsList = [
+        {
+          'item_id': record['return_item_id'],
+          'item_name': record['return_item_name'] ?? '',
+        }
+      ];
+    }
+
+    final double cgstAmt = isIndia && taxMode == 'CGST_SGST' ? taxAmt / 2 : 0.0;
+    final double sgstAmt = isIndia && taxMode == 'CGST_SGST' ? taxAmt / 2 : 0.0;
+    final double igstAmt = isIndia && taxMode == 'IGST' ? taxAmt : 0.0;
+
+    return SaleOrder(
+      saleNo: saleNo,
+      returnStatus: returnStatus,
+      returnType: mappedReturnType,
+      refundAmount: refundAmt,
+      refundPaidAt: refundPaidAt,
+      refundPaymentMode: refundPaymentMode,
+      exchangeAgainstBillNo: exchangeAgainstBillNo,
+      hasBillNo: hasBillNo,
+      returnedItems: returnedItemsList,
+      saleDate: DateTime.tryParse(record['sale_date']?.toString() ?? record['created_at']?.toString() ?? '') ?? DateTime.now(),
+      status: status,
+      orderType: 'B2C',
+      billingCountry: country,
+      billingTaxMode: taxMode,
+      billFormat: _billFormat,
+      customerName: record['customer_name']?.toString(),
+      customerPhone: record['customer_phone']?.toString(),
+      customerAddress: record['customer_address']?.toString(),
+      customerGstin: record['gstin']?.toString() ?? record['customer_gstin']?.toString(),
+      paymentMode: isExchange ? 'EXCHANGE' : (paymentMode.isNotEmpty ? paymentMode : 'CASH'),
+      amountPaid: record['payment_status'] == 'PAID' ? netAmt : 0.0,
+      changeAmount: 0.0,
+      balanceDue: record['payment_status'] == 'PAID' ? 0.0 : netAmt,
+      subTotal: parseNum(record['sub_total'] ?? calculatedSubTotal),
+      totalQty: calculatedTotalQty,
+      taxPercent: 0.0,
+      schemeDiscount: 0.0,
+      manualDiscountValue: 0.0,
+      manualDiscountAmount: 0.0,
+      taxableAmount: parseNum(record['sub_total'] ?? calculatedSubTotal) - taxAmt,
+      cgstAmount: cgstAmt,
+      sgstAmount: sgstAmt,
+      igstAmount: igstAmt,
+      totalTax: taxAmt,
+      taxBreakup: [],
+      charges: billingCharges,
+      chargeTotal: delivery,
+      chargeTaxTotal: 0.0,
+      totalDiscount: 0.0,
+      roundOffAmount: 0.0,
+      netAmount: netAmt,
+      items: saleItems,
+    );
+  }
+
+  Future<void> _printReceiptNative(dynamic record, bool isOnlineOrder) async {
+    setState(() => _isLoading = true);
+    try {
+      final propertyCtrl = PropertyInfoController();
+      await propertyCtrl.load();
+
+      SaleOrder? order;
+      final saleId = record['sale_id'] ?? record['bill_no'] ?? record['sale_no'] ?? record['id'] ?? record['order_id'];
+      if (saleId != null) {
+        try {
+          final res = await ApiClient.get('/api/delivery/sales/$saleId');
+          final details = Map<String, dynamic>.from(res['data'] ?? const {});
+          if (details.isNotEmpty) {
+            details['bill_format'] = _billFormat;
+            order = SaleOrder.fromJson(details);
+          }
+        } catch (e) {
+          debugPrint('Error fetching public sale details: $e');
+        }
+      }
+
+      order ??= _mapRecordToSaleOrder(record);
+
+      await PosInvoicePrinter.printSaleInvoice(
+        order: order,
+        property: propertyCtrl.data,
+        cashierName: 'System',
+        termsAndConditions: 'Goods once sold will not be taken back. Subject to local jurisdiction.',
+        thankYouMessage: 'Thank you for shopping with us. Please visit again.',
+        authorizedSignatureLabel: 'Authorized Signature',
+      );
+    } catch (e) {
+      debugPrint('Error printing receipt: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showThermalReceipt(dynamic record, bool isOnlineOrder) {
+    _printReceiptNative(record, isOnlineOrder);
+  }
+
+  double _calculateCouponDiscount(double subTotal) {
+    if (_appliedCoupon == null) return 0.0;
+    final minPurchase =
+        double.tryParse(_appliedCoupon!['min_purchase']?.toString() ?? '0.0') ??
+            0.0;
+    if (subTotal < minPurchase) {
+      return 0.0;
+    }
+    final discountType = _appliedCoupon!['discount_type'] ?? 'FLAT';
+    final discountVal = double.tryParse(
+            _appliedCoupon!['discount_value']?.toString() ?? '0.0') ??
+        0.0;
+    if (discountType == 'FLAT') {
+      return discountVal > subTotal ? subTotal : discountVal;
+    } else if (discountType == 'PERCENTAGE') {
+      final discount = (subTotal * discountVal) / 100.0;
+      final maxDisc = double.tryParse(
+              _appliedCoupon!['max_discount']?.toString() ?? '0.0') ??
+          0.0;
+      if (maxDisc > 0 && discount > maxDisc) {
+        return maxDisc;
+      }
+      return discount;
+    }
+    return 0.0;
+  }
+
+  Widget _buildCouponSection(ThemeData theme) {
+    if (_cart.isEmpty) return const SizedBox.shrink();
+
+    double subTotal = 0;
+    _cart.forEach((itemId, value) {
+      final item = value['item'];
+      final qty = value['qty'];
+      final price = _getItemPrice(item);
+      subTotal += price * qty;
+    });
+
+    // Filter to only non-exhausted coupons visible to customer
+    final availableCoupons = _coupons.where((c) {
+      if (c['is_active'] == false) return false;
+      final maxUses = int.tryParse(c['max_uses']?.toString() ?? '0') ?? 0;
+      final usedCount = int.tryParse(c['used_count']?.toString() ?? '0') ?? 0;
+      // Hide if exhausted (max_uses > 0 and used_count >= max_uses)
+      if (maxUses > 0 && usedCount >= maxUses) return false;
+      // Hide if no code
+      if ((c['code'] ?? '').toString().trim().isEmpty) return false;
+      return true;
+    }).toList();
+
+    // If a coupon is already applied, show the applied banner
+    if (_appliedCoupon != null) {
+      final disc = _calculateCouponDiscount(subTotal);
+      final minPurchase = double.tryParse(
+              _appliedCoupon!['min_purchase']?.toString() ?? '0.0') ??
+          0.0;
+      final isStillValid = subTotal >= minPurchase;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10.0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.green.shade50,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.green.shade300, width: 1.4),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.local_offer, color: Colors.green, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade100,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            _appliedCoupon!['code'].toString(),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Colors.green,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Applied ✓',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    if (isStillValid)
+                      Text(
+                        'You save ${CurrencyService.format(disc)}',
+                        style: TextStyle(
+                            color: Colors.green.shade700, fontSize: 12),
+                      )
+                    else
+                      Text(
+                        'Add ${CurrencyService.format(minPurchase - subTotal)} more to unlock this offer',
+                        style:
+                            const TextStyle(color: Colors.orange, fontSize: 12),
+                      ),
+                  ],
+                ),
+              ),
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _appliedCoupon = null;
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close, color: Colors.red, size: 16),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // No coupons available — hide section entirely
+    if (availableCoupons.isEmpty) return const SizedBox.shrink();
+
+    // Show pre-filled coupon cards (Swiggy/Zomato style)
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.local_offer_outlined,
+                  size: 16, color: Colors.deepPurple),
+              const SizedBox(width: 6),
+              Text(
+                'Available Offers',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.deepPurple,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...availableCoupons.map((coupon) {
+            final code = coupon['code'].toString();
+            final discountType = coupon['discount_type'] ?? 'FLAT';
+            final discountVal =
+                double.tryParse(coupon['discount_value']?.toString() ?? '0') ??
+                    0.0;
+            final minPurchase =
+                double.tryParse(coupon['min_purchase']?.toString() ?? '0') ??
+                    0.0;
+            final maxDiscount =
+                double.tryParse(coupon['max_discount']?.toString() ?? '0') ??
+                    0.0;
+            final maxUses =
+                int.tryParse(coupon['max_uses']?.toString() ?? '0') ?? 0;
+            final usedCount =
+                int.tryParse(coupon['used_count']?.toString() ?? '0') ?? 0;
+            final remaining = maxUses > 0 ? maxUses - usedCount : null;
+            final meetsMinPurchase = subTotal >= minPurchase;
+
+            // Build human-readable offer description
+            String offerText;
+            if (discountType == 'FLAT') {
+              offerText = '${CurrencyService.format(discountVal)} OFF';
+            } else {
+              offerText = '${discountVal.toStringAsFixed(0)}% OFF';
+              if (maxDiscount > 0) {
+                offerText += ' (max ${CurrencyService.format(maxDiscount)})';
+              }
+            }
+
+            String conditionText = '';
+            if (minPurchase > 0) {
+              conditionText =
+                  'on orders above ${CurrencyService.format(minPurchase)}';
+            }
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: GestureDetector(
+                onTap: () {
+                  if (!meetsMinPurchase) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Add ${CurrencyService.format(minPurchase - subTotal)} more to use this coupon.',
+                        ),
+                        backgroundColor: Colors.orange.shade700,
+                      ),
+                    );
+                    return;
+                  }
+                  setState(() {
+                    _appliedCoupon = coupon;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('🎉 Coupon $code applied!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                },
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: meetsMinPurchase
+                        ? Colors.deepPurple.shade50
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: meetsMinPurchase
+                          ? Colors.deepPurple.shade200
+                          : Colors.grey.shade300,
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      // Coupon Code Badge
+                      Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: meetsMinPurchase
+                                  ? Colors.deepPurple
+                                  : Colors.grey.shade400,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              code,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                letterSpacing: 1.1,
+                              ),
+                            ),
+                          ),
+                          if (remaining != null && remaining <= 20)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4.0),
+                              child: Text(
+                                '$remaining left',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: remaining <= 5
+                                      ? Colors.red
+                                      : Colors.orange,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(width: 12),
+                      // Offer Details
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              offerText,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: meetsMinPurchase
+                                    ? Colors.deepPurple.shade800
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                            if (conditionText.isNotEmpty)
+                              Text(
+                                conditionText,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            if (!meetsMinPurchase && minPurchase > 0)
+                              Text(
+                                'Add ${CurrencyService.format(minPurchase - subTotal)} more',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      // Apply button
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: meetsMinPurchase
+                              ? Colors.deepPurple
+                              : Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'APPLY',
+                          style: TextStyle(
+                            color: meetsMinPurchase
+                                ? Colors.white
+                                : Colors.grey.shade500,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCartSummary(ThemeData theme) {
+    double subTotal = 0;
+    _cart.forEach((itemId, value) {
+      final item = value['item'];
+      final qty = value['qty'];
+      final price = _getItemPrice(item);
+      subTotal += price * qty;
+    });
+
+    double nonSubscriptionSubTotal = 0;
+    _cart.forEach((itemId, value) {
+      final item = value['item'];
+      final qty = value['qty'];
+      final price = _getItemPrice(item);
+      final sub = _subscriptions.firstWhere(
+        (s) => s['item_id'] == itemId && (s['active_subscription'] == true || s['status'] == 'ACTIVE'),
+        orElse: () => null,
+      );
+      double coveredQty = 0.0;
+      if (sub != null) {
+        final double remainingQty = double.tryParse(sub['today_remaining_qty']?.toString() ?? '0') ?? 0.0;
+        coveredQty = qty < remainingQty ? qty : remainingQty;
+      }
+      final double paidQty = qty - coveredQty;
+      nonSubscriptionSubTotal += price * paidQty;
+    });
+
+    double couponDiscount = _calculateCouponDiscount(subTotal);
+    double discountRatio = nonSubscriptionSubTotal > 0 ? (nonSubscriptionSubTotal - couponDiscount) / nonSubscriptionSubTotal : 1.0;
+
+    final settings = context.watch<SystemSettingsController>().settings;
+    final country = settings?.billingCountry;
+    final taxMode = settings?.billingTaxMode ?? (CountryTaxHelper.isIndiaCountry(country) ? 'CGST_SGST' : 'VAT');
+    final bool isIndia = CountryTaxHelper.isIndiaCountry(country);
+    final String taxName = CountryTaxHelper.taxName(country, taxMode);
+
+    double tax = 0;
+    double subscriptionDiscount = 0.0;
+    double subscriptionTaxDiscount = 0.0;
+
+    double calculatedSubTotalExclusive = 0.0;
+    double calculatedCouponDiscountExclusive = 0.0;
+    double calculatedSubscriptionDiscountExclusive = 0.0;
+
+    final Map<String, TaxBreakdown> itemTaxBreakupMap = {};
+
+    _cart.forEach((itemId, value) {
+      final item = value['item'];
+      final qty = value['qty'];
+      final price = _getItemPrice(item);
+      final itemTotal = price * qty;
+
+      final sub = _subscriptions.firstWhere(
+        (s) => s['item_id'] == itemId && (s['active_subscription'] == true || s['status'] == 'ACTIVE'),
+        orElse: () => null,
+      );
+      double coveredQty = 0.0;
+      if (sub != null) {
+        final double remainingQty = double.tryParse(sub['today_remaining_qty']?.toString() ?? '0') ?? 0.0;
+        coveredQty = qty < remainingQty ? qty : remainingQty;
+      }
+      final double paidQty = qty - coveredQty;
+      final double paidItemTotal = price * paidQty;
+      final double freeItemTotal = price * coveredQty;
+
+      final double discountedPaidItemTotal = paidItemTotal * discountRatio;
+      final double discountedItemTotal = discountedPaidItemTotal + freeItemTotal;
+
+      final bool isInclusive = item['is_tax_inclusive'] == true ||
+          item['is_tax_inclusive'] == 1 ||
+          item['is_tax_inclusive'].toString() == 'true';
+      final itemTaxPercent =
+          double.tryParse(item['tax_percent']?.toString() ?? '0') ?? 0.0;
+      final itemTaxType = (item['tax_type']?.toString() ?? '').trim().toUpperCase();
+
+      double taxableAmount;
+      double itemTaxAmount;
+
+      if (isInclusive) {
+        taxableAmount = discountedItemTotal / (1 + itemTaxPercent / 100);
+        itemTaxAmount = discountedItemTotal - taxableAmount;
+        
+        calculatedSubTotalExclusive += (price * qty) / (1 + itemTaxPercent / 100);
+        calculatedCouponDiscountExclusive += (paidItemTotal - discountedPaidItemTotal) / (1 + itemTaxPercent / 100);
+        if (coveredQty > 0) {
+          final double subTaxable = (price * coveredQty) / (1 + itemTaxPercent / 100);
+          calculatedSubscriptionDiscountExclusive += subTaxable;
+          subscriptionDiscount += price * coveredQty;
+          subscriptionTaxDiscount += (price * coveredQty) - subTaxable;
+        }
+      } else {
+        taxableAmount = discountedItemTotal;
+        itemTaxAmount = discountedItemTotal * itemTaxPercent / 100.0;
+        
+        calculatedSubTotalExclusive += price * qty;
+        calculatedCouponDiscountExclusive += paidItemTotal - discountedPaidItemTotal;
+        if (coveredQty > 0) {
+          calculatedSubscriptionDiscountExclusive += price * coveredQty;
+          subscriptionDiscount += price * coveredQty;
+          subscriptionTaxDiscount += (price * coveredQty) * itemTaxPercent / 100.0;
+        }
+      }
+      tax += itemTaxAmount;
+
+      final double netTaxableForBreakup = isInclusive
+          ? (discountedPaidItemTotal / (1 + itemTaxPercent / 100))
+          : discountedPaidItemTotal;
+
+      if (netTaxableForBreakup > 0 && itemTaxPercent > 0) {
+        List<TaxBreakdown> itemBreakdowns = [];
+
+        dynamic tg = item['tax_group'];
+        List<dynamic>? tgComponents;
+        if (tg is Map && tg['components'] is List) {
+          tgComponents = tg['components'] as List;
+        } else if (item['tax_group_components'] is List) {
+          tgComponents = item['tax_group_components'] as List;
+        }
+
+        if (tgComponents != null && tgComponents.isNotEmpty) {
+          for (final comp in tgComponents) {
+            final double compRate = double.tryParse(comp['rate']?.toString() ?? '0') ?? 0.0;
+            final String compCode = (comp['component_code']?.toString() ?? 'TAX').trim();
+            final String compName = (comp['component_name']?.toString() ?? compCode).trim();
+            final compAmount = netTaxableForBreakup * compRate / 100;
+            itemBreakdowns.add(
+              TaxBreakdown(
+                code: compCode,
+                label: '$compName (${compRate.toStringAsFixed(compRate.truncateToDouble() == compRate ? 0 : 2)}%)',
+                taxType: compCode,
+                rate: compRate,
+                taxableAmount: netTaxableForBreakup,
+                taxAmount: compAmount,
+              ),
+            );
+          }
+        } else if (itemTaxType == 'US_SALES_TAX' || itemTaxType == 'SALES_TAX' || itemTaxType == 'COMPOSITE') {
+          final stateRate = itemTaxPercent > 1.0 ? double.parse((itemTaxPercent - 1.0).toStringAsFixed(2)) : itemTaxPercent;
+          final cityRate = itemTaxPercent > 1.0 ? 1.0 : 0.0;
+          itemBreakdowns.add(
+            TaxBreakdown(
+              code: 'STATE_TAX',
+              label: 'STATE SALES TAX (${stateRate.toStringAsFixed(stateRate.truncateToDouble() == stateRate ? 0 : 2)}%)',
+              taxType: 'STATE_TAX',
+              rate: stateRate,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: netTaxableForBreakup * stateRate / 100,
+            ),
+          );
+          if (cityRate > 0) {
+            itemBreakdowns.add(
+              TaxBreakdown(
+                code: 'CITY_TAX',
+                label: 'CITY TAX (${cityRate.toStringAsFixed(cityRate.truncateToDouble() == cityRate ? 0 : 2)}%)',
+                taxType: 'CITY_TAX',
+                rate: cityRate,
+                taxableAmount: netTaxableForBreakup,
+                taxAmount: netTaxableForBreakup * cityRate / 100,
+              ),
+            );
+          }
+        } else if (itemTaxType == 'VAT') {
+          itemBreakdowns.add(
+            TaxBreakdown(
+              code: 'VAT',
+              label: 'VAT ${itemTaxPercent.toStringAsFixed(itemTaxPercent.truncateToDouble() == itemTaxPercent ? 0 : 2)}%',
+              taxType: 'VAT',
+              rate: itemTaxPercent,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: netTaxableForBreakup * itemTaxPercent / 100,
+            ),
+          );
+        } else if (itemTaxType == 'IGST') {
+          itemBreakdowns.add(
+            TaxBreakdown(
+              code: 'IGST',
+              label: 'IGST ${itemTaxPercent.toStringAsFixed(itemTaxPercent.truncateToDouble() == itemTaxPercent ? 0 : 2)}%',
+              taxType: 'GST',
+              rate: itemTaxPercent,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: netTaxableForBreakup * itemTaxPercent / 100,
+            ),
+          );
+        } else if (itemTaxType == 'GST' || itemTaxType == 'CGST_SGST') {
+          final halfRate = itemTaxPercent / 2;
+          final halfAmount = (netTaxableForBreakup * itemTaxPercent / 100) / 2;
+          itemBreakdowns.addAll([
+            TaxBreakdown(
+              code: 'CGST',
+              label: 'CGST (${halfRate.toStringAsFixed(halfRate.truncateToDouble() == halfRate ? 0 : 2)}%)',
+              taxType: 'GST',
+              rate: halfRate,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: halfAmount,
+            ),
+            TaxBreakdown(
+              code: 'SGST',
+              label: 'SGST/UTGST (${halfRate.toStringAsFixed(halfRate.truncateToDouble() == halfRate ? 0 : 2)}%)',
+              taxType: 'GST',
+              rate: halfRate,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: halfAmount,
+            ),
+          ]);
+        } else if (taxMode == 'US_SALES_TAX' || taxMode == 'SALES_TAX') {
+          final stateRate = itemTaxPercent > 1.0 ? double.parse((itemTaxPercent - 1.0).toStringAsFixed(2)) : itemTaxPercent;
+          final cityRate = itemTaxPercent > 1.0 ? 1.0 : 0.0;
+          itemBreakdowns.add(
+            TaxBreakdown(
+              code: 'STATE_TAX',
+              label: 'STATE SALES TAX (${stateRate.toStringAsFixed(stateRate.truncateToDouble() == stateRate ? 0 : 2)}%)',
+              taxType: 'STATE_TAX',
+              rate: stateRate,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: netTaxableForBreakup * stateRate / 100,
+            ),
+          );
+          if (cityRate > 0) {
+            itemBreakdowns.add(
+              TaxBreakdown(
+                code: 'CITY_TAX',
+                label: 'CITY TAX (${cityRate.toStringAsFixed(cityRate.truncateToDouble() == cityRate ? 0 : 2)}%)',
+                taxType: 'CITY_TAX',
+                rate: cityRate,
+                taxableAmount: netTaxableForBreakup,
+                taxAmount: netTaxableForBreakup * cityRate / 100,
+              ),
+            );
+          }
+        } else if (taxMode == 'VAT' || (!isIndia && taxName == 'VAT')) {
+          itemBreakdowns.add(
+            TaxBreakdown(
+              code: 'VAT',
+              label: 'VAT ${itemTaxPercent.toStringAsFixed(itemTaxPercent.truncateToDouble() == itemTaxPercent ? 0 : 2)}%',
+              taxType: 'VAT',
+              rate: itemTaxPercent,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: netTaxableForBreakup * itemTaxPercent / 100,
+            ),
+          );
+        } else if (taxMode == 'IGST') {
+          itemBreakdowns.add(
+            TaxBreakdown(
+              code: 'IGST',
+              label: 'IGST ${itemTaxPercent.toStringAsFixed(itemTaxPercent.truncateToDouble() == itemTaxPercent ? 0 : 2)}%',
+              taxType: 'GST',
+              rate: itemTaxPercent,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: netTaxableForBreakup * itemTaxPercent / 100,
+            ),
+          );
+        } else {
+          final halfRate = itemTaxPercent / 2;
+          final halfAmount = (netTaxableForBreakup * itemTaxPercent / 100) / 2;
+          itemBreakdowns.addAll([
+            TaxBreakdown(
+              code: 'CGST',
+              label: 'CGST (${halfRate.toStringAsFixed(halfRate.truncateToDouble() == halfRate ? 0 : 2)}%)',
+              taxType: 'GST',
+              rate: halfRate,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: halfAmount,
+            ),
+            TaxBreakdown(
+              code: 'SGST',
+              label: 'SGST/UTGST (${halfRate.toStringAsFixed(halfRate.truncateToDouble() == halfRate ? 0 : 2)}%)',
+              taxType: 'GST',
+              rate: halfRate,
+              taxableAmount: netTaxableForBreakup,
+              taxAmount: halfAmount,
+            ),
+          ]);
+        }
+
+        for (final tb in itemBreakdowns) {
+          final key = '${tb.code}_${tb.rate}';
+          if (itemTaxBreakupMap.containsKey(key)) {
+            final existing = itemTaxBreakupMap[key]!;
+            itemTaxBreakupMap[key] = TaxBreakdown(
+              code: existing.code,
+              label: existing.label,
+              taxType: existing.taxType,
+              rate: existing.rate,
+              taxableAmount: existing.taxableAmount + tb.taxableAmount,
+              taxAmount: existing.taxAmount + tb.taxAmount,
+            );
+          } else {
+            itemTaxBreakupMap[key] = tb;
+          }
+        }
+      }
+    });
+
+    final List<TaxBreakdown> groupedItemTaxes = itemTaxBreakupMap.values.toList()
+      ..sort((a, b) => a.label.compareTo(b.label));
+
+    final double thresholdSubTotal = subTotal;
+
+    subTotal = calculatedSubTotalExclusive;
+    couponDiscount = calculatedCouponDiscountExclusive;
+    subscriptionDiscount = calculatedSubscriptionDiscountExclusive;
+
+    double delivery = _cart.isEmpty
+        ? 0.00
+        : ((thresholdSubTotal < _minDeliveryOrderValue) ? _deliveryCharge : 0.00);
+    double deliveryGst =
+        _cart.isEmpty ? 0.00 : ((delivery * _deliveryGstPercent) / 100.0);
+
+    double customChargesTotal = 0.0;
+    double customChargesGstTotal = 0.0;
+    final List<Map<String, dynamic>> computedCustomCharges = [];
+
+    if (_cart.isNotEmpty) {
+      for (final charge in _customCharges) {
+        final double amt =
+            double.tryParse(charge['charge']?.toString() ?? '0.0') ?? 0.0;
+        final double gstRate =
+            double.tryParse(charge['gst_percentage']?.toString() ?? '0.0') ??
+                0.0;
+        final double gstAmt = (amt * gstRate) / 100.0;
+        customChargesTotal += amt;
+        customChargesGstTotal += gstAmt;
+        computedCustomCharges.add({
+          'name': charge['name'] ?? 'Charge',
+          'amount': amt,
+          'gst_amount': gstAmt,
+        });
+      }
+    }
+
+    // couponDiscount is already calculated above
+
+    final bool anyInclusive = _cart.values.any((val) {
+      final item = val['item'];
+      return item['is_tax_inclusive'] == true ||
+          item['is_tax_inclusive'] == 1 ||
+          item['is_tax_inclusive'].toString() == 'true';
+    });
+
+    double displaySubTotal = subTotal;
+    double displayCouponDiscount = couponDiscount;
+    double displaySubscriptionDiscount = subscriptionDiscount;
+
+    if (anyInclusive) {
+      displaySubTotal = 0.0;
+      displayCouponDiscount = 0.0;
+      displaySubscriptionDiscount = 0.0;
+
+      _cart.forEach((itemId, value) {
+        final item = value['item'];
+        final qty = value['qty'];
+        final price = _getItemPrice(item);
+        final bool itemInclusive = item['is_tax_inclusive'] == true ||
+            item['is_tax_inclusive'] == 1 ||
+            item['is_tax_inclusive'].toString() == 'true';
+        final itemTaxPercent = double.tryParse(item['tax_percent']?.toString() ?? '0') ?? 0.0;
+        final double factor = itemInclusive ? 1.0 : (1 + itemTaxPercent / 100);
+
+        displaySubTotal += price * qty * factor;
+
+        final sub = _subscriptions.firstWhere(
+          (s) => s['item_id'] == itemId && (s['active_subscription'] == true || s['status'] == 'ACTIVE'),
+          orElse: () => null,
+        );
+        double coveredQty = 0.0;
+        if (sub != null) {
+          final double remainingQty = double.tryParse(sub['today_remaining_qty']?.toString() ?? '0') ?? 0.0;
+          coveredQty = qty < remainingQty ? qty : remainingQty;
+        }
+        final double paidQty = qty - coveredQty;
+
+        displayCouponDiscount += paidQty * price * (1.0 - discountRatio) * factor;
+        displaySubscriptionDiscount += coveredQty * price * factor;
+      });
+    }
+
+    double totalCharges = delivery + customChargesTotal;
+    double totalChargesGst = deliveryGst + customChargesGstTotal;
+    double finalTax = (tax - subscriptionTaxDiscount) + totalChargesGst;
+    if (finalTax < 0) finalTax = 0.0;
+    double netTotal = subTotal + finalTax + totalCharges - couponDiscount - subscriptionDiscount;
+    if (netTotal < 0) netTotal = 0.0;
+
+    return Column(
+      children: [
+        if (anyInclusive) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Sub-total (Incl. $taxName)'),
+              Text(CurrencyService.format(displaySubTotal)),
+            ],
+          ),
+          if (displayCouponDiscount > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Coupon Discount (${_appliedCoupon!['code']})',
+                    style: const TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+                Text('-${CurrencyService.format(displayCouponDiscount)}',
+                    style: const TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          if (displaySubscriptionDiscount > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Subscription Discount',
+                    style: TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+                Text('-${CurrencyService.format(displaySubscriptionDiscount)}',
+                    style: const TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Net Amount (Incl. $taxName)',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(
+                CurrencyService.format(displaySubTotal - displayCouponDiscount - displaySubscriptionDiscount),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          if (delivery > 0) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Delivery Charge'),
+                Text(CurrencyService.format(delivery)),
+              ],
+            ),
+            if (deliveryGst > 0)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('  • Delivery $taxName'),
+                  Text(CurrencyService.format(deliveryGst),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+          ],
+          for (final cc in computedCustomCharges) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(cc['name']),
+                Text(CurrencyService.format(cc['amount'] ?? 0)),
+              ],
+            ),
+            if (cc['gst_amount'] > 0)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('  • ${cc['name']} $taxName'),
+                  Text(CurrencyService.format(cc['gst_amount'] ?? 0),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+          ],
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Taxable Value (Items)'),
+              Text(CurrencyService.format(subTotal - couponDiscount - subscriptionDiscount)),
+            ],
+          ),
+          if (groupedItemTaxes.isNotEmpty) ...[
+            for (final t in groupedItemTaxes)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(t.label),
+                  Text(CurrencyService.format(t.taxAmount)),
+                ],
+              ),
+          ] else ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('$taxName (Items)'),
+                Text(CurrencyService.format(tax)),
+              ],
+            ),
+          ],
+        ] else ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Sub-total'),
+              Text(CurrencyService.format(subTotal)),
+            ],
+          ),
+          if (couponDiscount > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Coupon Discount (${_appliedCoupon!['code']})',
+                    style: const TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+                Text('-${CurrencyService.format(couponDiscount)}',
+                    style: const TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          if (subscriptionDiscount > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Subscription Discount',
+                    style: TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+                Text('-${CurrencyService.format(subscriptionDiscount)}',
+                    style: const TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Taxable Value (Items)'),
+              Text(CurrencyService.format(subTotal - couponDiscount - subscriptionDiscount)),
+            ],
+          ),
+          if (groupedItemTaxes.isNotEmpty) ...[
+            for (final t in groupedItemTaxes)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(t.label),
+                  Text(CurrencyService.format(t.taxAmount)),
+                ],
+              ),
+          ] else ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('$taxName (Items)'),
+                Text(CurrencyService.format(tax)),
+              ],
+            ),
+          ],
+          if (delivery > 0) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Delivery Charge'),
+                Text(CurrencyService.format(delivery)),
+              ],
+            ),
+            if (deliveryGst > 0)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('  • Delivery $taxName'),
+                  Text(CurrencyService.format(deliveryGst),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+          ],
+          for (final cc in computedCustomCharges) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(cc['name']),
+                Text(CurrencyService.format(cc['amount'] ?? 0)),
+              ],
+            ),
+            if (cc['gst_amount'] > 0)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('  • ${cc['name']} $taxName'),
+                  Text(CurrencyService.format(cc['gst_amount'] ?? 0),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+          ],
+          if (subscriptionTaxDiscount > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Subscription Tax Adjustment',
+                    style: TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+                Text('-${CurrencyService.format(subscriptionTaxDiscount)}',
+                    style: const TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+              ],
+            ),
+        ],
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Net Total',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            Text(
+              CurrencyService.format(netTotal),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCustomerTrackingView(ThemeData theme) {
+    if (_activeOrder == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final status = _activeOrder!['status'] ?? 'PENDING';
+    final riderName = _activeOrder!['partner']?['name'] ?? 'Not assigned yet';
+    final riderPhone = _activeOrder!['partner']?['phone'] ?? '--';
+
+    int activeStep = 0;
+    if (status == 'ACCEPTED') activeStep = 1;
+    if (status == 'ASSIGNED') activeStep = 2;
+    if (status == 'OUT_FOR_DELIVERY') activeStep = 3;
+    if (status == 'DELIVERED') activeStep = 4;
+
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 600),
+        padding: const EdgeInsets.all(24.0),
+        child: Card(
+          elevation: 4,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Track Order #${_activeOrder!['id']}',
+                        style: theme.textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          setState(() {
+                            _activeOrderId = null;
+                            _activeOrder = null;
+                          });
+                          _stopTrackingOrder();
+                        },
+                      ),
+                    ],
+                  ),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  Text('Customer Name: ${_activeOrder!['customer_name']}'),
+                  Text(
+                      'Delivery Address: ${_activeOrder!['customer_address']}'),
+                  Text(
+                      'Net Amount: ${CurrencyService.format(double.tryParse(_activeOrder!['net_amount']?.toString() ?? '0') ?? 0.0)}'),
+                  Text('Payment Status: ${_activeOrder!['payment_status']}'),
+                  const SizedBox(height: 20),
+                  const Text('Live Delivery Progress',
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 16),
+                  _buildStepper(activeStep, theme),
+                  const SizedBox(height: 24),
+                  if (status == 'ASSIGNED' || status == 'OUT_FOR_DELIVERY') ...[
+                    Container(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: theme.colorScheme.primary,
+                            foregroundColor: Colors.white,
+                            child: const Icon(Icons.person),
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Assigned Rider: $riderName',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              Text('Phone: $riderPhone'),
+                            ],
+                          )
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (status == 'DELIVERED') ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.check_circle,
+                              color: Colors.green, size: 28),
+                          SizedBox(width: 8),
+                          Text(
+                            'Your order was delivered successfully!',
+                            style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16),
+                          )
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (status == 'PENDING' || status == 'ACCEPTED') ...[
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.cancel_outlined,
+                            color: Colors.red),
+                        label: const Text('Cancel Order',
+                            style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Colors.red),
+                        ),
+                        onPressed: () =>
+                            _cancelOrderAsCustomer(_activeOrder!['id']),
+                      ),
+                    ),
+                  ]
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepper(int currentStep, ThemeData theme) {
+    final steps = [
+      {'title': 'Placed', 'subtitle': 'Order submitted'},
+      {'title': 'Accepted', 'subtitle': 'Creating invoice'},
+      {'title': 'Rider Assigned', 'subtitle': 'Rider is on the way'},
+      {'title': 'Out for Delivery', 'subtitle': 'Order is on the way'},
+      {'title': 'Delivered', 'subtitle': 'Enjoy your order!'},
+    ];
+
+    return Column(
+      children: List.generate(steps.length, (index) {
+        final isDone = index <= currentStep;
+        final isLast = index == steps.length - 1;
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Column(
+              children: [
+                CircleAvatar(
+                  radius: 12,
+                  backgroundColor:
+                      isDone ? theme.colorScheme.primary : Colors.grey.shade300,
+                  child: isDone
+                      ? const Icon(Icons.check, size: 14, color: Colors.white)
+                      : Text((index + 1).toString(),
+                          style: const TextStyle(fontSize: 12)),
+                ),
+                if (!isLast)
+                  Container(
+                    width: 2,
+                    height: 36,
+                    color: index < currentStep
+                        ? theme.colorScheme.primary
+                        : Colors.grey.shade300,
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  steps[index]['title']!,
+                  style: TextStyle(
+                    fontWeight: isDone ? FontWeight.bold : FontWeight.normal,
+                    color: isDone ? Colors.black : Colors.grey,
+                  ),
+                ),
+                Text(
+                  steps[index]['subtitle']!,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            )
+          ],
+        );
+      }),
+    );
+  }
+
+  Widget _buildCustomerAuthView(ThemeData theme) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Card(
+            elevation: 6,
+            shadowColor: theme.colorScheme.shadow.withOpacity(0.1),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Icon(
+                    Icons.local_shipping_outlined,
+                    size: 56,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    _showRegisterForm
+                        ? 'Create Customer Account'
+                        : 'Customer Login Portal',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _showRegisterForm
+                        ? 'Register to track purchases, print invoices and get home delivery.'
+                        : 'Sign in to access your previous orders and print invoices.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  if (_showRegisterForm) ...[
+                    TextField(
+                      controller: _regNameCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Full Name',
+                        prefixIcon: const Icon(Icons.person_outline),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _regPhoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: InputDecoration(
+                        labelText: 'Mobile Number',
+                        prefixIcon: const Icon(Icons.phone_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _regEmailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: InputDecoration(
+                        labelText: 'Email Address',
+                        prefixIcon: const Icon(Icons.email_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _regPasswordCtrl,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _regAddressCtrl,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Default Delivery Address',
+                        prefixIcon: const Icon(Icons.map_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    TextField(
+                      controller: _loginPhoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: InputDecoration(
+                        labelText: 'Registered Mobile Number',
+                        prefixIcon: const Icon(Icons.phone_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _loginPasswordCtrl,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _showForgotPasswordDialog,
+                        child: const Text('Forgot Password?'),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed:
+                        _showRegisterForm ? _registerCustomer : _loginCustomer,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      _showRegisterForm ? 'Sign Up' : 'Sign In',
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 10),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _showRegisterForm = !_showRegisterForm;
+                      });
+                    },
+                    child: Text(
+                      _showRegisterForm
+                          ? 'Already have an account? Sign In'
+                          : "Don't have an account? Sign Up",
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeliveryDrawer(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasCustomer = _loggedInCustomer != null;
+    return Drawer(
+      child: ListView(
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                const Text(
+                  'Customer Portal',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  hasCustomer
+                      ? 'Logged in as: ${_loggedInCustomer!['name'] ?? _loggedInCustomer!['phone']}'
+                      : 'Guest Mode',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.storefront),
+            title: const Text('Shop Catalog'),
+            selected: _customerSubTabIndex == 0,
+            onTap: () {
+              Navigator.of(context).pop();
+              _setSubTabIndex(0);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.shopping_cart),
+            title: const Text('My Cart'),
+            selected: _customerSubTabIndex == 1,
+            onTap: () {
+              Navigator.of(context).pop();
+              _setSubTabIndex(1);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.receipt_long),
+            title: Text(
+                hasCustomer ? 'My Purchases & Tracking' : 'Login / Register'),
+            selected: _customerSubTabIndex == 2,
+            onTap: () {
+              Navigator.of(context).pop();
+              _setSubTabIndex(2);
+            },
+          ),
+          if (hasCustomer) ...[
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('Logout / Switch Account'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _logoutCustomer();
+              },
+            ),
+          ],
+          Visibility(
+            visible: !kIsWeb && !Platform.isAndroid && !Platform.isIOS,
+            child: const Divider(),
+          ),
+          Visibility(
+            visible: !kIsWeb && !Platform.isAndroid && !Platform.isIOS,
+            child: ListTile(
+              leading: const Icon(Icons.dashboard_outlined),
+              title: const Text('Exit to Dashboard'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).pop();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDietaryBadge(String? type, {double size = 12}) {
+    if (type == null || type.isEmpty || type == 'OTHER') return const SizedBox.shrink();
+    Color borderColor;
+    Color dotColor;
+    bool isVegan = false;
+
+    switch (type.toUpperCase()) {
+      case 'VEG':
+        borderColor = const Color(0xFF16A34A);
+        dotColor = const Color(0xFF16A34A);
+        break;
+      case 'NON_VEG':
+      case 'NON-VEG':
+      case 'NONVEG':
+        borderColor = const Color(0xFFDC2626);
+        dotColor = const Color(0xFFDC2626);
+        break;
+      case 'EGG':
+        borderColor = const Color(0xFFEAB308);
+        dotColor = const Color(0xFFEAB308);
+        break;
+      case 'VEGAN':
+        borderColor = const Color(0xFF059669);
+        dotColor = const Color(0xFF059669);
+        isVegan = true;
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(1.5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: borderColor, width: 1.2),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Center(
+        child: isVegan
+            ? Icon(Icons.eco, size: size * 0.7, color: dotColor)
+            : Container(
+                width: size * 0.45,
+                height: size * 0.45,
+                decoration: BoxDecoration(
+                  color: dotColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildProductCatalogSection(ThemeData theme, bool isMobile) {
+    final int crossAxisCount = isMobile ? 2 : 3;
+    final double childAspectRatio = isMobile ? 0.63 : 0.70;
+
+    return Container(
+      color: theme.colorScheme.surfaceContainerLow,
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    widget.isB2BMode ? 'Vendor Wholesale Catalog' : 'Retailer Shop Products',
+                    style: theme.textTheme.headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  if (_isB2BWholesaleMode) ...[
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade100,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.blue.shade300),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.verified, size: 14, color: Colors.blue.shade800),
+                          const SizedBox(width: 4),
+                          Text(
+                            'B2B Wholesale Rates Active',
+                            style: TextStyle(
+                              color: Colors.blue.shade900,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: 'Refresh Shop',
+                onPressed: () {
+                  setState(() {
+                    _currentPage = 1;
+                  });
+                  _fetchCatalog();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _custGstinCtrl,
+            decoration: InputDecoration(
+              labelText: 'GSTIN (Optional - Enter for B2B rates & bulk orders)',
+              prefixIcon: const Icon(Icons.business_outlined),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            onChanged: (val) {
+              setState(() {
+                _gstin = val.trim();
+                if (_gstin.isEmpty) {
+                  _cart.forEach((key, value) {
+                    if (value['qty'] > 5.0) {
+                      value['qty'] = 5.0;
+                    }
+                  });
+                }
+                _currentPage = 1;
+              });
+              _fetchCatalog();
+            },
+          ),
+          const SizedBox(height: 12),
+          // Modern Search Bar
+          TextField(
+            decoration: InputDecoration(
+              hintText: 'Search products, brands, categories...',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        setState(() {
+                          _searchQuery = '';
+                          _currentPage = 1;
+                        });
+                        _fetchCatalog();
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: theme.cardColor,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: theme.dividerColor.withValues(alpha: 0.5)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: theme.dividerColor.withValues(alpha: 0.5)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: theme.colorScheme.primary, width: 1.5),
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            onChanged: (val) {
+              setState(() {
+                _searchQuery = val;
+                _currentPage = 1;
+              });
+              _fetchCatalog();
+            },
+          ),
+          if (_categories.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 38,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _categories.length + 1,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, idx) {
+                  final cat = idx == 0 ? '' : _categories[idx - 1];
+                  final isSelected = _selectedCategory == cat;
+                  final label = idx == 0 ? 'All Categories' : cat;
+
+                  return ChoiceChip(
+                    selected: isSelected,
+                    selectedColor: theme.colorScheme.primary,
+                    backgroundColor: theme.cardColor,
+                    avatar: isSelected
+                        ? const Icon(Icons.check, size: 14, color: Colors.white)
+                        : null,
+                    side: BorderSide(
+                      color: isSelected
+                          ? theme.colorScheme.primary
+                          : const Color(0xFFE2E8F0),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    label: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.w500,
+                        color: isSelected
+                            ? Colors.white
+                            : (theme.textTheme.bodyMedium?.color ??
+                                const Color(0xFF334155)),
+                      ),
+                    ),
+                    onSelected: (_) {
+                      setState(() {
+                        _selectedCategory = cat;
+                        _currentPage = 1;
+                      });
+                      _fetchCatalog();
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Expanded(
+            child: _groupedCatalogItems.isEmpty
+                ? const Center(child: Text('No saleable products found.'))
+                : Column(
+                    children: [
+                      Expanded(
+                        child: GridView.builder(
+                          controller: _scrollController,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: crossAxisCount,
+                            childAspectRatio: childAspectRatio,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                          ),
+                          itemCount: _groupedCatalogItems.length,
+                          itemBuilder: (context, index) {
+                            final item = _groupedCatalogItems[index];
+
+                            final int itemId = item['id'];
+                            final int? templateId = item['product_template_id'];
+                            final bool hasVariants = templateId != null;
+
+                            final bool isStockable = item['stockable'] == true;
+                            final double currentStock = double.tryParse(
+                                    item['current_stock']?.toString() ?? '0') ??
+                                0.0;
+                            final bool isOutOfStock =
+                                isStockable && currentStock <= 0;
+
+                            bool isTemplateOutOfStock = false;
+                            if (hasVariants) {
+                              final siblings = _catalogItems.where((e) => e['product_template_id'] == templateId).toList();
+                              isTemplateOutOfStock = siblings.every((sib) {
+                                final bool sibStockable = sib['stockable'] == true;
+                                final double sibStock = double.tryParse(sib['current_stock']?.toString() ?? '0') ?? 0.0;
+                                return sibStockable && sibStock <= 0;
+                              });
+                            }
+
+                            final bool isDisplayOutOfStock = hasVariants ? isTemplateOutOfStock : isOutOfStock;
+
+                            final bool isInCart = _cart.containsKey(itemId);
+                            final double cartQty =
+                                isInCart ? _cart[itemId]!['qty'] : 0.0;
+
+                            final double displayCartQty = hasVariants ? _getGroupedCartQty(templateId, itemId) : cartQty;
+                            final bool isDisplayInCart = displayCartQty > 0;
+
+                            final String brand = (item['brand'] ?? '').toString().trim();
+                            final String baseName = hasVariants 
+                                ? (item['item_name'] ?? 'Product').toString().split(' - ').first 
+                                : (item['item_name'] ?? 'Product');
+                            final String foodType = (item['food_type'] ?? item['dietary_type'] ?? (item['is_veg'] == false ? 'NON_VEG' : (item['is_veg'] == true ? 'VEG' : ''))).toString().trim();
+
+                            final override = _getOverrideForItem(item);
+                            final double displaySelling = _getItemPrice(item);
+
+                            final double retailReferencePrice = double.tryParse(override?['b2c_price']?.toString() ?? '') ??
+                                double.tryParse(item['retail_sale_price']?.toString() ?? '') ??
+                                double.tryParse(item['original_price']?.toString() ?? '') ??
+                                double.tryParse(item['mrp']?.toString() ?? '') ??
+                                0.0;
+
+                            final double? originalPrice = item['original_price'] != null
+                                ? double.tryParse(item['original_price'].toString())
+                                : null;
+                            final double? itemMrp = item['mrp'] != null
+                                ? double.tryParse(item['mrp'].toString())
+                                : null;
+
+                            double? displayOriginal;
+                            if (_isB2BWholesaleMode) {
+                              if (retailReferencePrice > displaySelling) {
+                                displayOriginal = retailReferencePrice;
+                              }
+                            } else {
+                              final double? baseOriginalPrice = originalPrice ?? 
+                                  ((itemMrp != null && itemMrp > displaySelling) ? itemMrp : null);
+                              if (baseOriginalPrice != null && baseOriginalPrice > displaySelling) {
+                                displayOriginal = baseOriginalPrice;
+                              }
+                            }
+
+                            final bool hasPromo = displayOriginal != null && displayOriginal > displaySelling;
+                            final int percentOff = hasPromo ? (((displayOriginal - displaySelling) / displayOriginal) * 100).round() : 0;
+
+                              return Card(
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  side: const BorderSide(color: Color(0xFFF1F5F9), width: 1.5),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                color: Colors.white,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Top Image Section with Discount Badge & Dietary Tag
+                                    Stack(
+                                      children: [
+                                        Container(
+                                          height: isMobile ? 110.0 : 130.0,
+                                          width: double.infinity,
+                                          color: const Color(0xFFF8FAFC),
+                                          child: Center(
+                                            child: (item['image_path'] ?? '').toString().trim().isNotEmpty
+                                                ? Padding(
+                                                    padding: const EdgeInsets.all(8.0),
+                                                    child: Image.network(
+                                                      _itemImageUrl((item['image_path'] ?? '').toString()),
+                                                      fit: BoxFit.contain,
+                                                      errorBuilder: (_, __, ___) => const Icon(
+                                                        Icons.image_not_supported_outlined,
+                                                        size: 32,
+                                                        color: Color(0xFFCBD5E1),
+                                                      ),
+                                                    ),
+                                                  )
+                                                : const Icon(
+                                                    Icons.image_not_supported_outlined,
+                                                    size: 32,
+                                                    color: Color(0xFFCBD5E1),
+                                                  ),
+                                          ),
+                                        ),
+                                        if (hasPromo && percentOff > 0)
+                                          Positioned(
+                                            top: 8,
+                                            left: 8,
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                gradient: const LinearGradient(
+                                                  colors: [Color(0xFF15803D), Color(0xFF166534)],
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                ),
+                                                borderRadius: BorderRadius.circular(6),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.green.withOpacity(0.3),
+                                                    blurRadius: 4,
+                                                    offset: const Offset(0, 2),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Text(
+                                                '$percentOff% OFF',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 10,
+                                                  letterSpacing: 0.3,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        if (foodType.isNotEmpty && foodType != 'OTHER')
+                                          Positioned(
+                                            top: 8,
+                                            right: 8,
+                                            child: Container(
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius: BorderRadius.circular(4),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black.withOpacity(0.08),
+                                                    blurRadius: 3,
+                                                    offset: const Offset(0, 1),
+                                                  ),
+                                                ],
+                                              ),
+                                              padding: const EdgeInsets.all(3),
+                                              child: _buildDietaryBadge(foodType, size: 14),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    
+                                    // Details Section
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(10.0),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                if (brand.isNotEmpty) ...[
+                                                  Text(
+                                                    brand.toUpperCase(),
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF94A3B8),
+                                                      fontSize: 9,
+                                                      fontWeight: FontWeight.bold,
+                                                      letterSpacing: 0.5,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                ],
+                                                Row(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    if (foodType.isNotEmpty && foodType != 'OTHER')
+                                                      Padding(
+                                                        padding: const EdgeInsets.only(top: 2.5, right: 5),
+                                                        child: _buildDietaryBadge(foodType, size: 12),
+                                                      ),
+                                                    Expanded(
+                                                      child: Text(
+                                                        baseName,
+                                                        style: const TextStyle(
+                                                          fontWeight: FontWeight.w600,
+                                                          fontSize: 13,
+                                                          color: Color(0xFF1E293B),
+                                                          height: 1.2,
+                                                        ),
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 6),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(
+                                                      horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: isDisplayOutOfStock
+                                                        ? Colors.red.shade50
+                                                        : Colors.green.shade50,
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    isDisplayOutOfStock
+                                                        ? 'Out of Stock'
+                                                        : (hasVariants ? 'Options' : '${currentStock.toInt()} left'),
+                                                    style: TextStyle(
+                                                      color: isDisplayOutOfStock
+                                                          ? Colors.red.shade700
+                                                          : Colors.green.shade700,
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 10,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            
+                                            // Price and Add Button Row
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: Wrap(
+                                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                                    children: [
+                                                      if (hasPromo) ...[
+                                                        Text(
+                                                          CurrencyService.format(displayOriginal!, displayOriginal % 1 == 0 ? 0 : 2),
+                                                          style: TextStyle(
+                                                            color: Colors.grey.shade500,
+                                                            decoration: TextDecoration.lineThrough,
+                                                            fontSize: 11,
+                                                            fontWeight: FontWeight.w500,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(width: 4),
+                                                        Text(
+                                                          hasVariants
+                                                              ? '${CurrencyService.format(displaySelling, displaySelling % 1 == 0 ? 0 : 2)}+'
+                                                              : CurrencyService.format(displaySelling, displaySelling % 1 == 0 ? 0 : 2),
+                                                          style: const TextStyle(
+                                                            color: Color(0xFFD97706),
+                                                            fontWeight: FontWeight.w900,
+                                                            fontSize: 14,
+                                                          ),
+                                                        ),
+                                                      ] else ...[
+                                                        Text(
+                                                          hasVariants
+                                                              ? '${CurrencyService.format(displaySelling, displaySelling % 1 == 0 ? 0 : 2)}+'
+                                                              : CurrencyService.format(displaySelling, displaySelling % 1 == 0 ? 0 : 2),
+                                                          style: TextStyle(
+                                                            color: theme.colorScheme.primary,
+                                                            fontWeight: FontWeight.bold,
+                                                            fontSize: 14,
+                                                          ),
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ],
+                                                    ],
+                                                  ),
+                                                ),
+                                              _buildAddButton(
+                                                isOutOfStock: isDisplayOutOfStock,
+                                                isInCart: hasVariants ? isDisplayInCart : isInCart,
+                                                qty: hasVariants ? displayCartQty : cartQty,
+                                                onAdd: hasVariants
+                                                    ? () => _showCustomerVariantSelector(item)
+                                                    : () {
+                                                        final currentQty = cartQty;
+                                                        if ((_gstin.isEmpty && currentQty >= 5) ||
+                                                            (isStockable && currentQty >= currentStock)) {
+                                                          ScaffoldMessenger.of(context).showSnackBar(
+                                                            const SnackBar(
+                                                              content: Text('Maximum allowed quantity reached'),
+                                                              duration: Duration(seconds: 1),
+                                                            ),
+                                                          );
+                                                          return;
+                                                        }
+                                                        setState(() {
+                                                          _cart[itemId] = {
+                                                            'item': item,
+                                                            'qty': currentQty + 1.0,
+                                                          };
+                                                        });
+                                                      },
+                                                onRemove: hasVariants
+                                                    ? () => _showCustomerVariantSelector(item)
+                                                    : () {
+                                                        setState(() {
+                                                          if (cartQty > 1) {
+                                                            _cart[itemId]!['qty'] -= 1.0;
+                                                          } else {
+                                                            _cart.remove(itemId);
+                                                          }
+                                                        });
+                                                      },
+                                                theme: theme,
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      if (_isMoreLoading)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8.0),
+                          child: Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCartAndCheckoutSection(ThemeData theme, bool isMobile) {
+    final bool isB2bOrPosUser = widget.isB2BMode ||
+        widget.buyerPropertyInfo != null ||
+        _currentUser != null;
+    return Container(
+      decoration: BoxDecoration(
+        border: isMobile
+            ? null
+            : Border(left: BorderSide(color: theme.dividerColor)),
+      ),
+      padding: const EdgeInsets.all(16.0),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Shopping Cart',
+              style: theme.textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            if (_cart.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24.0),
+                child: Center(child: Text('Your cart is empty.')),
+              )
+            else
+              Column(
+                children: _cart.entries.map((entry) {
+                  final item = entry.value['item'];
+                  final qty = entry.value['qty'];
+                  final price = _getItemPrice(item);
+
+                  final int itemId = entry.key;
+                  final bool isStockable = item['stockable'] == true;
+                  final double currentStock = double.tryParse(
+                          item['current_stock']?.toString() ?? '0') ??
+                      0.0;
+
+                  final sub = _subscriptions.firstWhere(
+                    (s) => s['item_id'] == itemId && (s['active_subscription'] == true || s['status'] == 'ACTIVE'),
+                    orElse: () => null,
+                  );
+                  final double remainingQty = sub != null ? (double.tryParse(sub['today_remaining_qty']?.toString() ?? '0') ?? 0.0) : 0.0;
+
+                  final String cartFoodType = (item['food_type'] ?? item['dietary_type'] ?? (item['is_veg'] == false ? 'NON_VEG' : (item['is_veg'] == true ? 'VEG' : ''))).toString().trim();
+
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (cartFoodType.isNotEmpty && cartFoodType != 'OTHER')
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2.5, right: 5),
+                                child: _buildDietaryBadge(cartFoodType, size: 12),
+                              ),
+                            Expanded(
+                              child: Text(
+                                (item['brand'] ?? '').toString().isNotEmpty
+                                    ? '${item['item_name'] ?? 'Product'} (${item['brand']})'
+                                    : (item['item_name'] ?? 'Product'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (sub != null && remainingQty > 0)
+                          Container(
+                            margin: const EdgeInsets.only(top: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Subscription Covered: max ${remainingQty.toStringAsFixed(0)} daily at ${CurrencyService.format(0)}',
+                              style: const TextStyle(
+                                color: Colors.green,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    subtitle: Text(
+                        '${CurrencyService.format(price)} x ${qty.toStringAsFixed(0)}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline),
+                          onPressed: () {
+                            setState(() {
+                              if (qty > 1) {
+                                _cart[entry.key]!['qty'] -= 1.0;
+                              } else {
+                                _cart.remove(entry.key);
+                              }
+                            });
+                          },
+                        ),
+                        Text(
+                          qty.toStringAsFixed(0),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline),
+                          onPressed: ((_gstin.isEmpty && qty >= 5) ||
+                                  (isStockable && qty >= currentStock))
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _cart[entry.key]!['qty'] += 1.0;
+                                  });
+                                },
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            const Divider(),
+            _buildCartSummary(theme),
+            _buildCouponSection(theme),
+            const Divider(),
+            if (_loggedInCustomer == null && !isB2bOrPosUser) ...[
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.how_to_reg_outlined,
+                        color: theme.colorScheme.primary, size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Account Required to Place Order',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Please sign in or register to complete your order and track live delivery.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                      ),
+                      onPressed: () => _setSubTabIndex(2),
+                      child: const Text('Sign In / Register',
+                          style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              'Delivery Details',
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _custNameCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Customer Name',
+                prefixIcon: Icon(Icons.person_outline),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _custPhoneCtrl,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Phone Number',
+                prefixIcon: Icon(Icons.phone_outlined),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _custAddressCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Delivery Address',
+                prefixIcon: Icon(Icons.map_outlined),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _custGstinCtrl,
+              decoration: const InputDecoration(
+                labelText: 'GSTIN (Optional for B2B)',
+                prefixIcon: Icon(Icons.business_outlined),
+              ),
+              onChanged: (val) {
+                setState(() {
+                  _gstin = val.trim();
+                  if (_gstin.isEmpty) {
+                    _cart.forEach((key, value) {
+                      if (value['qty'] > 5.0) {
+                        value['qty'] = 5.0;
+                      }
+                    });
+                  }
+                  _currentPage = 1;
+                });
+                _fetchCatalog();
+              },
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text('Payment Mode:   ',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                ChoiceChip(
+                  label: const Text('CASH'),
+                  selected: _chosenPaymentMethod == 'CASH',
+                  onSelected: (selected) {
+                    if (selected) setState(() => _chosenPaymentMethod = 'CASH');
+                  },
+                ),
+
+                if (_enablePaymentGateway) ...[
+                  ChoiceChip(
+                    label: const Text('CARD'),
+                    selected: _chosenPaymentMethod == 'CARD',
+                    onSelected: (selected) {
+                      if (selected) setState(() => _chosenPaymentMethod = 'CARD');
+                    },
+                  ),
+                ],
+                ChoiceChip(
+                  label: const Text('UPI'),
+                  selected: _chosenPaymentMethod == 'UPI',
+                  onSelected: (selected) {
+                    if (selected) setState(() => _chosenPaymentMethod = 'UPI');
+                  },
+                ),
+                if (_enablePaymentGateway) ...[
+                  ChoiceChip(
+                    label: const Text('CREDIT'),
+                    selected: _chosenPaymentMethod == 'CREDIT',
+                    onSelected: (selected) {
+                      if (selected) setState(() => _chosenPaymentMethod = 'CREDIT');
+                    },
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text('Payment Status: ',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                ChoiceChip(
+                  label: const Text('Pay on Delivery'),
+                  selected: _paymentMode == 'UNPAID',
+                  onSelected: (selected) {
+                    if (selected) setState(() => _paymentMode = 'UNPAID');
+                  },
+                ),
+                if (_enablePaymentGateway || _merchantUpiId.isNotEmpty)
+                  ChoiceChip(
+                    label: const Text('Paid Online'),
+                    selected: _paymentMode == 'PAID',
+                    onSelected: (selected) {
+                      if (selected) setState(() => _paymentMode = 'PAID');
+                    },
+                  ),
+              ],
+            ),
+            if (_enablePaymentGateway)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  '🔒 Payment gateway active via $_paymentGatewayProvider. Orders marked as Paid Online will proceed to secure payment.',
+                  style: TextStyle(color: theme.colorScheme.primary, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              )
+            else if (_merchantUpiId.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  '📱 Direct UPI QR active. Orders marked as Paid Online will show a QR Code for instant UPI payment.',
+                  style: const TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton.icon(
+                onPressed: _placeOrder,
+                icon: Icon(
+                  (_loggedInCustomer == null && !isB2bOrPosUser)
+                      ? Icons.how_to_reg
+                      : Icons.check_circle_outline,
+                  size: 20,
+                ),
+                label: Text(
+                  (_loggedInCustomer == null && !isB2bOrPosUser)
+                      ? 'Register / Sign In to Place Order'
+                      : 'Place Delivery Order',
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReturnStatusBanner(dynamic order, double netAmt) {
+    Color color = Colors.grey;
+    IconData icon = Icons.info_outline;
+    String text = '';
+
+    final returnStatus = order['return_status'];
+    final returnedItems = _formatReturnedItems(order);
+    final refund = order['refund_details'];
+
+    if (returnStatus == 'RETURNED' && refund != null) {
+      final paidAmt =
+          double.tryParse(refund['amount_paid']?.toString() ?? '0.0') ?? 0.0;
+      final pendingAmt =
+          double.tryParse(refund['amount_pending']?.toString() ?? '0.0') ?? 0.0;
+      final mode = refund['payment_mode'] ?? 'N/A';
+      final status = refund['status'] ?? 'PENDING';
+      final remarks = refund['notes'] ?? '';
+
+      final isPending = status == 'PENDING';
+      color = isPending ? Colors.orange : Colors.blue;
+      icon = isPending ? Icons.pending_actions_outlined : Icons.keyboard_return_outlined;
+
+      final remainingPending = isPending 
+          ? pendingAmt 
+          : (pendingAmt - paidAmt < 0 ? 0.0 : pendingAmt - paidAmt);
+
+      final title = isPending 
+          ? 'Credit Note Issued - Refund Pending - $returnedItems' 
+          : 'Refunded - $returnedItems';
+
+      final Color textColor = isPending ? Colors.orange.shade900 : Colors.blue.shade900;
+      final Color detailColor = isPending ? Colors.orange.shade800 : Colors.blue.shade800;
+
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('• Mode: $mode',
+                      style:
+                          TextStyle(color: detailColor, fontSize: 12)),
+                  Text('• Refund Status: $status',
+                      style:
+                          TextStyle(color: detailColor, fontSize: 12)),
+                  Text(
+                      '• Refunded Amount: ${CurrencyService.format(paidAmt)} (Pending: ${CurrencyService.format(remainingPending)})',
+                      style:
+                          TextStyle(color: detailColor, fontSize: 12)),
+                  if (remarks.isNotEmpty)
+                    Text('• Remark: $remarks',
+                        style: TextStyle(
+                            color: detailColor, fontSize: 12)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (returnStatus == 'PENDING') {
+      color = Colors.orange;
+      icon = Icons.pending_actions_outlined;
+      text = 'Return Pending (${order['return_type']}) - $returnedItems';
+    } else if (returnStatus == 'RETURN_ACCEPTED') {
+      color = Colors.orange;
+      icon = Icons.check_circle_outline;
+      text = order['return_type'] == 'EXCHANGE'
+          ? 'Exchange Approved: Rider picking up new item from store.'
+          : 'Return Approved: Rider on the way to collect item.';
+    } else if (returnStatus == 'RETURN_PICKED_UP_FROM_STORE') {
+      color = Colors.orange;
+      icon = Icons.directions_bike;
+      text = order['return_type'] == 'EXCHANGE'
+          ? 'Exchange Approved: Rider out for delivery of replacement item.'
+          : 'Return Approved: Rider out for collection of return item.';
+    } else if (returnStatus == 'RETURN_COLLECTED') {
+      if (order['return_type'] == 'EXCHANGE') {
+        color = Colors.green;
+        icon = Icons.check_circle;
+        text = 'Exchange Completed. Replacement Delivered.';
+      } else {
+        color = Colors.orange;
+        icon = Icons.done;
+        text = 'Return Collected. Rider returning to store with item.';
+      }
+    } else if (returnStatus == 'RETURN_HANDED_OVER') {
+      if (order['return_type'] == 'EXCHANGE') {
+        color = Colors.green;
+        icon = Icons.check_circle;
+        text = 'Exchange Completed. Replacement Delivered.';
+      } else {
+        color = Colors.orange;
+        icon = Icons.airport_shuttle_outlined;
+        text = 'Return Handed Over to Store. Awaiting supplier confirmation.';
+      }
+    } else if (returnStatus == 'RETURNED') {
+      color = Colors.blue;
+      icon = Icons.keyboard_return_outlined;
+      final isPaid = order['payment_status'] == 'PAID';
+      text = isPaid
+          ? 'Refunded (${CurrencyService.format(netAmt)}) - $returnedItems'
+          : 'Return Accepted - $returnedItems';
+    } else if (returnStatus == 'EXCHANGED') {
+      color = Colors.purple;
+      icon = Icons.swap_horiz_outlined;
+      text = 'Exchanged - $returnedItems';
+    } else if (returnStatus == 'REDELIVERED') {
+      color = Colors.teal;
+      icon = Icons.delivery_dining_outlined;
+      text = 'Redelivered - $returnedItems';
+    } else if (returnStatus == 'REJECTED') {
+      color = Colors.red;
+      icon = Icons.gpp_bad_outlined;
+      final remark = order['return_rejection_reason'] ?? '';
+      text = 'Return Request Rejected - $returnedItems${remark.toString().isNotEmpty ? "\nReason: $remark" : ""}';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: color == Colors.orange
+                    ? Colors.orange.shade900
+                    : color == Colors.blue
+                        ? Colors.blue.shade900
+                        : color == Colors.purple
+                            ? Colors.purple.shade900
+                            : color == Colors.teal
+                                ? Colors.teal.shade900
+                                : color == Colors.red
+                                    ? Colors.red.shade900
+                                    : Colors.grey.shade900,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryView(ThemeData theme) {
+    final bool isB2bOrPosUser = widget.isB2BMode ||
+        widget.buyerPropertyInfo != null ||
+        _currentUser != null;
+
+    if (_loggedInCustomer == null && !isB2bOrPosUser) {
+      return _buildCustomerAuthView(theme);
+    }
+
+    return RefreshIndicator(
+        onRefresh: () async {
+          await _fetchHistory();
+          await _fetchSubscriptions();
+        },
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ChoiceChip(
+                      label: const Center(child: Text('Purchase Orders')),
+                      selected: _historySubTabIndex == 0,
+                      onSelected: (val) {
+                        if (val) setState(() => _historySubTabIndex = 0);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ChoiceChip(
+                      label: const Center(child: Text('Daily Subscriptions')),
+                      selected: _historySubTabIndex == 1,
+                      onSelected: (val) {
+                        if (val) {
+                          setState(() => _historySubTabIndex = 1);
+                          _fetchSubscriptions();
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _historySubTabIndex == 0
+                  ? (_historyOrders.isEmpty && _historySales.isEmpty
+                      ? const Center(
+                          child: SingleChildScrollView(
+                            physics: AlwaysScrollableScrollPhysics(),
+                            child: Padding(
+                              padding: EdgeInsets.all(32.0),
+                              child: Column(
+                                children: [
+                                  Icon(Icons.receipt_long_outlined,
+                                      size: 64, color: Colors.grey),
+                                  SizedBox(height: 16),
+                                  Text(
+                                      'No purchase history found for this account.',
+                                      style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w500)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        )
+                      : ListView(
+                          padding: const EdgeInsets.all(16.0),
+                          children: [
+                            _buildCustomerDashboard(theme),
+                            if (_historyOrders.isNotEmpty) ...[
+                              if (_historySales.isNotEmpty)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8.0),
+                                  child: Text(
+                                    'Online Delivery Orders',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                        color: theme.colorScheme.primary),
+                                  ),
+                                ),
+                              ..._historyOrders.map((order) {
+                                final netAmt = double.tryParse(
+                                        order['net_amount']?.toString() ??
+                                            '0') ??
+                                    0.0;
+                                final String status =
+                                    order['status'] ?? 'PENDING';
+                                final String returnStatus =
+                                    order['return_status']?.toString().toUpperCase() ?? '';
+                                final String refundStatus =
+                                    order['refund_status']?.toString().toUpperCase() ?? '';
+                                final String returnType =
+                                    order['return_type']?.toString().toUpperCase() ?? '';
+                                final orderStatus = OrderStatusDisplay.fromOrder(order);
+                                final itemsList = order['items'] as List? ?? [];
+                                final dateStr = order['created_at'] != null
+                                    ? DateFormat('dd-MMM-yyyy, hh:mm a').format(
+                                        DateTime.parse(
+                                            order['created_at'].toString()))
+                                    : '--';
+
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 16),
+                                  elevation: 0.5,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    side: BorderSide(
+                                        color: Colors.grey.shade200, width: 1),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12.0),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
+                                          children: [
+                                            CircleAvatar(
+                                              backgroundColor:
+                                                  orderStatus.color.withOpacity(0.12),
+                                              radius: 20,
+                                              child: Icon(
+                                                orderStatus.icon,
+                                                color: orderStatus.color,
+                                                size: 20,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    children: [
+                                                      Text(
+                                                        'Order #${order['id']}',
+                                                        style: const TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                            fontSize: 15),
+                                                      ),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                                horizontal: 8,
+                                                                vertical: 3),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: orderStatus.color
+                                                              .withOpacity(
+                                                                  0.12),
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(20),
+                                                        ),
+                                                        child: Text(
+                                                          orderStatus.label,
+                                                          style: TextStyle(
+                                                            color: orderStatus.color,
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                            fontSize: 10,
+                                                            letterSpacing: 0.5,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    dateStr,
+                                                    style: TextStyle(
+                                                        color: Colors
+                                                            .grey.shade600,
+                                                        fontSize: 12),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            IconButton(
+                                              icon: const Icon(
+                                                  Icons.print_outlined,
+                                                  size: 20),
+                                              tooltip: 'Print Invoice',
+                                              onPressed: () =>
+                                                  _showThermalReceipt(
+                                                      order, true),
+                                            ),
+                                          ],
+                                        ),
+                                        const Divider(height: 24),
+                                        if (order['received_items'] != null && (order['received_items'] as List).isNotEmpty) ...[
+                                           Row(
+                                             children: [
+                                               Icon(Icons.shopping_bag_outlined,
+                                                   size: 14,
+                                                   color: Colors.grey.shade600),
+                                               const SizedBox(width: 6),
+                                               const Text(
+                                                 'ORDERED ITEMS',
+                                                 style: TextStyle(
+                                                   fontWeight: FontWeight.bold,
+                                                   fontSize: 11,
+                                                   color: Colors.grey,
+                                                   letterSpacing: 0.8,
+                                                 ),
+                                               ),
+                                             ],
+                                           ),
+                                           const SizedBox(height: 8),
+                                           ...itemsList.map<Widget>((it) {
+                                             final amt = double.tryParse(it['amount']?.toString() ?? '0') ?? 0.0;
+                                             final q = double.tryParse(it['qty']?.toString() ?? '1') ?? 1.0;
+                                             return Padding(
+                                               padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                               child: Row(
+                                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                 children: [
+                                                   Expanded(
+                                                     child: Text(
+                                                       (it['brand'] ?? '').toString().isNotEmpty
+                                                           ? '•  ${it["item_name"]} (${it["brand"]}) x ${q.toStringAsFixed(0)}'
+                                                           : '•  ${it["item_name"]} x ${q.toStringAsFixed(0)}',
+                                                       style: TextStyle(
+                                                           fontSize: 13,
+                                                           color: Colors.grey.shade600,
+                                                           decoration: TextDecoration.lineThrough),
+                                                       overflow: TextOverflow.ellipsis,
+                                                     ),
+                                                   ),
+                                                   const SizedBox(width: 16),
+                                                   Text(
+                                                     CurrencyService.format(amt),
+                                                     style: TextStyle(
+                                                         fontSize: 13,
+                                                         color: Colors.grey.shade500,
+                                                         decoration: TextDecoration.lineThrough),
+                                                   ),
+                                                 ],
+                                               ),
+                                             );
+                                           }),
+                                           const Divider(height: 24),
+                                           Row(
+                                             children: [
+                                               Icon(Icons.check_circle_outline,
+                                                   size: 14,
+                                                   color: Colors.green.shade700),
+                                               const SizedBox(width: 6),
+                                               Text(
+                                                 'RECEIVED ITEMS (MODIFIED)',
+                                                 style: TextStyle(
+                                                   fontWeight: FontWeight.bold,
+                                                   fontSize: 11,
+                                                   color: Colors.green.shade700,
+                                                   letterSpacing: 0.8,
+                                                 ),
+                                               ),
+                                             ],
+                                           ),
+                                           const SizedBox(height: 8),
+                                           ...(order['received_items'] as List).map<Widget>((it) {
+                                             final amt = double.tryParse(it['amount']?.toString() ?? '0') ?? 0.0;
+                                             final q = double.tryParse(it['qty']?.toString() ?? '1') ?? 1.0;
+                                             return Padding(
+                                               padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                               child: Row(
+                                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                 children: [
+                                                   Expanded(
+                                                     child: Text(
+                                                       (it['brand'] ?? '').toString().isNotEmpty
+                                                           ? '•  ${it["item_name"]} (${it["brand"]}) x ${q.toStringAsFixed(0)}'
+                                                           : '•  ${it["item_name"]} x ${q.toStringAsFixed(0)}',
+                                                       style: TextStyle(
+                                                           fontSize: 13,
+                                                           fontWeight: FontWeight.w500,
+                                                           color: Colors.grey.shade800),
+                                                       overflow: TextOverflow.ellipsis,
+                                                     ),
+                                                   ),
+                                                   const SizedBox(width: 16),
+                                                   Text(
+                                                     CurrencyService.format(amt),
+                                                     style: TextStyle(
+                                                         fontSize: 13,
+                                                         fontWeight: FontWeight.bold,
+                                                         color: Colors.grey.shade800),
+                                                   ),
+                                                 ],
+                                               ),
+                                             );
+                                           }),
+                                         ] else ...[
+                                           ...itemsList.map<Widget>((it) {
+                                             final amt = double.tryParse(
+                                                     it['amount']?.toString() ??
+                                                         '0') ??
+                                                 0.0;
+                                             final q = double.tryParse(
+                                                     it['qty']?.toString() ??
+                                                         '1') ??
+                                                 1.0;
+                                             return Padding(
+                                               padding: const EdgeInsets.symmetric(
+                                                   vertical: 4.0),
+                                               child: Row(
+                                                 mainAxisAlignment:
+                                                     MainAxisAlignment
+                                                         .spaceBetween,
+                                                 children: [
+                                                   Expanded(
+                                                     child: Text(
+                                                       (it['brand'] ?? '').toString().isNotEmpty
+                                                           ? '•  ${it["item_name"]} (${it["brand"]}) x ${q.toStringAsFixed(0)}'
+                                                           : '•  ${it["item_name"]} x ${q.toStringAsFixed(0)}',
+                                                       style: TextStyle(
+                                                           fontSize: 13,
+                                                           color: Colors
+                                                               .grey.shade800),
+                                                       overflow:
+                                                           TextOverflow.ellipsis,
+                                                     ),
+                                                   ),
+                                                   const SizedBox(width: 16),
+                                                   Text(
+                                                     CurrencyService.format(amt),
+                                                     style: TextStyle(
+                                                         fontSize: 13,
+                                                         fontWeight:
+                                                             FontWeight.w500,
+                                                         color:
+                                                             Colors.grey.shade800),
+                                                   ),
+                                                 ],
+                                               ),
+                                             );
+                                           }),
+                                         ],
+                                        const Divider(height: 20),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              'Total Amount:',
+                                              style: TextStyle(
+                                                  color: Colors.grey.shade600,
+                                                  fontSize: 13),
+                                            ),
+                                            Text(
+                                              CurrencyService.format(netAmt),
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15),
+                                            ),
+                                          ],
+                                        ),
+                                         if (order['modification_reason'] != null && order['modification_reason'].toString().isNotEmpty) ...[
+                                           const SizedBox(height: 12),
+                                           Container(
+                                             width: double.infinity,
+                                             padding: const EdgeInsets.all(10.0),
+                                             decoration: BoxDecoration(
+                                               color: Colors.amber.shade50,
+                                               borderRadius: BorderRadius.circular(12),
+                                               border: Border.all(color: Colors.amber.shade200),
+                                             ),
+                                             child: Row(
+                                               children: [
+                                                 Icon(Icons.info_outline, size: 18, color: Colors.amber.shade800),
+                                                 const SizedBox(width: 8),
+                                                 Expanded(
+                                                   child: Text(
+                                                     'Correction Reason: ${order['modification_reason']}',
+                                                     style: TextStyle(fontSize: 13, color: Colors.amber.shade900, fontWeight: FontWeight.w600),
+                                                   ),
+                                                 ),
+                                               ],
+                                             ),
+                                           ),
+                                         ],
+                                         if (order['original_net_amount'] != null) ...[
+                                            (() {
+                                              final origAmt = double.tryParse(order['original_net_amount'].toString()) ?? 0.0;
+                                              final diff = netAmt - origAmt;
+                                              if (diff.abs() > 0.01) {
+                                                final isRefund = diff < 0;
+                                                final isPrepaid = order['is_prepaid'] == true || order['is_prepaid'] == 1;
+                                                final isRefunded = order['refund_status']?.toString() == 'REFUNDED';
+                                                
+                                                String label = '';
+                                                Color boxColor;
+                                                Color textColor;
+                                                Color borderColor;
+
+                                                if (isPrepaid) {
+                                                  if (isRefund) {
+                                                    if (isRefunded) {
+                                                      final refundPaidAtRaw = order['refund_paid_at'] ?? order['updated_at'];
+                                                      final refundPaidAtStr = refundPaidAtRaw != null
+                                                          ? DateFormat('dd-MMM-yyyy, hh:mm a').format(DateTime.parse(refundPaidAtRaw.toString()).toLocal())
+                                                          : '';
+                                                      final refundMethod = order['refund_payment_mode'] ?? order['payment_mode'] ?? 'UPI';
+                                                      label = 'Refund Paid via $refundMethod at $refundPaidAtStr:';
+                                                      boxColor = Colors.blue.shade50;
+                                                      borderColor = Colors.blue.shade200;
+                                                      textColor = Colors.blue.shade800;
+                                                    } else {
+                                                      label = 'Amount to Refund:';
+                                                      boxColor = Colors.green.shade50;
+                                                      borderColor = Colors.green.shade200;
+                                                      textColor = Colors.green.shade800;
+                                                    }
+                                                  } else {
+                                                    label = 'Extra Amount Charged:';
+                                                    boxColor = Colors.red.shade50;
+                                                    borderColor = Colors.red.shade200;
+                                                    textColor = Colors.red.shade800;
+                                                  }
+                                                } else {
+                                                  // COD Order
+                                                  if (isRefund) {
+                                                    label = 'Amount Reduced:';
+                                                    boxColor = Colors.green.shade50;
+                                                    borderColor = Colors.green.shade200;
+                                                    textColor = Colors.green.shade800;
+                                                  } else {
+                                                    label = 'Extra Amount to Pay:';
+                                                    boxColor = Colors.red.shade50;
+                                                    borderColor = Colors.red.shade200;
+                                                    textColor = Colors.red.shade800;
+                                                  }
+                                                }
+
+                                                return Padding(
+                                                  padding: const EdgeInsets.only(top: 12.0),
+                                                  child: Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                    decoration: BoxDecoration(
+                                                      color: boxColor,
+                                                      borderRadius: BorderRadius.circular(12),
+                                                      border: Border.all(color: borderColor),
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                      children: [
+                                                        Expanded(
+                                                          child: Text(
+                                                            label,
+                                                            style: TextStyle(
+                                                              fontSize: 13,
+                                                              color: textColor,
+                                                              fontWeight: FontWeight.bold,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        Text(
+                                                          CurrencyService.format(diff.abs()),
+                                                          style: TextStyle(
+                                                            fontSize: 13,
+                                                            color: textColor,
+                                                            fontWeight: FontWeight.w900,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                              return const SizedBox.shrink();
+                                            })(),
+                                          ],
+                                          if (status == 'CANCELLED' && (order['is_prepaid'] == true || order['is_prepaid'] == 1) && order['refund_status'] != null) ...[
+                                            (() {
+                                              final isRefunded = order['refund_status']?.toString() == 'REFUNDED';
+                                              final refundPaidAtRaw = order['refund_paid_at'] ?? order['updated_at'];
+                                              final refundPaidAtStr = refundPaidAtRaw != null
+                                                  ? DateFormat('dd-MMM-yyyy, hh:mm a').format(DateTime.parse(refundPaidAtRaw.toString()).toLocal())
+                                                  : '';
+                                              final refundMethod = order['refund_payment_mode'] ?? order['payment_mode'] ?? 'UPI';
+                                              
+                                              final label = isRefunded
+                                                  ? (refundMethod == 'GATEWAY'
+                                                      ? 'Refund processed via Online Gateway. Credited to source account in 48 hours to 3 business days.\nProcessed at $refundPaidAtStr:'
+                                                      : 'Refund Paid via $refundMethod at $refundPaidAtStr:')
+                                                  : 'Refund Pending:';
+
+                                              return Padding(
+                                                padding: const EdgeInsets.only(top: 12.0),
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                  decoration: BoxDecoration(
+                                                    color: isRefunded ? Colors.blue.shade50 : Colors.amber.shade50,
+                                                    borderRadius: BorderRadius.circular(12),
+                                                    border: Border.all(
+                                                      color: isRefunded ? Colors.blue.shade200 : Colors.amber.shade200,
+                                                    ),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          label,
+                                                          style: TextStyle(
+                                                            fontSize: 13,
+                                                            color: isRefunded ? Colors.blue.shade800 : Colors.amber.shade900,
+                                                            fontWeight: FontWeight.bold,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        CurrencyService.format(netAmt),
+                                                        style: TextStyle(
+                                                          fontSize: 13,
+                                                          color: isRefunded ? Colors.blue.shade800 : Colors.amber.shade900,
+                                                          fontWeight: FontWeight.w900,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              );
+                                            })(),
+                                          ],
+                                        if (status == 'PENDING' ||
+                                            status == 'ACCEPTED' ||
+                                            status == 'ASSIGNED' ||
+                                            status == 'OUT_FOR_DELIVERY') ...[
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Expanded(
+                                                child: Row(
+                                                  children: [
+                                                    Icon(
+                                                        (status == 'PENDING' ||
+                                                                status ==
+                                                                    'ACCEPTED')
+                                                            ? Icons.info_outline
+                                                            : Icons
+                                                                .delivery_dining_outlined,
+                                                        color: (status ==
+                                                                    'PENDING' ||
+                                                                status ==
+                                                                    'ACCEPTED')
+                                                            ? Colors
+                                                                .orange.shade700
+                                                            : Colors
+                                                                .blue.shade700,
+                                                        size: 16),
+                                                    const SizedBox(width: 6),
+                                                    Expanded(
+                                                      child: Text(
+                                                        (status == 'PENDING' ||
+                                                                status ==
+                                                                    'ACCEPTED')
+                                                            ? 'Order placed. Processing...'
+                                                            : 'Order shipped / out for delivery',
+                                                        overflow: TextOverflow.ellipsis,
+                                                        style: TextStyle(
+                                                            color: (status ==
+                                                                        'PENDING' ||
+                                                                    status ==
+                                                                        'ACCEPTED')
+                                                                ? Colors
+                                                                    .orange.shade700
+                                                                : Colors
+                                                                    .blue.shade700,
+                                                            fontWeight:
+                                                                FontWeight.w500,
+                                                            fontSize: 13),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              Wrap(
+                                                spacing: 8,
+                                                children: [
+                                                  if (status == 'PENDING' ||
+                                                      status == 'ACCEPTED')
+                                                    OutlinedButton.icon(
+                                                      onPressed: () =>
+                                                          _cancelOrderAsCustomer(
+                                                              order['id']),
+                                                      icon: const Icon(
+                                                          Icons.cancel_outlined,
+                                                          color: Colors.red,
+                                                          size: 16),
+                                                      label: const Text(
+                                                          'Cancel',
+                                                          style: TextStyle(
+                                                              color: Colors.red,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold)),
+                                                      style: OutlinedButton
+                                                          .styleFrom(
+                                                        side: const BorderSide(
+                                                            color: Colors.red),
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                                horizontal: 8,
+                                                                vertical: 0),
+                                                        shape:
+                                                            RoundedRectangleBorder(
+                                                                borderRadius:
+                                                                    BorderRadius
+                                                                        .circular(
+                                                                            8)),
+                                                      ),
+                                                    ),
+                                                  ElevatedButton.icon(
+                                                    onPressed: () {
+                                                      setState(() {
+                                                        _activeOrderId =
+                                                            order['id'];
+                                                        _activeOrder = order;
+                                                      });
+                                                      _startTrackingOrder();
+                                                    },
+                                                    icon: const Icon(
+                                                        Icons
+                                                            .location_on_outlined,
+                                                        size: 16),
+                                                    label: const Text('Track'),
+                                                    style: ElevatedButton
+                                                        .styleFrom(
+                                                      backgroundColor: theme
+                                                          .colorScheme.primary,
+                                                      foregroundColor: theme
+                                                          .colorScheme
+                                                          .onPrimary,
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 0),
+                                                      shape:
+                                                          RoundedRectangleBorder(
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          8)),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ] else if (status == 'CANCELLED') ...[
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            children: [
+                                              Icon(Icons.cancel_outlined,
+                                                  color: Colors.red.shade700,
+                                                  size: 16),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  'Cancelled: ${order['cancellation_reason'] ?? 'No reason provided'}',
+                                                  style: TextStyle(
+                                                      color:
+                                                          Colors.red.shade700,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      fontSize: 13),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ] else ...[
+                                          if (order['return_status'] !=
+                                              null) ...[
+                                            const SizedBox(height: 12),
+                                            _buildReturnStatusBanner(
+                                                order, netAmt),
+                                          ] else ...[
+                                            const SizedBox(height: 12),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child:
+                                                      order['return_eligible'] !=
+                                                              false
+                                                          ? Row(
+                                                              children: [
+                                                                const Icon(
+                                                                    Icons
+                                                                        .assignment_return_outlined,
+                                                                    color: Colors
+                                                                        .green,
+                                                                    size: 16),
+                                                                const SizedBox(
+                                                                    width: 6),
+                                                                Expanded(
+                                                                  child: Text(
+                                                                    'Return window open (${order['return_days_remaining'] != null ? double.parse(order['return_days_remaining'].toString()).toStringAsFixed(0) : 7}d remaining)',
+                                                                    style: TextStyle(
+                                                                        color: Colors
+                                                                            .green
+                                                                            .shade700,
+                                                                        fontWeight:
+                                                                            FontWeight
+                                                                                .w500,
+                                                                        fontSize:
+                                                                            13),
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            )
+                                                          : Row(
+                                                              children: [
+                                                                const Icon(
+                                                                    Icons
+                                                                        .lock_clock_outlined,
+                                                                    color: Colors
+                                                                        .red,
+                                                                    size: 16),
+                                                                const SizedBox(
+                                                                    width: 6),
+                                                                Expanded(
+                                                                  child: Text(
+                                                                    'Return Window Closed (${order['return_window_days'] ?? 7}d)',
+                                                                    style: TextStyle(
+                                                                        color: Colors
+                                                                            .red
+                                                                            .shade600,
+                                                                        fontWeight:
+                                                                            FontWeight
+                                                                                .w500,
+                                                                        fontSize:
+                                                                            13),
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                ),
+                                                if (order['return_eligible'] !=
+                                                        false &&
+                                                    (_isRefundAvailable ||
+                                                        _isExchangeAvailable))
+                                                  FilledButton.icon(
+                                                    onPressed: () =>
+                                                        _requestReturnDialog(
+                                                            order['id']),
+                                                    icon: const Icon(
+                                                        Icons
+                                                            .assignment_return_outlined,
+                                                        size: 16),
+                                                    label: const Text(
+                                                        'Return / Exchange'),
+                                                    style:
+                                                        FilledButton.styleFrom(
+                                                      backgroundColor: theme
+                                                          .colorScheme
+                                                          .secondary,
+                                                      foregroundColor: theme
+                                                          .colorScheme
+                                                          .onSecondary,
+                                                      shape:
+                                                          RoundedRectangleBorder(
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          8)),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ],
+                                          if (order['feedback'] != null) ...[
+                                            const SizedBox(height: 12),
+                                            Container(
+                                              width: double.infinity,
+                                              padding: const EdgeInsets.all(12),
+                                              decoration: BoxDecoration(
+                                                color: Colors.amber.shade50
+                                                    .withOpacity(0.5),
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                border: Border.all(
+                                                    color:
+                                                        Colors.amber.shade200),
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    children: [
+                                                      Row(
+                                                        children: [
+                                                          const Icon(Icons.star,
+                                                              color:
+                                                                  Colors.amber,
+                                                              size: 16),
+                                                          const SizedBox(
+                                                              width: 4),
+                                                          Text(
+                                                            'Your Feedback: ${order['feedback']['rating']}/5',
+                                                            style: const TextStyle(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                fontSize: 13),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                                horizontal: 6,
+                                                                vertical: 2),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: Colors
+                                                              .grey.shade200,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(4),
+                                                        ),
+                                                        child: const Text(
+                                                          'Internal Purpose Only',
+                                                          style: TextStyle(
+                                                              fontSize: 10,
+                                                              color:
+                                                                  Colors.grey,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  if (order['feedback']
+                                                              ['comment'] !=
+                                                          null &&
+                                                      order['feedback']
+                                                              ['comment']
+                                                          .toString()
+                                                          .isNotEmpty) ...[
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      '"${order['feedback']['comment']}"',
+                                                      style: TextStyle(
+                                                          fontSize: 12,
+                                                          fontStyle:
+                                                              FontStyle.italic,
+                                                          color: Colors
+                                                              .grey.shade700),
+                                                    ),
+                                                  ],
+                                                  if (order['feedback']
+                                                          ['reply'] !=
+                                                      null) ...[
+                                                    const Divider(height: 16),
+                                                    Row(
+                                                      children: [
+                                                        const Icon(Icons.reply,
+                                                            color: Colors.blue,
+                                                            size: 14),
+                                                        const SizedBox(
+                                                            width: 6),
+                                                        Expanded(
+                                                          child: Text(
+                                                            'Retailer Reply: "${order['feedback']['reply']}"',
+                                                            style: const TextStyle(
+                                                                fontSize: 12,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w500,
+                                                                color: Colors
+                                                                    .blue),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ] else ...[
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      'Awaiting reply from retailer...',
+                                                      style: TextStyle(
+                                                          fontSize: 11,
+                                                          color: Colors
+                                                              .grey.shade500,
+                                                          fontStyle:
+                                                              FontStyle.italic),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                          ] else ...[
+                                            const SizedBox(height: 8),
+                                            OutlinedButton.icon(
+                                              onPressed: () =>
+                                                  _submitFeedbackDialog(
+                                                      order['id']),
+                                              icon: const Icon(
+                                                  Icons.rate_review_outlined,
+                                                  size: 16),
+                                              label:
+                                                  const Text('Submit Feedback'),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor:
+                                                    theme.colorScheme.primary,
+                                                side: BorderSide(
+                                                    color: theme
+                                                        .colorScheme.primary),
+                                                shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            8)),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ],
+                            if (_historySales.isNotEmpty) ...[
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 8.0),
+                                child: Text(
+                                  'In-Store POS Purchases',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue.shade900),
+                                ),
+                              ),
+                              ..._historySales.map((sale) {
+                                final netAmt = double.tryParse(
+                                        sale['net_amount']?.toString() ??
+                                            '0') ??
+                                    0.0;
+                                final dateStr = sale['sale_date'] != null
+                                    ? DateFormat('dd-MMM-yyyy, hh:mm a').format(
+                                        DateTime.parse(
+                                            sale['sale_date'].toString()))
+                                    : '--';
+                                final itemsList = sale['items'] as List? ?? [];
+
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 16),
+                                  elevation: 0.5,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    side: BorderSide(
+                                        color: Colors.grey.shade200, width: 1),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12.0),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
+                                          children: [
+                                            CircleAvatar(
+                                              backgroundColor:
+                                                  Colors.blue.shade50,
+                                              radius: 20,
+                                              child: Icon(
+                                                  Icons.storefront_outlined,
+                                                  color: Colors.blue.shade700,
+                                                  size: 20),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    children: [
+                                                      Text(
+                                                        sale['sale_no'] ??
+                                                            'Invoice',
+                                                        style: const TextStyle(
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                            fontSize: 15),
+                                                      ),
+                                                      Container(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                                horizontal: 8,
+                                                                vertical: 3),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: Colors
+                                                              .blue.shade50,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(20),
+                                                        ),
+                                                        child: Text(
+                                                          sale['payment_mode'] ??
+                                                              'PAID',
+                                                          style: TextStyle(
+                                                            color: Colors
+                                                                .blue.shade700,
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                            fontSize: 10,
+                                                            letterSpacing: 0.5,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    dateStr,
+                                                    style: TextStyle(
+                                                        color: Colors
+                                                            .grey.shade600,
+                                                        fontSize: 12),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            IconButton(
+                                              icon: const Icon(
+                                                  Icons.print_outlined,
+                                                  size: 20),
+                                              tooltip: 'Print Invoice',
+                                              onPressed: () =>
+                                                  _showThermalReceipt(
+                                                      sale, false),
+                                            ),
+                                          ],
+                                        ),
+                                        const Divider(height: 24),
+                                        Row(
+                                          children: [
+                                            Icon(Icons.shopping_bag_outlined,
+                                                size: 14,
+                                                color: Colors.grey.shade600),
+                                            const SizedBox(width: 6),
+                                            const Text(
+                                              'ITEMS',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 11,
+                                                color: Colors.grey,
+                                                letterSpacing: 0.8,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        ...itemsList.map<Widget>((it) {
+                                          final amt = double.tryParse(
+                                                  it['amount']?.toString() ??
+                                                      '0') ??
+                                              0.0;
+                                          final q = double.tryParse(
+                                                  it['qty']?.toString() ??
+                                                      '1') ??
+                                              1.0;
+                                          return Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                vertical: 4.0),
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    (it['brand'] ?? '').toString().isNotEmpty
+                                                        ? '•  ${it['item_name']} (${it['brand']}) x ${q.toStringAsFixed(0)}'
+                                                        : '•  ${it['item_name']} x ${q.toStringAsFixed(0)}',
+                                                    style: TextStyle(
+                                                        fontSize: 13,
+                                                        color: Colors
+                                                            .grey.shade800),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 16),
+                                                Text(
+                                                  CurrencyService.format(amt),
+                                                  style: TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color:
+                                                          Colors.grey.shade800),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ],
+                          ],
+                        ))
+                  : ListView(
+                      padding: const EdgeInsets.all(16.0),
+                      children: [
+                        _buildSubscriptionsView(theme),
+                      ],
+                    ),
+            ),
+          ],
+        ));
+  }
+
+  Widget _buildCustomerDashboard(ThemeData theme) {
+    double totalSpent = 0.0;
+    double totalSavings = 0.0;
+    int deliveredCount = 0;
+    int cancelledCount = 0;
+    int returnedCount = 0;
+    int refundCount = 0;
+    int exchangeCount = 0;
+
+    for (var order in _historyOrders) {
+      final status = order['status']?.toString().toUpperCase() ?? 'PENDING';
+      final netAmt =
+          double.tryParse(order['net_amount']?.toString() ?? '0') ?? 0.0;
+      final retStatus = order['return_status'];
+      final retType = order['return_type']?.toString().toUpperCase();
+
+      if (status == 'DELIVERED') {
+        deliveredCount++;
+        totalSpent += netAmt;
+        totalSavings += _calculateOrderSavings(order);
+      } else if (status == 'CANCELLED') {
+        cancelledCount++;
+      }
+
+      if (retStatus != null) {
+        returnedCount++;
+        if (retType == 'REFUND') {
+          refundCount++;
+        } else if (retType == 'EXCHANGE') {
+          exchangeCount++;
+        }
+      }
+    }
+
+    for (var sale in _historySales) {
+      final netAmt =
+          double.tryParse(sale['net_amount']?.toString() ?? '0') ?? 0.0;
+      totalSpent += netAmt;
+      final discount =
+          double.tryParse(sale['discount_amount']?.toString() ?? '0') ?? 0.0;
+      totalSavings += discount;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            theme.colorScheme.primaryContainer.withOpacity(0.4),
+            theme.colorScheme.surface
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.colorScheme.primary.withOpacity(0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Your Purchase Summary',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: theme.colorScheme.primary),
+              ),
+              Icon(Icons.analytics_outlined,
+                  color: theme.colorScheme.primary, size: 20),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMetricCard(
+                  'Total Spend',
+                  '${CurrencyService.format(totalSpent)}',
+                  Colors.indigo.shade800,
+                  Icons.account_balance_wallet_outlined,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMetricCard(
+                  'Total Savings',
+                  '${CurrencyService.format(totalSavings)}',
+                  Colors.green.shade800,
+                  Icons.savings_outlined,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildCountBadge('Delivered', deliveredCount, Colors.green,
+                    Icons.check_circle_outline),
+                const SizedBox(width: 8),
+                _buildCountBadge('Cancelled', cancelledCount, Colors.red,
+                    Icons.cancel_outlined),
+                const SizedBox(width: 8),
+                _buildCountBadge('Returned', returnedCount, Colors.orange,
+                    Icons.keyboard_return_outlined),
+                const SizedBox(width: 8),
+                _buildCountBadge('Refunded', refundCount, Colors.blue,
+                    Icons.monetization_on_outlined),
+                const SizedBox(width: 8),
+                _buildCountBadge('Exchanged', exchangeCount, Colors.purple,
+                    Icons.swap_horiz_outlined),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricCard(
+      String label, String value, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.15)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                      color: color.withOpacity(0.8),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                      color: color, fontSize: 15, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCountBadge(String label, int count, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 14),
+          const SizedBox(width: 4),
+          Text(
+            '$label: ',
+            style: TextStyle(
+                color: Colors.grey.shade800,
+                fontSize: 11,
+                fontWeight: FontWeight.bold),
+          ),
+          Text(
+            '$count',
+            style: TextStyle(
+                color: color, fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubscriptionsView(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Milk & Daily Subscriptions',
+                style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.primary),
+              ),
+              FilledButton.icon(
+                onPressed: _showSubscribeDialog,
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Subscribe'),
+                style: FilledButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (_isSubscriptionsLoading)
+          const Center(child: CircularProgressIndicator())
+        else if (_subscriptions.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(24.0),
+              child: Column(
+                children: [
+                  Icon(Icons.calendar_today_outlined,
+                      size: 48, color: Colors.grey),
+                  SizedBox(height: 12),
+                  Text(
+                    'No subscriptions yet. Tap "Subscribe" to start one!',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          ..._subscriptions.map((sub) {
+            final String unit = sub['item']?['unit']?.toString() ?? 'Ltr';
+            final double consumed = double.tryParse(
+                    sub['advance_consumed_qty']?.toString() ?? '0.0') ??
+                0.0;
+            final double original = double.tryParse(
+                    sub['advance_original_qty']?.toString() ?? '0.0') ??
+                0.0;
+            final double remaining = double.tryParse(
+                    sub['advance_remaining_qty']?.toString() ?? '0.0') ??
+                0.0;
+            final double totalPaid = double.tryParse(
+                    sub['advance_original_amount']?.toString() ?? '0.0') ??
+                0.0;
+            final double consumedAmount = double.tryParse(
+                    sub['advance_consumed_amount']?.toString() ?? '0.0') ??
+                0.0;
+            final double progress =
+                original > 0 ? (consumed / original).clamp(0.0, 1.0) : 0.0;
+            final status = sub['status']?.toString() ?? 'ACTIVE';
+            final isActive = sub['active_subscription'] == true;
+
+            final startDateVal = sub['start_date'] != null
+                ? DateFormat('dd-MMM-yyyy')
+                    .format(DateTime.parse(sub['start_date'].toString()))
+                : '--';
+            final endDateVal = sub['end_date'] != null
+                ? DateFormat('dd-MMM-yyyy')
+                    .format(DateTime.parse(sub['end_date'].toString()))
+                : '--';
+
+            // Determine badge color by status
+            Color badgeColor;
+            Color badgeBg;
+            if (isActive) {
+              badgeColor = Colors.green.shade700;
+              badgeBg = Colors.green.shade50;
+            } else if (status == 'EXPIRED') {
+              badgeColor = Colors.orange.shade700;
+              badgeBg = Colors.orange.shade50;
+            } else {
+              badgeColor = Colors.grey.shade700;
+              badgeBg = Colors.grey.shade100;
+            }
+
+            final canRenew = !isActive || remaining < (original * 0.2 + 0.001);
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                    color: isActive ? theme.colorScheme.primary.withOpacity(0.3) : Colors.grey.shade200),
+              ),
+              elevation: isActive ? 2 : 0,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header row: item name + status badge
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            (sub['item']?['brand'] ?? '').toString().isNotEmpty
+                                ? '${sub['item_name'] ?? 'Milk Service'} (${sub['item']['brand']})'
+                                : (sub['item_name'] ?? 'Milk Service'),
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: badgeBg,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            isActive ? 'ACTIVE' : status,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: badgeColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    // Duration row
+                    Row(
+                      children: [
+                        const Icon(Icons.date_range, size: 14, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        Text('$startDateVal → $endDateVal',
+                            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    // Rate + daily qty
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Daily Limit: ${sub['daily_allowed_qty']} $unit',
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+                        Text('Rate: ${CurrencyService.format(double.tryParse(sub['advance_rate']?.toString() ?? '0') ?? 0.0)}/unit',
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
+                      ],
+                    ),
+                    const Divider(height: 20),
+                    // Financial summary grid
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: theme.colorScheme.primary.withOpacity(0.12)),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              _subStat('Total Paid', CurrencyService.format(totalPaid),
+                                  Icons.payments_outlined, Colors.blue.shade700, theme),
+                              const SizedBox(width: 8),
+                              _subStat('Consumed Amt', CurrencyService.format(consumedAmount),
+                                  Icons.shopping_bag_outlined, Colors.orange.shade700, theme),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              _subStat('Total Qty', '${original.toStringAsFixed(1)} $unit',
+                                  Icons.inventory_2_outlined, Colors.teal.shade700, theme),
+                              const SizedBox(width: 8),
+                              _subStat('Remaining', '${remaining.toStringAsFixed(1)} $unit',
+                                  Icons.water_drop_outlined,
+                                  remaining < 2 ? Colors.red.shade600 : Colors.green.shade700,
+                                  theme),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Progress bar
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Consumption',
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(fontWeight: FontWeight.w600)),
+                        Text(
+                          '${consumed.toStringAsFixed(1)} / ${original.toStringAsFixed(1)} $unit',
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 8,
+                        backgroundColor: Colors.grey.shade200,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                            progress > 0.85 ? Colors.orange : theme.colorScheme.primary),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    // Action buttons
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => _showSubscriptionTransactions(sub),
+                          icon: const Icon(Icons.receipt_long_outlined, size: 15),
+                          label: const Text('Transactions'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            textStyle: const TextStyle(fontSize: 12),
+                            foregroundColor: Colors.teal.shade700,
+                            side: BorderSide(color: Colors.teal.shade300),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => _showReceiptDialog(sub),
+                          icon: const Icon(Icons.print_outlined, size: 15),
+                          label: const Text('Receipt'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            textStyle: const TextStyle(fontSize: 12),
+                            foregroundColor: Colors.blue.shade700,
+                            side: BorderSide(color: Colors.blue.shade300),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                        if (canRenew)
+                          FilledButton.icon(
+                            onPressed: () => _showRenewSubscriptionDialog(sub),
+                            icon: const Icon(Icons.autorenew, size: 15),
+                            label: const Text('Renew'),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              textStyle: const TextStyle(fontSize: 12),
+                              backgroundColor: Colors.green.shade700,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  Widget _subStat(String label, String value, IconData icon, Color color, ThemeData theme) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                  Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
+                      overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSubscriptionTransactions(dynamic subMap) async {
+    final sub = Map<String, dynamic>.from(subMap);
+    final subId = sub['id'];
+    if (subId == null) return;
+    final phone = _loggedInCustomer?['phone'] ?? '';
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text('Loading transactions...'),
+          ]),
+        ),
+      ),
+    );
+
+    try {
+      final outletCode = _loggedInCustomer?['outlet_id'] ??
+          _currentUser?.outletCode ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+      final res = await ApiClient.get(
+          '/api/sales/subscriptions/$subId/ledger?customer_phone=${Uri.encodeComponent(phone)}&outlet_id=$outletCode');
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      if (res['success'] == true) {
+        final data = Map<String, dynamic>.from(res['data'] ?? {});
+        final entries = (data['consumptions'] as List? ?? []);
+        final summary = Map<String, dynamic>.from(data['financial_summary'] ?? {});
+        _showTransactionLedgerDialog(sub, entries, summary);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res['message']?.toString() ?? 'Failed to load transactions.')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  void _showTransactionLedgerDialog(Map<String, dynamic> sub, List<dynamic> entries, Map<String, dynamic> summary) {
+    final theme = Theme.of(context);
+    final String unit = sub['item']?['unit']?.toString() ?? 'Ltr';
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: SizedBox(
+          width: 500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.receipt_long, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        (sub['item']?['brand'] ?? '').toString().isNotEmpty
+                          ? 'Transactions — ${sub['item_name'] ?? 'Subscription'} (${sub['item']['brand']})'
+                          : 'Transactions — ${sub['item_name'] ?? 'Subscription'}',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              // Summary strip
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                color: theme.colorScheme.primary.withOpacity(0.06),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _ledgerStat('Total Paid', CurrencyService.format(double.tryParse(summary['prepaid_value']?.toString() ?? '0') ?? 0.0), Colors.blue.shade700),
+                    _ledgerStat('Consumed', '${(double.tryParse(summary['consumed_qty']?.toString() ?? '0') ?? 0.0).toStringAsFixed(1)} $unit', Colors.orange.shade700),
+                    _ledgerStat('Remaining', '${(double.tryParse(sub['advance_remaining_qty']?.toString() ?? sub['today_remaining_qty']?.toString() ?? '0') ?? 0.0).toStringAsFixed(1)} $unit', Colors.green.shade700),
+                  ],
+                ),
+              ),
+              // Entries list
+              Flexible(
+                child: entries.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Center(child: Text('No delivery transactions found.', style: TextStyle(color: Colors.grey))),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        itemCount: entries.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, i) {
+                          final e = entries[i];
+                          final date = e['txn_date'] != null
+                              ? DateFormat('dd-MMM-yy').format(DateTime.parse(e['txn_date'].toString()))
+                              : '--';
+                          final qty = double.tryParse(e['covered_qty']?.toString() ?? '0') ?? 0.0;
+                          final amt = double.tryParse(e['covered_amount']?.toString() ?? '0') ?? 0.0;
+                          return ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                            leading: CircleAvatar(
+                              radius: 14,
+                              backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+                              child: Icon(Icons.water_drop, size: 14, color: theme.colorScheme.primary),
+                            ),
+                            title: Text(date, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            subtitle: Text(e['item_name']?.toString() ?? 'Delivery', style: const TextStyle(fontSize: 11)),
+                            trailing: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                  Text('${qty.toStringAsFixed(1)} $unit', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                  Text(CurrencyService.format(amt), style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _ledgerStat(String label, String value, Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color)),
+        const SizedBox(height: 2),
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+      ],
+    );
+  }
+
+  Future<void> _showRenewSubscriptionDialog(dynamic subMap) async {
+    final sub = Map<String, dynamic>.from(subMap);
+    final String unit = sub['item']?['unit']?.toString() ?? 'Ltr';
+    final rate = double.tryParse(sub['advance_rate']?.toString() ?? '0') ?? 0.0;
+    final dailyQty = double.tryParse(sub['daily_allowed_qty']?.toString() ?? '1') ?? 1.0;
+    final taxPercent = double.tryParse(sub['item']?['tax_percent']?.toString() ?? '0') ?? 0.0;
+    final deliveryType = sub['delivery_type']?.toString() ?? 'PICKUP';
+    int durationDays = 30;
+    String paymentMode = 'UPI';
+    DateTime startDate = DateTime.now();
+
+    // Suggest start from subscription end date if it's in the future
+    try {
+      final endDate = sub['end_date'] != null ? DateTime.parse(sub['end_date'].toString()) : DateTime.now();
+      if (endDate.isAfter(DateTime.now())) startDate = endDate.add(const Duration(days: 1));
+    } catch (_) {}
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSt) {
+        final totalQty = dailyQty * durationDays;
+        final totalCost = totalQty * rate;
+        final totalGst = totalCost * taxPercent / 100.0;
+
+        final settings = context.read<SystemSettingsController>().settings;
+        final isHomeDelivery = deliveryType == 'HOME';
+        
+        double dailyDeliveryCharge = 0.0;
+        double totalDeliveryCharge = 0.0;
+        double deliveryGstPercent = 0.0;
+        double totalDeliveryGst = 0.0;
+
+        bool isDeliveryFree = false;
+        if (settings != null && settings.subDeliveryChargeEnabled && isHomeDelivery) {
+          final baseTotal = totalCost + totalGst;
+          final dailyBaseTotal = baseTotal / durationDays;
+          if (settings.subDeliveryFreeAbove > 0 && dailyBaseTotal >= settings.subDeliveryFreeAbove) {
+            isDeliveryFree = true;
+          } else {
+            deliveryGstPercent = settings.subDeliveryChargeGstPercent;
+            if (settings.subDeliveryChargeType == 'FLAT') {
+              dailyDeliveryCharge = settings.subDeliveryChargeAmount;
+            } else {
+              dailyDeliveryCharge = (rate * dailyQty) * (settings.subDeliveryChargeAmount / 100);
+            }
+            totalDeliveryCharge = dailyDeliveryCharge * durationDays;
+            totalDeliveryGst = totalDeliveryCharge * (deliveryGstPercent / 100);
+          }
+        }
+
+        final netPayable = totalCost + totalGst + totalDeliveryCharge + totalDeliveryGst;
+        final endDate = startDate.add(Duration(days: durationDays));
+
+        return AlertDialog(
+          title: const Row(children: [
+            Icon(Icons.autorenew, color: Colors.green),
+            SizedBox(width: 8),
+            Text('Renew Subscription'),
+          ]),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  (sub['item']?['brand'] ?? '').toString().isNotEmpty
+                      ? 'Item: ${sub['item_name']} (${sub['item']['brand']})'
+                      : 'Item: ${sub['item_name']}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text('Daily: ${dailyQty.toStringAsFixed(1)} $unit  |  Rate: ${CurrencyService.format(rate)}/unit',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                const Divider(height: 20),
+                const Text('Duration:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      isExpanded: true,
+                      value: durationDays,
+                      items: const [
+                        DropdownMenuItem(value: 15, child: Text('15 Days')),
+                        DropdownMenuItem(value: 30, child: Text('30 Days (Monthly)')),
+                        DropdownMenuItem(value: 60, child: Text('60 Days')),
+                      ],
+                      onChanged: (v) { if (v != null) setSt(() => durationDays = v); },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  const Text('Start Date:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  TextButton.icon(
+                    icon: const Icon(Icons.calendar_today, size: 14),
+                    label: Text(DateFormat('dd-MMM-yyyy').format(startDate)),
+                    onPressed: () async {
+                      final p = await showDatePicker(
+                        context: context,
+                        initialDate: startDate,
+                        firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (p != null) setSt(() => startDate = p);
+                    },
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                const Text('Payment Mode:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const SizedBox(height: 6),
+                Wrap(spacing: 8, children: ['UPI', 'CARD'].map((m) => ChoiceChip(
+                  label: Text(m),
+                  selected: paymentMode == m,
+                  onSelected: (_) => setSt(() => paymentMode = m),
+                )).toList()),
+                const Divider(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(10)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Total Qty: ${totalQty.toStringAsFixed(1)} $unit', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text('End Date: ${DateFormat('dd-MMM-yyyy').format(endDate)}', style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+                    const SizedBox(height: 4),
+                    Text('Base Cost: ${CurrencyService.format(totalCost)}', style: TextStyle(color: Colors.grey.shade800, fontSize: 12)),
+                    Text('${CountryTaxHelper.taxName()}: ${CurrencyService.format(totalGst)}', style: TextStyle(color: Colors.grey.shade800, fontSize: 12)),
+                    if (isDeliveryFree) ...[
+                      Text('Delivery: Free', style: TextStyle(color: Colors.green.shade700, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ] else if (totalDeliveryCharge > 0) ...[
+                      Text('Delivery: ${CurrencyService.format(totalDeliveryCharge)}', style: TextStyle(color: Colors.grey.shade800, fontSize: 12)),
+                      Text('Delivery ${CountryTaxHelper.taxName()}: ${CurrencyService.format(totalDeliveryGst)}', style: TextStyle(color: Colors.grey.shade800, fontSize: 12)),
+                    ],
+                    const Divider(height: 8),
+                    Text('Net Amount Payable: ${CurrencyService.format(netPayable)}',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.green.shade800)),
+                  ]),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop({
+                'item_id': sub['item_id'],
+                'item_name': sub['item_name'],
+                'start_date': DateFormat('yyyy-MM-dd').format(startDate),
+                'end_date': DateFormat('yyyy-MM-dd').format(endDate),
+                'daily_allowed_qty': dailyQty,
+                'total_payment_amount': netPayable,
+                'taxable_amount': totalCost,
+                'tax_amount': totalGst,
+                'delivery_charge_amount': dailyDeliveryCharge,
+                'delivery_charge_gst_percent': deliveryGstPercent,
+                'delivery_charge_tax_amount': totalDeliveryGst,
+                'payment_mode': paymentMode,
+                'delivery_type': deliveryType,
+                'customer_name': _loggedInCustomer?['name']?.toString() ?? '',
+                'customer_phone': _loggedInCustomer?['phone']?.toString() ?? '',
+                'customer_address': _loggedInCustomer?['address']?.toString() ?? '',
+              }),
+              style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
+              child: const Text('Renew'),
+            ),
+          ],
+        );
+      }),
+    );
+
+    if (result == null || !mounted) return;
+
+    final double netPayable = result['total_payment_amount'];
+    Map<String, dynamic>? gatewayDetails;
+
+    if (_enablePaymentGateway) {
+      gatewayDetails = await _showPaymentGatewayDialog(netPayable);
+      if (gatewayDetails == null) return;
+    } else if (_merchantUpiId.isNotEmpty) {
+      gatewayDetails = await _showDirectUpiQrDialog(netPayable);
+      if (gatewayDetails == null) return;
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Online payments are not configured. Renewal cannot be processed.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final phone = _loggedInCustomer!['phone'];
+      final outletCode = _loggedInCustomer?['outlet_id'] ??
+          _currentUser?.outletCode ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+      final res = await ApiClient.post('/api/sales/subscriptions', {
+        ...result,
+        'payment_mode': gatewayDetails['payment_method'],
+        'payment_gateway_details': gatewayDetails,
+        'customer_phone': phone,
+        'outlet_id': outletCode,
+      });
+      if (mounted) {
+        if (res['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Subscription renewed successfully! ✅'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          _fetchSubscriptions();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(res['message']?.toString() ?? 'Failed to renew.')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _showSubscribeDialog() async {
+    if (_loggedInCustomer == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content:
+                Text('Please log in first to subscribe to milk services.')),
+      );
+      return;
+    }
+
+    if (_catalogItems.isEmpty) {
+      await _fetchCatalog();
+    }
+
+    final outletCode = _loggedInCustomer?['outlet_id'] ??
+        _currentUser?.outletCode ??
+        (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _SubscribeDialog(
+        outletCode: outletCode,
+        catalogItems: List<Map<String, dynamic>>.from(_catalogItems),
+        customerName: _loggedInCustomer?['name']?.toString() ?? '',
+        customerPhone: _loggedInCustomer?['phone']?.toString() ?? '',
+        customerAddress: _loggedInCustomer?['address']?.toString() ?? '',
+      ),
+    );
+
+    if (result == null) return;
+
+    final double netPayable = result['total_payment_amount'];
+    Map<String, dynamic>? gatewayDetails;
+
+    if (_enablePaymentGateway) {
+      gatewayDetails = await _showPaymentGatewayDialog(netPayable);
+      if (gatewayDetails == null) return;
+    } else if (_merchantUpiId.isNotEmpty) {
+      gatewayDetails = await _showDirectUpiQrDialog(netPayable);
+      if (gatewayDetails == null) return;
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Online payments are not configured. Subscription cannot be created.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final outletCode = _loggedInCustomer?['outlet_id'] ??
+          _currentUser?.outletCode ??
+          (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+      final payload = {
+        ...result,
+        'payment_mode': gatewayDetails['payment_method'],
+        'payment_gateway_details': gatewayDetails,
+        'outlet_id': outletCode,
+      };
+      final res = await ApiClient.post('/api/sales/subscriptions', payload);
+      if (res['success'] == true) {
+        _fetchSubscriptions();
+        if (mounted) {
+          await _showReceiptDialog(res['data'] ?? payload);
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text(res['message'] ?? 'Failed to subscribe to service.')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error subscribing: $e');
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  DateTime? _parseDateOnly(dynamic val) {
+    if (val == null) return null;
+    try {
+      if (val is DateTime) return DateTime(val.year, val.month, val.day);
+      final s = val.toString().split('T')[0];
+      return DateFormat('yyyy-MM-dd').parse(s);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Uint8List> _buildReceiptPdf(Map<String, dynamic> subscription) async {
+    final pdf = await PosInvoicePrinter.createDocument();
+    final currency = CurrencyService.currencyFormat;
+    final schemes = (subscription['selected_schemes'] as List? ?? subscription['schemes'] as List? ?? const [])
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList();
+    final paymentLines = (subscription['payment_lines'] as List? ?? const [])
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList();
+    final totalAmount = double.tryParse(
+            subscription['total_payment_amount']?.toString() ?? '0') ??
+        0;
+    final paidAmount =
+        double.tryParse(subscription['paid_amount']?.toString() ?? subscription['advance_original_amount']?.toString() ?? subscription['total_payment_amount']?.toString() ?? '0') ?? 0;
+    if (paymentLines.isEmpty) {
+      final mode = (subscription['payment_mode'] ?? 'CASH').toString().toUpperCase();
+      paymentLines.add({
+        'method': mode,
+        'amount': paidAmount,
+      });
+    }
+    final outstandingAmount = double.tryParse(subscription['remaining_amount']?.toString() ?? '') ?? (totalAmount - paidAmount).clamp(0, double.infinity);
+    final receiptDate = DateTime.tryParse(
+          subscription['receipt_date']?.toString() ?? subscription['created_at']?.toString() ?? '',
+        ) ??
+        DateTime.now();
+    final startDate = _parseDateOnly(subscription['start_date']);
+    final endDate = _parseDateOnly(subscription['end_date']);
+    final periodDays = (startDate != null && endDate != null)
+        ? (endDate.difference(startDate).inDays + 1)
+        : 31;
+    final bonusQtyForReceipt =
+        double.tryParse(subscription['bonus_qty']?.toString() ?? '0') ?? 0;
+    final payableDays = periodDays > 0
+        ? (bonusQtyForReceipt > 0 ? periodDays - 1 : periodDays)
+        : 0;
+    final dailyQty =
+        double.tryParse(subscription['daily_allowed_qty']?.toString() ?? '0') ??
+            0;
+    final declaredRate =
+        double.tryParse(subscription['item_rate']?.toString() ?? '0') ?? 0;
+    final effectiveRate = declaredRate > 0
+        ? declaredRate
+        : (payableDays > 0 && dailyQty > 0
+            ? (totalAmount / (payableDays * dailyQty))
+            : 0);
+    final baseAmount = (effectiveRate * dailyQty * payableDays)
+        .clamp(0, double.infinity)
+        .toDouble();
+    
+    final itemTaxable = double.tryParse(subscription['taxable_amount']?.toString() ?? '') ?? baseAmount;
+    final itemTaxPercent = double.tryParse(subscription['tax_percent']?.toString() ?? subscription['item']?['tax_percent']?.toString() ?? '0') ?? 0.0;
+    final itemGst = double.tryParse(subscription['tax_amount']?.toString() ?? '') ?? (itemTaxable * itemTaxPercent / 100);
+
+    final dailyDeliveryCharge = double.tryParse(subscription['delivery_charge_amount']?.toString() ?? '0.0') ?? 0.0;
+    final dailyDeliveryTax = double.tryParse(subscription['delivery_charge_tax_amount']?.toString() ?? '0.0') ?? 0.0;
+    final totalDeliveryCharge = dailyDeliveryCharge * periodDays;
+    final totalDeliveryTax = dailyDeliveryTax * periodDays;
+
+    final mono = pw.Font.courier();
+
+    pw.Widget divider() => pw.Container(
+          margin: const pw.EdgeInsets.symmetric(vertical: 5),
+          width: double.infinity,
+          height: 1,
+          color: PdfColors.black,
+        );
+
+    pw.Widget kvLine(
+      String label,
+      String value, {
+      bool bold = false,
+      double fontSize = 9,
+    }) {
+      final style = pw.TextStyle(
+        font: mono,
+        fontSize: fontSize,
+        fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+      );
+      return pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 2),
+        child: pw.Row(
+          children: [
+            pw.Expanded(child: pw.Text(label, style: style)),
+            pw.SizedBox(width: 6),
+            pw.Text(value, style: style, textAlign: pw.TextAlign.right),
+          ],
+        ),
+      );
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: const PdfPageFormat(
+          72 * PdfPageFormat.mm,
+          220 * PdfPageFormat.mm,
+          marginLeft: 3 * PdfPageFormat.mm,
+          marginRight: 3 * PdfPageFormat.mm,
+          marginTop: 3 * PdfPageFormat.mm,
+          marginBottom: 3 * PdfPageFormat.mm,
+        ),
+        build: (context) => [
+          pw.Center(
+            child: pw.Text(
+              'SUBSCRIPTION RECEIPT',
+              style: pw.TextStyle(
+                font: mono,
+                fontSize: 11,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+          ),
+          if (subscription['id'] != null)
+            pw.Center(
+              child: pw.Text(
+                'Receipt No: SUB-${subscription['id']}',
+                style: pw.TextStyle(
+                  font: mono,
+                  fontSize: 9,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+          pw.Center(
+            child: pw.Text(
+              DateFormat('dd-MMM-yyyy hh:mm a').format(receiptDate),
+              style: pw.TextStyle(font: mono, fontSize: 8),
+            ),
+          ),
+          divider(),
+          pw.Text(
+            'Customer: ${subscription['customer_name'] ?? ''}',
+            style: pw.TextStyle(font: mono, fontSize: 9),
+          ),
+          pw.Text(
+            'Phone   : ${subscription['customer_phone'] ?? ''}',
+            style: pw.TextStyle(font: mono, fontSize: 9),
+          ),
+          pw.Text(
+            'Item    : ${subscription['item_name'] ?? ''}',
+            style: pw.TextStyle(font: mono, fontSize: 9),
+          ),
+          pw.Text(
+            'Period  : ${subscription['start_date']} to ${subscription['end_date']}',
+            style: pw.TextStyle(font: mono, fontSize: 9),
+          ),
+          pw.Text(
+            'DailyQty: ${subscription['daily_allowed_qty'] ?? ''}',
+            style: pw.TextStyle(font: mono, fontSize: 9),
+          ),
+          divider(),
+          kvLine(
+            'Item Subtotal',
+            currency.format(itemTaxable),
+            fontSize: 9,
+          ),
+          kvLine(
+            'Item ${CountryTaxHelper.taxName()}',
+            currency.format(itemGst),
+            fontSize: 9,
+          ),
+          if (totalDeliveryCharge > 0) ...[
+            kvLine(
+              'Delivery Charges',
+              currency.format(totalDeliveryCharge),
+              fontSize: 9,
+            ),
+            if (totalDeliveryTax > 0)
+              kvLine(
+                'Delivery ${CountryTaxHelper.taxName()}',
+                currency.format(totalDeliveryTax),
+                fontSize: 9,
+              ),
+          ],
+          divider(),
+          kvLine(
+            'TOTAL',
+            currency.format(totalAmount),
+            bold: true,
+            fontSize: 11,
+          ),
+          kvLine(
+            'PAID',
+            currency.format(paidAmount),
+            bold: true,
+            fontSize: 11,
+          ),
+          kvLine(
+            'OUTSTANDING',
+            currency.format(outstandingAmount),
+            bold: true,
+            fontSize: 10,
+          ),
+          divider(),
+          pw.Text('Payment Breakdown',
+              style: pw.TextStyle(
+                font: mono,
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 9,
+              )),
+          pw.SizedBox(height: 2),
+          if (paymentLines.isEmpty)
+            kvLine(
+              (subscription['payment_mode'] ?? 'CASH').toString().toUpperCase(),
+              currency.format(paidAmount > 0 ? paidAmount : totalAmount),
+            )
+          else
+            ...paymentLines.map((row) {
+              final amount =
+                  double.tryParse(row['amount']?.toString() ?? '0') ?? 0;
+              return kvLine(
+                (row['method'] ?? '').toString().toUpperCase(),
+                currency.format(amount),
+              );
+            }),
+          if ((subscription['payment_notes'] ?? '')
+              .toString()
+              .trim()
+              .isNotEmpty) ...[
+            pw.SizedBox(height: 4),
+            pw.Text(
+              'Note: ${subscription['payment_notes']}',
+              style: pw.TextStyle(font: mono, fontSize: 8),
+            ),
+          ],
+          divider(),
+          pw.Text('Scheme Applied',
+              style: pw.TextStyle(
+                font: mono,
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 9,
+              )),
+          pw.SizedBox(height: 2),
+          if (schemes.isEmpty)
+            pw.Text('No scheme', style: pw.TextStyle(font: mono, fontSize: 9))
+          else
+            ...schemes.map((scheme) {
+              final schemeName = (scheme['scheme_name'] ?? '').toString();
+              final bonusQty =
+                  double.tryParse(scheme['bonus_qty']?.toString() ?? '0') ?? 0;
+              final discountAmount = double.tryParse(
+                      scheme['discount_amount']?.toString() ?? '0') ??
+                  0;
+              final schemeValue =
+                  double.tryParse(scheme['scheme_value']?.toString() ?? '0') ??
+                      0;
+              final schemeType =
+                  (scheme['scheme_type'] ?? '').toString().trim().toUpperCase();
+              final expectedOff = schemeType == 'BONUS_QTY'
+                  ? (bonusQty * (declaredRate > 0 ? declaredRate : effectiveRate))
+                      .clamp(0, double.infinity)
+                      .toDouble()
+                  : schemeType == 'PRICE_DISCOUNT' &&
+                          (scheme['discount_mode'] ?? '')
+                                  .toString()
+                                  .toUpperCase() ==
+                              'PERCENT'
+                      ? (baseAmount * schemeValue / 100)
+                          .clamp(0, double.infinity)
+                          .toDouble()
+                      : discountAmount;
+              return pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    schemeName.isEmpty ? 'Scheme' : schemeName,
+                    style: pw.TextStyle(
+                      font: mono,
+                      fontWeight: pw.FontWeight.bold,
+                      fontSize: 9,
+                    ),
+                  ),
+                  kvLine(
+                    'Type',
+                    schemeType.isEmpty ? '-' : schemeType,
+                  ),
+                  if (schemeType == 'BONUS_QTY')
+                    kvLine(
+                      'Formula',
+                      '${(declaredRate > 0 ? declaredRate : effectiveRate).toStringAsFixed(2)} x ${bonusQty.toStringAsFixed(bonusQty % 1 == 0 ? 0 : 2)}',
+                    )
+                  else if (schemeType == 'PRICE_DISCOUNT')
+                    kvLine(
+                      'Formula',
+                      (scheme['discount_mode'] ?? '')
+                                  .toString()
+                                  .toUpperCase() ==
+                              'PERCENT'
+                          ? '${schemeValue.toStringAsFixed(2)}% of base'
+                          : 'Flat discount amount',
+                    ),
+                  kvLine(
+                    'Expected Off',
+                    currency.format(expectedOff),
+                  ),
+                  kvLine(
+                    'Applied Off',
+                    currency.format(discountAmount),
+                  ),
+                  pw.SizedBox(height: 4),
+                ],
+              );
+            }),
+          divider(),
+          pw.Text('Terms & Conditions',
+              style: pw.TextStyle(
+                  font: mono, fontSize: 8, fontWeight: pw.FontWeight.bold)),
+          pw.Text('1) Scheme benefit shown as expected off.',
+              style: pw.TextStyle(font: mono, fontSize: 7)),
+          pw.Text('2) If item rate changes in future bills, payable amount will be adjusted as per current rate.',
+              style: pw.TextStyle(font: mono, fontSize: 7)),
+          pw.Text('3) Subscription usage follows daily quantity limit and billing period.',
+              style: pw.TextStyle(font: mono, fontSize: 7)),
+          divider(),
+          pw.Center(
+            child: pw.Text('Thank you for your business',
+                style: pw.TextStyle(font: mono, fontSize: 8)),
+          ),
+        ],
+      ),
+    );
+    return pdf.save();
+  }
+
+  Future<void> _showReceiptDialog(Map<String, dynamic> receiptData) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Subscription Receipt'),
+        content: SizedBox(
+          width: 320,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '🎉 Subscription Created Successfully!',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text('Customer: ${receiptData['customer_name'] ?? ''}'),
+                Text('Phone: ${receiptData['customer_phone'] ?? ''}'),
+                Text('Item: ${receiptData['item_name'] ?? ''}'),
+                Text('Daily Qty: ${receiptData['daily_allowed_qty'] ?? ''}'),
+                Text('Total: ${CurrencyService.format(double.tryParse(receiptData['total_payment_amount']?.toString() ?? '0') ?? 0.0)}'),
+                const SizedBox(height: 12),
+                const Text(
+                  'You can print or save this receipt.',
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await Printing.layoutPdf(
+                name: 'Subscription_Receipt_${receiptData['customer_phone'] ?? 'customer'}',
+                onLayout: (_) => _buildReceiptPdf(receiptData),
+              );
+            },
+            icon: const Icon(Icons.print, size: 16),
+            label: const Text('Print / Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bool isMobile = MediaQuery.of(context).size.width < 768;
+
+    // ── LOGIN GATE ──────────────────────────────────────────────
+    // Only block external anonymous public retail consumers; POS & B2B buyers bypass seamlessly
+    final bool isB2bOrPosUser = widget.isB2BMode ||
+        widget.buyerPropertyInfo != null ||
+        _currentUser != null;
+
+    if (_loggedInCustomer == null &&
+        !isB2bOrPosUser &&
+        !_isLoading &&
+        !_allowGuestBrowsing) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Customer Shopping App'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(28),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Logo / Icon
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.storefront_outlined,
+                            size: 44,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          _showRegisterForm ? 'Create Account' : 'Welcome Back',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _showRegisterForm
+                              ? 'Register to shop, track orders & get delivery'
+                              : 'Sign in to access your orders & shopping cart',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+
+                        // ── Register Fields ──
+                        if (_showRegisterForm) ...[
+                          TextField(
+                            controller: _regNameCtrl,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: 'Full Name',
+                              prefixIcon: const Icon(Icons.person_outline),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          TextField(
+                            controller: _regPhoneCtrl,
+                            keyboardType: TextInputType.phone,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: 'Mobile Number',
+                              prefixIcon: const Icon(Icons.phone_outlined),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          TextField(
+                            controller: _regEmailCtrl,
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: 'Email Address',
+                              prefixIcon: const Icon(Icons.email_outlined),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          TextField(
+                            controller: _regPasswordCtrl,
+                            obscureText: true,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          TextField(
+                            controller: _regAddressCtrl,
+                            maxLines: 2,
+                            textInputAction: TextInputAction.done,
+                            decoration: InputDecoration(
+                              labelText: 'Default Delivery Address',
+                              prefixIcon: const Icon(Icons.map_outlined),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ]
+                        // ── Login Fields ──
+                        else ...[
+                          TextField(
+                            controller: _loginPhoneCtrl,
+                            keyboardType: TextInputType.phone,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: 'Registered Mobile Number',
+                              prefixIcon: const Icon(Icons.phone_outlined),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          TextField(
+                            controller: _loginPasswordCtrl,
+                            obscureText: true,
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => _loginCustomer(),
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _showForgotPasswordDialog,
+                              child: const Text('Forgot Password?'),
+                            ),
+                          ),
+                        ],
+
+                        const SizedBox(height: 12),
+
+                        // ── Primary action button ──
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: _isLoading
+                                ? null
+                                : (_showRegisterForm
+                                    ? _registerCustomer
+                                    : _loginCustomer),
+                            icon: _isLoading
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Icon(_showRegisterForm
+                                    ? Icons.how_to_reg
+                                    : Icons.login),
+                            label: Text(
+                              _showRegisterForm ? 'Create Account' : 'Sign In',
+                              style: const TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        const SizedBox(height: 8),
+
+                        // ── Toggle login/register ──
+                        TextButton(
+                          onPressed: () => setState(() {
+                            _showRegisterForm = !_showRegisterForm;
+                          }),
+                          child: Text(
+                            _showRegisterForm
+                                ? 'Already have an account? Sign In'
+                                : "Don't have an account? Sign Up",
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton.icon(
+                          onPressed: () =>
+                              setState(() => _allowGuestBrowsing = true),
+                          icon: const Icon(Icons.storefront_outlined),
+                          label: const Text('Continue as Guest / Browse Products'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    // ── END LOGIN GATE ──────────────────────────────────────────
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          _currentUser?.propertyName.isNotEmpty == true
+              ? _currentUser!.propertyName
+              : 'Customer Shopping App',
+        ),
+        actions: [
+          // Logged-in customer chip or Sign In button
+          if (_loggedInCustomer != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Center(
+                child: TextButton.icon(
+                  onPressed: () => _setSubTabIndex(2),
+                  icon: const Icon(Icons.account_circle, size: 18),
+                  label: Text(
+                    _loggedInCustomer!['name']?.toString().split(' ').first ??
+                        'Account',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Center(
+                child: FilledButton.tonalIcon(
+                  onPressed: () => _setSubTabIndex(2),
+                  icon: const Icon(Icons.login, size: 16),
+                  label: const Text('Sign In',
+                      style: TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ),
+        ],
+      ),
+      drawer: _buildDeliveryDrawer(context),
+      body: _isLoading && _catalogItems.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : (_activeOrderId != null
+              ? _buildCustomerTrackingView(theme)
+              : (isMobile
+                  ? IndexedStack(
+                      index: _customerSubTabIndex,
+                      children: [
+                        _buildProductCatalogSection(theme, true),
+                        _buildCartAndCheckoutSection(theme, true),
+                        _buildHistoryView(theme),
+                      ],
+                    )
+                  : IndexedStack(
+                      index: _customerSubTabIndex,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: _buildProductCatalogSection(theme, false),
+                            ),
+                            Expanded(
+                              flex: 2,
+                              child: _buildCartAndCheckoutSection(theme, false),
+                            ),
+                          ],
+                        ),
+                        Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 800),
+                            child: Card(
+                              margin: const EdgeInsets.all(16),
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16)),
+                              child: _buildCartAndCheckoutSection(theme, true),
+                            ),
+                          ),
+                        ),
+                        _buildHistoryView(theme),
+                      ],
+                    ))),
+      bottomNavigationBar: (_activeOrderId == null)
+          ? BottomNavigationBar(
+              currentIndex: _customerSubTabIndex,
+              onTap: _setSubTabIndex,
+              items: [
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.storefront),
+                  label: 'Shop',
+                ),
+                BottomNavigationBarItem(
+                  icon: Badge(
+                    label: Text(_cart.length.toString()),
+                    isLabelVisible: _cart.isNotEmpty,
+                    child: const Icon(Icons.shopping_cart),
+                  ),
+                  label: 'Cart',
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.receipt_long),
+                  label: 'My Orders',
+                ),
+              ],
+            )
+          : null,
+      floatingActionButton:
+          (isMobile && _customerSubTabIndex == 0 && _cart.isNotEmpty)
+              ? FloatingActionButton.extended(
+                  onPressed: () {
+                    _setSubTabIndex(1);
+                  },
+                  icon: const Icon(Icons.shopping_cart),
+                  label: Text('View Cart (${_cart.length})'),
+                )
+              : null,
+    );
+  }
+
+  void _showCustomerVariantSelector(Map<String, dynamic> templateRep) {
+    final int? templateId = templateRep['product_template_id'];
+    if (templateId == null) return;
+
+    final siblings = _catalogItems.where((e) => e['product_template_id'] == templateId).toList();
+    if (siblings.isEmpty) return;
+
+    // Collect all unique attribute names
+    final List<String> attributeNames = siblings
+        .expand((v) {
+          final vals = v['attribute_values'] as List? ?? [];
+          return vals.map((av) => (av['attribute'] != null ? av['attribute']['name']?.toString() : null) ?? '');
+        })
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList();
+
+    // Collect all unique choice values for each attribute name
+    final Map<String, List<String>> attributeChoices = {};
+    for (var name in attributeNames) {
+      final choices = siblings
+          .expand((v) => v['attribute_values'] as List? ?? [])
+          .where((av) => (av['attribute'] != null ? av['attribute']['name']?.toString() : null) == name)
+          .map((av) => av['value']?.toString() ?? '')
+          .toSet()
+          .toList();
+      attributeChoices[name] = choices;
+    }
+
+    // Default select first available combination if possible
+    final Map<String, String> selectedOptions = {};
+    if (siblings.isNotEmpty) {
+      for (var name in attributeNames) {
+        final vals = siblings.first['attribute_values'] as List? ?? [];
+        final matches = vals.where((av) => (av['attribute'] != null ? av['attribute']['name']?.toString() : null) == name);
+        if (matches.isNotEmpty) {
+          selectedOptions[name] = matches.first['value']?.toString() ?? '';
+        }
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Map<String, dynamic>? matchingItem;
+            bool selectionComplete = selectedOptions.length == attributeNames.length;
+            if (selectionComplete) {
+              for (var sibling in siblings) {
+                bool isMatch = true;
+                final vals = sibling['attribute_values'] as List? ?? [];
+                for (var entry in selectedOptions.entries) {
+                  final hasMatch = vals.any(
+                    (av) => (av['attribute'] != null ? av['attribute']['name']?.toString() : null) == entry.key && av['value'] == entry.value,
+                  );
+                  if (!hasMatch) {
+                    isMatch = false;
+                    break;
+                  }
+                }
+                if (isMatch) {
+                  matchingItem = sibling;
+                  break;
+                }
+              }
+            }
+
+            final price = matchingItem != null
+                ? _getItemPrice(matchingItem)
+                : 0.0;
+            
+            final bool isStockable = matchingItem?['stockable'] == true;
+            final double currentStock = double.tryParse(
+                    matchingItem?['current_stock']?.toString() ?? '0') ??
+                0.0;
+            final bool isOutOfStock = isStockable && currentStock <= 0;
+
+            final int? matchingItemId = matchingItem?['id'];
+            final double cartQty = (matchingItemId != null && _cart.containsKey(matchingItemId))
+                ? _cart[matchingItemId]!['qty']
+                : 0.0;
+
+            final String brand = (templateRep['brand'] ?? '').toString().trim();
+            final templateName = (templateRep['item_name'] ?? 'Product').toString().split(' - ').first;
+            final fullTitle = brand.isNotEmpty ? '$brand - $templateName' : templateName;
+
+            return AlertDialog(
+              title: Text(fullTitle),
+              content: SizedBox(
+                width: 450,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...attributeNames.map((attrName) {
+                      final choices = attributeChoices[attrName] ?? [];
+                      final selectedVal = selectedOptions[attrName];
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            attrName,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: choices.map((choice) {
+                              final isSelected = selectedVal == choice;
+                              return ChoiceChip(
+                                label: Text(choice),
+                                selected: isSelected,
+                                onSelected: (selected) {
+                                  if (selected) {
+                                    setDialogState(() {
+                                      selectedOptions[attrName] = choice;
+                                    });
+                                  }
+                                },
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 14),
+                        ],
+                      );
+                    }),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    if (matchingItem != null) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isOutOfStock ? 'Out of Stock' : 'In Stock (${currentStock.toInt()} left)',
+                                style: TextStyle(
+                                  color: isOutOfStock ? Colors.red : Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              if (cartQty > 0)
+                                Text(
+                                  'In Cart: ${cartQty.toInt()}',
+                                  style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                            ],
+                          ),
+                          Text(
+                            '${CurrencyService.format(price)}',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      const Text(
+                        'This combination is unavailable.',
+                        style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                if (matchingItem != null && !isOutOfStock)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (cartQty > 0)
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle, color: Colors.redAccent, size: 24),
+                          onPressed: () {
+                            setDialogState(() {
+                              setState(() {
+                                if (cartQty > 1) {
+                                  _cart[matchingItemId]!['qty'] -= 1.0;
+                                } else {
+                                  _cart.remove(matchingItemId);
+                                }
+                              });
+                            });
+                          },
+                        ),
+                      if (cartQty > 0)
+                        Text(
+                          cartQty.toStringAsFixed(0),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                      IconButton(
+                        icon: Icon(
+                          Icons.add_circle,
+                          color: ((_gstin.isEmpty && cartQty >= 5) || (isStockable && cartQty >= currentStock))
+                              ? Colors.grey
+                              : Theme.of(context).colorScheme.primary,
+                          size: 24,
+                        ),
+                        onPressed: ((_gstin.isEmpty && cartQty >= 5) || (isStockable && cartQty >= currentStock))
+                            ? null
+                            : () {
+                                setDialogState(() {
+                                  setState(() {
+                                    if (cartQty > 0) {
+                                      _cart[matchingItemId]!['qty'] += 1.0;
+                                    } else {
+                                      _cart[matchingItemId!] = {
+                                        'item': matchingItem,
+                                        'qty': 1.0,
+                                      };
+                                    }
+                                  });
+                                });
+                              },
+                      ),
+                    ],
+                  )
+                else
+                  const FilledButton(
+                    onPressed: null,
+                    child: Text('Out of Stock'),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showForgotPasswordDialog() {
+    final phoneCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final otpCtrl = TextEditingController();
+    final newPassCtrl = TextEditingController();
+    final confirmPassCtrl = TextEditingController();
+
+    bool otpSent = false;
+    bool passwordVisible = false;
+    bool isSendingOtp = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          final theme = Theme.of(ctx);
+          return AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.lock_reset, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                const Text('Reset Password'),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (isSendingOtp) ...[
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text(
+                              'Please wait...',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ] else if (!otpSent) ...[
+                    const Text(
+                      'Enter your registered details to receive an OTP on your email.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: InputDecoration(
+                        labelText: 'Mobile Number *',
+                        prefixIcon: const Icon(Icons.phone_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: emailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: InputDecoration(
+                        labelText: 'Email Address *',
+                        prefixIcon: const Icon(Icons.email_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ] else ...[
+                    const Text(
+                      'Enter the OTP sent to your email and set your new password.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: otpCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Enter OTP Code *',
+                        prefixIcon: const Icon(Icons.pin_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: newPassCtrl,
+                      obscureText: !passwordVisible,
+                      decoration: InputDecoration(
+                        labelText: 'New Password *',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(passwordVisible ? Icons.visibility_off : Icons.visibility),
+                          onPressed: () => setDlgState(() => passwordVisible = !passwordVisible),
+                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmPassCtrl,
+                      obscureText: !passwordVisible,
+                      decoration: InputDecoration(
+                        labelText: 'Confirm Password *',
+                        prefixIcon: const Icon(Icons.lock_clock_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('Resend OTP'),
+                        onPressed: () async {
+                          final phone = phoneCtrl.text.trim();
+                          final email = emailCtrl.text.trim();
+                          if (phone.isEmpty || email.isEmpty) return;
+
+                          setDlgState(() => isSendingOtp = true);
+                          try {
+                            final outletCode = _currentUser?.outletCode ?? (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+                            final res = await ApiClient.post(
+                              '/api/delivery/customer/forgot-password/request-otp',
+                              {
+                                'outlet_id': outletCode,
+                                'phone': phone,
+                                'email': email,
+                              },
+                            );
+                            if (res['success'] == true) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('OTP resent to email successfully.')),
+                                );
+                              }
+                            } else {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(res['message'] ?? 'Failed to resend OTP.')),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error: $e')),
+                              );
+                            }
+                          } finally {
+                            setDlgState(() => isSendingOtp = false);
+                          }
+                        },
+                      ),
+                    ),
+                  ]
+                ],
+              ),
+            ),
+            actions: isSendingOtp
+                ? []
+                : [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () async {
+                        if (!otpSent) {
+                          final phone = phoneCtrl.text.trim();
+                          final email = emailCtrl.text.trim();
+                          if (phone.isEmpty || email.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Please enter your mobile number and email.')),
+                            );
+                            return;
+                          }
+                          setDlgState(() => isSendingOtp = true);
+                          try {
+                            final outletCode = _currentUser?.outletCode ?? (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+                            final res = await ApiClient.post(
+                              '/api/delivery/customer/forgot-password/request-otp',
+                              {
+                                'outlet_id': outletCode,
+                                'phone': phone,
+                                'email': email,
+                              },
+                            );
+                            if (res['success'] == true) {
+                              setDlgState(() => otpSent = true);
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('OTP sent to email successfully.')),
+                                );
+                              }
+                            } else {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(res['message'] ?? 'Failed to send OTP.')),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error: $e')),
+                              );
+                            }
+                          } finally {
+                            setDlgState(() => isSendingOtp = false);
+                          }
+                        } else {
+                          final otp = otpCtrl.text.trim();
+                          final newPass = newPassCtrl.text.trim();
+                          final confirmPass = confirmPassCtrl.text.trim();
+                          if (otp.isEmpty || newPass.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Please fill all fields.')),
+                            );
+                            return;
+                          }
+                          if (newPass.length < 4) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Password must be at least 4 characters.')),
+                            );
+                            return;
+                          }
+                          if (newPass != confirmPass) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Passwords do not match.')),
+                            );
+                            return;
+                          }
+
+                          setDlgState(() => isSendingOtp = true);
+                          try {
+                            final outletCode = _currentUser?.outletCode ?? (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+                            final res = await ApiClient.post(
+                              '/api/delivery/customer/forgot-password/reset',
+                              {
+                                'outlet_id': outletCode,
+                                'phone': phoneCtrl.text.trim(),
+                                'email': emailCtrl.text.trim(),
+                                'otp': otp,
+                                'new_password': newPass,
+                              },
+                            );
+                            if (res['success'] == true) {
+                              Navigator.pop(ctx);
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Password reset successfully! Please log in.'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              }
+                            } else {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(res['message'] ?? 'Failed to reset password.')),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error: $e')),
+                              );
+                            }
+                          } finally {
+                            setDlgState(() => isSendingOtp = false);
+                          }
+                        }
+                      },
+                      child: Text(otpSent ? 'Reset Password' : 'Send OTP'),
+                    ),
+                  ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SubscribeDialog extends StatefulWidget {
+  final String outletCode;
+  final List<Map<String, dynamic>> catalogItems;
+  final String customerName;
+  final String customerPhone;
+  final String customerAddress;
+
+  const _SubscribeDialog({
+    required this.outletCode,
+    required this.catalogItems,
+    required this.customerName,
+    required this.customerPhone,
+    required this.customerAddress,
+  });
+
+  @override
+  State<_SubscribeDialog> createState() => _SubscribeDialogState();
+}
+
+class _SubscribeDialogState extends State<_SubscribeDialog> {
+  int? _selectedItemId;
+  double _dailyAllowedQty = 1.0;
+  int _durationDays = 30;
+  DateTime _startDate = DateTime.now();
+  String _paymentMode = 'UPI';
+  String _deliveryType = 'HOME';
+
+  bool _isSearching = false;
+  List<Map<String, dynamic>> _matchingItems = [];
+  Timer? _debounce;
+
+  Map<String, dynamic>? get _selectedItem {
+    if (_selectedItemId == null) return null;
+    for (final item in _matchingItems) {
+      final itemId = int.tryParse(item['id']?.toString() ?? '');
+      if (itemId == _selectedItemId) return item;
+    }
+    return null;
+  }
+
+  double _rateFor(Map<String, dynamic>? item) {
+    if (item == null) return 0.0;
+    return double.tryParse(
+          (item['retail_sale_price'] ?? item['rate'] ?? '0').toString(),
+        ) ??
+        0.0;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _matchingItems = List<Map<String, dynamic>>.from(widget.catalogItems);
+    if (_matchingItems.isNotEmpty) {
+      _selectedItemId = int.tryParse(_matchingItems.first['id']?.toString() ?? '');
+    }
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      if (query.trim().isEmpty) {
+        setState(() {
+          _matchingItems = List<Map<String, dynamic>>.from(widget.catalogItems);
+          _isSearching = false;
+        });
+        return;
+      }
+      setState(() {
+        _isSearching = true;
+      });
+      try {
+        final queryStr = 'outlet_id=${widget.outletCode}&page=1&search=${Uri.encodeComponent(query)}&limit=10';
+        final res = await ApiClient.get('/api/delivery/catalog?$queryStr');
+        if (res['success'] == true) {
+          final fetched = List<Map<String, dynamic>>.from(res['data'] ?? []);
+          setState(() {
+            _matchingItems = fetched;
+          });
+        }
+      } catch (e) {
+        debugPrint('Search failed: $e');
+      } finally {
+        setState(() {
+          _isSearching = false;
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showHomeDelivery = context.read<SystemSettingsController>().settings?.enableAppSubscription == true;
+    if (!showHomeDelivery && _deliveryType == 'HOME') {
+      _deliveryType = 'PICKUP';
+    }
+    final selectedItem = _selectedItem;
+    final rate = _rateFor(selectedItem);
+    final totalQty = _dailyAllowedQty * _durationDays;
+    final totalCost = totalQty * rate;
+    final taxPercent = double.tryParse(selectedItem?['tax_percent']?.toString() ?? '0') ?? 0.0;
+    final totalGst = totalCost * taxPercent / 100.0;
+
+    final settings = context.read<SystemSettingsController>().settings;
+    final isHomeDelivery = _deliveryType == 'HOME';
+    
+    double dailyDeliveryCharge = 0.0;
+    double totalDeliveryCharge = 0.0;
+    double deliveryGstPercent = 0.0;
+    double totalDeliveryGst = 0.0;
+
+    bool isDeliveryFree = false;
+    if (settings != null && settings.subDeliveryChargeEnabled && isHomeDelivery) {
+      final baseTotal = totalCost + totalGst;
+      final dailyBaseTotal = baseTotal / _durationDays;
+      if (settings.subDeliveryFreeAbove > 0 && dailyBaseTotal >= settings.subDeliveryFreeAbove) {
+        isDeliveryFree = true;
+      } else {
+        deliveryGstPercent = settings.subDeliveryChargeGstPercent;
+        if (settings.subDeliveryChargeType == 'FLAT') {
+          dailyDeliveryCharge = settings.subDeliveryChargeAmount;
+        } else {
+          dailyDeliveryCharge = (rate * _dailyAllowedQty) * (settings.subDeliveryChargeAmount / 100);
+        }
+        totalDeliveryCharge = dailyDeliveryCharge * _durationDays;
+        totalDeliveryGst = totalDeliveryCharge * (deliveryGstPercent / 100);
+      }
+    }
+
+    final netPayable = totalCost + totalGst + totalDeliveryCharge + totalDeliveryGst;
+    final endDate = _startDate.add(Duration(days: _durationDays));
+    final unitLabel = selectedItem?['unit']?.toString() ?? 'Ltr';
+    final validItems = widget.catalogItems
+        .where((item) => int.tryParse(item['id']?.toString() ?? '') != null)
+        .toList();
+
+    return AlertDialog(
+      titlePadding: const EdgeInsets.fromLTRB(25, 20, 25, 10),
+      contentPadding: const EdgeInsets.fromLTRB(25, 10, 25, 10),
+      actionsPadding: const EdgeInsets.fromLTRB(25, 10, 25, 20),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 25, vertical: 24),
+      title: const Text('Subscribe to Milk/Daily Services'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Select Service/Product:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(height: 6),
+            TextField(
+              decoration: InputDecoration(
+                hintText: 'Search product...',
+                prefixIcon: const Icon(Icons.search, size: 18),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              ),
+              onChanged: _onSearchChanged,
+            ),
+            const SizedBox(height: 6),
+            Container(
+              height: 120,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: _isSearching
+                  ? const Center(child: CircularProgressIndicator())
+                  : _matchingItems.isEmpty
+                      ? const Center(child: Text('No products found'))
+                      : SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: _matchingItems.map((item) {
+                              final itemId = int.tryParse(item['id']?.toString() ?? '');
+                              final isSelected = itemId == _selectedItemId;
+                              return ListTile(
+                                dense: true,
+                                title: Text(
+                                  (item['brand'] ?? '').toString().isNotEmpty
+                                      ? '${item['item_name'] ?? ''} (${item['brand']})'
+                                      : (item['item_name']?.toString() ?? ''),
+                                  style: const TextStyle(fontWeight: FontWeight.w500),
+                                ),
+                                subtitle: Text('${CurrencyService.format(double.tryParse((item['retail_sale_price'] ?? item['rate'])?.toString() ?? '0') ?? 0.0)}/unit'),
+                                selected: isSelected,
+                                selectedColor: Colors.blue.shade700,
+                                selectedTileColor: Colors.blue.shade50,
+                                onTap: () {
+                                  setState(() {
+                                    _selectedItemId = itemId;
+                                  });
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        ),
+            ),
+            Text(
+              'Daily Quantity ($unitLabel):',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                IconButton(
+                  onPressed: _dailyAllowedQty > 0.5
+                      ? () => setState(() => _dailyAllowedQty -= 0.5)
+                      : null,
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+                Text(
+                  _dailyAllowedQty.toStringAsFixed(1),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                IconButton(
+                  onPressed: () => setState(() => _dailyAllowedQty += 0.5),
+                  icon: const Icon(Icons.add_circle_outline),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text('Duration:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<int>(
+                  isExpanded: true,
+                  value: _durationDays,
+                  items: const [
+                    DropdownMenuItem(value: 15, child: Text('15 Days (Short Term)')),
+                    DropdownMenuItem(value: 30, child: Text('30 Days (Monthly)')),
+                    DropdownMenuItem(value: 60, child: Text('60 Days (2 Months)')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setState(() => _durationDays = val);
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Start Date:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _startDate,
+                      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                      lastDate: DateTime.now().add(const Duration(days: 30)),
+                    );
+                    if (picked != null) {
+                      setState(() => _startDate = picked);
+                    }
+                  },
+                  icon: const Icon(Icons.calendar_month, size: 16),
+                  label: Text(DateFormat('dd-MMM-yyyy').format(_startDate)),
+                )
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text('Payment Mode:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  isExpanded: true,
+                  value: _paymentMode,
+                  items: const [
+                    DropdownMenuItem(value: 'UPI', child: Text('UPI / Net Banking')),
+                    DropdownMenuItem(value: 'CARD', child: Text('Credit/Debit Card')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setState(() => _paymentMode = val);
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text('Delivery Type:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  isExpanded: true,
+                  value: _deliveryType,
+                  items: [
+                    if (showHomeDelivery)
+                      const DropdownMenuItem(value: 'HOME', child: Text('Home Delivery')),
+                    const DropdownMenuItem(value: 'PICKUP', child: Text('Store Pickup')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setState(() => _deliveryType = val);
+                  },
+                ),
+              ),
+            ),
+            const Divider(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('End Date:', style: TextStyle(color: Colors.grey)),
+                Text(DateFormat('dd-MMM-yyyy').format(endDate),
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Total Qty:', style: TextStyle(color: Colors.grey)),
+                Text(
+                  '${totalQty.toStringAsFixed(1)} ${unitLabel}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Base Price:', style: TextStyle(color: Colors.grey)),
+                Text(
+                  '${CurrencyService.format(rate)} / $unitLabel',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('${CountryTaxHelper.taxName(settings?.billingCountry, settings?.billingTaxMode)}:', style: const TextStyle(color: Colors.grey)),
+                Text(
+                  '${taxPercent.toStringAsFixed(1)}%',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Total Base Cost:', style: TextStyle(color: Colors.grey)),
+                Text(
+                  '${CurrencyService.format(totalCost)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Total ${CountryTaxHelper.taxName(settings?.billingCountry, settings?.billingTaxMode)}:', style: const TextStyle(color: Colors.grey)),
+                Text(
+                  '${CurrencyService.format(totalGst)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            if (settings != null && settings.subDeliveryChargeEnabled && isHomeDelivery) ...[
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(settings.subDeliveryChargeName, style: const TextStyle(color: Colors.grey)),
+                  Text(
+                    isDeliveryFree
+                        ? 'Free (Plan > ${CurrencyService.format(settings.subDeliveryFreeAbove)})'
+                        : CurrencyService.format(totalDeliveryCharge),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isDeliveryFree ? Colors.green : Colors.black,
+                    ),
+                  ),
+                ],
+              ),
+              if (!isDeliveryFree) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Delivery ${CountryTaxHelper.taxName(settings?.billingCountry, settings?.billingTaxMode)}:', style: const TextStyle(color: Colors.grey)),
+                    Text(
+                      '${CurrencyService.format(totalDeliveryGst)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Net Amount Payable:', style: TextStyle(color: Colors.grey)),
+                Text(
+                  '${CurrencyService.format(netPayable)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                    fontSize: 15
+                  ),
+                ),
+              ],
+            ),
+            if (settings != null && settings.subDeliveryChargeEnabled && isHomeDelivery) ...[
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  'Note: Home delivery charges are collected upfront and included in the Net Amount Payable.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontStyle: FontStyle.italic),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: selectedItem == null
+              ? null
+              : () => Navigator.pop(context, {
+                    'item_id': selectedItem['id'],
+                    'item_name': selectedItem['item_name'],
+                    'start_date': DateFormat('yyyy-MM-dd').format(_startDate),
+                    'end_date': DateFormat('yyyy-MM-dd').format(endDate),
+                    'daily_allowed_qty': _dailyAllowedQty,
+                    'total_payment_amount': netPayable,
+                    'taxable_amount': totalCost,
+                    'tax_amount': totalGst,
+                    'delivery_charge_amount': dailyDeliveryCharge,
+                    'delivery_charge_gst_percent': deliveryGstPercent,
+                    'delivery_charge_tax_amount': dailyDeliveryCharge * (deliveryGstPercent / 100),
+                    'payment_mode': _paymentMode,
+                    'delivery_type': _deliveryType,
+                    'customer_name': widget.customerName,
+                    'customer_phone': widget.customerPhone,
+                    'customer_address': widget.customerAddress,
+                  }),
+          child: const Text('Subscribe Now'),
+        ),
+      ],
+    );
+  }
+}

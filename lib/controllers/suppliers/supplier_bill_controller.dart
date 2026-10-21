@@ -1,0 +1,105 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import '../../core/api/api_client.dart';
+import '../../core/api/endpoints.dart';
+import '../../models/inventory/supplier_bill_model.dart';
+import '../../models/inventory/supplier_model.dart';
+
+import '../../core/config/date_time_service.dart';
+
+class SupplierBillController extends ChangeNotifier {
+  bool loading = false;
+  List<Supplier> suppliers = [];
+
+  List<SupplierBill> bills = [];
+  double totalPurchase = 0;
+  double totalPaid = 0;
+  double totalUnpaid = 0;
+  double availableCredit = 0;
+
+  DateTime fromDate = DateTimeService.instance.nowInTimeZone.subtract(const Duration(days: 30));
+  DateTime toDate = DateTimeService.instance.nowInTimeZone;
+
+  String? supplierId;
+  String? status;
+  String? suppliername;
+
+  Future<void> load() async {
+    loading = true;
+
+    final res = await ApiClient.get(
+      '${ApiEndpoints.supplierBills}'
+      '?fromDate=${DateFormat('yyyy-MM-dd').format(fromDate)}'
+      '&toDate=${DateFormat('yyyy-MM-dd').format(toDate)}'
+      '&supplierId=${supplierId ?? ''}'
+      '&status=${status ?? ''}',
+    );
+
+    bills = (res['data'] as List).map((e) => SupplierBill.fromJson(e)).toList();
+
+    totalPurchase = (res['summary']['totalPurchase'] ?? 0).toDouble();
+    totalPaid = (res['summary']['totalPaid'] ?? 0).toDouble();
+    totalUnpaid = (res['summary']['totalUnpaid'] ?? 0).toDouble();
+    // suppliername = (res['summary']['supplierid']['name'] ?? "");
+    loading = false;
+    notifyListeners();
+  }
+
+  Future<void> loadSuppliers() async {
+    final res = await ApiClient.get(ApiEndpoints.suppliers);
+
+    suppliers = (res['data'] as List).map((e) => Supplier.fromJson(e)).toList();
+
+    notifyListeners();
+  }
+
+  Future<void> loadAvailableCredit(int id) async {
+    try {
+      final res = await ApiClient.get('${ApiEndpoints.supplierAvailableCredit}/$id/available-credit');
+      availableCredit = (res['data']?['availableCredit'] ?? 0.0).toDouble();
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error loading available credit: $e");
+      availableCredit = 0;
+      notifyListeners();
+    }
+  }
+
+  Future<void> init() async {
+    await loadSuppliers();
+    await load();
+  }
+
+  Future<void> payBill({
+    required int billId,
+    required double amount,
+    required String paymentMode,
+    String? referenceNo,
+    DateTime? paymentDate,
+    String note = '',
+    double creditAdjusted = 0,
+  }) async {
+    await ApiClient.post(
+      ApiEndpoints.paySupplierBill,
+      {
+        "bill_id": billId,
+        "amount": amount,
+        "credit_adjusted": creditAdjusted,
+        "payment_mode": paymentMode,
+        "reference_no": referenceNo,
+        "payment_date": paymentDate == null
+            ? null
+            : DateFormat('yyyy-MM-dd').format(paymentDate),
+        "note": note,
+      },
+    );
+
+    await load(); // reload after payment
+  }
+
+  Future<SupplierBillDetail> getBillDetails(int billId) async {
+    final res = await ApiClient.get('${ApiEndpoints.supplierBillDetails}/$billId');
+    return SupplierBillDetail.fromJson(Map<String, dynamic>.from(res['data']));
+  }
+}

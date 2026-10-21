@@ -1,0 +1,418 @@
+const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const loadConfig = require("../../utils/decryptConfig");
+const { initClient } = require("../../modules/clientSetup");
+const { verifyLicenseOnline, invalidateLicenseCache } = require('./licenseManager');
+const propertyDb = require('../../db/propertyDb').default || require('../../db/propertyDb');
+const initMasterModels = require('../../models/master').default || require('../../models/master');
+const fs = require("fs");
+const path = require("path");
+const rootDir = process.pkg ? path.dirname(process.execPath) : process.cwd();
+
+exports.internalCheckOutlet = async (outlet_code, propertyDb) => {
+
+    const sysConfigPath = path.join(rootDir, 'sysConfig.enc');
+    const configPath = path.join(rootDir, 'config.enc');
+
+    if (!process.env.DATABASE_URL && !process.env.DB_HOST) {
+        if (!fs.existsSync(sysConfigPath) || !fs.existsSync(configPath)) {
+            return {
+                success: false,
+                message: "System files corrupted. Please reinstall the software."
+            };
+        }
+    }
+
+    if (!outlet_code) {
+        return { success: false, message: "Outlet code is required" };
+    }
+
+    const outlet = await propertyDb.models.outlets.findOne({
+        where: { outlet_code: outlet_code, is_active: true }
+    });
+
+    if (!outlet) {
+        return { success: false, exists: false, message: "Outlet not found" };
+    }
+
+    const config = loadConfig();
+
+    await initClient(config, outlet);
+
+    return { success: true, exists: true };
+};
+
+
+exports.checkOutlet = async (req, res) => {
+    try {
+        const { outlet_code } = req.body;
+
+        if (!outlet_code) {
+            return res.status(400).json({
+                success: false,
+                message: "Outlet code is required"
+            });
+        }
+
+        const outlet = await req.propertyDb.models.outlets.findOne({
+            where: { outlet_code: outlet_code, is_active: true }
+        });
+
+        if (!outlet) {
+            return res.json({
+                success: true,
+                exists: false,
+                data: { outlet_id: 0 }
+            });
+        }
+
+        const safeOutlet = outlet.toJSON();
+        delete safeOutlet.recovery_pin_hash;
+
+        res.json({
+            success: true,
+            exists: true,
+            data: safeOutlet
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+function generateEnterprisePassword() {
+    const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lowers = 'abcdefghijkmnpqrstuvwxyz';
+    const numbers = '23456789';
+    const symbols = '!@#$%&*';
+    const all = uppers + lowers + numbers + symbols;
+
+    const bytes = crypto.randomBytes(12);
+    let pass = '';
+    pass += uppers[bytes[0] % uppers.length];
+    pass += lowers[bytes[1] % lowers.length];
+    pass += numbers[bytes[2] % numbers.length];
+    pass += symbols[bytes[3] % symbols.length];
+
+    for (let i = 4; i < 12; i++) {
+        pass += all[bytes[i] % all.length];
+    }
+
+    return pass.split('').sort(() => 0.5 - Math.random()).join('');
+}
+
+exports.createOutlet = async (req, res) => {
+    try {
+        const {
+            outlet_code,
+            outlet_name,
+            outlet_type,
+            business_module = 'ALL',
+            contact_email,
+            contact_phone,
+            recovery_pin,
+            tax_id
+        } = req.body;
+
+
+        if (!outlet_code || !outlet_name) {
+            return res.status(400).json({
+                success: false,
+                message: "Outlet code and name are required"
+            });
+        }
+
+
+        if (!recovery_pin || recovery_pin.toString().length < 4) {
+            return res.status(400).json({
+                success: false,
+                message: "A recovery PIN (minimum 4 characters) is required for secure account recovery."
+            });
+        }
+
+        const exists = await req.propertyDb.models.outlets.findOne({
+            where: { outlet_code }
+        });
+
+        if (exists) {
+            return res.status(400).json({
+                success: false,
+                message: "Outlet code already exists in the system."
+            });
+        }
+
+
+        const pinHash = await bcrypt.hash(recovery_pin.toString(), 10);
+
+        const outlet = await req.propertyDb.models.outlets.create({
+            outlet_code,
+            outlet_name,
+            outlet_type,
+            business_module,
+            contact_email,
+            contact_phone,
+            parent_outlet_id: req.body.parent_outlet_id || null,
+            is_master: req.body.is_master || false,
+            outlet_role: req.body.outlet_role || (req.body.is_master ? 'MASTER' : 'BRANCH'),
+            recovery_pin_hash: pinHash,
+            tax_id: tax_id || 'TAX_DEFAULT',
+            is_active: true
+        });
+
+        const userCount = await req.propertyDb.models.users.count({
+            where: { outlet_id: outlet.id }
+        });
+
+        let adminCredentials = null;
+
+        if (userCount === 0) {
+            const adminUsername = req.body.admin_username || `admin_${outlet_code}`;
+            const adminPassword = req.body.admin_password || generateEnterprisePassword();
+            const hash = await bcrypt.hash(adminPassword.toString(), 10);
+
+            await req.propertyDb.models.users.create({
+                outlet_id: outlet.id,
+                username: adminUsername,
+                full_name: 'System Admin',
+                role: 'ADMIN',
+                password_hash: hash,
+                contact_email: contact_email,
+                mobile: contact_phone,
+                show_in_quick_login: false,
+                is_active: true
+            });
+
+            adminCredentials = {
+                username: adminUsername,
+                password: adminPassword.toString()
+            };
+
+            if (contact_email) {
+                try {
+                    const { sendOutletRegistrationEmail } = require('../../modules/emailService');
+                    await sendOutletRegistrationEmail(
+                        contact_email,
+                        outlet_code,
+                        outlet_name,
+                        adminUsername,
+                        adminPassword.toString(),
+                        recovery_pin
+                    );
+                } catch (emailErr) {
+                    console.warn('[OUTLET REGISTRATION] Could not send credentials email:', emailErr.message);
+                }
+            }
+        }
+
+        const config = loadConfig();
+        await initClient(config, outlet);
+
+        res.json({
+            success: true,
+            message: "Outlet configured successfully. Credentials sent to registered email.",
+            admin_username: adminCredentials ? adminCredentials.username : `admin_${outlet_code}`,
+            admin_password: adminCredentials ? adminCredentials.password : '',
+            data: {
+                outlet_id: outlet.id,
+                outlet_code: outlet.outlet_code,
+                admin_credentials: adminCredentials,
+                admin_username: adminCredentials ? adminCredentials.username : `admin_${outlet_code}`,
+                admin_password: adminCredentials ? adminCredentials.password : ''
+            }
+        });
+
+    } catch (err) {
+        res.status(500).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
+
+exports.createAdmin = async (req, res) => {
+    try {
+        const { outlet_code, username, password, full_name } = req.body;
+
+        if (!outlet_code || !username || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Outlet code, username, and password are required'
+            });
+        }
+
+        const outlet = await req.propertyDb.models.outlets.findOne({
+            where: { outlet_code: outlet_code, is_active: true }
+        });
+
+        if (!outlet) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid or inactive outlet code'
+            });
+        }
+
+        const userCount = await req.propertyDb.models.users.count({
+            where: { outlet_id: outlet.id }
+        });
+
+        if (userCount > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Admin already exists for this outlet'
+            });
+        }
+
+        const hash = await bcrypt.hash(password, 10);
+
+        await req.propertyDb.models.users.create({
+            outlet_id: outlet.id,
+            username: username,
+            full_name: full_name || 'System Admin',
+            role: 'ADMIN',
+            password_hash: hash,
+            show_in_quick_login: false,
+            is_active: true
+        });
+
+        res.json({
+            success: true,
+            message: 'Admin user created successfully'
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+exports.updateOutletModule = async (req, res) => {
+    try {
+        const { business_module, outlet_id, outlet_code } = req.body;
+
+        if (!business_module) {
+            return res.status(400).json({
+                success: false,
+                message: 'business_module is required'
+            });
+        }
+
+        let outlet = null;
+        if (req.user?.outlet_id) {
+            outlet = await req.propertyDb.models.outlets.findByPk(req.user.outlet_id);
+        } else if (outlet_id) {
+            outlet = await req.propertyDb.models.outlets.findByPk(outlet_id);
+        } else if (outlet_code) {
+            outlet = await req.propertyDb.models.outlets.findOne({ where: { outlet_code } });
+        }
+
+        if (!outlet) {
+            outlet = await req.propertyDb.models.outlets.findOne({ where: { is_active: true } });
+        }
+
+        if (!outlet) {
+            return res.status(404).json({
+                success: false,
+                message: 'No active outlet found'
+            });
+        }
+
+        const validModules = ['INVENTORY', 'RETAIL', 'RESTAURANT', 'ALL'];
+        if (!validModules.includes(business_module.toUpperCase())) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid business_module value. Allowed: INVENTORY, RETAIL, RESTAURANT, ALL'
+            });
+        }
+
+        await outlet.update({ business_module: business_module.toUpperCase() });
+
+        res.json({
+            success: true,
+            message: 'Business module updated successfully',
+            business_module: outlet.business_module
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+exports.heartbeat = async (req, res) => {
+    try {
+        const { outlet_code, hardware_machine_id, storage_bytes, client_version } = req.body;
+        if (!outlet_code) {
+            return res.status(400).json({ success: false, message: 'outlet_code is required' });
+        }
+
+        const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || req.ip || '';
+
+        // 1. Real-time online license check against master database
+        const licenseData = await verifyLicenseOnline(outlet_code);
+
+        // 2. Update MasterOutlet ping time, IP & hardware machine ID in master database
+        try {
+            const { MasterOutlet, MasterTenant } = initMasterModels(propertyDb);
+            const outlet = await MasterOutlet.findOne({
+                where: { outlet_code },
+                include: [{ model: MasterTenant, as: 'tenant' }]
+            });
+
+            if (outlet) {
+                const updateData = {
+                    last_ping_at: new Date(),
+                };
+                if (hardware_machine_id) updateData.hardware_machine_id = hardware_machine_id;
+                if (ip) updateData.ip_address = ip;
+
+                await outlet.update(updateData);
+
+                // Update tenant metadata if storage bytes sent
+                if (outlet.tenant) {
+                    const tenant = outlet.tenant;
+                    const meta = tenant.custom_metadata || {};
+                    if (storage_bytes !== undefined && storage_bytes !== null) {
+                        meta.storage_used_bytes = Number(storage_bytes) || 0;
+                    }
+                    meta.last_heartbeat_at = new Date().toISOString();
+                    if (client_version) meta.client_version = client_version;
+                    tenant.custom_metadata = meta;
+                    await tenant.save();
+                }
+            }
+        } catch (dbErr) {
+            console.warn('[HEARTBEAT] Master DB telemetry update non-fatal error:', dbErr.message);
+        }
+
+        return res.json({
+            success: true,
+            license_status: licenseData.license_status,
+            days_remaining: licenseData.days_remaining,
+            valid_till: licenseData.valid_till,
+            message: licenseData.message
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+exports.startupSystem = async (outletCode) => {
+    try {
+        const licenseData = await verifyLicenseOnline(outletCode);
+
+        if (licenseData.license_status === 'EXPIRED') {
+            return false;
+        }
+
+        return true;
+    } catch (err) {
+        if (err.message === "OFFLINE") {
+            return true;
+        }
+        return false;
+    }
+};

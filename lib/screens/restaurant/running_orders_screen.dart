@@ -1,0 +1,1877 @@
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:provider/provider.dart';
+import '../../core/api/api_client.dart';
+import '../../core/printing/device_printer_routing.dart';
+import '../../core/printing/pos_invoice_printer.dart';
+import '../../core/settings/local_preferences.dart';
+import '../inventory/salescreen.dart';
+import 'kot_builder_screen.dart';
+import '../../controllers/settings/system_settings_controller.dart';
+import '../../controllers/security/user_controller.dart';
+import '../../controllers/restaurant/restaurant_controller.dart';
+import '../../core/auth/token_storage.dart';
+
+class RunningOrdersScreen extends StatefulWidget {
+  final int tableId;
+  final String tableName;
+
+  const RunningOrdersScreen({
+    super.key,
+    required this.tableId,
+    required this.tableName,
+  });
+
+  @override
+  State<RunningOrdersScreen> createState() => _RunningOrdersScreenState();
+}
+
+class _RunningOrdersScreenState extends State<RunningOrdersScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  List<dynamic> activeKotsList = [];
+  bool isLoading = false;
+  final settingsCtrl = SystemSettingsController();
+  String _selectedConsolidatedBillTag = 'ALL';
+
+  @override
+  void initState() {
+    super.initState();
+    settingsCtrl.load().then((_) {
+      if (mounted) setState(() {});
+    });
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
+    _fetchTableKots();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    settingsCtrl.dispose();
+    super.dispose();
+  }
+
+  String _displayName(Map<String, dynamic> item) {
+    final String name = item['item_name'] ?? '';
+    final bool showBrand = settingsCtrl.settings?.showBrandName ?? true;
+    if (!showBrand) return name;
+
+    if (item['item'] != null && item['item']['brand'] != null) {
+      final String brand = item['item']['brand'].toString().trim();
+      if (brand.isNotEmpty) {
+        return '$brand - $name';
+      }
+    }
+    return name;
+  }
+
+  List<dynamic> _filterActiveRunningKots(List rawKots) {
+    final List<dynamic> result = [];
+    for (final kot in rawKots) {
+      final bool isDismissed = kot['kds_dismissed'] == true || kot['kds_dismissed'] == 1;
+      if (isDismissed) {
+        continue;
+      }
+
+      // If already linked to a sales header bill, ignore!
+      if (kot['sales_header_id'] != null) {
+        continue;
+      }
+
+      final String status = (kot['status'] ?? '').toString().toUpperCase().trim();
+      // Exclude Billed, Completed, Settled, NC Cleared KOTs
+      if (status == 'BILLED' ||
+          status == 'COMPLETED' ||
+          status == 'SETTLED' ||
+          status == 'NC CLEARED' ||
+          status == 'NC_CLEARED' ||
+          status == 'CLOSED') {
+        continue;
+      }
+
+      final List items = kot['items'] as List? ?? [];
+      final List validItems = items.where((it) {
+        final String itemStatus = (it['status'] ?? '').toString().toUpperCase().trim();
+        return itemStatus != 'BILLED' && itemStatus != 'COMPLETED';
+      }).toList();
+
+      if (validItems.isNotEmpty) {
+        final Map<String, dynamic> cleanKot = Map<String, dynamic>.from(kot);
+        cleanKot['items'] = validItems;
+        result.add(cleanKot);
+      }
+    }
+    return result;
+  }
+
+  Future<void> _fetchTableKots() async {
+    setState(() => isLoading = true);
+    try {
+      final res = await ApiClient.get('/api/restaurant/kots?table_id=${widget.tableId}&active_only=true');
+      if (res['success'] == true) {
+        final List raw = res['data'] ?? [];
+        final filtered = _filterActiveRunningKots(raw);
+        setState(() {
+          activeKotsList = filtered;
+        });
+
+        // IF ALL ORDERS FOR THE TABLE ARE CANCELLED / BILLED:
+        // Automatically clear table status to Available and reset guest count to 0
+        if (filtered.isEmpty && widget.tableId > 0) {
+          try {
+            await ApiClient.put('/api/restaurant/tables/${widget.tableId}/status', {
+              'status': 'Available',
+              'guest_count': 0,
+            });
+          } catch (e) {
+            debugPrint('Error auto-clearing table status when all KOTs cancelled: $e');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading table active orders: $e');
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
+  List<String> _getDistinctClientTags() {
+    final tags = <String>{};
+    for (final kot in activeKotsList) {
+      final tag = (kot['client_tag'] ?? 'Bill 1').toString().trim();
+      if (tag.isNotEmpty) {
+        tags.add(tag);
+      }
+    }
+    return tags.toList();
+  }
+
+  Future<void> _proceedToBilling({String? specificClientTag, int? specificKotId}) async {
+    final List<int> kotIds = [];
+    final Map<dynamic, Map<String, dynamic>> grouped = {};
+
+    final targetKots = activeKotsList.where((kot) {
+      if (specificKotId != null && kot['id'] != specificKotId) return false;
+      if (specificClientTag != null && (kot['client_tag'] ?? 'Bill 1').toString().trim() != specificClientTag.trim()) return false;
+      return true;
+    }).toList();
+
+    for (final kot in targetKots) {
+      final int kId = int.tryParse((kot['id'] ?? 0).toString()) ?? 0;
+      if (kId > 0 && !kotIds.contains(kId)) {
+        kotIds.add(kId);
+      }
+      final items = kot['items'] as List? ?? [];
+      for (final item in items) {
+        final String itemStatus = (item['status'] ?? '').toString().toUpperCase().trim();
+        if (itemStatus == 'CANCELLED' || itemStatus == 'REJECTED') continue;
+
+        final int itemId = int.tryParse((item['item_id'] ?? item['itemId'] ?? item['id'] ?? 0).toString()) ?? 0;
+        final String itemName = (item['item_name'] ?? item['itemName'] ?? item['name'] ?? '').toString().trim();
+        final double qty = double.tryParse((item['quantity'] ?? item['qty'] ?? 1.0).toString()) ?? 1.0;
+        final double rate = double.tryParse((item['rate'] ?? item['item_rate'] ?? item['price'] ?? 0.0).toString()) ?? 0.0;
+        final List modDetails = (item['modifier_details'] is List ? item['modifier_details'] : []) as List;
+        final List modObjects = (item['modifier_objects'] is List ? item['modifier_objects'] : []) as List;
+        final String remark = (item['item_remark'] ?? item['remarks'] ?? '').toString().trim();
+
+        // Calculate modifier extra price if available
+        double modExtra = 0.0;
+        for (final m in modObjects) {
+          if (m is Map) {
+            final p = double.tryParse(m['price']?.toString() ?? '0') ?? 0.0;
+            final mq = int.tryParse(m['qty']?.toString() ?? '1') ?? 1;
+            modExtra += p * mq;
+          }
+        }
+        if (modExtra <= 0 && modDetails.isNotEmpty) {
+          for (final d in modDetails) {
+            final str = d.toString().trim();
+            final priceMatch = RegExp(r'@(?:\s*[\$€₹£])?\s*([0-9]+(?:\.[0-9]+)?)').firstMatch(str);
+            final qtyMatch = RegExp(r'(?:x|\(x)(\d+)').firstMatch(str);
+            final mq = qtyMatch != null ? (int.tryParse(qtyMatch.group(1)!) ?? 1) : 1;
+            if (priceMatch != null) {
+              final p = double.tryParse(priceMatch.group(1)!) ?? 0.0;
+              modExtra += p * mq;
+            }
+          }
+        }
+
+        final dynamic groupKey = '${itemId}_${modDetails.join(", ")}_$remark';
+
+        if (grouped.containsKey(groupKey)) {
+          grouped[groupKey]!['qty'] = (grouped[groupKey]!['qty'] as double) + qty;
+        } else {
+          grouped[groupKey] = {
+            'item_id': itemId,
+            'item_name': itemName,
+            'qty': qty,
+            'rate': rate > 0 ? (rate + modExtra) : rate,
+            'modifier_details': modDetails,
+            'modifier_objects': modObjects,
+            'item_remark': remark,
+          };
+        }
+      }
+    }
+
+    if (grouped.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active items found to bill.'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    final role = ((await TokenStorage.getRole()) ?? '').toUpperCase().trim();
+    final permissions = await TokenStorage.getPermissions();
+    final bool isWaiter = role == 'WAITER' || role == 'STEWARD' || role == 'SERVER';
+    final bool canCashierBill = !isWaiter && (permissions.contains('RETAIL_SALES') || role == 'ADMIN' || role == 'MANAGER' || role == 'CASHIER' || role == 'SUPERADMIN') && (MediaQuery.of(context).size.width >= 900);
+
+    if (!canCashierBill) {
+      final ctrl = context.read<RestaurantController>();
+      await ctrl.updateTableStatus(widget.tableId, 'Billed');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Bill Request sent to Cashier! Table marked as Bill Required.'),
+            backgroundColor: Colors.teal.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        Navigator.pop(context);
+      }
+      return;
+    }
+
+    String? custName;
+    String? custPhone;
+    for (final k in targetKots) {
+      final n = (k['customer_name'] ?? '').toString().trim();
+      final p = (k['customer_phone'] ?? '').toString().trim();
+      if (n.isNotEmpty && (custName == null || custName.isEmpty) && n.toLowerCase() != 'guest') custName = n;
+      if (p.isNotEmpty && (custPhone == null || custPhone.isEmpty)) custPhone = p;
+      if (custName == null || custName.isEmpty || custName.toLowerCase() == 'guest' || custPhone == null || custPhone.isEmpty) {
+        final rem = (k['remarks'] ?? '').toString();
+        if (rem.contains('Customer Self-Order (QR):')) {
+          final idx = rem.indexOf('Customer Self-Order (QR):');
+          var qrPart = rem.substring(idx + 'Customer Self-Order (QR):'.length);
+          final pipeIdx = qrPart.indexOf('|');
+          if (pipeIdx != -1) qrPart = qrPart.substring(0, pipeIdx);
+
+          final phoneMatch = RegExp(r'\(([^)]*)\)').firstMatch(qrPart);
+          final cleanName = qrPart
+              .replaceAll(RegExp(r'\[CID:[^\]]*\]', caseSensitive: false), '')
+              .replaceAll(RegExp(r'\[EM:[^\]]*\]', caseSensitive: false), '')
+              .replaceAll(RegExp(r'\([^)]*\)'), '')
+              .trim();
+
+          if ((custName == null || custName.isEmpty || custName.toLowerCase() == 'guest') &&
+              cleanName.isNotEmpty &&
+              cleanName.toLowerCase() != 'guest') {
+            custName = cleanName;
+          }
+          if ((custPhone == null || custPhone.isEmpty) &&
+              phoneMatch != null &&
+              phoneMatch.group(1)!.trim().isNotEmpty) {
+            custPhone = phoneMatch.group(1)!.trim();
+          }
+        }
+      }
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SaleScreen(
+          preloadedTableId: widget.tableId,
+          preloadedItems: grouped.values.toList(),
+          preloadedKotIds: kotIds,
+          preloadedCustomerName: custName,
+          preloadedCustomerPhone: custPhone,
+        ),
+      ),
+    ).then((_) => _fetchTableKots());
+  }
+
+  void _showBillingOptions() {
+    final distinctTags = _getDistinctClientTags();
+    if (distinctTags.length <= 1) {
+      _proceedToBilling();
+      return;
+    }
+
+    // Multi-client bills detected! Show Split Settlement Dialog
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.call_split, color: Colors.teal.shade700, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Split Bill Settlement', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(
+                      'Table ${widget.tableName} has ${distinctTags.length} separate client bills',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Select which client bill to settle, or settle the whole table together:',
+                  style: TextStyle(fontSize: 13, color: Colors.black87),
+                ),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: distinctTags.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (ctx, i) {
+                      final tag = distinctTags[i];
+                      final clientKots = activeKotsList.where((k) => (k['client_tag'] ?? 'Bill 1').toString().trim() == tag).toList();
+                      int itemCount = 0;
+                      final List<String> itemNames = [];
+
+                      String custName = '';
+                      String seatLabel = '';
+                      for (final kot in clientKots) {
+                        if (kot['sub_table'] != null && kot['sub_table'].toString().isNotEmpty && seatLabel.isEmpty) {
+                          seatLabel = kot['sub_table'].toString();
+                        }
+                        final remarks = (kot['remarks'] ?? '').toString();
+                        if (remarks.contains('Customer Self-Order (QR):')) {
+                          final parts = remarks.split('Customer Self-Order (QR):');
+                          if (parts.length > 1) {
+                            final after = parts[1].trim();
+                            final firstPart = after.split('(')[0].trim();
+                            if (firstPart.isNotEmpty && firstPart.toLowerCase() != 'guest' && custName.isEmpty) {
+                              custName = firstPart;
+                            }
+                          }
+                        }
+                        final revisions = kot['revisions'] as List? ?? [];
+                        if (revisions.isNotEmpty && custName.isEmpty) {
+                          final snap = revisions.first['snapshot'];
+                          if (snap is Map && snap['customer_name'] != null && snap['customer_name'].toString().isNotEmpty) {
+                            custName = snap['customer_name'].toString();
+                          }
+                        }
+                      }
+                      final String badgeLabel = [
+                        tag,
+                        if (seatLabel.isNotEmpty) seatLabel,
+                        if (custName.isNotEmpty) custName,
+                      ].join(' • ');
+
+                      for (final kot in clientKots) {
+                        final items = kot['items'] as List? ?? [];
+                        for (final it in items) {
+                          final String stat = (it['status'] ?? '').toString().toUpperCase();
+                          if (stat == 'CANCELLED' || stat == 'REJECTED') continue;
+                          final double q = double.tryParse((it['quantity'] ?? it['qty'] ?? 1).toString()) ?? 1.0;
+                          itemCount += (q % 1 == 0 ? q.toInt() : q.ceil());
+                          final name = it['item_name'] ?? 'Item';
+                          final qtyStr = (q % 1 == 0) ? q.toInt().toString() : q.toStringAsFixed(1);
+                          if (!itemNames.contains('$name (${qtyStr}x)')) {
+                            itemNames.add('$name (${qtyStr}x)');
+                          }
+                        }
+                      }
+
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE0E7FF),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.receipt_outlined, size: 15, color: Color(0xFF3730A3)),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        badgeLabel,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF3730A3), fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Text(
+                                  '$itemCount items • ${clientKots.length} KOT(s)',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87),
+                                ),
+                              ],
+                            ),
+                            if (itemNames.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                itemNames.join(', '),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green.shade700,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                icon: const Icon(Icons.point_of_sale, size: 16),
+                                label: Text('Settle $tag', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                                onPressed: () {
+                                  Navigator.pop(dialogContext);
+                                  _proceedToBilling(specificClientTag: tag);
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    side: BorderSide(color: Colors.blue.shade700),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: Icon(Icons.receipt_long, color: Colors.blue.shade700),
+                  label: Text(
+                    'Settle All Bills Combined (Whole Table)',
+                    style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                    _proceedToBilling();
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _openFreshOrderPrompt() {
+    final distinctTags = _getDistinctClientTags();
+    if (distinctTags.isEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => KotBuilderScreen(
+            table: {
+              'id': widget.tableId,
+              'table_name': widget.tableName,
+            },
+            isFreshOrder: true,
+            clientTag: 'Bill 1',
+          ),
+        ),
+      ).then((_) => _fetchTableKots());
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Add Order to Table ${widget.tableName}'),
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+            child: Text('Choose which client bill to add items to:', style: TextStyle(fontSize: 13, color: Colors.grey)),
+          ),
+          ...distinctTags.map((tag) => SimpleDialogOption(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => KotBuilderScreen(
+                    table: {
+                      'id': widget.tableId,
+                      'table_name': widget.tableName,
+                    },
+                    isFreshOrder: true,
+                    clientTag: tag,
+                  ),
+                ),
+              ).then((_) => _fetchTableKots());
+            },
+            child: ListTile(
+              leading: const Icon(Icons.receipt, color: Colors.indigo),
+              title: Text('Add items to $tag', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          )),
+          SimpleDialogOption(
+            onPressed: () {
+              Navigator.pop(ctx);
+              final nextIndex = distinctTags.length + 1;
+              final nextTag = 'Bill $nextIndex';
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => KotBuilderScreen(
+                    table: {
+                      'id': widget.tableId,
+                      'table_name': widget.tableName,
+                    },
+                    isFreshOrder: true,
+                    clientTag: nextTag,
+                  ),
+                ),
+              ).then((_) => _fetchTableKots());
+            },
+            child: ListTile(
+              leading: const Icon(Icons.add_circle_outline, color: Color(0xFFFF7A1A)),
+              title: Text('New Client Bill (Bill ${distinctTags.length + 1})', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF7A1A))),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _reprintKot(Map<String, dynamic> kot) async {
+    final String kotNo = (kot['kot_number'] ?? kot['kot_no'] ?? kot['id']).toString();
+    final items = kot['items'] as List? ?? [];
+    if (items.isEmpty) return;
+
+    try {
+      final sysSettingsCtrl = Provider.of<SystemSettingsController>(context, listen: false);
+      final sysSettings = sysSettingsCtrl.currentSettings;
+      final currentMachineId = await LocalPreferences.getMachineId();
+
+      final allKotMappings = DevicePrinterRouting.getSectionMappings(sysSettings, 'kots');
+      final configuredLocs = allKotMappings
+          .map((m) => m.location.trim())
+          .where((l) => l.isNotEmpty)
+          .toList();
+
+      final Map<String, List<dynamic>> locationGroups = {};
+      for (final item in items) {
+        String rawLoc = (item['station']?['station_name'] ??
+                item['station_name'] ??
+                item['location'] ??
+                item['item_location'] ??
+                item['kitchen_location'] ??
+                item['item']?['location'] ??
+                (item['item'] is Map ? item['item']['location'] ?? item['item']['kitchen_location'] : null) ??
+                '')
+            .toString()
+            .trim();
+
+        if (rawLoc.isEmpty) {
+          rawLoc = (item['item_group'] ??
+                  item['category'] ??
+                  item['item']?['item_group'] ??
+                  item['item']?['category'] ??
+                  (item['item'] is Map ? item['item']['item_group'] ?? item['item']['category'] : null) ??
+                  '')
+              .toString()
+              .trim();
+        }
+
+        String targetStation = rawLoc;
+        if (rawLoc.isNotEmpty) {
+          for (final cLoc in configuredLocs) {
+            if (cLoc.toLowerCase() == rawLoc.toLowerCase() ||
+                rawLoc.toLowerCase().contains(cLoc.toLowerCase()) ||
+                cLoc.toLowerCase().contains(rawLoc.toLowerCase())) {
+              targetStation = cLoc;
+              break;
+            }
+          }
+        }
+
+        if (targetStation.isEmpty) {
+          targetStation = configuredLocs.isNotEmpty ? configuredLocs.first : 'Main Kitchen';
+        }
+
+        locationGroups.putIfAbsent(targetStation, () => []).add(item);
+      }
+
+      List<Printer> availablePrinters = [];
+      try {
+        availablePrinters = await Printing.listPrinters();
+      } catch (e) {
+        debugPrint('listPrinters error: $e');
+      }
+
+      for (final entry in locationGroups.entries) {
+        final String locationName = entry.key;
+        final List<dynamic> stationItems = entry.value;
+
+        final routings = DevicePrinterRouting.resolvePrinters(
+          settings: sysSettings,
+          machineId: currentMachineId,
+          sectionKey: 'kots',
+          location: locationName,
+        );
+
+        final pdfBytes = await _generateKotPdfForPrint(kot, stationItems, locationName);
+        final String jobName = 'REPRINT_KOT_${kotNo}_$locationName';
+
+        bool printedDirectly = false;
+        if (routings.isNotEmpty) {
+          for (final routing in routings) {
+            final String targetPrinterName = routing.printer.trim();
+            if (targetPrinterName.isEmpty) continue;
+
+            Printer? matchedPrinter;
+            try {
+              matchedPrinter = availablePrinters.firstWhere(
+                (p) => p.name.toLowerCase() == targetPrinterName.toLowerCase() || p.url.toLowerCase() == targetPrinterName.toLowerCase(),
+              );
+            } catch (_) {
+              try {
+                matchedPrinter = availablePrinters.firstWhere(
+                  (p) => p.name.toLowerCase().contains(targetPrinterName.toLowerCase()) || targetPrinterName.toLowerCase().contains(p.name.toLowerCase()),
+                );
+              } catch (_) {}
+            }
+
+            if (matchedPrinter != null) {
+              try {
+                final int copyCount = routing.copies > 0 ? routing.copies : 1;
+                for (int c = 0; c < copyCount; c++) {
+                  await Printing.directPrintPdf(
+                    printer: matchedPrinter,
+                    name: jobName,
+                    onLayout: (_) async => pdfBytes,
+                  );
+                }
+                printedDirectly = true;
+              } catch (pErr) {
+                debugPrint('Direct print printer error for station "$locationName": $pErr');
+              }
+            }
+          }
+        }
+
+        if (!printedDirectly) {
+          Printer? fallbackPrinter;
+          if (sysSettings.defaultPrinterName.trim().isNotEmpty) {
+            try {
+              fallbackPrinter = availablePrinters.firstWhere(
+                (p) => p.name.toLowerCase() == sysSettings.defaultPrinterName.trim().toLowerCase(),
+              );
+            } catch (_) {}
+          }
+          fallbackPrinter ??= availablePrinters.where((p) => p.isDefault).firstOrNull ?? availablePrinters.firstOrNull;
+
+          if (fallbackPrinter != null) {
+            try {
+              await Printing.directPrintPdf(
+                printer: fallbackPrinter,
+                name: jobName,
+                onLayout: (_) async => pdfBytes,
+              );
+            } catch (e) {
+              debugPrint('Direct print fallback error: $e');
+              await Printing.layoutPdf(
+                name: jobName,
+                onLayout: (_) async => pdfBytes,
+              );
+            }
+          } else {
+            await Printing.layoutPdf(
+              name: jobName,
+              onLayout: (_) async => pdfBytes,
+            );
+          }
+        }
+      }
+
+      await ApiClient.post('/api/restaurant/kots/${kot['id']}/reprint', {
+        'is_reprint': true,
+        'reprinted_at': DateTime.now().toIso8601String(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Reprinted KOT Ticket #$kotNo location-wise!'),
+            backgroundColor: Colors.teal.shade700,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error triggering KOT reprint: $e');
+    }
+  }
+
+  Future<Uint8List> _generateKotPdfForPrint(Map<String, dynamic> kot, List<dynamic> items, String locationName) async {
+    final pdf = await PosInvoicePrinter.createDocument();
+    final String tableName = widget.tableName.isNotEmpty ? widget.tableName : (kot['table']?['table_name'] ?? 'Takeaway');
+    
+    final rawGuest = kot['guest_count'] ?? kot['guests'] ?? kot['table']?['current_guest_count'] ?? kot['table']?['guest_count'] ?? kot['table']?['pax'];
+    final parsedGuest = rawGuest != null ? int.tryParse(rawGuest.toString()) : null;
+    final int guestCount = (parsedGuest != null && parsedGuest > 0) ? parsedGuest : (tableName.toLowerCase().contains('takeaway') ? 1 : 2);
+
+    final String nowStr = DateTime.now().toString().substring(0, 16);
+    final String kotNo = (kot['kot_number'] ?? kot['kot_no'] ?? '#KOT-${kot['id']}').toString();
+    final String clientTag = (kot['client_tag'] ?? 'Bill 1').toString();
+    
+    pdf.addPage(
+      pw.Page(
+        pageFormat: const PdfPageFormat(80 * PdfPageFormat.mm, double.infinity, marginAll: 4 * PdfPageFormat.mm),
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Center(
+                child: pw.Text(
+                  'KITCHEN ORDER TICKET',
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13),
+                ),
+              ),
+              if (locationName.isNotEmpty)
+                pw.Container(
+                  margin: const pw.EdgeInsets.symmetric(vertical: 3),
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.black, width: 1.5),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Center(
+                    child: pw.Text(
+                      'LOCATION / STATION: ${locationName.toUpperCase()}',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11.5, color: PdfColors.black),
+                    ),
+                  ),
+                ),
+              pw.Center(
+                child: pw.Text(
+                  (kot['kottype'] == 'nc' || kot['kottype'] == 'NC')
+                      ? '*** NC (NON-CHARGEABLE) REPRINT K O T ***'
+                      : ((kot['kottype'] == 'packing' || (kot['service_type'] ?? '').toString().toLowerCase().contains('takeaway'))
+                          ? '*** PACKING REPRINT K O T ***'
+                          : '*** REPRINT K O T ***'),
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('TABLE: $tableName', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                  pw.Text('CLIENT: $clientTag', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                ],
+              ),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('KOT: $kotNo', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                  pw.Text('GUESTS: $guestCount', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                ],
+              ),
+              pw.Text('Print Time: $nowStr', style: const pw.TextStyle(fontSize: 9)),
+              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+              pw.Row(
+                children: [
+                  pw.SizedBox(width: 32, child: pw.Text('QTY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                  pw.Expanded(child: pw.Text('ITEM DESCRIPTION', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                ],
+              ),
+              pw.Divider(thickness: 0.5),
+              ...items.map((item) {
+                final double q = double.tryParse(item['quantity']?.toString() ?? item['qty']?.toString() ?? '0') ?? 0.0;
+                final String qtyStr = (q % 1 == 0) ? q.toInt().toString() : q.toStringAsFixed(1);
+                final String itemBrand = (item['brand'] ?? item['brand_name'] ?? item['item_brand'] ?? item['item']?['brand'] ?? (item['item'] is Map ? item['item']['brand'] : null) ?? '').toString().trim();
+                final String displayName = itemBrand.isNotEmpty ? '${item['item_name'] ?? ''} ($itemBrand)' : (item['item_name'] ?? '');
+                final String remark = (item['item_remark'] ?? item['notes'] ?? '').toString();
+                final List mods = (item['modifier_details'] is List ? item['modifier_details'] : []) as List;
+                
+                return pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 3),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Row(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.SizedBox(
+                            width: 32,
+                            child: pw.Text(
+                              '[ $qtyStr ]',
+                              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12),
+                            ),
+                          ),
+                          pw.Expanded(
+                            child: pw.Text(
+                              displayName,
+                              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (mods.isNotEmpty)
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.only(left: 32, top: 1),
+                          child: pw.Text('* Mods: ${mods.join(", ")}', style: pw.TextStyle(fontSize: 9, fontStyle: pw.FontStyle.italic, fontWeight: pw.FontWeight.bold)),
+                        ),
+                      if (remark.isNotEmpty)
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.only(left: 32, top: 1),
+                          child: pw.Text('* Note: $remark', style: pw.TextStyle(fontSize: 9, fontStyle: pw.FontStyle.italic)),
+                        ),
+                    ],
+                  ),
+                );
+              }),
+              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Total Qty:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                  pw.Text((items.fold<double>(0, (sum, i) => sum + (double.tryParse(i['quantity']?.toString() ?? i['qty']?.toString() ?? '0') ?? 0)) % 1 == 0)
+                      ? items.fold<double>(0, (sum, i) => sum + (double.tryParse(i['quantity']?.toString() ?? i['qty']?.toString() ?? '0') ?? 0)).toInt().toString()
+                      : items.fold<double>(0, (sum, i) => sum + (double.tryParse(i['quantity']?.toString() ?? i['qty']?.toString() ?? '0') ?? 0)).toStringAsFixed(1),
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.SizedBox(height: 10),
+              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+              pw.SizedBox(height: 6),
+            ],
+          );
+        },
+      ),
+    );
+    return pdf.save();
+  }
+
+  Future<void> _cancelKotItem(int itemId, String itemName) async {
+    String enteredPin = '';
+    String reason = 'Removed by Waiter';
+    bool isAuthorizing = false;
+    bool isSendingOtp = false;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.security, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Cancel "$itemName"', style: const TextStyle(fontSize: 16))),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      obscureText: true,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Supervisor PIN or OTP *',
+                        hintText: 'xxxx',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.key),
+                      ),
+                      onChanged: (val) => enteredPin = val,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'Reason for Cancellation',
+                        hintText: 'Customer changed mind, out of stock, etc.',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.edit_note),
+                      ),
+                      onChanged: (val) => reason = val,
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: isSendingOtp
+                          ? null
+                          : () async {
+                              setDialogState(() => isSendingOtp = true);
+                              try {
+                                final msg = await context.read<UserController>().sendSupervisorOtp();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(msg), backgroundColor: Colors.teal),
+                                  );
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Failed to send OTP: $e'), backgroundColor: Colors.red),
+                                  );
+                                }
+                              } finally {
+                                setDialogState(() => isSendingOtp = false);
+                              }
+                            },
+                      icon: isSendingOtp
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.mark_email_unread_outlined, size: 18),
+                      label: const Text('Send OTP to Supervisor Email', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isAuthorizing ? null : () => Navigator.pop(context, false),
+                  child: const Text('Go Back'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                  onPressed: isAuthorizing
+                      ? null
+                      : () async {
+                          if (enteredPin.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Enter Supervisor PIN or OTP'), backgroundColor: Colors.red),
+                            );
+                            return;
+                          }
+                          setDialogState(() => isAuthorizing = true);
+                          try {
+                            final isAuthorized = await context.read<UserController>().verifySupervisorPin(enteredPin.trim());
+                            if (context.mounted) {
+                              if (isAuthorized) {
+                                Navigator.pop(context, true);
+                              } else {
+                                setDialogState(() => isAuthorizing = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Invalid Security PIN or OTP! Access Denied.'), backgroundColor: Colors.red),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              setDialogState(() => isAuthorizing = false);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Verification Error: $e'), backgroundColor: Colors.red),
+                              );
+                            }
+                          }
+                        },
+                  child: isAuthorizing
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Confirm & Cancel Item'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      try {
+        final res = await ApiClient.put('/api/restaurant/kots/items/$itemId/status', {
+          'status': 'Cancelled',
+          'cancel_reason': reason.trim().isEmpty ? 'Removed by Waiter' : reason.trim(),
+        });
+        if (res['success'] == true) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Cancelled "$itemName" successfully.')),
+            );
+            _fetchTableKots();
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        }
+      }
+    }
+  }
+
+  Future<void> _cancelEntireKot(int kotId, String kotNo) async {
+    String enteredPin = '';
+    String reason = 'Cancelled by Manager';
+    bool isAuthorizing = false;
+    bool isSendingOtp = false;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.security, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Cancel KOT $kotNo', style: const TextStyle(fontSize: 16))),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      obscureText: true,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Supervisor PIN or OTP *',
+                        hintText: 'xxxx',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.key),
+                      ),
+                      onChanged: (val) => enteredPin = val,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'Cancellation Reason',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.edit_note),
+                      ),
+                      onChanged: (val) => reason = val,
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: isSendingOtp
+                          ? null
+                          : () async {
+                              setDialogState(() => isSendingOtp = true);
+                              try {
+                                final msg = await context.read<UserController>().sendSupervisorOtp();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(msg), backgroundColor: Colors.teal),
+                                  );
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Failed to send OTP: $e'), backgroundColor: Colors.red),
+                                  );
+                                }
+                              } finally {
+                                setDialogState(() => isSendingOtp = false);
+                              }
+                            },
+                      icon: isSendingOtp
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.mark_email_unread_outlined, size: 18),
+                      label: const Text('Send OTP to Supervisor Email', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isAuthorizing ? null : () => Navigator.pop(context, false),
+                  child: const Text('Go Back'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                  onPressed: isAuthorizing
+                      ? null
+                      : () async {
+                          if (enteredPin.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Enter Supervisor PIN or OTP'), backgroundColor: Colors.red),
+                            );
+                            return;
+                          }
+                          setDialogState(() => isAuthorizing = true);
+                          try {
+                            final isAuthorized = await context.read<UserController>().verifySupervisorPin(enteredPin.trim());
+                            if (context.mounted) {
+                              if (isAuthorized) {
+                                Navigator.pop(context, true);
+                              } else {
+                                setDialogState(() => isAuthorizing = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Invalid Security PIN or OTP! Access Denied.'), backgroundColor: Colors.red),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              setDialogState(() => isAuthorizing = false);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Verification Error: $e'), backgroundColor: Colors.red),
+                              );
+                            }
+                          }
+                        },
+                  child: isAuthorizing
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Confirm & Cancel KOT'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      try {
+        final res = await ApiClient.put('/api/restaurant/kots/$kotId/status', {
+          'status': 'Cancelled',
+          'remarks': reason,
+        });
+        if (!mounted) return;
+        if (res['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Cancelled KOT $kotNo successfully.')),
+          );
+          _fetchTableKots();
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final distinctTags = _getDistinctClientTags();
+    final bool isMobile = MediaQuery.of(context).size.width < 700;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                isMobile ? 'Table ${widget.tableName}' : 'Running Orders - Table ${widget.tableName}',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+            if (distinctTags.length > 1) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${distinctTags.length} Bills',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.indigo.shade900),
+                ),
+              ),
+            ],
+          ],
+        ),
+        elevation: 0,
+        actions: [
+          if (activeKotsList.isNotEmpty) ...[
+            if (!isMobile)
+              Padding(
+                padding: const EdgeInsets.only(right: 4.0, top: 8, bottom: 8),
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: Icon(
+                    distinctTags.length > 1
+                        ? Icons.call_split
+                        : ((settingsCtrl.settings?.restaurantSettlementMode ?? 'DIRECT') == 'AFTER_BILL_PRINT'
+                            ? Icons.print_outlined
+                            : Icons.point_of_sale),
+                    size: 16,
+                  ),
+                  label: Text(
+                    distinctTags.length > 1
+                        ? 'Split Settle / Bill (${distinctTags.length} Bills)'
+                        : ((settingsCtrl.settings?.restaurantSettlementMode ?? 'DIRECT') == 'AFTER_BILL_PRINT'
+                            ? 'Print Bill (Hold for Settle)'
+                            : 'Generate Bill / Settle'),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                  onPressed: _showBillingOptions,
+                ),
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.point_of_sale, color: Colors.green),
+                tooltip: 'Bill / Settle',
+                onPressed: _showBillingOptions,
+              ),
+          ],
+          if (!isMobile)
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0, top: 8, bottom: 8),
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF7A1A),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.add_shopping_cart, size: 16),
+                label: const Text('Add Fresh Order', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                onPressed: _openFreshOrderPrompt,
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.add_shopping_cart, color: Color(0xFFFF7A1A)),
+              tooltip: 'Add Order',
+              onPressed: _openFreshOrderPrompt,
+            ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _fetchTableKots,
+          )
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorWeight: 3,
+          tabs: const [
+            Tab(icon: Icon(Icons.receipt), text: 'KOT Wise Tickets'),
+            Tab(icon: Icon(Icons.dashboard_customize), text: 'Consolidated Items View'),
+          ],
+        ),
+      ),
+      floatingActionButton: (isMobile && _tabController.index == 0)
+          ? FloatingActionButton.extended(
+              backgroundColor: const Color(0xFFFF7A1A),
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_shopping_cart),
+              label: const Text('Add Fresh Order', style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: _openFreshOrderPrompt,
+            )
+          : null,
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : activeKotsList.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.restaurant_menu_outlined, size: 64, color: colorScheme.outlineVariant),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No running orders on Table ${widget.tableName}',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: colorScheme.outline),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF7A1A),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.add_shopping_cart),
+                        label: const Text('Add Fresh Order / Items', style: TextStyle(fontWeight: FontWeight.bold)),
+                        onPressed: _openFreshOrderPrompt,
+                      ),
+                    ],
+                  ),
+                )
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildKotWiseTab(colorScheme),
+                    _buildConsolidatedTab(colorScheme),
+                  ],
+                ),
+    );
+  }
+
+  String _formatKotStatus(String? rawStatus) {
+    final s = (rawStatus ?? '').toString().trim();
+    final lower = s.toLowerCase();
+    if (lower == 'p' || lower == 'pending' || lower.isEmpty) return 'Pending';
+    if (lower == 'billed') return 'Billed';
+    if (lower == 'nc cleared' || lower == 'nc_cleared') return 'NC Cleared';
+    if (lower == 'closed') return 'Closed';
+    if (lower == 'cancelled') return 'Cancelled';
+    if (lower == 'rejected') return 'Rejected';
+    return s;
+  }
+
+  Widget _buildKotWiseTab(ColorScheme scheme) {
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: activeKotsList.length,
+      itemBuilder: (context, index) {
+        final kot = activeKotsList[index];
+        final items = kot['items'] as List? ?? [];
+        final dateCreated = DateTime.tryParse(kot['created_time'] ?? '') ?? DateTime.now();
+        final minutesElapsed = DateTime.now().difference(dateCreated).inMinutes;
+        final String clientTag = (kot['client_tag'] ?? 'Bill 1').toString().trim();
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: scheme.outlineVariant, width: 0.8),
+          ),
+          elevation: 1.5,
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Header
+              Container(
+                color: scheme.surfaceContainerHighest,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Top Line: KOT No, Bill Tag, Status Badge
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                Text(
+                                  'KOT: ${kot['kot_no']}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE0E7FF),
+                                    border: Border.all(color: const Color(0xFFC7D2FE)),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    clientTag,
+                                    style: const TextStyle(
+                                      color: Color(0xFF3730A3),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 10.5,
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: kot['payment_status'] == 'PAID' ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                                    border: Border.all(color: kot['payment_status'] == 'PAID' ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A)),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    kot['payment_status'] == 'PAID' ? 'PAID (${kot['payment_mode'] ?? 'ONLINE'})' : 'UNPAID',
+                                    style: TextStyle(
+                                      color: kot['payment_status'] == 'PAID' ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: kot['status'] == 'Preparing'
+                                  ? Colors.blue.shade50
+                                  : (kot['status'] == 'Ready' ? Colors.green.shade50 : Colors.grey.shade200),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              _formatKotStatus(kot['status']),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: kot['status'] == 'Preparing'
+                                  ? Colors.blue.shade800
+                                  : (kot['status'] == 'Ready' ? Colors.green.shade800 : scheme.onSurface),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      // Sub Line: Waiter & Time
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${kot['customer_name'] != null && kot['customer_name'].toString().isNotEmpty ? "Customer: ${kot['customer_name']} • " : ""}Waiter: ${kot['waiter']?['employee_name'] ?? 'N/A'} • $minutesElapsed min ago',
+                              style: TextStyle(fontSize: 11.5, color: scheme.outline),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (kot['status'] == 'Cancelled' || kot['status'] == 'Rejected') ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '${kot['status'] == 'Rejected' ? 'REJECTED' : 'CANCELLED'}: ${kot['remarks'] ?? 'No reason provided'}',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red),
+                        ),
+                      ],
+                      // Action Buttons Row
+                      if (kot['status'] != 'Cancelled' && kot['status'] != 'Rejected') ...[
+                        const SizedBox(height: 6),
+                        const Divider(height: 1),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          alignment: WrapAlignment.end,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: [
+                            if (kot['status'] == 'Placed' || kot['status'] == 'New')
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF16A34A),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  visualDensity: VisualDensity.compact,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                ),
+                                icon: const Icon(Icons.check_circle_outline, size: 14),
+                                label: const Text('Accept Order', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                onPressed: () async {
+                                  try {
+                                    await ApiClient.put('/api/restaurant/kots/${kot['id']}/status', {'status': 'Preparing'});
+                                    _fetchTableKots();
+                                  } catch (_) {}
+                                },
+                              ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.all(4),
+                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                              icon: const Icon(Icons.print_outlined, color: Colors.teal, size: 19),
+                              tooltip: 'Reprint KOT Ticket',
+                              onPressed: () => _reprintKot(kot),
+                            ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            icon: const Icon(Icons.edit_outlined, color: Colors.blueAccent, size: 19),
+                            tooltip: 'Edit Order Items',
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => KotBuilderScreen(
+                                    table: {
+                                      'id': widget.tableId,
+                                      'table_name': widget.tableName,
+                                    },
+                                    editKotId: kot['id'],
+                                    isFreshOrder: false,
+                                    clientTag: clientTag,
+                                  ),
+                                ),
+                              ).then((_) => _fetchTableKots());
+                            },
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 19),
+                            tooltip: 'Cancel Entire KOT Ticket',
+                            onPressed: () => _cancelEntireKot(kot['id'], kot['kot_no'] ?? ''),
+                          ),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green.shade700,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              visualDensity: VisualDensity.compact,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            ),
+                            icon: const Icon(Icons.point_of_sale, size: 13),
+                            label: Text('Bill $clientTag', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            onPressed: () => _proceedToBilling(specificClientTag: clientTag),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              // Items List
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: items.length,
+                separatorBuilder: (context, i) => Divider(height: 1, color: scheme.outlineVariant),
+                itemBuilder: (context, itemIdx) {
+                  final item = items[itemIdx];
+                  final isCancelled = item['status'] == 'Cancelled' || item['status'] == 'Rejected';
+                  final double q = double.tryParse(item['qty']?.toString() ?? '0') ?? 0.0;
+                  final String qtyStr = (q % 1 == 0) ? q.toInt().toString() : q.toStringAsFixed(1);
+                  final bool hasRemark = (item['item_remark'] != null && item['item_remark'].toString().trim().isNotEmpty);
+
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      _displayName(item),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        decoration: isCancelled ? TextDecoration.lineThrough : null,
+                        color: isCancelled ? Colors.grey : scheme.onSurface,
+                      ),
+                    ),
+                    subtitle: isCancelled && item['cancel_reason'] != null && item['cancel_reason'].toString().trim().isNotEmpty
+                        ? Text(
+                            '${item['status'] == 'Rejected' ? 'Rejected' : 'Cancelled'}: ${item['cancel_reason']}',
+                            style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold, fontStyle: FontStyle.italic),
+                          )
+                        : ((item['modifier_details'] != null && (item['modifier_details'] as List).isNotEmpty) || hasRemark
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (item['modifier_details'] != null && (item['modifier_details'] as List).isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        '• Mods: ${(item['modifier_details'] as List).join(", ")}',
+                                        style: const TextStyle(
+                                          color: Color(0xFF2563EB),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ),
+                                  if (hasRemark)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        '• Note: ${item['item_remark']}',
+                                        style: const TextStyle(color: Colors.orangeAccent, fontSize: 11),
+                                      ),
+                                    ),
+                                ],
+                              )
+                            : null),
+                    leading: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isCancelled ? Colors.grey.shade300 : scheme.secondaryContainer,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '$qtyStr x',
+                        style: TextStyle(
+                          color: isCancelled ? Colors.grey : scheme.onSecondaryContainer,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          item['status'] ?? 'Ordered',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isCancelled
+                                ? Colors.red.shade700
+                                : (item['status'] == 'Ready' ? Colors.green.shade800 : scheme.outline),
+                          ),
+                        ),
+                        if (!isCancelled) ...[
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.cancel_outlined, color: Colors.red, size: 18),
+                            onPressed: () => _cancelKotItem(item['id'], item['item_name']),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildConsolidatedTab(ColorScheme scheme) {
+    final distinctTags = _getDistinctClientTags();
+    final Map<String, Map<String, double>> summary = {};
+
+    for (final kot in activeKotsList) {
+      final String clientTag = (kot['client_tag'] ?? 'Bill 1').toString().trim();
+      if (_selectedConsolidatedBillTag != 'ALL' && clientTag != _selectedConsolidatedBillTag) {
+        continue;
+      }
+
+      final items = kot['items'] as List? ?? [];
+      for (final item in items) {
+        final List mods = (item['modifier_details'] is List ? item['modifier_details'] : []) as List;
+        final String baseName = _displayName(item);
+        final String name = mods.isNotEmpty ? '$baseName [Mods: ${mods.join(", ")}]' : baseName;
+        final isCancelled = item['status'] == 'Cancelled' || item['status'] == 'Rejected';
+        final double q = double.tryParse(item['qty'].toString()) ?? 0.0;
+
+        if (!summary.containsKey(name)) {
+          summary[name] = {'active': 0.0, 'cancelled': 0.0};
+        }
+
+        if (isCancelled) {
+          summary[name]!['cancelled'] = summary[name]!['cancelled']! + q;
+        } else {
+          summary[name]!['active'] = summary[name]!['active']! + q;
+        }
+      }
+    }
+
+    final keys = summary.keys.toList();
+    final bool isMobile = MediaQuery.of(context).size.width < 900;
+
+    return Card(
+      margin: const EdgeInsets.all(16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: scheme.outlineVariant, width: 0.8),
+      ),
+      elevation: 0,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Filter by Bill Tag (if multiple bills)
+          if (distinctTags.length > 1)
+            Container(
+              color: Colors.grey.shade100,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    const Text('Filter by Client Bill:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('All Bills', style: TextStyle(fontSize: 11)),
+                      selected: _selectedConsolidatedBillTag == 'ALL',
+                      onSelected: (val) {
+                        if (val) setState(() => _selectedConsolidatedBillTag = 'ALL');
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    ...distinctTags.map((tag) => Padding(
+                      padding: const EdgeInsets.only(right: 6.0),
+                      child: ChoiceChip(
+                        label: Text(tag, style: const TextStyle(fontSize: 11)),
+                        selected: _selectedConsolidatedBillTag == tag,
+                        onSelected: (val) {
+                          if (val) setState(() => _selectedConsolidatedBillTag = tag);
+                        },
+                      ),
+                    )),
+                  ],
+                ),
+              ),
+            ),
+          Container(
+            color: scheme.surfaceContainerHighest,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Dish Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                Row(
+                  children: [
+                    SizedBox(width: 80, child: Text('Running', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+                    SizedBox(width: 80, child: Text('Cancelled', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: keys.length,
+              separatorBuilder: (_, __) => Divider(height: 1, color: scheme.outlineVariant),
+              itemBuilder: (context, index) {
+                final name = keys[index];
+                final activeVal = summary[name]!['active']!;
+                final cancelVal = summary[name]!['cancelled']!;
+
+                final String activeStr = (activeVal % 1 == 0) ? activeVal.toInt().toString() : activeVal.toStringAsFixed(1);
+                final String cancelStr = (cancelVal % 1 == 0) ? cancelVal.toInt().toString() : cancelVal.toStringAsFixed(1);
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 80,
+                            child: Text(
+                              activeStr,
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: activeVal > 0 ? Colors.green.shade800 : Colors.grey,
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 80,
+                            child: Text(
+                              cancelStr,
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: cancelVal > 0 ? Colors.red.shade800 : Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          if (keys.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                border: Border(top: BorderSide(color: scheme.outlineVariant.withOpacity(0.5))),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  children: [
+                    if (isMobile) ...[
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF7A1A),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: const Icon(Icons.add_shopping_cart, size: 18),
+                        label: const Text('Add Order', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        onPressed: _openFreshOrderPrompt,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: const Icon(Icons.point_of_sale, size: 18),
+                        label: Text(
+                          _selectedConsolidatedBillTag == 'ALL'
+                              ? 'Proceed to Bill'
+                              : 'Bill $_selectedConsolidatedBillTag',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onPressed: () {
+                          if (_selectedConsolidatedBillTag == 'ALL') {
+                            _proceedToBilling();
+                          } else {
+                            _proceedToBilling(specificClientTag: _selectedConsolidatedBillTag);
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}

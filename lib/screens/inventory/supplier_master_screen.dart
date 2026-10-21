@@ -1,0 +1,788 @@
+import 'dart:io';
+
+import 'package:excel/excel.dart' hide Border;
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:printing/printing.dart';
+
+import '../../controllers/inventory/supplier_controller.dart';
+import '../../core/api/api_client.dart';
+import '../../core/currency/currency_service.dart';
+import '../../core/services/state_service.dart';
+import '../../core/settings/local_preferences.dart';
+import '../../core/utils/country_tax_helper.dart';
+import '../../models/inventory/supplier_model.dart';
+import '../../widgets/state_dropdown_field.dart';
+
+class SupplierMasterScreen extends StatefulWidget {
+  const SupplierMasterScreen({super.key});
+
+  @override
+  State<SupplierMasterScreen> createState() => _SupplierMasterScreenState();
+}
+
+class _SupplierMasterScreenState extends State<SupplierMasterScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final ScrollController _verticalController = ScrollController();
+  final ScrollController _horizontalController = ScrollController();
+
+  final _code = TextEditingController();
+  final _name = TextEditingController();
+  final _address = TextEditingController();
+  final _phone = TextEditingController();
+  final _email = TextEditingController();
+  final _state = TextEditingController();
+  final _gstin = TextEditingController();
+  final _search = TextEditingController();
+  final _openingBalance = TextEditingController();
+
+  int? _editIndex;
+  final SupplierController supplierCtrl = SupplierController();
+
+  List<Supplier> _suppliers = [];
+  List<Supplier> _filtered = [];
+  final _taxCountryCode = TextEditingController(text: "US");
+  String _storeDefaultCountry = 'US';
+  bool _isActive = true;
+
+  List<String> _availableStates = [];
+  String? _lastLoadedCountry;
+
+  @override
+  void initState() {
+    super.initState();
+    _initStoreCountry();
+    _loadSuppliers();
+    _generateCode();
+    _taxCountryCode.addListener(_onCountryCodeChanged);
+  }
+
+  Future<void> _initStoreCountry() async {
+    final billingCountry = await LocalPreferences.getBillingCountry();
+    final defaultCode = CountryTaxHelper.getDefaultCountryCode(billingCountry);
+    _storeDefaultCountry = defaultCode;
+    if (mounted) {
+      setState(() {
+        _taxCountryCode.text = defaultCode;
+      });
+      _loadStates();
+    }
+  }
+
+  void _onCountryCodeChanged() {
+    final currentCountry = CountryTaxHelper.normalizeCountryCode(_taxCountryCode.text.trim());
+    if (_lastLoadedCountry != currentCountry) {
+      _loadStates();
+    }
+  }
+
+  Future<void> _loadStates() async {
+    final country = CountryTaxHelper.normalizeCountryCode(_taxCountryCode.text.trim());
+    _lastLoadedCountry = country;
+    final loaded = await StateService.fetchStates(countryCode: country);
+    if (mounted) {
+      setState(() {
+        _availableStates = List.from(loaded);
+        if (_state.text.trim().isNotEmpty && !_availableStates.contains(_state.text.trim())) {
+          _availableStates.insert(0, _state.text.trim());
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _taxCountryCode.removeListener(_onCountryCodeChanged);
+    _code.dispose();
+    _name.dispose();
+    _address.dispose();
+    _phone.dispose();
+    _email.dispose();
+    _state.dispose();
+    _gstin.dispose();
+    _search.dispose();
+    _openingBalance.dispose();
+    _taxCountryCode.dispose();
+    _verticalController.dispose();
+    _horizontalController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadSuppliers() async {
+    await supplierCtrl.load(activeOnly: false);
+    setState(() {
+      _suppliers = supplierCtrl.list;
+      _filtered = _suppliers;
+    });
+  }
+
+  Future<void> _generateCode() async {
+    final code = await supplierCtrl.getNextCode();
+    setState(() {
+      _code.text = code.toUpperCase();
+    });
+    _loadSuppliers();
+  }
+
+  Future<void> _saveSupplier() async {
+    if (_name.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vendor Name is required.')),
+      );
+      return;
+    }
+    if (_address.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Address is required.')),
+      );
+      return;
+    }
+
+    if (!_formKey.currentState!.validate()) return;
+
+    final rawOpening = double.tryParse(_openingBalance.text.trim());
+    final model = Supplier(
+      id: _editIndex == null ? 0 : _suppliers[_editIndex!].id,
+      supplierCode: _code.text,
+      supplierName: _name.text.trim(),
+      address: _address.text.trim(),
+      phone: _phone.text.trim(),
+      email: _email.text.trim().isEmpty ? null : _email.text.trim(),
+      state: _state.text.trim().isEmpty ? null : _state.text.trim(),
+      gstin: _gstin.text.trim().isEmpty ? null : _gstin.text.trim(),
+      taxCountryCode: _taxCountryCode.text.trim().isEmpty
+          ? 'IN'
+          : _taxCountryCode.text.trim().toUpperCase(),
+      isActive: _isActive,
+      openingBalance: rawOpening ?? 0.0,
+    );
+
+    // Auto-save custom state in database if not already in available list
+    final enteredState = _state.text.trim();
+    if (enteredState.isNotEmpty && !_availableStates.contains(enteredState)) {
+      try {
+        await ApiClient.post('/api/inventory/states', {
+          'state_name': enteredState,
+          'country_code': _taxCountryCode.text.trim().toUpperCase(),
+        });
+        _loadStates();
+      } catch (_) {}
+    }
+
+    if (_editIndex == null) {
+      await supplierCtrl.create(model);
+    } else {
+      await supplierCtrl.update(model.id, model);
+      _editIndex = null;
+    }
+
+    _clearForm();
+    await _generateCode();
+  }
+
+  void _editSupplier(int i) {
+    final s = _filtered[i];
+    _editIndex = _suppliers.indexWhere((e) => e.id == s.id);
+
+    setState(() {
+      _code.text = s.supplierCode;
+      _name.text = s.supplierName;
+      _address.text = s.address;
+      _phone.text = s.phone;
+      _email.text = s.email ?? '';
+      _state.text = s.state ?? '';
+      _gstin.text = s.gstin ?? '';
+      _taxCountryCode.text = s.taxCountryCode ?? 'IN';
+      _isActive = s.isActive ?? true;
+      _openingBalance.text = s.openingBalance != null && s.openingBalance! > 0
+          ? s.openingBalance!.toStringAsFixed(2)
+          : '';
+      if (s.state != null && s.state!.trim().isNotEmpty && !_availableStates.contains(s.state!.trim())) {
+        _availableStates.insert(0, s.state!.trim());
+      }
+    });
+    _loadStates();
+  }
+
+  Future<void> _deleteSupplier(int i) async {
+    await supplierCtrl.delete(_filtered[i].id);
+    await _loadSuppliers();
+  }
+
+  // ================= CLEAR =================
+  void _clearForm() {
+    setState(() {
+      _name.clear();
+      _address.clear();
+      _phone.clear();
+      _email.clear();
+      _editIndex = null;
+      _state.clear();
+      _gstin.clear();
+      _openingBalance.clear();
+      _taxCountryCode.text = _storeDefaultCountry;
+      _isActive = true;
+    });
+    _loadStates();
+    _generateCode();
+  }
+
+  // ================= SEARCH =================
+  void _searchSupplier(String q) async {
+    await supplierCtrl.load(q: q, activeOnly: false);
+    setState(() => _filtered = supplierCtrl.list);
+  }
+
+  Future<void> _exportSupplierExcel() async {
+    var excel = Excel.createExcel();
+
+    final defaultSheet = excel.getDefaultSheet();
+    if (defaultSheet != null) {
+      excel.rename(defaultSheet, 'Suppliers');
+    }
+
+    Sheet sheet = excel['Suppliers'];
+
+    sheet.appendRow([
+      TextCellValue('Supplier Code'),
+      TextCellValue('Supplier Name'),
+      TextCellValue('Address'),
+      TextCellValue('Phone'),
+      TextCellValue('State'),
+      TextCellValue('GSTIN'),
+      TextCellValue('Tax ID Number'),
+      TextCellValue('Tax ID Type'),
+      TextCellValue('Tax Country Code'),
+    ]);
+
+    for (var s in _suppliers) {
+      sheet.appendRow([
+        TextCellValue(s.supplierCode),
+        TextCellValue(s.supplierName),
+        TextCellValue(s.address ?? ''),
+        TextCellValue(s.phone ?? ''),
+        TextCellValue(s.state ?? ''),
+        TextCellValue(s.gstin ?? ''),
+        TextCellValue(s.taxIdNumber ?? ''),
+        TextCellValue(s.taxIdType ?? ''),
+        TextCellValue(s.taxCountryCode ?? ''),
+      ]);
+    }
+
+    final bytes = excel.encode();
+    if (bytes == null) return;
+    final fileName =
+        'suppliers_export_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+
+    if (kIsWeb) {
+      await Printing.sharePdf(
+        bytes: Uint8List.fromList(bytes),
+        filename: fileName,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Exported Successfully! File downloaded.')),
+      );
+      return;
+    }
+
+    final directory =
+        Directory('${Platform.environment['USERPROFILE']}\\Downloads');
+    final path = '${directory.path}\\$fileName';
+    await File(path).writeAsBytes(bytes, flush: true);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Exported Successfully\nSaved at: $path')),
+    );
+  }
+
+  Future<void> _importSupplierExcel() async {
+    final res = await ApiClient.get('/api/inventory/suppliers/can-import');
+
+    if (res['canImport'] != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Import allowed only on first setup')),
+      );
+      return;
+    }
+
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx'],
+      withData: true,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+
+    double progress = 0.1;
+    String statusMessage = "Reading Vendor Excel file...";
+
+    StateSetter? updateDialogState;
+    bool dialogOpen = true;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            updateDialogState = setState;
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              contentPadding: const EdgeInsets.all(24),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.drive_folder_upload, color: Color(0xFF2563EB), size: 28),
+                      SizedBox(width: 12),
+                      Text("Importing Vendors", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: Colors.grey.shade200,
+                    color: const Color(0xFF2563EB),
+                    minHeight: 8,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          statusMessage,
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                        ),
+                      ),
+                      Text(
+                        '${(progress * 100).toInt()}%',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ).then((_) => dialogOpen = false);
+
+    try {
+      final bytes = result.files.single.bytes ?? File(result.files.single.path!).readAsBytesSync();
+      final excel = Excel.decodeBytes(bytes);
+
+      if (updateDialogState != null && dialogOpen) {
+        updateDialogState!(() {
+          progress = 0.35;
+          statusMessage = "Parsing vendor fields...";
+        });
+      }
+
+      List<Map<String, dynamic>> bulkData = [];
+
+      for (var table in excel.tables.keys) {
+        for (int i = 1; i < excel.tables[table]!.rows.length; i++) {
+          final row = excel.tables[table]!.rows[i];
+
+          bulkData.add({
+            "supplier_code": row[0]?.value.toString(),
+            "supplier_name": row[1]?.value.toString(),
+            "address": row[2]?.value.toString(),
+            "phone": row[3]?.value.toString(),
+            "state": row.length > 4 ? row[4]?.value.toString() : null,
+            "gstin": row.length > 5 ? row[5]?.value.toString() : null,
+            "tax_id_number": row.length > 6 ? row[6]?.value.toString() : null,
+            "tax_id_type": row.length > 7 ? row[7]?.value.toString() : null,
+            "tax_country_code": row.length > 8 ? row[8]?.value.toString() : null,
+          });
+        }
+      }
+
+      if (updateDialogState != null && dialogOpen) {
+        updateDialogState!(() {
+          progress = 0.7;
+          statusMessage = "Uploading ${bulkData.length} vendors to database...";
+        });
+      }
+
+      await ApiClient.post('/api/inventory/suppliers/bulk-import', bulkData);
+
+      if (updateDialogState != null && dialogOpen) {
+        updateDialogState!(() {
+          progress = 1.0;
+          statusMessage = "Import completed successfully!";
+        });
+      }
+
+      await Future.delayed(const Duration(milliseconds: 250));
+      if (mounted && dialogOpen) Navigator.of(context).pop();
+
+      await _loadSuppliers();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Successfully imported ${bulkData.length} vendors!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (mounted && dialogOpen) Navigator.of(context).pop();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Import Failed: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // ================= UI =================
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF4F6FA),
+      appBar: AppBar(
+        title: const Text('Vendor Master'),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.upload_file),
+            onPressed: _importSupplierExcel,
+          ),
+          IconButton(
+            icon: const Icon(Icons.download),
+            onPressed: _exportSupplierExcel,
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            _formCard(),
+            const SizedBox(height: 16),
+            _searchBar(),
+            const SizedBox(height: 16),
+            Expanded(
+              child: _dataTable(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ================= FORM CARD =================
+  Widget _formCard() {
+    return _card(
+      title: 'Vendor Information',
+      child: Form(
+        key: _formKey,
+        child: Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            _field(_code, 'Vendor Code', readOnly: true),
+            _field(_name, 'Vendor Name'),
+            _field(_address, 'Address', width: 360),
+            _field(_phone, 'Phone', isNumber: true, required: false),
+            _field(_email, 'Email Address', required: false, width: 260),
+
+            // Replaced the basic _field with our searchable DropdownMenu
+            _stateDropdown(),
+
+            _field(_gstin, 'GSTIN', required: false),
+            _field(_taxCountryCode, 'Country Code (IN/US/UK)', required: false),
+            _field(_openingBalance, 'Opening Balance (Credit)', isNumber: true, required: false, width: 190),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _isActive ? Colors.green.shade50 : Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _isActive ? Colors.green.shade300 : Colors.red.shade300),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _isActive ? 'Status: Active' : 'Status: Inactive',
+                        style: TextStyle(
+                          color: _isActive ? Colors.green.shade800 : Colors.red.shade800,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Switch(
+                        value: _isActive,
+                        activeThumbColor: Colors.green,
+                        onChanged: (val) {
+                          setState(() {
+                            _isActive = val;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                FilledButton.icon(
+                  icon: const Icon(Icons.save),
+                  label: Text(_editIndex == null ? 'Save' : 'Update'),
+                  onPressed: _saveSupplier,
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton(
+                  onPressed: _clearForm,
+                  child: const Text('Clear'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ================= SEARCHABLE STATE / REGION DROPDOWN =================
+  Widget _stateDropdown() {
+    return StateDropdownField(
+      controller: _state,
+      countryCode: _taxCountryCode.text,
+      width: 220,
+    );
+  }
+
+  // ================= SEARCH =================
+  Widget _searchBar() {
+    return Center(
+      child: Container(
+        width: 420,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: TextField(
+          controller: _search,
+          onChanged: _searchSupplier,
+          decoration: const InputDecoration(
+            hintText: 'Search vendor (code, name, phone)',
+            prefixIcon: Icon(Icons.search),
+            border: InputBorder.none,
+            contentPadding: EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ================= TABLE =================
+  Widget _dataTable() {
+    return LayoutBuilder(builder: (context, constraints) {
+      return SizedBox(
+        height: constraints.maxHeight,
+        child: Scrollbar(
+          controller: _verticalController,
+          thumbVisibility: true,
+          notificationPredicate: (notification) =>
+              notification.metrics.axis == Axis.vertical,
+          child: Scrollbar(
+            controller: _horizontalController,
+            thumbVisibility: true,
+            trackVisibility: true,
+            notificationPredicate: (notification) =>
+                notification.metrics.axis == Axis.horizontal,
+            child: SingleChildScrollView(
+              controller: _horizontalController,
+              scrollDirection: Axis.horizontal,
+              child: SingleChildScrollView(
+                controller: _verticalController,
+                scrollDirection: Axis.vertical,
+                child: DataTable(
+                headingRowColor: WidgetStateProperty.all(
+                  Theme.of(context).colorScheme.surfaceContainerHighest,
+                ),
+                dataRowMinHeight: 46,
+                dataRowMaxHeight: 54,
+                columns: const [
+                  DataColumn(label: Text('Code')),
+                  DataColumn(label: Text('Name')),
+                  DataColumn(label: Text('Phone')),
+                  DataColumn(label: Text('Email')),
+                  DataColumn(label: Text('Address')),
+                  DataColumn(label: Text('State')),
+                  DataColumn(label: Text('Country')),
+                  DataColumn(label: Text('GSTIN')),
+                  DataColumn(label: Text('Opening Bal')),
+                  DataColumn(label: Text('Status')),
+                  DataColumn(label: Text('Action')),
+                ],
+                rows: List.generate(_filtered.length, (i) {
+                  final s = _filtered[i];
+                  final isActive = s.isActive ?? true;
+                  return DataRow(
+                    color: WidgetStateProperty.all(
+                        i.isEven ? Colors.grey.shade50 : Colors.white),
+                    cells: [
+                      DataCell(Text(s.supplierCode)),
+                      DataCell(Text(s.supplierName)),
+                      DataCell(Text(s.phone ?? '')),
+                      DataCell(Text(s.email ?? '')),
+                      DataCell(Text(s.address ?? '')),
+                      DataCell(Text(s.state ?? '')),
+                      DataCell(Text(s.taxCountryCode ?? 'IN')),
+                      DataCell(Text(s.gstin ?? '')),
+                      DataCell(Text(s.openingBalance != null && s.openingBalance! > 0
+                          ? CurrencyService.format(s.openingBalance!)
+                          : '-')),
+                      DataCell(
+                        InkWell(
+                          onTap: () async {
+                            await supplierCtrl.toggleStatus(s.id);
+                            await _loadSuppliers();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Supplier ${s.supplierName} (${s.supplierCode}) marked as ${!isActive ? 'Active' : 'Inactive'}'),
+                                  duration: const Duration(seconds: 2),
+                                  backgroundColor: !isActive ? Colors.green : Colors.orange,
+                                ),
+                              );
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Tooltip(
+                            message: "Click to toggle between Active and Inactive",
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isActive ? Colors.green.shade50 : Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isActive ? Colors.green.shade300 : Colors.red.shade300,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    isActive ? Icons.check_circle : Icons.cancel,
+                                    size: 13,
+                                    color: isActive ? Colors.green.shade700 : Colors.red.shade700,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    isActive ? 'Active' : 'Inactive',
+                                    style: TextStyle(
+                                      color: isActive ? Colors.green.shade800 : Colors.red.shade800,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Icon(
+                                    Icons.swap_horiz,
+                                    size: 13,
+                                    color: isActive ? Colors.green.shade600 : Colors.red.shade600,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      DataCell(Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue),
+                            onPressed: () => _editSupplier(i),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => _deleteSupplier(i),
+                          ),
+                        ],
+                      )),
+                    ],
+                  );
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
+}
+
+  // ================= COMMON =================
+  Widget _card({String? title, required Widget child}) {
+    return Material(
+      color: Colors.white,
+      elevation: 1,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min, // VERY IMPORTANT
+          children: [
+            if (title != null) ...[
+              Text(title,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold)),
+              const Divider(),
+            ],
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _field(
+    TextEditingController c,
+    String l, {
+    bool readOnly = false,
+    bool isNumber = false,
+    bool required = true,
+    double width = 220,
+  }) {
+    return SizedBox(
+      width: width,
+      child: TextFormField(
+        controller: c,
+        readOnly: readOnly,
+        keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+        inputFormatters:
+            isNumber ? [FilteringTextInputFormatter.digitsOnly] : [],
+        validator: (v) =>
+            required && (v == null || v.isEmpty) ? 'Required' : null,
+        decoration: InputDecoration(
+          labelText: l,
+          filled: true,
+          fillColor: readOnly ? Colors.grey.shade100 : Colors.white,
+        ),
+      ),
+    );
+  }
+}

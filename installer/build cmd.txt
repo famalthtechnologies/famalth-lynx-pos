@@ -1,0 +1,13 @@
+flutter build apk -t lib/main_customer.dart
+
+
+flutter build apk -t lib/main_rider.dart --flavor rider --debug
+
+flutter build apk -t lib/main_supplier.dart --flavor supplier --debug
+
+flutter build apk -t lib/main_customer.dart --flavor customer --debug
+
+flutter run -t lib/main_customer.dart --flavor customer --debug
+
+flutter build windows -t lib\main_control_plane.dart --release
+

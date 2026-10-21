@@ -1,0 +1,89 @@
+import 'package:flutter/material.dart';
+
+import '../../core/api/api_client.dart';
+import '../../core/api/endpoints.dart';
+import '../../models/inventory/supplier_model.dart';
+
+class SupplierController extends ChangeNotifier {
+  bool loading = false;
+  List<Supplier> list = [];
+
+  Future<void> load({String q = '', bool activeOnly = true}) async {
+    loading = true;
+    notifyListeners();
+
+    final res = await ApiClient.get(
+      '${ApiEndpoints.suppliers}?q=$q&activeOnly=$activeOnly',
+    );
+
+    list = (res['data'] as List).map((e) => Supplier.fromJson(e)).toList();
+
+    loading = false;
+    notifyListeners();
+  }
+
+  Future<void> create(Supplier payload) async {
+    loading = true;
+    notifyListeners();
+
+    await ApiClient.post(ApiEndpoints.suppliers, payload.toJson());
+    await load();
+  }
+
+  Future<void> update(int id, Supplier payload) async {
+    loading = true;
+    notifyListeners();
+
+    await ApiClient.put(
+      '${ApiEndpoints.suppliers}/$id',
+      payload.toJson(),
+    );
+
+    await load();
+  }
+
+  Future<void> delete(int id) async {
+    loading = true;
+    notifyListeners();
+    await ApiClient.delete('${ApiEndpoints.suppliers}/$id');
+    await load();
+  }
+
+  Future<void> toggleStatus(int id) async {
+    loading = true;
+    notifyListeners();
+
+    final supplier = list.firstWhere(
+      (element) => element.id == id,
+      orElse: () => Supplier(id: 0, supplierCode: '', supplierName: '', address: '', phone: ''),
+    );
+
+    if (supplier.id != 0) {
+      final updated = Supplier(
+        id: supplier.id,
+        supplierCode: supplier.supplierCode,
+        supplierName: supplier.supplierName,
+        address: supplier.address,
+        phone: supplier.phone,
+        email: supplier.email,
+        state: supplier.state,
+        gstin: supplier.gstin,
+        taxCountryCode: supplier.taxCountryCode,
+        isActive: !(supplier.isActive ?? true),
+      );
+      await ApiClient.put(
+        '${ApiEndpoints.suppliers}/$id',
+        updated.toJson(),
+      );
+    } else {
+      await ApiClient.put('${ApiEndpoints.suppliers}/$id/toggle-status', {});
+    }
+
+    await load();
+  }
+
+  Future<String> getNextCode() async {
+    final res = await ApiClient.get('${ApiEndpoints.suppliers}/next-code');
+    return res['data'];
+  }
+}

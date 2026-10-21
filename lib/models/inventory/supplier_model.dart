@@ -1,0 +1,70 @@
+class Supplier {
+  final int id;
+  final String supplierCode;
+  final String supplierName;
+  final String address;
+  final String phone;
+  final String? email;
+  final String? state;
+  final String? gstin;
+  final String? taxIdNumber;
+  final String? taxIdType;
+  final String? taxCountryCode;
+  final bool? isActive;
+  final double? openingBalance;
+  final String? asOfDate;
+
+  Supplier({
+    required this.id,
+    required this.supplierCode,
+    required this.supplierName,
+    required this.address,
+    required this.phone,
+    this.email,
+    this.state,
+    this.gstin,
+    this.taxIdNumber,
+    this.taxIdType,
+    this.taxCountryCode,
+    this.isActive = true,
+    this.openingBalance,
+    this.asOfDate,
+  });
+
+  factory Supplier.fromJson(Map<String, dynamic> json) {
+    return Supplier(
+      id: json['id'],
+      supplierCode: json['supplier_code'] ?? '',
+      supplierName: json['supplier_name'] ?? '',
+      address: json['address'] ?? '',
+      phone: json['phone'] ?? '',
+      email: json['email'],
+      state: json['state'],
+      gstin: json['gstin'] ?? json['tax_id_number'],
+      taxIdNumber: json['tax_id_number'] ?? json['gstin'],
+      taxIdType: json['tax_id_type'],
+      taxCountryCode: json['tax_country_code'],
+      isActive: json['is_active'] == true || json['is_active'] == null,
+      openingBalance: json['opening_balance'] != null ? double.tryParse(json['opening_balance'].toString()) : null,
+      asOfDate: json['as_of_date'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'supplier_code': supplierCode,
+      'supplier_name': supplierName,
+      'address': address,
+      'phone': phone,
+      'email': email,
+      'state': state,
+      'gstin': gstin,
+      'tax_id_number': taxIdNumber ?? gstin,
+      'tax_id_type': taxIdType,
+      'tax_country_code': taxCountryCode,
+      'is_active': isActive ?? true,
+      'opening_balance': openingBalance ?? 0.0,
+      if (asOfDate != null) 'as_of_date': asOfDate,
+    };
+  }
+}

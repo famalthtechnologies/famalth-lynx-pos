@@ -1,0 +1,98 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+build/
+
+# Node / Packaging dependencies
+node_modules/
+backend/node_modules/
+dist/
+backend/dist/
+*.exe
+*.zip
+
+# Security, Encrypted Files & Keys (CRITICAL: Protects against heuristic malware/ransomware scanner flags)
+*.enc
+*.key
+*.dat
+*.pem
+*.pfx
+*.p12
+*.crt
+config.enc
+sysConfig.enc
+license.key
+security.dat
+.env
+.env.*
+!.env.example
+
+# Database Backups & Operational Logs (CRITICAL: Local automated backups must never enter version control)
+backend/backups/
+backups/
+*.backup
+*.dump
+*.sql
+*.sqlite
+backend/backup-log.txt
+backend/backup_status.json
+backend/data/
+data/
+
+# Temporary Test PDFs & Document Exports
+*.pdf
+test_*.pdf
+live_*.pdf
+server_download.pdf
+
+# Installer & Standalone Executables Output
+installer/Output/
+installer/*.exe
+backend/*.exe
+
+# Compiled Web UI Heavy Artifacts (Built on demand in CI/Docker)
+backend/public/canvaskit/
+backend/public/main.dart.js
+backend/public/*.wasm
+backend/public/*.symbols
+backend/public/.last_build_id
+backend/public/flutter_service_worker.js
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release

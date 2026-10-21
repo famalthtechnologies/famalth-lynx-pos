@@ -1,0 +1,3399 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:convert';
+import 'dart:io';
+import 'package:retailpos/screens/recovery/backup_service.dart';
+import 'package:provider/provider.dart';
+import 'package:printing/printing.dart';
+
+import '../../controllers/settings/app_branding_controller.dart';
+import '../../controllers/settings/system_settings_controller.dart';
+import '../../controllers/settings/theme_controller.dart';
+import '../../controllers/settings/ui_preferences_controller.dart';
+import '../../core/api/api_client.dart';
+import '../../core/api/endpoints.dart';
+import '../../core/config/app_brand.dart';
+import '../../core/config/app_config.dart';
+import '../../core/config/date_time_service.dart';
+import '../../core/utils/timezone_utils.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/settings/local_preferences.dart';
+import '../../core/currency/currency_service.dart';
+import '../../models/auth/permission_service.dart';
+import '../../models/inventory/billing_charge_model.dart';
+import '../../models/inventory/settings/system_settings_model.dart';
+import '../../models/settings/app_branding_model.dart';
+import '../../core/printing/device_printer_routing.dart';
+import '../../controllers/sales/sales_controller.dart';
+import 'document_sequence_screen.dart';
+import 'commission_rules_screen.dart';
+import 'happy_hour_config_screen.dart';
+import 'bill_value_promo_config_screen.dart';
+import 'property_info_screen.dart';
+import 'vendor_marketplace_settings_screen.dart';
+import 'outlet_detail_modification_screen.dart';
+import 'outlet_hierarchy_linking_screen.dart';
+import 'receipt_template_designer_screen.dart';
+import 'tax_group_setup_screen.dart';
+import 'payment_gateways_screen.dart';
+import '../../models/inventory/tax_group_model.dart';
+import '../../controllers/public/outlet_controller.dart';
+import '../../core/auth/token_storage.dart';
+import '../dashboard/server_config_screen.dart';
+import '../dashboard/cloud_migration_screen.dart';
+import 'package:file_picker/file_picker.dart';
+import '../../widgets/relationship_manager_card.dart';
+
+class CountryPreset {
+  final String name;
+  final String symbol;
+  final String code;
+  final String timezone;
+  final String label;
+
+  const CountryPreset({
+    required this.name,
+    required this.symbol,
+    required this.code,
+    required this.timezone,
+    required this.label,
+  });
+}
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _currentMachineId = LocalPreferences.getSystemHardwareId();
+  static const List<CountryPreset> _countryPresets = [
+    CountryPreset(
+      name: 'India',
+      symbol: '₹',
+      code: 'INR',
+      timezone: 'Asia/Kolkata',
+      label: '🇮🇳 India (INR - ₹)',
+    ),
+    CountryPreset(
+      name: 'United States',
+      symbol: '\$',
+      code: 'USD',
+      timezone: 'America/New_York',
+      label: '🇺🇸 United States (USD - \$)',
+    ),
+    CountryPreset(
+      name: 'Eurozone',
+      symbol: '€',
+      code: 'EUR',
+      timezone: 'Europe/Paris',
+      label: '🇪🇺 Eurozone (EUR - €)',
+    ),
+    CountryPreset(
+      name: 'United Kingdom',
+      symbol: '£',
+      code: 'GBP',
+      timezone: 'Europe/London',
+      label: '🇬🇧 United Kingdom (GBP - £)',
+    ),
+    CountryPreset(
+      name: 'United Arab Emirates',
+      symbol: 'AED',
+      code: 'AED',
+      timezone: 'Asia/Dubai',
+      label: '🇦🇪 United Arab Emirates (AED)',
+    ),
+    CountryPreset(
+      name: 'Kenya',
+      symbol: 'KSh',
+      code: 'KES',
+      timezone: 'Africa/Nairobi',
+      label: '🇰🇪 Kenya (KES - KSh)',
+    ),
+    CountryPreset(
+      name: 'Canada',
+      symbol: '\$',
+      code: 'CAD',
+      timezone: 'America/Toronto',
+      label: '🇨🇦 Canada (CAD - \$)',
+    ),
+    CountryPreset(
+      name: 'Australia',
+      symbol: '\$',
+      code: 'AUD',
+      timezone: 'Australia/Sydney',
+      label: '🇦🇺 Australia (AUD - \$)',
+    ),
+    CountryPreset(
+      name: 'Singapore',
+      symbol: '\$',
+      code: 'SGD',
+      timezone: 'Asia/Singapore',
+      label: '🇸🇬 Singapore (SGD - \$)',
+    ),
+    CountryPreset(
+      name: 'Saudi Arabia',
+      symbol: 'SAR',
+      code: 'SAR',
+      timezone: 'Asia/Riyadh',
+      label: '🇸🇦 Saudi Arabia (SAR)',
+    ),
+    CountryPreset(
+      name: 'South Africa',
+      symbol: 'R',
+      code: 'ZAR',
+      timezone: 'Africa/Johannesburg',
+      label: '🇿🇦 South Africa (ZAR - R)',
+    ),
+    CountryPreset(
+      name: 'Nigeria',
+      symbol: '₦',
+      code: 'NGN',
+      timezone: 'Africa/Lagos',
+      label: '🇳🇬 Nigeria (NGN - ₦)',
+    ),
+    CountryPreset(
+      name: 'Philippines',
+      symbol: '₱',
+      code: 'PHP',
+      timezone: 'Asia/Manila',
+      label: '🇵🇭 Philippines (PHP - ₱)',
+    ),
+  ];
+  static const _taxModes = [
+    'CGST_SGST',
+    'IGST',
+    'US_SALES_TAX',
+    'COMPOSITE',
+    'VAT',
+    'VAT_CTL',
+    'VAT_ONLY',
+    'CESS',
+    'CUSTOM',
+    'NONE',
+  ];
+  static const _billFormats = [
+    'A4',
+    'A5',
+    'THERMAL_58',
+    'THERMAL_72',
+    'THERMAL_76',
+    'THERMAL_80',
+  ];
+  static const _taxTypes = ['GST', 'VAT', 'SALES_TAX', 'US_SALES_TAX', 'CESS', 'OTHER'];
+  static const _printModes = [
+    'PRINT_DIALOG',
+    'ASK_BEFORE_PRINT',
+    'DIRECT_DEFAULT',
+  ];
+  List<Printer> _printers = const [];
+  bool _loadingPrinters = false;
+  bool _showNotifications = true;
+  String _currentActiveModule = 'ALL';
+  bool _didLoadBranding = false;
+  bool _isCreatingEncBackup = false;
+  AppBrandingModel _branding = AppBrandingModel.defaults();
+  List<Map<String, dynamic>> _settingsSaleSources = [];
+  List<Map<String, dynamic>> _settingsPaymentMethods = [];
+  bool _loadingSettingsData = false;
+
+  bool get _isAdmin => PermissionService.user?.role == 'ADMIN';
+
+  String _billFormatLabel(String format) {
+    switch (format) {
+      case 'A5':
+        return 'A5 Invoice';
+      case 'THERMAL_58':
+        return '58mm Thermal';
+      case 'THERMAL_72':
+        return '72mm Thermal';
+      case 'THERMAL_76':
+        return '76mm Thermal';
+      case 'THERMAL_80':
+        return '80mm Thermal';
+      default:
+        return 'A4 Invoice';
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() => context.read<SystemSettingsController>().load());
+    Future.microtask(
+        () => context.read<AppBrandingController>().loadFromServer());
+    Future.microtask(_loadPrinters);
+    Future.microtask(_loadLocalPreferences);
+    Future.microtask(_loadSettingsData);
+  }
+
+  Future<void> _loadLocalPreferences() async {
+    final showNotifications = await LocalPreferences.getShowNotifications();
+    final machineId = await LocalPreferences.getMachineId();
+    final userMap = await TokenStorage.getUser();
+    final mod = userMap?['business_module'] ?? userMap?['outlet_module'] ?? 'ALL';
+    if (!mounted) return;
+    setState(() {
+      _showNotifications = showNotifications;
+      _currentActiveModule = mod;
+      _currentMachineId = machineId;
+    });
+  }
+
+  String getMachineBillPrinter(SystemSettings s, String machineId) {
+    final mKey = machineId.trim().toUpperCase();
+    final machineData = s.devicePrinterMappings[mKey] is Map
+        ? s.devicePrinterMappings[mKey]
+        : s.devicePrinterMappings['DEFAULT'];
+    if (machineData is Map) {
+      return (machineData['bill_printer'] ?? '').toString();
+    }
+    return '';
+  }
+
+  void setMachineBillPrinter(SystemSettings s, String machineId, String printerName) {
+    final mKey = machineId.trim().toUpperCase();
+    final current = s.devicePrinterMappings[mKey] is Map
+        ? Map<String, dynamic>.from(s.devicePrinterMappings[mKey])
+        : <String, dynamic>{};
+    current['bill_printer'] = printerName;
+    s.devicePrinterMappings[mKey] = current;
+  }
+
+  String getMachineTokenPrinter(SystemSettings s, String machineId, String station) {
+    final mKey = machineId.trim().toUpperCase();
+    final machineData = s.devicePrinterMappings[mKey] is Map
+        ? s.devicePrinterMappings[mKey]
+        : s.devicePrinterMappings['DEFAULT'];
+    if (machineData is Map && machineData['tokens'] is Map) {
+      final tokensMap = Map<String, dynamic>.from(machineData['tokens']);
+      return (tokensMap[station] ?? '').toString();
+    }
+    return '';
+  }
+
+  void setMachineTokenPrinter(SystemSettings s, String machineId, String station, String printerName) {
+    final mKey = machineId.trim().toUpperCase();
+    final currentMachine = s.devicePrinterMappings[mKey] is Map
+        ? Map<String, dynamic>.from(s.devicePrinterMappings[mKey])
+        : <String, dynamic>{};
+    final currentTokens = currentMachine['tokens'] is Map
+        ? Map<String, dynamic>.from(currentMachine['tokens'])
+        : <String, dynamic>{};
+    currentTokens[station] = printerName;
+    currentMachine['tokens'] = currentTokens;
+    s.devicePrinterMappings[mKey] = currentMachine;
+  }
+
+  Future<void> _openFavoritesManager() async {
+    final favorites = (await LocalPreferences.getFavoriteDrawerItems()).toSet();
+    final allFeatures = [
+      {'label': 'Purchase Order', 'category': 'Operations'},
+      {'label': 'Item Request', 'category': 'Operations'},
+      {'label': 'Receive from Vendor', 'category': 'Operations'},
+      {'label': 'Retail Sales', 'category': 'Operations'},
+      {'label': 'Stock Dispatch', 'category': 'Operations'},
+      {'label': 'Stock Transfer', 'category': 'Operations'},
+      {'label': 'Stock Adjustment', 'category': 'Operations'},
+      {'label': 'Master Items', 'category': 'Masters'},
+      {'label': 'Departments', 'category': 'Masters'},
+      {'label': 'Vendors / Suppliers', 'category': 'Masters'},
+      {'label': 'Customers / Debtors', 'category': 'Masters'},
+      {'label': 'Stock View', 'category': 'Stock View'},
+      {'label': 'Reports', 'category': 'Reports'},
+      {'label': 'System Settings', 'category': 'System'},
+    ];
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final theme = Theme.of(context);
+            final isDark = theme.brightness == Brightness.dark;
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.star_rounded, color: Color(0xFFFFB800)),
+                  SizedBox(width: 8),
+                  Text('Navigation Favorites', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SizedBox(
+                width: 420,
+                height: 440,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Check the features you want pinned directly to the top FAVORITES section in your sidebar drawer:',
+                      style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : const Color(0xFF64748B)),
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: ListView(
+                        children: allFeatures.map((item) {
+                          final label = item['label']!;
+                          final category = item['category']!;
+                          final isFav = favorites.contains(label);
+
+                          return CheckboxListTile(
+                            dense: true,
+                            value: isFav,
+                            activeColor: const Color(0xFFFFB800),
+                            title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            subtitle: Text(category, style: const TextStyle(fontSize: 11)),
+                            onChanged: (val) async {
+                              setDialogState(() {
+                                if (isFav) {
+                                  favorites.remove(label);
+                                } else {
+                                  favorites.add(label);
+                                }
+                              });
+                              await LocalPreferences.setFavoriteDrawerItems(favorites.toList());
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Save & Done', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _loadPrinters() async {
+    setState(() => _loadingPrinters = true);
+    try {
+      final printers = await Printing.listPrinters();
+      if (!mounted) return;
+
+      final Set<String> seen = {};
+      final List<Printer> uniquePrinters = [];
+      for (final p in printers) {
+        final key = (p.url.isNotEmpty ? p.url : p.name).trim().toLowerCase();
+        final nameKey = p.name.trim().toLowerCase();
+        if (nameKey.isNotEmpty && !seen.contains(key) && !seen.contains(nameKey)) {
+          seen.add(key);
+          seen.add(nameKey);
+          uniquePrinters.add(p);
+        }
+      }
+
+      setState(() => _printers = uniquePrinters);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _printers = const []);
+    } finally {
+      if (mounted) {
+        setState(() => _loadingPrinters = false);
+      }
+    }
+  }
+
+  Future<void> _pickBackgroundImage() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['png', 'jpg', 'jpeg', 'webp'],
+        withData: true,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.single;
+        String? base64Image;
+
+        if (file.bytes != null && file.bytes!.isNotEmpty) {
+          final ext = (file.extension ?? 'png').toLowerCase();
+          final mime = ext == 'jpg' ? 'jpeg' : ext;
+          base64Image = 'data:image/$mime;base64,${base64Encode(file.bytes!)}';
+        } else if (file.path != null && file.path!.isNotEmpty && !kIsWeb) {
+          final ioFile = File(file.path!);
+          if (ioFile.existsSync()) {
+            final bytes = ioFile.readAsBytesSync();
+            final ext = (file.extension ?? 'png').toLowerCase();
+            final mime = ext == 'jpg' ? 'jpeg' : ext;
+            base64Image = 'data:image/$mime;base64,${base64Encode(bytes)}';
+          }
+        }
+
+        if (base64Image != null && base64Image.isNotEmpty) {
+          setState(() {
+            _branding = _branding.copyWith(homeBgImagePath: base64Image);
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showClearTransactionDataDialog() async {
+    final confirmController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(Icons.delete_forever,
+                            color: Colors.red, size: 26),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Text(
+                          'Clear Transaction Data',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'This permanently removes stock, sales, purchase, finance, and report records ONLY for the current outlet. Other outlets data will not be affected. Master data, settings, and schema version are preserved.',
+                    style: TextStyle(color: Color(0xFF64748B), height: 1.4),
+                  ),
+                  const SizedBox(height: 18),
+                  StatefulBuilder(
+                    builder: (context, setDialogState) {
+                      String? inlineError;
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Type DELETE ALL DATA to continue',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 10),
+                                TextField(
+                                  controller: confirmController,
+                                  decoration: InputDecoration(
+                                    hintText: 'DELETE ALL DATA',
+                                    errorText: inlineError,
+                                    border: const OutlineInputBorder(),
+                                  ),
+                                  onChanged: (_) {
+                                    if (inlineError != null) {
+                                      setDialogState(() => inlineError = null);
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dialogContext, false),
+                                child: const Text('Cancel'),
+                              ),
+                              const SizedBox(width: 12),
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                onPressed: () {
+                                  final text = confirmController.text.trim().toUpperCase();
+                                  if (text != 'DELETE ALL DATA') {
+                                    setDialogState(() {
+                                      inlineError = 'Please type DELETE ALL DATA to confirm';
+                                    });
+                                    return;
+                                  }
+                                  Navigator.pop(dialogContext, true);
+                                },
+                                icon: const Icon(Icons.delete_forever, size: 18),
+                                label: const Text('Delete Now'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    final confirmText = confirmController.text.trim();
+    if (confirmText.toUpperCase() != 'DELETE ALL DATA') {
+      showErrorSnackbar('Please type DELETE ALL DATA to continue');
+      return;
+    }
+
+    try {
+      final res = await ApiClient.post('/api/inventory/settings/clear-transaction-data', {
+        'confirm_text': confirmText,
+      });
+      if (!mounted) return;
+      if (res['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Transaction data deleted successfully')),
+        );
+      } else {
+        showErrorSnackbar(res['message'] ?? 'Failed to delete transaction data');
+      }
+    } catch (e) {
+      if (mounted) {
+        showErrorSnackbar('Failed to delete transaction data: $e');
+      }
+    }
+  }
+
+  void showErrorSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = context.watch<SystemSettingsController>();
+    final themeCtrl = context.watch<ThemeController>();
+    final uiPrefsCtrl = context.watch<UiPreferencesController>();
+    final brandingCtrl = context.watch<AppBrandingController>();
+
+    if (!_didLoadBranding && !brandingCtrl.loading) {
+      _didLoadBranding = true;
+      _branding = brandingCtrl.branding;
+    }
+
+    if (ctrl.loading || ctrl.settings == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final s = ctrl.settings!;
+    final selectedPrinterValue = _printers.any(
+      (printer) => printer.url == s.defaultPrinterUrl,
+    )
+        ? s.defaultPrinterUrl
+        : null;
+
+    Future<void> saveAllSettings() async {
+      await LocalPreferences.setShowNotifications(_showNotifications);
+      await ctrl.save(s);
+      await brandingCtrl.save(
+        _branding.copyWith(themeKey: themeCtrl.themeKey),
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Settings saved successfully')),
+      );
+    }
+
+    Widget buildSaveBar() {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          icon: const Icon(Icons.save),
+          label: const Text('Save Settings'),
+          onPressed: saveAllSettings,
+        ),
+      );
+    }
+
+    Widget buildTabBody(List<Widget> sections, BoxConstraints constraints) {
+      final horizontalPadding = constraints.maxWidth >= 1200 ? 40.0 : 20.0;
+      return ListView(
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: 24,
+        ),
+        children: [
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1180),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ...sections,
+                  const SizedBox(height: 24),
+                  buildSaveBar(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final showSaleAndPayment = _currentActiveModule != 'INVENTORY';
+
+    return DefaultTabController(
+      length: showSaleAndPayment ? 10 : 9,
+      child: Scaffold(
+        backgroundColor: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF121214)
+            : const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          title: const Text('Settings'),
+          bottom: TabBar(
+            isScrollable: true,
+            tabs: [
+              const Tab(text: 'Operations'),
+              const Tab(text: 'Security & Gateways'),
+              const Tab(text: 'Appearance'),
+              const Tab(text: 'Billing & Print'),
+              const Tab(text: 'Branding'),
+              const Tab(text: 'Keyboard Shortcuts'),
+              if (showSaleAndPayment) const Tab(text: 'Sale & Payment'),
+              const Tab(text: 'Promos & Configs'),
+              const Tab(text: 'Marketplace & Vendor'),
+              const Tab(text: 'Business Module'),
+            ],
+          ),
+        ),
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            return TabBarView(
+              children: [
+                // 1. OPERATIONS TAB
+                buildTabBody([
+                  _customSection(
+                    'Store Registration & Business Profile',
+                    'Update store name, legal name, address, GSTIN, FSSAI, mobile, and thermal receipt notes.',
+                    [
+                      _settingRow(
+                        title: 'Update Registration Info',
+                        description: 'Edit store registration details, logo, contact, tax numbers, and receipt footer note',
+                        isLast: false,
+                        control: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF7A1A),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const OutletDetailModificationScreen()),
+                          ),
+                          icon: const Icon(Icons.edit_note_rounded, size: 18),
+                          label: const Text('Update Registration Info', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Master & Child Outlet Linking',
+                        description: 'Configure Master Outlet and create or link child outlets for stock transfers',
+                        isLast: true,
+                        control: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const OutletHierarchyLinkingScreen()),
+                          ),
+                          icon: const Icon(Icons.account_tree_rounded, size: 18),
+                          label: const Text('Master & Child Outlets', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: RelationshipManagerCard(),
+                      ),
+                    ],
+                  ),
+                  _customSection(
+                    'Regional, Country & Currency Settings',
+                    'Configure store country, base currency symbol, ISO currency code, and timezone for all bills and reports.',
+                    [
+                      _settingRow(
+                        title: 'Country Preset & Quick Setup',
+                        description: 'Select a country preset to auto-fill Currency Symbol, ISO Code, and Software Timezone, or choose Custom for manual setup.',
+                        control: SizedBox(
+                          width: 340,
+                          child: Builder(
+                            builder: (context) {
+                              final matchedPreset = _countryPresets.where((p) =>
+                                  p.name.toLowerCase() == s.billingCountry.trim().toLowerCase() ||
+                                  p.code.toUpperCase() == s.baseCurrencyCode.trim().toUpperCase()
+                              ).firstOrNull;
+                              final currentValue = matchedPreset != null ? matchedPreset.name : 'CUSTOM';
+
+                              return DropdownButtonFormField<String>(
+                                key: ValueKey('countryPreset-$currentValue'),
+                                value: currentValue,
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                                items: [
+                                  ..._countryPresets.map((preset) => DropdownMenuItem<String>(
+                                    value: preset.name,
+                                    child: Text(preset.label, overflow: TextOverflow.ellipsis),
+                                  )),
+                                  const DropdownMenuItem<String>(
+                                    value: 'CUSTOM',
+                                    child: Text('⚙️ Custom / Manual Country & Currency'),
+                                  ),
+                                ],
+                                onChanged: (val) {
+                                  if (val == null) return;
+                                  if (val != 'CUSTOM') {
+                                    final preset = _countryPresets.firstWhere((p) => p.name == val);
+                                    setState(() {
+                                      s.billingCountry = preset.name;
+                                      s.baseCurrencySymbol = preset.symbol;
+                                      s.baseCurrencyCode = preset.code;
+                                      if (TimeZoneUtils.supportedTimeZones.any((tz) => tz.id == preset.timezone)) {
+                                        s.timeZone = preset.timezone;
+                                      }
+                                    });
+                                    CurrencyService.updateFromSettings(s);
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Billing Country',
+                        description: 'Country name used for invoice compliance and tax headers (e.g. USA, India, Kenya, UK, UAE)',
+                        control: SizedBox(
+                          width: 340,
+                          child: TextFormField(
+                            key: ValueKey('bCountry-${s.billingCountry}'),
+                            initialValue: s.billingCountry,
+                            decoration: const InputDecoration(
+                              hintText: 'e.g. United States, India, UK',
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            onChanged: (v) {
+                              s.billingCountry = v.trim().isEmpty ? 'India' : v.trim();
+                              CurrencyService.updateFromSettings(s);
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Base Currency Symbol',
+                        description: 'Currency symbol displayed on POS checkout, invoices, receipts, and financial reports (e.g. \$, ₹, £, AED, KSh, €)',
+                        control: SizedBox(
+                          width: 340,
+                          child: TextFormField(
+                            key: ValueKey('bSym-${s.baseCurrencySymbol}'),
+                            initialValue: s.baseCurrencySymbol,
+                            decoration: const InputDecoration(
+                              hintText: 'e.g. \$, ₹, £, AED, KSh, €',
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            onChanged: (v) {
+                              s.baseCurrencySymbol = v.trim();
+                              CurrencyService.updateFromSettings(s);
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Base Currency Code',
+                        description: 'ISO Currency Code for multi-currency compatibility (e.g. USD, INR, GBP, EUR, AED, KES)',
+                        control: SizedBox(
+                          width: 340,
+                          child: TextFormField(
+                            key: ValueKey('bCode-${s.baseCurrencyCode}'),
+                            initialValue: s.baseCurrencyCode,
+                            decoration: const InputDecoration(
+                              hintText: 'e.g. USD, INR, GBP, EUR, AED',
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            onChanged: (v) {
+                              s.baseCurrencyCode = v.trim().toUpperCase();
+                              CurrencyService.updateFromSettings(s);
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Software Time Zone',
+                        description: 'All dates, bill timestamps, and transactions in the software will convert according to the selected time zone.',
+                        control: SizedBox(
+                          width: 340,
+                          child: DropdownButtonFormField<String>(
+                            key: ValueKey('bTz-${s.timeZone}'),
+                            value: TimeZoneUtils.supportedTimeZones.any((tz) => tz.id == s.timeZone)
+                                ? s.timeZone
+                                : TimeZoneUtils.defaultTimeZone,
+                            decoration: const InputDecoration(
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            isExpanded: true,
+                            items: TimeZoneUtils.supportedTimeZones
+                                .map((tz) => DropdownMenuItem<String>(
+                                      value: tz.id,
+                                      child: Text(
+                                        tz.fullDisplayName,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ))
+                                .toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() {
+                                  s.timeZone = val;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Currency Symbol Position',
+                        description: 'Position of currency symbol relative to transaction amounts',
+                        control: SizedBox(
+                          width: 340,
+                          child: DropdownButtonFormField<String>(
+                            value: (s.currencySymbolPosition == 'AFTER') ? 'AFTER' : 'BEFORE',
+                            isExpanded: true,
+                            decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'BEFORE',
+                                child: Text('Prefix (e.g. \$100.00 / ₹100.00)'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'AFTER',
+                                child: Text('Suffix (e.g. 100.00\$ / 100.00 KSh)'),
+                              ),
+                            ],
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => s.currencySymbolPosition = val);
+                                CurrencyService.updateFromSettings(s);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Currency Decimals',
+                        description: 'Number of decimal places displayed for amounts (e.g. 2 for 100.00, 0 for 100)',
+                        control: SizedBox(
+                          width: 340,
+                          child: DropdownButtonFormField<int>(
+                            value: s.currencyDecimals,
+                            isExpanded: true,
+                            decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                            items: const [
+                              DropdownMenuItem(value: 2, child: Text('2 Decimals (e.g. 100.00)')),
+                              DropdownMenuItem(value: 0, child: Text('0 Decimals (e.g. 100)')),
+                              DropdownMenuItem(value: 3, child: Text('3 Decimals (e.g. 100.000)')),
+                            ],
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => s.currencyDecimals = val);
+                                CurrencyService.updateFromSettings(s);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Live Time Zone Preview',
+                        description: 'Current software date and time in selected time zone',
+                        isLast: true,
+                        control: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).primaryColor.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Theme.of(context).primaryColor.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.access_time_filled,
+                                size: 18,
+                                color: Theme.of(context).primaryColor,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                TimeZoneUtils.formatNowInTimeZone(
+                                  s.timeZone,
+                                  pattern: 'dd-MMM-yyyy  hh:mm:ss a',
+                                ),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(context).primaryColor,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _customSection(
+                    'Inventory Settings',
+                    'Configure behaviors and triggers for product inventory management.',
+                    [
+                      _settingRow(
+                        title: 'Enable Auto Reorder Alert',
+                        description: 'Notify when stock falls below specified reorder thresholds',
+                        control: Switch.adaptive(
+                          value: s.autoReorder,
+                          onChanged: (v) => setState(() => s.autoReorder = v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Allow Negative Stock',
+                        description: 'Allow issue/sale transactions even if current stock is zero or insufficient',
+                        control: Switch.adaptive(
+                          value: s.allowNegativeStock,
+                          onChanged: (v) => setState(() => s.allowNegativeStock = v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Show Item Images in Sales',
+                        description: 'Display item photographs directly on the POS sale screen',
+                        control: Switch.adaptive(
+                          value: s.enableItemImagesInSales,
+                          onChanged: (v) => setState(() => s.enableItemImagesInSales = v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Enable Salesperson Tagging',
+                        description: 'Show salesperson selector and calculate commission on sale',
+                        control: Switch.adaptive(
+                          value: s.enableSalespersonTagging,
+                          onChanged: (v) => setState(() => s.enableSalespersonTagging = v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Show Brand Name in Print / Bills',
+                        description: 'Display and print the product brand name on KOTs, receipts, and invoices',
+                        isLast: true,
+                        control: Switch.adaptive(
+                          value: s.showBrandName,
+                          onChanged: (v) => setState(() => s.showBrandName = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _customSection(
+                    'Subscription Delivery',
+                    'Manage automated workflows for daily recurring orders.',
+                    [
+                      _settingRow(
+                        title: 'Enable Home Delivery Subscription (From App or Store)',
+                        description: 'Enable home delivery subscriptions when subscribing from the Customer App or from the Store',
+                        isLast: !s.enableAppSubscription,
+                        control: Switch.adaptive(
+                          value: s.enableAppSubscription,
+                          onChanged: (v) => setState(() {
+                            s.enableAppSubscription = v;
+                            if (!v) {
+                              s.subDeliveryChargeEnabled = false;
+                            }
+                          }),
+                        ),
+                      ),
+                      if (s.enableAppSubscription) ...[
+                        _settingRow(
+                          title: 'Apply Delivery Charges for Subscription',
+                          description: 'Enable additional home delivery charges on subscription orders',
+                          isLast: !s.subDeliveryChargeEnabled,
+                          control: Switch.adaptive(
+                            value: s.subDeliveryChargeEnabled,
+                            onChanged: (v) => setState(() => s.subDeliveryChargeEnabled = v),
+                          ),
+                        ),
+                        if (s.subDeliveryChargeEnabled) ...[
+                          _settingRow(
+                            title: 'Delivery Charges Name',
+                            description: 'Label shown on receipts and reports (e.g. Home Delivery Charges)',
+                            control: SizedBox(
+                              width: 280,
+                              child: TextFormField(
+                                initialValue: s.subDeliveryChargeName,
+                                decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                                onChanged: (v) => s.subDeliveryChargeName = v.trim(),
+                              ),
+                            ),
+                          ),
+                          _settingRow(
+                            title: 'Delivery Charge Type',
+                            description: 'Charge structure: Flat fee per day or percentage of daily subtotal',
+                            control: SizedBox(
+                              width: 280,
+                              child: DropdownButtonFormField<String>(
+                                value: s.subDeliveryChargeType,
+                                decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                                items: const [
+                                  DropdownMenuItem(value: 'FLAT', child: Text('Flat Rate per Day')),
+                                  DropdownMenuItem(value: 'PERCENTAGE', child: Text('Percentage of Subtotal')),
+                                ],
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() => s.subDeliveryChargeType = val);
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                          _settingRow(
+                            title: 'Delivery Charge Value',
+                            description: 'Daily charge amount (in Rs. or % depending on type)',
+                            control: SizedBox(
+                              width: 280,
+                              child: TextFormField(
+                                initialValue: s.subDeliveryChargeAmount.toString(),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                                onChanged: (v) => s.subDeliveryChargeAmount = double.tryParse(v.trim()) ?? 0.0,
+                              ),
+                            ),
+                          ),
+                          _settingRow(
+                            title: 'GST on Delivery Charges (%)',
+                            description: 'Tax rate applicable specifically to subscription delivery charges',
+                            control: SizedBox(
+                              width: 280,
+                              child: TextFormField(
+                                initialValue: s.subDeliveryChargeGstPercent.toString(),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                                onChanged: (v) => s.subDeliveryChargeGstPercent = double.tryParse(v.trim()) ?? 0.0,
+                              ),
+                            ),
+                          ),
+                          _settingRow(
+                            title: 'Free Delivery Threshold Amount',
+                            description: 'Subscriptions with daily value (subtotal + tax per day) above this threshold will have free delivery (0 to disable)',
+                            isLast: true,
+                            control: SizedBox(
+                              width: 280,
+                              child: TextFormField(
+                                initialValue: s.subDeliveryFreeAbove.toString(),
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+                                onChanged: (v) => s.subDeliveryFreeAbove = double.tryParse(v.trim()) ?? 0.0,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ],
+                  ),
+                  _customSection(
+                    'Approval Rules',
+                    'Set authorization constraints for warehouse managers.',
+                    [
+                      _settingRow(
+                        title: 'Damage Approval Required',
+                        description: 'Require manager approval/authorization before writing off damaged items',
+                        isLast: true,
+                        control: Switch.adaptive(
+                          value: s.damageApprovalRequired,
+                          onChanged: (v) => setState(() => s.damageApprovalRequired = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _customSection(
+                    'Audit & Compliance',
+                    'Maintain system logs and dashboard communication.',
+                    [
+                      _settingRow(
+                        title: 'Enable Audit Log',
+                        description: 'Log all warehouse stock updates, edits, and deletions for security review',
+                        control: Switch.adaptive(
+                          value: s.enableAuditLog,
+                          onChanged: (v) => setState(() => s.enableAuditLog = v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Show Notifications',
+                        description: 'Show app alerts and desktop warnings in the administrator console',
+                        control: Switch.adaptive(
+                          value: _showNotifications,
+                          onChanged: (v) => setState(() => _showNotifications = v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Customize Navigation Favorites',
+                        description: 'Select features to pin directly to the FAVORITES section in your sidebar drawer',
+                        isLast: true,
+                        control: ElevatedButton.icon(
+                          onPressed: _openFavoritesManager,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFFB800).withOpacity(0.15),
+                            foregroundColor: const Color(0xFFD97706),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          icon: const Icon(Icons.star_rounded, size: 16, color: Color(0xFFFFB800)),
+                          label: const Text('Manage Favorites', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ], constraints),
+
+                // 2. SECURITY & GATEWAYS TAB
+                buildTabBody([
+                  if (AppConfig.isLocalServer)
+                    _customSection(
+                      'Data & Security',
+                      'Manage your cloud configuration and manual offline backups.',
+                      [
+                        _settingRow(
+                          title: 'Enable Cloud Backup',
+                          description: 'Automatically sync your store data to the Cloud',
+                          control: Switch.adaptive(
+                            value: s.isCloudEnabled,
+                            onChanged: (bool newValue) async {
+                              setState(() => s.isCloudEnabled = newValue);
+                              final success = await BackupService.toggleCloudSync(newValue);
+                              ctrl.save(s);
+                              if (mounted) {
+                                if (success) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(newValue
+                                          ? 'Cloud backup enabled successfully!'
+                                          : 'Cloud backup paused.'),
+                                      backgroundColor: newValue ? Colors.green : Colors.orange,
+                                    ),
+                                  );
+                                } else {
+                                  setState(() => s.isCloudEnabled = !newValue);
+                                  showErrorSnackbar('Failed to update setting. Check internet.');
+                                }
+                              }
+                            },
+                          ),
+                        ),
+                        _settingRow(
+                          title: 'Create Manual Backup',
+                          description: 'Encrypt your local database and save to Downloads folder.',
+                          control: FilledButton.icon(
+                            onPressed: _isCreatingEncBackup
+                                ? null
+                                : () async {
+                                    setState(() => _isCreatingEncBackup = true);
+                                    try {
+                                      final savedPath = await BackupService.createAndSaveLocalEncBackup();
+                                      if (!mounted) return;
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('.enc backup saved to $savedPath'),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      );
+                                    } catch (e) {
+                                      if (!mounted) return;
+                                      showErrorSnackbar('Failed to create backup: $e');
+                                    } finally {
+                                      if (mounted) {
+                                        setState(() => _isCreatingEncBackup = false);
+                                      }
+                                    }
+                                  },
+                            icon: _isCreatingEncBackup
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Icon(Icons.enhanced_encryption_outlined, size: 18),
+                            label: Text(_isCreatingEncBackup ? 'Backing up...' : 'Create .enc Backup'),
+                          ),
+                        ),
+                        _settingRow(
+                          title: '1-Click Migrate Store to Cloud',
+                          description: 'Seamlessly upload all local store products, customers, and invoices to your online cloud instance.',
+                          isLast: true,
+                          control: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF0284C7),
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const CloudMigrationScreen()),
+                              );
+                            },
+                            icon: const Icon(Icons.rocket_launch_rounded, size: 18),
+                            label: const Text('Start Migration Wizard'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  _customSection(
+                    'Payment Gateways & Digital Wallets',
+                    'Configure UPI, Stripe, Square, Razorpay, PayPal, M-Pesa, and POS settlement modes in the unified Payment & Settlement Management console.',
+                    [
+                      _settingRow(
+                        title: 'Payment & Settlement Management',
+                        description: 'Configure multi-country payment gateways (India UPI/Razorpay, USA Stripe/Square, Europe PayPal, Africa M-Pesa), POS settlement modes, and payment methods',
+                        isLast: true,
+                        control: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0B5CAD),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const PaymentGatewaysScreen()),
+                          ).then((_) => _loadSettingsData()),
+                          icon: const Icon(Icons.account_balance_wallet, size: 16),
+                          label: const Text('Open Payment Management'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_isAdmin)
+                    _customSection(
+                      'Danger Zone',
+                      'High-risk administrative operations.',
+                      [
+                        _settingRow(
+                          title: 'Clear All Transaction Data',
+                          description: 'Wipes transaction logs, sales, GRNs, and ledger items. Master catalogs are preserved.',
+                          isLast: true,
+                          control: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: _showClearTransactionDataDialog,
+                            icon: const Icon(Icons.delete_forever, size: 18),
+                            label: const Text('Clear Transaction Data'),
+                          ),
+                        ),
+                      ],
+                    ),
+                ], constraints),
+
+                // 2. APPEARANCE TAB
+                buildTabBody([
+                  _customSection(
+                    'Design System Presets',
+                    'Quickly format layout shapes to match enterprise guidelines.',
+                    [
+                      _settingRow(
+                        title: 'Microsoft Fluent Preset',
+                        description: 'Instantly apply compact, flat-edged buttons and rectangular inputs for a sleek workspace layout.',
+                        isLast: true,
+                        control: FilledButton(
+                          onPressed: () async {
+                            await themeCtrl.updateTheme(AppTheme.microsoftFluent);
+                            await uiPrefsCtrl.updateTouchMode(false);
+                            await uiPrefsCtrl.updateTextfieldSize('compact');
+                            await uiPrefsCtrl.updateTextfieldBorderStyle('rectangular');
+                            await uiPrefsCtrl.updateCardColorStyle('white');
+                            await uiPrefsCtrl.updateCardBorderStyle('flat');
+                            await uiPrefsCtrl.updateButtonBorderStyle('flat');
+
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Microsoft Fluent Preset theme applied!')),
+                              );
+                            }
+                          },
+                          child: const Text('Apply Preset'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _customSection(
+                    'Interface Customization',
+                    'Configure spacing, sizing parameters, shapes, and color configurations.',
+                    [
+                      _settingRow(
+                        title: 'Touch Screen Mode',
+                        description: 'Increases size of tap targets and adjusts list spacing for touchscreen users',
+                        control: Switch.adaptive(
+                          value: uiPrefsCtrl.touchMode,
+                          onChanged: (v) => uiPrefsCtrl.updateTouchMode(v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'On-Screen Virtual Keyboard',
+                        description: 'Show virtual keyboard on touch input focus. Turn off if you use a physical keyboard or barcode scanner.',
+                        control: Switch.adaptive(
+                          value: !uiPrefsCtrl.virtualKeyboardDisabled,
+                          onChanged: (v) => uiPrefsCtrl.updateVirtualKeyboardDisabled(!v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Default Startup Screen',
+                        description: 'Determine which dashboard loads first upon log-in',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: uiPrefsCtrl.defaultStartupScreen,
+                            items: const [
+                              DropdownMenuItem(value: 'INVENTORY_DASHBOARD', child: Text('Warehouse Dashboard')),
+                              DropdownMenuItem(value: 'RETAIL_SALES', child: Text('Retail Dashboard')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                uiPrefsCtrl.updateDefaultStartupScreen(value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Application Palette Theme',
+                        description: 'Change the overall theme color scheme of the console',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: AppTheme.availableThemes.containsKey(themeCtrl.themeKey)
+                                ? themeCtrl.themeKey
+                                : AppTheme.famalthClassic,
+                            items: AppTheme.availableThemes.entries
+                                .map((entry) => DropdownMenuItem(value: entry.key, child: Text(entry.value)))
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                themeCtrl.updateTheme(value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Textfield Spacing Density',
+                        description: 'Select heights for forms, search fields, and transaction rows',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: uiPrefsCtrl.textfieldSize,
+                            items: const [
+                              DropdownMenuItem(value: 'extra_compact', child: Text('Extra Compact')),
+                              DropdownMenuItem(value: 'compact', child: Text('Compact')),
+                              DropdownMenuItem(value: 'normal', child: Text('Normal (Default)')),
+                              DropdownMenuItem(value: 'comfortable', child: Text('Comfortable')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                uiPrefsCtrl.updateTextfieldSize(value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Textfield Border Styling',
+                        description: 'Modify input text field corner visual properties',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: uiPrefsCtrl.textfieldBorderStyle,
+                            items: const [
+                              DropdownMenuItem(value: 'rounded', child: Text('Rounded Borders')),
+                              DropdownMenuItem(value: 'rectangular', child: Text('Rectangular Borders')),
+                              DropdownMenuItem(value: 'underlined', child: Text('Underlined Only')),
+                              DropdownMenuItem(value: 'none', child: Text('No Borders (Borderless)')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                uiPrefsCtrl.updateTextfieldBorderStyle(value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Global Card Background Color',
+                        description: 'Fine-tune color tint and card panel backgrounds',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: uiPrefsCtrl.cardColorStyle,
+                            items: const [
+                              DropdownMenuItem(value: 'soft', child: Text('Soft Surface')),
+                              DropdownMenuItem(value: 'white', child: Text('Plain White')),
+                              DropdownMenuItem(value: 'tint', child: Text('Theme Tint')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                uiPrefsCtrl.updateCardColorStyle(value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Global Card Shape',
+                        description: 'Select corner radius attributes for details cards and containers',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: uiPrefsCtrl.cardBorderStyle,
+                            items: const [
+                              DropdownMenuItem(value: 'rounded', child: Text('Rounded Corners')),
+                              DropdownMenuItem(value: 'less_rounded', child: Text('Less Rounded')),
+                              DropdownMenuItem(value: 'flat', child: Text('Flat (Sharp Corners)')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                uiPrefsCtrl.updateCardBorderStyle(value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Global Button Shape',
+                        description: 'Modify corner roundness configurations for interactive button surfaces',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: uiPrefsCtrl.buttonBorderStyle,
+                            items: const [
+                              DropdownMenuItem(value: 'rounded', child: Text('Rounded Corners')),
+                              DropdownMenuItem(value: 'less_rounded', child: Text('Less Rounded')),
+                              DropdownMenuItem(value: 'flat', child: Text('Flat (Sharp Corners)')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                uiPrefsCtrl.updateButtonBorderStyle(value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Global Text Size Scale',
+                        description: 'Change core app system font scale attributes',
+                        isLast: true,
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: uiPrefsCtrl.fontSizeAdjustment,
+                            items: const [
+                              DropdownMenuItem(value: 'small', child: Text('Small')),
+                              DropdownMenuItem(value: 'normal', child: Text('Normal (Default)')),
+                              DropdownMenuItem(value: 'large', child: Text('Large')),
+                              DropdownMenuItem(value: 'extra_large', child: Text('Extra Large')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                uiPrefsCtrl.updateFontSizeAdjustment(value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ], constraints),
+
+                // 3. BILLING & PRINT TAB
+                buildTabBody([
+                  _customSection(
+                    'Printing Config',
+                    'Receipt printing triggers, defaults, and printer outputs.',
+                    [
+                      _settingRow(
+                        title: 'Auto Print on Save',
+                        description: 'Directly send receipt print task immediately upon document save',
+                        control: Switch.adaptive(
+                          value: s.autoPrintOnSave,
+                          onChanged: (v) => setState(() => s.autoPrintOnSave = v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'A4 Invoice, 80mm Bill & KOT Template Designer',
+                        description: 'Customize full A4 tax invoices, 80mm/58mm thermal receipts, and kitchen KOT tickets with live interactive previews',
+                        control: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0B5CAD),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const ReceiptTemplateDesignerScreen()),
+                          ),
+                          icon: const Icon(Icons.palette_rounded, size: 18),
+                          label: const Text('Template Designer', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Invoicing Print Mode',
+                        description: 'Select printing dialog workflow trigger style',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: s.printMode,
+                            items: _printModes
+                                .map((mode) => DropdownMenuItem(
+                                      value: mode,
+                                      child: Text(
+                                        mode == 'PRINT_DIALOG'
+                                            ? 'Open Print Dialog'
+                                            : mode == 'ASK_BEFORE_PRINT'
+                                                ? 'Ask Yes / No'
+                                                : 'Direct Print (Selected Printer)',
+                                      ),
+                                    ))
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => s.printMode = value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Number of Bill Print Copies',
+                        description: 'Default copies printed for each bill checkout (1, 2, 3...)',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<int>(
+                            value: s.billCopiesCount,
+                            items: List.generate(5, (i) => i + 1)
+                                .map((val) => DropdownMenuItem(
+                                      value: val,
+                                      child: Text('$val Cop${val > 1 ? "ies" : "y"}'),
+                                    ))
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => s.billCopiesCount = value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Default Printer Device',
+                        description: 'Target printer for system defaults or silent printing',
+                        isLast: true,
+                        control: SizedBox(
+                          width: 280,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  isExpanded: true,
+                                  value: selectedPrinterValue,
+                                  items: _printers
+                                      .where((p) => p.url.trim().isNotEmpty)
+                                      .map((printer) => DropdownMenuItem(
+                                            value: printer.url,
+                                            child: Text(
+                                              printer.name + (printer.isDefault ? ' (System Default)' : ''),
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 1,
+                                            ),
+                                          ))
+                                      .toList(),
+                                  onChanged: (value) {
+                                    final printer = _printers.cast<Printer?>().firstWhere(
+                                          (entry) => entry?.url == value,
+                                          orElse: () => null,
+                                        );
+                                    setState(() {
+                                      s.defaultPrinterUrl = value ?? '';
+                                      s.defaultPrinterName = printer?.name ?? '';
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                onPressed: _loadingPrinters ? null : _loadPrinters,
+                                icon: _loadingPrinters
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.refresh, size: 20),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _customSection(
+                    'Device Identity & Machine Printer Routing',
+                    'Configure Machine ID and per-device bill printer mapping for multi-terminal food court / retail setups.',
+                    [
+                      _settingRow(
+                        title: 'This Machine / Terminal ID',
+                        description: 'Auto-detected Hardware Device ID: ${LocalPreferences.getSystemHardwareId()}. Select active terminal ID for this device.',
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: DevicePrinterRouting.getKnownMachineIds(s).contains(_currentMachineId)
+                                ? _currentMachineId
+                                : DevicePrinterRouting.getKnownMachineIds(s).first,
+                            decoration: const InputDecoration(
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            items: DevicePrinterRouting.getKnownMachineIds(s)
+                                .map((m) => DropdownMenuItem(
+                                      value: m,
+                                      child: Text(m == LocalPreferences.getSystemHardwareId() ? '$m (This Device)' : m),
+                                    ))
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null && v.isNotEmpty) {
+                                setState(() {
+                                  _currentMachineId = v;
+                                });
+                                LocalPreferences.setMachineId(v);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Bill Printer for $_currentMachineId',
+                        description: 'Specific printer assigned to print customer checkout invoices from this machine',
+                        isLast: true,
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: _printers.any((p) => p.name == DevicePrinterRouting.getBillPrinter(s, _currentMachineId))
+                                ? DevicePrinterRouting.getBillPrinter(s, _currentMachineId)
+                                : null,
+                            decoration: const InputDecoration(
+                              hintText: 'Use Outlet Default',
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            items: [
+                              const DropdownMenuItem(value: '', child: Text('Use Outlet Default')),
+                              ..._printers
+                                  .where((p) => p.name.trim().isNotEmpty)
+                                  .map((printer) => DropdownMenuItem(
+                                        value: printer.name,
+                                        child: Text(printer.name, overflow: TextOverflow.ellipsis),
+                                      )),
+                            ],
+                            onChanged: (val) {
+                              setState(() {
+                                DevicePrinterRouting.setBillPrinter(s, _currentMachineId, val ?? '');
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _customSection(
+                    'Token System (Sweet Shop / Food Court Case)',
+                    'Generate sequential Token Numbers on bills and print station token slips per counter.',
+                    [
+                      _settingRow(
+                        title: 'Enable Token System',
+                        description: 'Automatically allocate Token Numbers (e.g. TK-101) on checkout and print token slips',
+                        control: Switch.adaptive(
+                          value: s.enableTokenSystem,
+                          onChanged: (v) => setState(() => s.enableTokenSystem = v),
+                        ),
+                      ),
+                      if (s.enableTokenSystem) ...[
+                        _settingRow(
+                          title: 'Token Slip Copy Count',
+                          description: 'Default token slips printed for pickup counters if not overridden in station routing (1, 2, 3...)',
+                          control: SizedBox(
+                            width: 280,
+                            child: DropdownButtonFormField<int>(
+                              value: s.tokenCopiesCount,
+                              items: List.generate(5, (i) => i + 1)
+                                  .map((val) => DropdownMenuItem(
+                                        value: val,
+                                        child: Text('$val Cop${val > 1 ? "ies" : "y"}'),
+                                      ))
+                                  .toList(),
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setState(() => s.tokenCopiesCount = val);
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                        _settingRow(
+                          title: 'Configure Token Sequence',
+                          description: 'Set Token number prefixes, start numbers, and daily reset rules',
+                          control: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0D9488),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const DocumentSequenceScreen()),
+                            ),
+                            icon: const Icon(Icons.numbers, size: 16),
+                            label: const Text('Configure Token Sequence'),
+                          ),
+                        ),
+                        _settingRow(
+                          title: 'Station Token Printer Routing',
+                          description: 'Map physical printers & copy counts for Item Master locations dynamically per machine',
+                          isLast: true,
+                          control: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0B5CAD),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: () => DevicePrinterRouting.showRoutingDialog(
+                              context: context,
+                              settings: s,
+                              sectionKey: 'tokens',
+                              title: 'Station Token Printer Routing',
+                              currentMachineId: _currentMachineId,
+                              onSaved: () => setState(() {}),
+                            ),
+                            icon: const Icon(Icons.print, size: 16),
+                            label: const Text('Map Token Station Printers'),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  _customSection(
+                    'Restaurant Billing & Settlement Workflow',
+                    'Choose how restaurant dine-in tables and food orders are settled: direct immediate payment (like Retail) or print bill first and settle later.',
+                    [
+                      _settingRow(
+                        title: 'Restaurant Settlement Mode',
+                        description: s.restaurantSettlementMode == 'DIRECT'
+                            ? '⚡ Direct Settlement (Retailer Style): When cashier checks out a restaurant order or table, payment is tendered directly, bill is marked COMPLETED immediately, and table is freed.'
+                            : '🖨️ Settlement After Bill Print (Dine-in Flow): Clicking Print Bill generates customer provisional bill (RUNNING/PRINTED status). Final payment is settled later from the Reprint / Modify Sales Bill screen.',
+                        isLast: true,
+                        control: SizedBox(
+                          width: 320,
+                          child: DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: s.restaurantSettlementMode == 'AFTER_BILL_PRINT' ? 'AFTER_BILL_PRINT' : 'DIRECT',
+                            decoration: const InputDecoration(
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'DIRECT',
+                                child: Text('⚡ Direct Settlement (Retail Style)', style: TextStyle(fontWeight: FontWeight.w600)),
+                              ),
+                              DropdownMenuItem(
+                                value: 'AFTER_BILL_PRINT',
+                                child: Text('🖨️ Settlement After Bill Print (Dine-in)', style: TextStyle(fontWeight: FontWeight.w600)),
+                              ),
+                            ],
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() => s.restaurantSettlementMode = val);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _customSection(
+                    'Global Invoicing Details',
+                    'Configure standard tax regimes, invoice formats, and country rules.',
+                    [
+                      _settingRow(
+                        title: 'Billing Country',
+                        description: 'Country name used for invoice compliance and tax headers (e.g. USA, India, Kenya, UK, UAE)',
+                        control: SizedBox(
+                          width: 280,
+                          child: TextFormField(
+                            key: ValueKey('gInvoicingCountry-${s.billingCountry}'),
+                            initialValue: s.billingCountry,
+                            decoration: const InputDecoration(
+                              hintText: 'e.g. United States, India, UK',
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            onChanged: (value) {
+                              final country = value.trim().isEmpty ? 'India' : value.trim();
+                              s.billingCountry = country;
+                              CurrencyService.updateFromSettings(s);
+                            },
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Default Billing Tax Mode',
+                        description: 'Default tax group applied automatically to new sales & invoices (Only created Tax Groups are listed)',
+                        control: SizedBox(
+                          width: 280,
+                          child: Builder(builder: (_) {
+                            final items = <DropdownMenuItem<String>>[];
+                            final knownValues = <String>{};
+
+                            // Always include NONE / Tax Exempt
+                            knownValues.add('NONE');
+                            items.add(const DropdownMenuItem(
+                              value: 'NONE',
+                              child: Text('None / Tax Exempt (0%)'),
+                            ));
+
+                            // Only show created Tax Groups
+                            for (final g in _loadedTaxGroups) {
+                              final key = g.groupCode != null && g.groupCode!.trim().isNotEmpty
+                                  ? g.groupCode!.trim().toUpperCase()
+                                  : (g.groupName.trim().isNotEmpty ? g.groupName.trim() : g.id);
+                              if (!knownValues.contains(key)) {
+                                knownValues.add(key);
+                                items.add(DropdownMenuItem(
+                                  value: key,
+                                  child: Text('${g.groupName} (${g.totalRate.toStringAsFixed(2)}%)', overflow: TextOverflow.ellipsis),
+                                ));
+                              }
+                            }
+
+                            String selectedVal = s.billingTaxMode.trim();
+                            if (!knownValues.contains(selectedVal)) {
+                              final match = _loadedTaxGroups.where((g) =>
+                                  g.groupName.trim().toLowerCase() == selectedVal.toLowerCase() ||
+                                  g.id == selectedVal ||
+                                  (g.groupCode != null && g.groupCode!.trim().toUpperCase() == selectedVal.toUpperCase())).firstOrNull;
+                              if (match != null) {
+                                selectedVal = match.groupCode != null && match.groupCode!.trim().isNotEmpty
+                                    ? match.groupCode!.trim().toUpperCase()
+                                    : match.groupName;
+                              } else if (items.length > 1) {
+                                selectedVal = items[1].value!;
+                              } else {
+                                selectedVal = 'NONE';
+                              }
+                            }
+
+                            return DropdownButtonFormField<String>(
+                              value: selectedVal,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              ),
+                              items: items,
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() => s.billingTaxMode = value);
+                                }
+                              },
+                            );
+                          }),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Tax Groups & Sub-Tax Components',
+                        description: 'Build custom Tax Groups and add stacked sub-tax components (State Tax, City Tax, Transit Tax, GST, PST, CTL)',
+                        control: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const TaxGroupSetupScreen()),
+                          ).then((_) => _loadSettingsData()),
+                          icon: const Icon(Icons.account_balance_wallet, size: 16),
+                          label: const Text('Manage Tax Groups & Components'),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Default Invoice Output Format',
+                        description: 'Select invoice document paper dimensions',
+                        isLast: true,
+                        control: SizedBox(
+                          width: 280,
+                          child: DropdownButtonFormField<String>(
+                            value: s.billFormat,
+                            items: _billFormats
+                                .map((format) => DropdownMenuItem(
+                                      value: format,
+                                      child: Text(_billFormatLabel(format)),
+                                    ))
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => s.billFormat = value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _customSection(
+                    'Default Billing Charges',
+                    'Configure auto-applied packaging, delivery, or custom surcharges.',
+                    [
+                      ...List.generate(
+                        s.defaultCharges.length,
+                        (index) => Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                          child: _chargeTile(
+                            s.defaultCharges[index],
+                            onChanged: (updated) {
+                              setState(() => s.defaultCharges[index] = updated);
+                            },
+                            onDelete: s.defaultCharges.length <= 1
+                                ? null
+                                : () {
+                                    setState(() => s.defaultCharges.removeAt(index));
+                                  },
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 20.0, bottom: 16.0, top: 8.0),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                s.defaultCharges.add(
+                                  const BillingCharge(
+                                    name: 'Custom',
+                                    code: 'CUSTOM',
+                                    amount: 0,
+                                    calculationValue: 0,
+                                    taxable: false,
+                                    autoApply: false,
+                                    isEnabled: false,
+                                    taxType: 'GST',
+                                    taxPercent: 0,
+                                  ),
+                                );
+                              });
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add Charge Rule'),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ], constraints),
+
+                // 4. BRANDING TAB
+                buildTabBody([
+                  _customSection(
+                    'Store Branding & Support Metadata',
+                    'Customize invoice labels, support emails, contact phone lines, and websites.',
+                    [
+                      _settingRow(
+                        title: 'Company / Organization Name',
+                        description: 'Primary legal business name printed at the top of bills',
+                        control: SizedBox(
+                          width: 280,
+                          child: TextFormField(
+                            key: ValueKey('branding-company-${_branding.companyName}'),
+                            initialValue: _branding.companyName,
+                            onChanged: (value) => _branding = _branding.copyWith(companyName: value),
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Product / System Name',
+                        description: 'Primary label for title bars and login screens',
+                        control: SizedBox(
+                          width: 280,
+                          child: TextFormField(
+                            key: ValueKey('branding-product-${_branding.productName}'),
+                            initialValue: _branding.productName,
+                            onChanged: (value) => _branding = _branding.copyWith(productName: value),
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Powered By Tagline',
+                        description: 'Brand attribution tagline printed at the bottom of bills and title bars',
+                        control: SizedBox(
+                          width: 280,
+                          child: TextFormField(
+                            key: ValueKey('branding-powered-${_branding.poweredByLabel}'),
+                            initialValue: _branding.poweredByLabel,
+                            decoration: InputDecoration(
+                              hintText: 'e.g. Powered by ${_branding.companyName}',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            onChanged: (value) => _branding = _branding.copyWith(poweredByLabel: value),
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Support Desk Email',
+                        description: 'Target contact email address for customer tickets',
+                        control: SizedBox(
+                          width: 280,
+                          child: TextFormField(
+                            key: ValueKey('branding-email-${_branding.supportEmail}'),
+                            initialValue: _branding.supportEmail,
+                            onChanged: (value) => _branding = _branding.copyWith(supportEmail: value),
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Support Desk Phone',
+                        description: 'Contact helpline phone number shown on support panels',
+                        control: SizedBox(
+                          width: 280,
+                          child: TextFormField(
+                            key: ValueKey('branding-phone-${_branding.supportPhone}'),
+                            initialValue: _branding.supportPhone,
+                            onChanged: (value) => _branding = _branding.copyWith(supportPhone: value),
+                          ),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Support Website URL',
+                        description: 'Reference business website domain linked in footer',
+                        isLast: true,
+                        control: SizedBox(
+                          width: 280,
+                          child: TextFormField(
+                            key: ValueKey('branding-web-${_branding.supportWebsite}'),
+                            initialValue: _branding.supportWebsite,
+                            onChanged: (value) => _branding = _branding.copyWith(supportWebsite: value),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ], constraints),
+
+                // 5. KEYBOARD SHORTCUTS TAB
+                buildTabBody([
+                  _customSection(
+                    'Keyboard Shortcuts Guide',
+                    'Use hotkeys to quickly navigate screens without using a mouse.',
+                    [
+                      Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: _buildKeyboardShortcutsSection(Theme.of(context)),
+                      ),
+                    ],
+                  ),
+                ], constraints),
+
+                // 6. SALE & PAYMENT TAB
+                if (showSaleAndPayment)
+                  buildTabBody([
+                    _customSection(
+                      'Sale Channels & Payment Options',
+                      'Manage customized sale channels and payment options used during checkouts.',
+                      [
+                        if (_loadingSettingsData)
+                          const Padding(
+                            padding: EdgeInsets.all(24.0),
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        else ...[
+                          _saleSourcesSettingsSection(),
+                          const Divider(),
+                          _paymentMethodsSettingsSection(),
+                        ]
+                      ],
+                    ),
+                  ], constraints),
+
+                // 8. PROMOS & CONFIGS TAB
+                _buildPromosAndConfigsTab(buildTabBody, constraints),
+
+                // 9. MARKETPLACE & VENDOR TAB
+                const VendorMarketplaceSettingsView(),
+
+                // 10. BUSINESS MODULE TAB
+                _buildBusinessModuleTab(buildTabBody, constraints),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPromosAndConfigsTab(
+      Widget Function(List<Widget>, BoxConstraints) buildTabBody,
+      BoxConstraints constraints) {
+    return buildTabBody([
+      _customSection(
+        'Promotions, Discounts & Commission Rules',
+        'Configure outlet-wide discount ceilings, automated happy hour pricing, bill value promos, and salesperson commissions.',
+        [
+          _settingRow(
+            title: 'Outlet Maximum Manual Discount (%)',
+            description: 'Set maximum manual discount percentage allowed across all billing terminals in this outlet',
+            control: OutlinedButton.icon(
+              onPressed: () => _showOutletMaxDiscountDialog(),
+              icon: const Icon(Icons.percent_rounded, size: 18),
+              label: const Text('Outlet Max Discount %'),
+            ),
+          ),
+          _settingRow(
+            title: 'Happy Hour Pricing',
+            description: 'Configure automated time-based happy hour discounts and pricing rules',
+            control: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const HappyHourConfigScreen()),
+                );
+              },
+              icon: const Icon(Icons.alarm_on_rounded, size: 18),
+              label: const Text('Configure Happy Hour'),
+            ),
+          ),
+          _settingRow(
+            title: 'Bill Value Promotions',
+            description: 'Set up bill amount threshold discounts and promotional schemes',
+            control: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const BillValuePromoConfigScreen()),
+                );
+              },
+              icon: const Icon(Icons.discount_rounded, size: 18),
+              label: const Text('Configure Promos'),
+            ),
+          ),
+          _settingRow(
+            title: 'Sales Commission Rules',
+            description: 'Manage commission rules and incentive structures for staff and sales channels',
+            isLast: true,
+            control: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const CommissionRulesScreen()),
+                );
+              },
+              icon: const Icon(Icons.rule_folder_rounded, size: 18),
+              label: const Text('Configure Commissions'),
+            ),
+          ),
+        ],
+      ),
+    ], constraints);
+  }
+
+  Widget _buildBusinessModuleTab(
+      Widget Function(List<Widget>, BoxConstraints) buildTabBody,
+      BoxConstraints constraints) {
+    return buildTabBody([
+      _customSection(
+        'Active Business Feature Suite',
+        'Configure feature set visibility and menu permissions for this outlet (Inventory, Retail POS, Restaurant, or All Modules).',
+        [
+          _settingRow(
+            title: 'Selected Module Suite',
+            description:
+                'Choose active module suite to enable corresponding workflows and hide unauthorized menus',
+            isLast: true,
+            control: SizedBox(
+              width: 260,
+              child: DropdownButtonFormField<String>(
+                value: _currentActiveModule,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.widgets_outlined),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'INVENTORY',
+                    child: Text('Inventory Only', overflow: TextOverflow.ellipsis),
+                  ),
+                  DropdownMenuItem(
+                    value: 'RETAIL',
+                    child: Text('Retail (POS + Inventory)', overflow: TextOverflow.ellipsis),
+                  ),
+                  DropdownMenuItem(
+                    value: 'RESTAURANT',
+                    child: Text('Restaurant (KDS + Inventory)', overflow: TextOverflow.ellipsis),
+                  ),
+                  DropdownMenuItem(
+                    value: 'ALL',
+                    child: Text('All Modules (Full Suite)', overflow: TextOverflow.ellipsis),
+                  ),
+                ],
+                onChanged: (value) async {
+                  if (value != null) {
+                    final ok =
+                        await OutletController().updateBusinessModule(value);
+                    if (ok) {
+                      final userMap = await TokenStorage.getUser();
+                      if (userMap != null) {
+                        userMap['business_module'] = value;
+                        await TokenStorage.saveUser(userMap);
+                      }
+                      setState(() => _currentActiveModule = value);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                              content: Text(
+                                  'Business Module updated to $value. Navigation menus refreshed.')),
+                        );
+                      }
+                    } else {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Failed to update Business Module'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 20),
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Module Features Suite Overview',
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E293B)),
+            ),
+            const SizedBox(height: 14),
+            _moduleCard(
+              title: '📦 Inventory Only',
+              badgeColor: Colors.blue,
+              isSelected: _currentActiveModule == 'INVENTORY',
+              features: [
+                'Item Master & Stock Locations',
+                'Purchase Orders & Goods Receiving (GRN)',
+                'Stock Dispatches & Location Transfers',
+                'Assembly / BOM & Damage Management',
+                'HRMS Employee Directory, Attendance & Payroll',
+                'Stock Ledger & Financial Ledger Reports'
+              ],
+            ),
+            const SizedBox(height: 12),
+            _moduleCard(
+              title: '🛍️ Retail (POS + Inventory Included)',
+              badgeColor: const Color(0xFF10B981),
+              isSelected: _currentActiveModule == 'RETAIL',
+              features: [
+                'Point of Sale (Enterprise POS & Cashier)',
+                'Customer App & Online Delivery Integration',
+                'Supplier / Retailer Console',
+                'Rider Delivery Portal',
+                'Sales Reprints & Daily Closing Reports',
+                '+ All Inventory, Stock & HRMS Features Included'
+              ],
+            ),
+            const SizedBox(height: 12),
+            _moduleCard(
+              title: '🍽️ Restaurant (KDS/KOTs + Inventory Included)',
+              badgeColor: Colors.orange,
+              isSelected: _currentActiveModule == 'RESTAURANT',
+              features: [
+                'Kitchen Display System (KDS Queue)',
+                'Floor Plan & Dining Table Designer',
+                'Captain Console & KOT Builder',
+                'Running Orders & KOT History Logs',
+                'Delivery Challans & Recurring Expenses',
+                '+ All Inventory, Stock & HRMS Features Included'
+              ],
+            ),
+            const SizedBox(height: 12),
+            _moduleCard(
+              title: '🌐 All Modules (Full Suite Access)',
+              badgeColor: Colors.purple,
+              isSelected: _currentActiveModule == 'ALL',
+              features: [
+                'Retail Sales (POS), Customer App & Delivery Portals',
+                'Restaurant KDS, KOTs, Tables & Dining Operations',
+                'Complete Inventory, Stock Control & Purchase Orders',
+                'HRMS, Payroll Processing & AI Query Analytics'
+              ],
+            ),
+          ],
+        ),
+      ),
+    ], constraints);
+  }
+
+  Widget _moduleCard({
+    required String title,
+    required Color badgeColor,
+    required bool isSelected,
+    required List<String> features,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isSelected ? badgeColor.withOpacity(0.08) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isSelected ? badgeColor : const Color(0xFFE2E8F0),
+          width: isSelected ? 2 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? badgeColor : const Color(0xFF1E293B),
+                ),
+              ),
+              const Spacer(),
+              if (isSelected)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: badgeColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'ACTIVE MODULE',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: features.map((f) {
+              return Chip(
+                label: Text(f, style: const TextStyle(fontSize: 11)),
+                padding: const EdgeInsets.all(2),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                backgroundColor: const Color(0xFFF1F5F9),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<TaxGroup> _loadedTaxGroups = [];
+
+  Future<void> _loadSettingsData() async {
+    setState(() => _loadingSettingsData = true);
+    try {
+      final salesCtrl = SalesController();
+      final sources = await salesCtrl.listSaleSources();
+      final methods = await salesCtrl.listPaymentMethods();
+      List<TaxGroup> groups = [];
+      try {
+        final taxGroupsRes = await ApiClient.get(ApiEndpoints.taxGroups);
+        if (taxGroupsRes['success'] == true && taxGroupsRes['data'] != null) {
+          final raw = taxGroupsRes['data'] as List;
+          groups = raw.map((e) => TaxGroup.fromJson(Map<String, dynamic>.from(e))).toList();
+        }
+      } catch (_) {}
+      setState(() {
+        _settingsSaleSources = sources;
+        _settingsPaymentMethods = methods;
+        _loadedTaxGroups = groups;
+      });
+    } catch (_) {}
+    setState(() => _loadingSettingsData = false);
+  }
+
+  Future<void> _toggleSourceActive(int id, String name, bool val) async {
+    try {
+      final salesCtrl = SalesController();
+      await salesCtrl.updateSaleSource(id, name: name, isActive: val);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sale source status updated')),
+      );
+      _loadSettingsData();
+    } catch (e) {
+      showErrorSnackbar(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _deleteSource(int id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Sale Source'),
+        content: const Text('Are you sure you want to delete this sale source? This will fail if it has already been used in sales.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      final salesCtrl = SalesController();
+      await salesCtrl.deleteSaleSource(id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sale source deleted successfully')),
+      );
+      _loadSettingsData();
+    } catch (e) {
+      showErrorSnackbar(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _showAddEditSourceDialog({Map<String, dynamic>? source}) async {
+    final isEdit = source != null;
+    final nameCtrl = TextEditingController(text: isEdit ? source['name'] : '');
+    final commissionCtrl = TextEditingController(text: isEdit ? (source['commission_rate'] ?? 0.0).toString() : '0.0');
+    final gstCtrl = TextEditingController(text: isEdit ? (source['gst_rate_on_commission'] ?? 0.0).toString() : '0.0');
+    final tdsCtrl = TextEditingController(text: isEdit ? (source['tds_rate'] ?? 0.0).toString() : '0.0');
+    final tcsCtrl = TextEditingController(text: isEdit ? (source['tcs_rate'] ?? 0.0).toString() : '0.0');
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isEdit ? 'Edit Sale Source' : 'Add Sale Source'),
+        content: SizedBox(
+          width: 320,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(labelText: 'Source Name', hintText: 'e.g. Flipkart, Amazon, Meesho'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: commissionCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Commission Rate (%)', hintText: '0.00'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: gstCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'GST on Commission (%)', hintText: '0.00'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: tdsCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'TDS Rate (%)', hintText: '0.00'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: tcsCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'TCS Rate (%)', hintText: '0.00'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) return;
+              final commission = double.tryParse(commissionCtrl.text.trim()) ?? 0.0;
+              final gst = double.tryParse(gstCtrl.text.trim()) ?? 0.0;
+              final tds = double.tryParse(tdsCtrl.text.trim()) ?? 0.0;
+              final tcs = double.tryParse(tcsCtrl.text.trim()) ?? 0.0;
+
+              try {
+                final salesCtrl = SalesController();
+                if (isEdit) {
+                  await salesCtrl.updateSaleSource(
+                    source['id'],
+                    name: name,
+                    isActive: source['is_active'] == true,
+                    commissionRate: commission,
+                    gstRateOnCommission: gst,
+                    tdsRate: tds,
+                    tcsRate: tcs,
+                  );
+                } else {
+                  await salesCtrl.createSaleSource(
+                    name,
+                    commissionRate: commission,
+                    gstRateOnCommission: gst,
+                    tdsRate: tds,
+                    tcsRate: tcs,
+                  );
+                }
+                if (context.mounted) Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(isEdit ? 'Sale source updated' : 'Sale source added')),
+                );
+                _loadSettingsData();
+              } catch (e) {
+                showErrorSnackbar(e.toString().replaceFirst('Exception: ', ''));
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _togglePaymentMethodActive(int id, String name, bool val) async {
+    try {
+      final salesCtrl = SalesController();
+      await salesCtrl.updatePaymentMethod(id, name: name, isActive: val);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payment method status updated')),
+      );
+      _loadSettingsData();
+    } catch (e) {
+      showErrorSnackbar(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _deletePaymentMethod(int id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Payment Method'),
+        content: const Text('Are you sure you want to delete this payment method? This will fail if it has already been used in sales.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      final salesCtrl = SalesController();
+      await salesCtrl.deletePaymentMethod(id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payment method deleted successfully')),
+      );
+      _loadSettingsData();
+    } catch (e) {
+      showErrorSnackbar(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _showAddEditPaymentMethodDialog({Map<String, dynamic>? method}) async {
+    final isEdit = method != null;
+    final nameCtrl = TextEditingController(text: isEdit ? method['name'] : '');
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isEdit ? 'Edit Payment Method' : 'Add Payment Method'),
+        content: TextField(
+          controller: nameCtrl,
+          decoration: const InputDecoration(labelText: 'Payment Method Name', hintText: 'e.g. PHONEPE, GPAY, PAYTM'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) return;
+              try {
+                final salesCtrl = SalesController();
+                if (isEdit) {
+                  await salesCtrl.updatePaymentMethod(method['id'], name: name, isActive: method['is_active'] == true);
+                } else {
+                  await salesCtrl.createPaymentMethod(name);
+                }
+                if (context.mounted) Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(isEdit ? 'Payment method updated' : 'Payment method added')),
+                );
+                _loadSettingsData();
+              } catch (e) {
+                showErrorSnackbar(e.toString().replaceFirst('Exception: ', ''));
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _saleSourcesSettingsSection() {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Sale Sources / Channels',
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              FilledButton.icon(
+                onPressed: () => _showAddEditSourceDialog(),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add Source'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _settingsSaleSources.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: Text('No custom sale sources added yet.')),
+              )
+            : ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _settingsSaleSources.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final src = _settingsSaleSources[index];
+                  final isSystem = src['is_system'] == true;
+                  final isActive = src['is_active'] == true;
+
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                    title: Text(src['name'].toString()),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isSystem)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'System',
+                              style: TextStyle(color: Colors.blue, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                        Switch.adaptive(
+                          value: isActive,
+                          onChanged: isSystem
+                              ? null
+                              : (val) => _toggleSourceActive(src['id'], src['name'], val),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined),
+                          onPressed: isSystem
+                              ? null
+                              : () => _showAddEditSourceDialog(source: src),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          onPressed: isSystem
+                              ? null
+                              : () => _deleteSource(src['id']),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+      ],
+    );
+  }
+
+  Widget _paymentMethodsSettingsSection() {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Payment Methods',
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              FilledButton.icon(
+                onPressed: () => _showAddEditPaymentMethodDialog(),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add Method'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _settingsPaymentMethods.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: Text('No custom payment methods added yet.')),
+              )
+            : ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _settingsPaymentMethods.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final method = _settingsPaymentMethods[index];
+                  final isSystem = method['is_system'] == true;
+                  final isActive = method['is_active'] == true;
+                  final isCash = method['name'].toString().toUpperCase() == 'CASH';
+
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                    title: Text(
+                      method['name'].toString(),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: (isCash || isActive) ? null : Colors.grey.shade600,
+                      ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isSystem)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              isCash ? 'Primary' : 'System',
+                              style: const TextStyle(color: Colors.blue, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                        Tooltip(
+                          message: isCash ? 'Cash is primary and cannot be disabled' : (isActive ? 'Disable Method' : 'Enable Method'),
+                          child: Switch.adaptive(
+                            value: isCash ? true : isActive,
+                            onChanged: isCash
+                                ? null
+                                : (val) => _togglePaymentMethodActive(method['id'], method['name'], val),
+                          ),
+                        ),
+                        if (!isCash) ...[
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            tooltip: 'Rename Method',
+                            onPressed: () => _showAddEditPaymentMethodDialog(method: method),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                            tooltip: 'Delete Method',
+                            onPressed: () => _deletePaymentMethod(method['id']),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
+      ],
+    );
+  }
+
+  // ---------------- UPGRADED LAYOUT BUILDERS ----------------
+
+  Widget _customSection(String title, String? description, List<Widget> rows) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 10, top: 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              if (description != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? Colors.white10 : const Color(0xFFE2E8F0),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.2 : 0.02),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            children: rows,
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _settingRow({
+    required String title,
+    required String description,
+    required Widget control,
+    bool isLast = false,
+  }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: isDark ? Colors.white38 : const Color(0xFF64748B),
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 24),
+              control,
+            ],
+          ),
+        ),
+        if (!isLast)
+          Divider(
+            color: isDark ? Colors.white10 : const Color(0xFFF1F5F9),
+            height: 1,
+            thickness: 1,
+            indent: 20,
+            endIndent: 20,
+          ),
+      ],
+    );
+  }
+
+  Widget _chargeTile(
+    BillingCharge charge, {
+    required ValueChanged<BillingCharge> onChanged,
+    VoidCallback? onDelete,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    initialValue: charge.name,
+                    decoration: const InputDecoration(labelText: 'Charge Name'),
+                    onChanged: (value) => onChanged(
+                      charge.copyWith(
+                        name: value,
+                        code: value.toUpperCase().replaceAll(' ', '_'),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 130,
+                  child: TextFormField(
+                    initialValue: charge.calculationValue.toStringAsFixed(
+                      charge.calculationValue % 1 == 0 ? 0 : 2,
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: charge.calculationType == 'PERCENT' ? 'Percent' : 'Amount',
+                    ),
+                    onChanged: (value) => onChanged(
+                      charge.copyWith(
+                        amount: charge.calculationType == 'PERCENT'
+                            ? charge.amount
+                            : (double.tryParse(value.trim()) ?? 0),
+                        calculationValue: double.tryParse(value.trim()) ?? 0,
+                      ),
+                    ),
+                  ),
+                ),
+                if (onDelete != null) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Auto Apply'),
+                    value: charge.autoApply,
+                    onChanged: (value) => onChanged(charge.copyWith(autoApply: value, isEnabled: value)),
+                  ),
+                ),
+                Expanded(
+                  child: SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Taxable'),
+                    value: charge.taxable,
+                    onChanged: (value) => onChanged(charge.copyWith(taxable: value)),
+                  ),
+                ),
+                Expanded(
+                  child: SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Enabled'),
+                    value: charge.isEnabled,
+                    onChanged: (value) => onChanged(charge.copyWith(isEnabled: value)),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: charge.calculationType,
+                    decoration: const InputDecoration(labelText: 'Charge Type'),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'AMOUNT',
+                        child: Text('Fixed Amount'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'PERCENT',
+                        child: Text('Percentage'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      onChanged(
+                        charge.copyWith(
+                          calculationType: value,
+                          amount: value == 'PERCENT' ? charge.amount : charge.calculationValue,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Builder(
+                    builder: (context) {
+                      final items = <DropdownMenuItem<String>>[];
+                      final knownValues = <String>{};
+
+                      // Add NONE / Exempt option
+                      knownValues.add('NONE');
+                      items.add(const DropdownMenuItem(
+                        value: 'NONE',
+                        child: Text('None / Tax Exempt (0%)'),
+                      ));
+
+                      // Strictly show only created Tax Groups!
+                      for (final g in _loadedTaxGroups) {
+                        final key = g.groupCode != null && g.groupCode!.trim().isNotEmpty
+                            ? g.groupCode!.trim().toUpperCase()
+                            : (g.groupName.trim().isNotEmpty ? g.groupName.trim() : g.id);
+                        if (!knownValues.contains(key)) {
+                          knownValues.add(key);
+                          items.add(
+                            DropdownMenuItem(
+                              value: key,
+                              child: Text(
+                                '${g.groupName} (${g.totalRate.toStringAsFixed(2)}%)',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          );
+                        }
+                      }
+
+                      String selectedVal = charge.taxType.trim();
+                      if (!knownValues.contains(selectedVal)) {
+                        final match = _loadedTaxGroups.where((g) =>
+                            g.groupName.trim().toLowerCase() == selectedVal.toLowerCase() ||
+                            g.id == selectedVal ||
+                            (g.groupCode != null && g.groupCode!.trim().toUpperCase() == selectedVal.toUpperCase())).firstOrNull;
+                        if (match != null) {
+                          selectedVal = match.groupCode != null && match.groupCode!.trim().isNotEmpty
+                              ? match.groupCode!.trim().toUpperCase()
+                              : match.groupName;
+                        } else {
+                          selectedVal = 'NONE';
+                        }
+                      }
+
+                      return DropdownButtonFormField<String>(
+                        key: ValueKey('chargeTax-${charge.code}-$selectedVal'),
+                        value: selectedVal,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Charge Tax Selection / Group'),
+                        items: items,
+                        onChanged: charge.taxable
+                            ? (value) {
+                                if (value != null) {
+                                  if (value == 'NONE') {
+                                    onChanged(charge.copyWith(
+                                      taxType: 'NONE',
+                                      taxGroupId: null,
+                                      taxGroup: null,
+                                      taxPercent: 0.0,
+                                    ));
+                                    return;
+                                  }
+                                  final matchGroup = _loadedTaxGroups.where((g) {
+                                    final key = g.groupCode != null && g.groupCode!.trim().isNotEmpty
+                                        ? g.groupCode!.trim().toUpperCase()
+                                        : (g.groupName.trim().isNotEmpty ? g.groupName.trim() : g.id);
+                                    return key == value;
+                                  }).firstOrNull;
+
+                                  if (matchGroup != null) {
+                                    onChanged(charge.copyWith(
+                                      taxType: value,
+                                      taxGroupId: matchGroup.id,
+                                      taxGroup: matchGroup,
+                                      taxPercent: matchGroup.totalRate,
+                                    ));
+                                  } else {
+                                    onChanged(charge.copyWith(
+                                      taxType: value,
+                                      taxGroupId: null,
+                                      taxGroup: null,
+                                    ));
+                                  }
+                                }
+                              }
+                            : null,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 140,
+                  child: TextFormField(
+                    initialValue: charge.taxPercent.toStringAsFixed(
+                      charge.taxPercent % 1 == 0 ? 0 : 2,
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    enabled: charge.taxable,
+                    decoration: const InputDecoration(labelText: 'Tax %'),
+                    onChanged: (value) => onChanged(
+                      charge.copyWith(
+                        taxPercent: double.tryParse(value.trim()) ?? 0,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeyboardShortcutsSection(ThemeData theme) {
+    Widget shortcutRow(String keyCombination, String actionDescription) {
+      final isDark = theme.brightness == Brightness.dark;
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E2024) : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade300),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black12,
+                    offset: Offset(0, 1.5),
+                    blurRadius: 1,
+                  )
+                ],
+              ),
+              child: Text(
+                keyCombination,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: isDark ? Colors.white70 : Colors.black87,
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                actionDescription,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  color: isDark ? Colors.white60 : Colors.black87,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Use hotkeys to quickly navigate through screens and control operations without using a mouse.',
+          style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey),
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Global Navigation Shortcuts (Anywhere)',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.blue),
+        ),
+        const Divider(),
+        shortcutRow('Alt + S', 'Open Settings Panel'),
+        shortcutRow('Alt + B', 'Open Retail POS Billing Console'),
+        shortcutRow('Alt + I', 'Open Item Master'),
+        shortcutRow('Alt + W', 'Open WhatsApp Integration Dashboard'),
+        shortcutRow('Alt + H', 'Open Help & Support Panel'),
+        shortcutRow('Alt + P', 'Open Purchase Order Console'),
+        shortcutRow('Alt + G', 'Open Goods Receiving (GRN) Screen'),
+        shortcutRow('Alt + R', 'Open Sales Report Console'),
+        shortcutRow('Alt + C', 'Open Daily Closing Report Console'),
+        shortcutRow('Alt + Y', 'Open Supplier Payments Report'),
+        shortcutRow('Alt + F', 'Open Finance / Cash Ledger Console'),
+        shortcutRow('Alt + A', 'Open Brand Analysis Report'),
+        shortcutRow('Alt + K', 'Open Store Analysis / Stock Balance'),
+        shortcutRow('Alt + D', 'Open Damage Item Console'),
+        const SizedBox(height: 20),
+        const Text(
+          'POS Billing / Cart Shortcuts',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.blue),
+        ),
+        const Divider(),
+        shortcutRow('Ctrl + F', 'Focus & search product in barcode scanner input field'),
+        shortcutRow('F2', 'Trigger Checkout Payment dialog directly'),
+        shortcutRow('Delete', 'Remove the currently selected/highlighted cart line item (or last item if none selected)'),
+        shortcutRow('Escape', 'Close checkout popup / Clear barcode scanner input'),
+      ],
+    );
+  }
+
+  Future<void> _showOutletMaxDiscountDialog() async {
+    final currentMax = await LocalPreferences.getMaxDiscountPercent();
+    final ctrl = TextEditingController(text: currentMax.toStringAsFixed(0));
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Outlet Max Manual Discount (%)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Set the maximum manual discount percentage allowed across all billing terminals in this outlet.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Max Discount Percentage (%)',
+                border: OutlineInputBorder(),
+                suffixText: '%',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final val = double.tryParse(ctrl.text.trim()) ?? 100.0;
+              try {
+                await ApiClient.post(ApiEndpoints.settings, {
+                  'outlet_max_discount_percent': val,
+                });
+              } catch (_) {}
+              await LocalPreferences.setMaxDiscountPercent(val);
+              if (!mounted) return;
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text('Outlet max discount saved to database (${val.toStringAsFixed(0)}%)'),
+                backgroundColor: Colors.green,
+              ));
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+}

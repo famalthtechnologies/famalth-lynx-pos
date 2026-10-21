@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="FAMALTH LYNX - POS, billing, accounting, and reporting in one secure flow.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="FAMALTH LYNX">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>FAMALTH LYNX</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #F8FAFC;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+    }
+    #loading-splash {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.4s ease-out;
+    }
+    .logo-badge {
+      width: 90px;
+      height: 90px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: logoPulseGlow 1.8s infinite ease-in-out;
+    }
+    .logo-badge img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+      filter: drop-shadow(0 10px 25px rgba(13, 148, 136, 0.35));
+    }
+    @keyframes logoPulseGlow {
+      0%, 100% {
+        transform: scale(1);
+      }
+      50% {
+        transform: scale(1.06);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading-splash">
+    <div class="logo-badge">
+      <img src="favicon.png" alt="FAMALTH LYNX">
+    </div>
+  </div>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
+
+
