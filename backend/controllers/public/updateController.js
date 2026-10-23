@@ -1,12 +1,13 @@
 
 const { sendToGoogleScript } = require("../../modules/driveService");
 const sysConfig = require('../../utils/configManager');
+const effectiveConfig = (sysConfig && sysConfig.default) || sysConfig || {};
 const path = require('path');
 
 const rootDir = process.pkg ? path.dirname(process.execPath) : process.cwd();
 
 
-const SHEET_ID = sysConfig ? sysConfig.sheetId : null;
+const SHEET_ID = effectiveConfig ? effectiveConfig.sheetId : null;
 
 async function checkSystemUpdate(req, res) {
     try {

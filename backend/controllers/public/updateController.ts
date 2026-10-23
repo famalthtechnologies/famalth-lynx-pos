@@ -5,7 +5,8 @@ const path = require('path');
 const rootDir = (process as any).pkg ? path.dirname(process.execPath) : process.cwd();
 
 
-const SHEET_ID = sysConfig ? sysConfig.sheetId : null;
+const effectiveConfig = (sysConfig && sysConfig.default) ? sysConfig.default : (sysConfig || {});
+const SHEET_ID = effectiveConfig.sheetId || null;
 
 async function checkSystemUpdate(req, res) {
     try {

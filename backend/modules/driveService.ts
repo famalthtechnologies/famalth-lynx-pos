@@ -3,9 +3,10 @@ import crypto from "crypto";
 import { exec } from "child_process";
 import sysConfig from '../utils/configManager';
 
-const SHEET_ID = sysConfig ? sysConfig.sheetId : null;
-const ROOT_FOLDER_ID = sysConfig ? sysConfig.rootFolderId : null;
-const WEB_APP_URL = sysConfig ? sysConfig.scriptUrl : null;
+const effectiveConfig = (sysConfig as any)?.default || sysConfig || {};
+const SHEET_ID = effectiveConfig.sheetId || null;
+const ROOT_FOLDER_ID = effectiveConfig.rootFolderId || null;
+const WEB_APP_URL = effectiveConfig.scriptUrl || null;
 
 const HEADERS = [
     "client_id", "outlet_code", "outlet_id", "property_name",

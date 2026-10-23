@@ -4,7 +4,8 @@ const { isCloudEnvironment } = require('../../utils/backupTracker');
 const { sendToGoogleScript } = require("../../modules/driveService");
 const sysConfig = require('../../utils/configManager');
 
-const SHEET_ID = sysConfig ? sysConfig.sheetId : null;
+const effectiveConfig = (sysConfig && sysConfig.default) || sysConfig || {};
+const SHEET_ID = effectiveConfig ? effectiveConfig.sheetId : null;
 
 // In-memory cache for verified licenses: outletCode -> { data, timestamp }
 const licenseCache = new Map();

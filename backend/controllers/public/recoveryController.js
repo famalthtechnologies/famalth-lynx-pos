@@ -5,12 +5,13 @@ const { sendToGoogleScript } = require("../../modules/driveService");
 const { downloadSystemConfigs } = require("../../modules/updownconfig");
 const { autoRestoreLatest } = require("../../modules/restore");
 const sysConfig = require('../../utils/configManager');
+const effectiveConfig = (sysConfig && sysConfig.default) || sysConfig || {};
 const https = require('https');
 const { spawn } = require('child_process');
 const rootDir = process.pkg ? path.dirname(process.execPath) : process.cwd();
 
-const SHEET_ID = sysConfig ? sysConfig.sheetId : null;
-const ROOT_FOLDER_ID = sysConfig ? sysConfig.rootFolderId : null;
+const SHEET_ID = effectiveConfig ? effectiveConfig.sheetId : null;
+const ROOT_FOLDER_ID = effectiveConfig ? effectiveConfig.rootFolderId : null;
 
 const CLIENT_FILE = path.join(rootDir, "client.json");
 const { sendOtpEmail } = require("../../modules/emailService");

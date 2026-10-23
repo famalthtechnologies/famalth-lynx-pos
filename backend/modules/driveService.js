@@ -4,9 +4,10 @@ const crypto = require("crypto");
 const { exec } = require("child_process");
 const sysConfig = require('../utils/configManager');
 
-const SHEET_ID = sysConfig ? sysConfig.sheetId : null;
-const ROOT_FOLDER_ID = sysConfig ? sysConfig.rootFolderId : null;
-const WEB_APP_URL = sysConfig ? sysConfig.scriptUrl : null;
+const effectiveConfig = (sysConfig && sysConfig.default) || sysConfig || {};
+const SHEET_ID = effectiveConfig ? effectiveConfig.sheetId : null;
+const ROOT_FOLDER_ID = effectiveConfig ? effectiveConfig.rootFolderId : null;
+const WEB_APP_URL = effectiveConfig ? effectiveConfig.scriptUrl : null;
 
 
 const HEADERS = [

@@ -58,6 +58,12 @@ export function loadSecureConfig(): any {
 }
 
 // Load and export the config immediately so it's ready when required
-const secureConfig = loadSecureConfig();
+const secureConfig = loadSecureConfig() || {};
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = secureConfig;
+    (module.exports as any).default = secureConfig;
+    (module.exports as any).loadSecureConfig = loadSecureConfig;
+}
 
 export default secureConfig;

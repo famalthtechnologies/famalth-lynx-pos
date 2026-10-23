@@ -1772,7 +1772,9 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
   String _getRoleDescription(String role) {
     switch (role) {
       case 'OWNER':
-        return 'Full root orchestration across all 11 Tenants, 11 Outlets, IAM Staff & Master Control Infrastructure.';
+        final tCount = _overview['tenants']?['total'] ?? _tenants.length;
+        final oCount = _overview['outlets']?['total'] ?? _tenants.length;
+        return 'Full root orchestration across all ' + tCount.toString() + ' Tenants, ' + oCount.toString() + ' Outlets, IAM Staff & Master Control Infrastructure.';
       case 'RESELLER':
         return 'Partner dashboard — Managed client outlets, license quota assignments & relationship managers.';
       case 'DEVELOPER':
@@ -2167,14 +2169,14 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                 children: [
                   _buildMetricCard(
                     title: 'TOTAL CLIENT TENANTS',
-                    value: (tenants['total'] ?? 0).toString(),
+                    value: ((tenants['total'] ?? 0) > 0 ? tenants['total'] : (_tenants.isNotEmpty ? _tenants.length : 0)).toString(),
                     subValue: '${tenants['active'] ?? 0} Active | ${tenants['suspended'] ?? 0} Suspended',
                     icon: Icons.apartment_rounded,
                     accentColor: const Color(0xFF0284C7),
                   ),
                   _buildMetricCard(
                     title: 'ACTIVE OUTLETS',
-                    value: (outlets['total'] ?? 0).toString(),
+                    value: ((outlets['total'] ?? 0) > 0 ? outlets['total'] : (_tenants.isNotEmpty ? _tenants.fold(0, (acc, t) => acc + ((t['outlets'] as List?)?.length ?? 1)) : 0)).toString(),
                     subValue: '${outlets['active'] ?? 0} Online Properties',
                     icon: Icons.storefront_rounded,
                     accentColor: const Color(0xFF10B981),

@@ -45,9 +45,17 @@ export async function initClient(config: any, outlet: any): Promise<any> {
     let needsSave = false;
 
     // 1. Load and parse the client file as an array
+    const candidateFiles = [
+        CLIENT_FILE,
+        path.join(rootDir, "backend", "client.json"),
+        path.join(process.cwd(), "client.json"),
+        path.join(process.cwd(), "backend", "client.json")
+    ];
+    const existingFile = candidateFiles.find(f => fs.existsSync(f));
+
     try {
-        if (fs.existsSync(CLIENT_FILE)) {
-            const fileData = fs.readFileSync(CLIENT_FILE, "utf8");
+        if (existingFile) {
+            const fileData = fs.readFileSync(existingFile, "utf8");
             clients = JSON.parse(fileData);
 
             // Migrate legacy single-object configurations to an array format
@@ -144,14 +152,9 @@ export async function initClient(config: any, outlet: any): Promise<any> {
 
     if (!syncState.config_synced && client.folderId) {
         try {
-            const cloudbackupStatus = await getBackupStatus(client.outlet_code);
-
-            if (cloudbackupStatus.isCloudEnabled) {
-                console.log(cloudbackupStatus.isCloudEnabled);
-                logToFile(`[INIT] Uploading system configurations for outlet: ${client.outlet_code}`);
-                await uploadSystemConfigs(client.folderId);
-                updateSyncState(client.outlet_code, 'config_synced', true);
-            }
+            logToFile(`[INIT] Uploading system configurations and license for outlet: ${client.outlet_code}`);
+            await uploadSystemConfigs(client.folderId);
+            updateSyncState(client.outlet_code, 'config_synced', true);
         } catch (err: any) {
             logToFile(`[INIT] Configuration upload failed: ${err.message}`, true);
         }
@@ -159,7 +162,12 @@ export async function initClient(config: any, outlet: any): Promise<any> {
 
     if (needsSave) {
         try {
-            fs.writeFileSync(CLIENT_FILE, JSON.stringify(clients, null, 2));
+            const dataStr = JSON.stringify(clients, null, 2);
+            fs.writeFileSync(CLIENT_FILE, dataStr);
+            const backendClientFile = path.join(rootDir, "backend", "client.json");
+            if (backendClientFile !== CLIENT_FILE && fs.existsSync(path.dirname(backendClientFile))) {
+                try { fs.writeFileSync(backendClientFile, dataStr); } catch (_) {}
+            }
             logToFile(`[INIT] Local configuration updated successfully.`);
         } catch (err: any) {
             logToFile(`[INIT] Failed to persist local configuration: ${err.message}`, true);

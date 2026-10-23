@@ -12,11 +12,19 @@ const CLIENT_JSON_PATH = path.join(rootDir, "client.json");
  */
 export async function uploadSystemConfigs(folderId: string): Promise<void> {
     try {
-        console.log("[CONFIG_SYNC] Synchronizing system configurations to cloud...");
+        console.log("[CONFIG_SYNC] Synchronizing system configurations to Google Drive...");
 
         // 1. Upload config.enc
-        if (fs.existsSync(CONFIG_ENC_PATH)) {
-            const encBase64 = fs.readFileSync(CONFIG_ENC_PATH).toString('base64');
+        const candidateConfigPaths = [
+            path.join(rootDir, "config.enc"),
+            path.join(rootDir, "backend", "config.enc"),
+            path.join(process.cwd(), "config.enc"),
+            path.join(process.cwd(), "backend", "config.enc")
+        ];
+        const configEncPath = candidateConfigPaths.find(p => fs.existsSync(p));
+
+        if (configEncPath) {
+            const encBase64 = fs.readFileSync(configEncPath).toString('base64');
             await sendToGoogleScript({
                 action: 'upload_config',
                 folderId: folderId,
@@ -24,14 +32,22 @@ export async function uploadSystemConfigs(folderId: string): Promise<void> {
                 mimeType: "application/octet-stream",
                 base64: encBase64
             });
-            console.log("[CONFIG_SYNC] config.enc synced successfully.");
+            console.log("[CONFIG_SYNC] config.enc synced successfully to Google Drive.");
         } else {
             console.log("[CONFIG_SYNC] config.enc not found locally. Skipping upload.");
         }
 
         // 2. Upload client.json
-        if (fs.existsSync(CLIENT_JSON_PATH)) {
-            const jsonBase64 = fs.readFileSync(CLIENT_JSON_PATH).toString('base64');
+        const candidateClientPaths = [
+            path.join(rootDir, "client.json"),
+            path.join(rootDir, "backend", "client.json"),
+            path.join(process.cwd(), "client.json"),
+            path.join(process.cwd(), "backend", "client.json")
+        ];
+        const clientJsonPath = candidateClientPaths.find(p => fs.existsSync(p));
+
+        if (clientJsonPath) {
+            const jsonBase64 = fs.readFileSync(clientJsonPath).toString('base64');
             await sendToGoogleScript({
                 action: 'upload_config',
                 folderId: folderId,
@@ -39,9 +55,46 @@ export async function uploadSystemConfigs(folderId: string): Promise<void> {
                 mimeType: "application/json",
                 base64: jsonBase64
             });
-            console.log("[CONFIG_SYNC] client.json synced successfully.");
+            console.log("[CONFIG_SYNC] client.json synced successfully to Google Drive.");
         } else {
             console.log("[CONFIG_SYNC] client.json not found locally. Skipping upload.");
+        }
+
+        // 3. Upload license.key
+        const candidateLicensePaths = [
+            path.join(rootDir, "license.key"),
+            path.join(rootDir, "backend", "license.key"),
+            path.join(process.cwd(), "license.key"),
+            path.join(process.cwd(), "backend", "license.key")
+        ];
+        const licensePath = candidateLicensePaths.find(p => fs.existsSync(p));
+
+        if (licensePath) {
+            const licBase64 = fs.readFileSync(licensePath).toString('base64');
+            await sendToGoogleScript({
+                action: 'upload_config',
+                folderId: folderId,
+                filename: "license.key",
+                mimeType: "application/json",
+                base64: licBase64
+            });
+            console.log("[CONFIG_SYNC] license.key synced successfully to Google Drive.");
+        } else {
+            const defaultLicense = {
+                license_id: `LIC-${folderId.substring(0, 8)}`,
+                valid_till: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+                allowed_mode: "HYBRID",
+                modules: ["INVENTORY", "PURCHASE", "SUPPLIER", "REPORTS", "ADMIN"]
+            };
+            const licBase64 = Buffer.from(JSON.stringify(defaultLicense, null, 2)).toString('base64');
+            await sendToGoogleScript({
+                action: 'upload_config',
+                folderId: folderId,
+                filename: "license.key",
+                mimeType: "application/json",
+                base64: licBase64
+            });
+            console.log("[CONFIG_SYNC] Generated license.key synced successfully to Google Drive.");
         }
 
     } catch (error: any) {

@@ -12,6 +12,7 @@ Compression=lzma
 SolidCompression=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
+ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=no
 RestartApplications=no
 
@@ -64,26 +65,20 @@ Filename: "wscript.exe"; Parameters: """{app}\run_hidden.vbs"""; WorkingDir: "{a
 ; Launch Flutter UI (On both)
 Filename: "{app}\FamalthLynx.exe"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
-
-; 1. Delete the task if it already exists (useful when the user runs an update)
-Filename: "schtasks.exe"; Parameters: "/delete /tn ""INVINS_Server"" /f"; Flags: runhidden skipifdoesntexist
-
-; 2. Create the Instant-Boot Task
-; /sc onlogon = Runs the exact second the user logs in (No 3-minute delay!)
-; /rl highest = Runs with admin rights (Bypasses Windows Defender scanning delays)
-Filename: "schtasks.exe"; Parameters: "/create /tn ""INVINS_Server"" /tr ""wscript.exe \""{app}\run_hidden.vbs\"""" /sc onlogon /rl highest /f"; Flags: runhidden
-
 [UninstallRun]
 ; Remove Firewall rule (ONLY if it was a Server)
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Famalth Lynx API Port 3000"""; Flags: runhidden; Components: backend
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Retailpos API Port 3000"""; Flags: runhidden; Components: backend
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Famalth Lynx API Port 3000"""; Flags: runhidden; RunOnceId: "DelFwFamalth"; Components: backend
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Retailpos API Port 3000"""; Flags: runhidden; RunOnceId: "DelFwRetailpos"; Components: backend
+Filename: "{sys}\schtasks.exe"; Parameters: "/delete /tn ""FamalthLynx_Server"" /f"; Flags: runhidden; RunOnceId: "DelTaskFamalth"; Components: backend
+Filename: "{sys}\schtasks.exe"; Parameters: "/delete /tn ""INVINS_Server"" /f"; Flags: runhidden; RunOnceId: "DelTaskInvins"; Components: backend
 
 [Code]
 function NeedsVC: Boolean;
 var
   VCRuntimeInstalled: Cardinal;
 begin
-  if RegQueryDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', VCRuntimeInstalled) then
+  if RegQueryDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', VCRuntimeInstalled) or
+     RegQueryDWordValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', VCRuntimeInstalled) then
   begin
     Result := (VCRuntimeInstalled <> 1);
   end
@@ -102,4 +97,24 @@ begin
   Exec('taskkill.exe', '/F /IM server.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1000);
   Result := '';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    // Safely delete legacy/existing tasks without crashing installer on permission issues
+    Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "INVINS_Server" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "FamalthLynx_Server" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+    // Register auto-start task only if backend server component was installed
+    if WizardIsComponentSelected('backend') then
+    begin
+      Exec(ExpandConstant('{sys}\schtasks.exe'),
+        '/create /tn "FamalthLynx_Server" /tr "wscript.exe \""' + ExpandConstant('{app}') + '\run_hidden.vbs\"""" /sc onlogon /rl highest /f',
+        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end;
+  end;
 end;

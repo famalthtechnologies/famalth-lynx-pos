@@ -7,6 +7,7 @@ import { broadcastRemoteKillSwitch, broadcastQuotaUpdated } from '../../services
 import { sendOtpEmail } from '../../modules/emailService';
 import { generateSubscriptionInvoicePdf } from '../../services/subscriptionInvoicePdf.service';
 const { invalidateLicenseCache } = require('../public/licenseManager');
+import { ensureMasterDatabaseSync } from '../../services/masterSync.service';
 
 const {
   MasterTenant,
@@ -26,6 +27,12 @@ export class ControlPlaneController {
    */
   public static async getFleetOverview(req: Request, res: Response) {
     try {
+      try {
+        await ensureMasterDatabaseSync(propertyDb);
+      } catch (syncErr: any) {
+        console.warn('[CONTROL_PLANE] Database auto-sync warning:', syncErr.message);
+      }
+
       const isResellerRole = req.masterStaff?.role === 'RESELLER_ADMIN' || (req.masterStaff?.role as any) === 'RESELLER';
       let resellerFilterId: string | null = null;
       if (isResellerRole) {
@@ -185,6 +192,10 @@ export class ControlPlaneController {
    */
   public static async getAllTenants(req: Request, res: Response) {
     try {
+      try {
+        await ensureMasterDatabaseSync(propertyDb);
+      } catch (_) {}
+
       const { search, status, reseller_id, rm_id } = req.query;
 
       const whereClause: any = {};
@@ -1356,6 +1367,10 @@ export class ControlPlaneController {
    */
   public static async getAllOutlets(req: Request, res: Response) {
     try {
+      try {
+        await ensureMasterDatabaseSync(propertyDb);
+      } catch (_) {}
+
       const outlets = await MasterOutlet.findAll({
         include: [{ model: MasterTenant, as: 'tenant' }],
         order: [['id', 'ASC']],

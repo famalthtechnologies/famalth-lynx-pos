@@ -9,8 +9,9 @@ const https = require('https');
 const { spawn } = require('child_process');
 const rootDir = (process as any).pkg ? path.dirname(process.execPath) : process.cwd();
 
-const SHEET_ID = sysConfig ? sysConfig.sheetId : null;
-const ROOT_FOLDER_ID = sysConfig ? sysConfig.rootFolderId : null;
+const effectiveConfig = (sysConfig && sysConfig.default) ? sysConfig.default : (sysConfig || {});
+const SHEET_ID = effectiveConfig.sheetId || null;
+const ROOT_FOLDER_ID = effectiveConfig.rootFolderId || null;
 
 const CLIENT_FILE = path.join(rootDir, "client.json");
 const { sendOtpEmail } = require("../../modules/emailService");

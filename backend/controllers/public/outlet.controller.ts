@@ -2,6 +2,7 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const loadConfig = require("../../utils/decryptConfig");
 const { initClient } = require("../../modules/clientSetup");
+const { syncSingleOutletToMaster } = require('../../services/masterSync.service');
 const { verifyLicenseOnline, invalidateLicenseCache } = require('./licenseManager');
 const propertyDb = require('../../db/propertyDb').default || require('../../db/propertyDb');
 const initMasterModels = require('../../models/master').default || require('../../models/master');
@@ -204,6 +205,13 @@ exports.createOutlet = async (req, res) => {
                     console.warn('[OUTLET REGISTRATION] Could not send credentials email:', emailErr.message);
                 }
             }
+        }
+
+        // Automatically provision newly registered outlet into Master Enterprise models (Tenant, Outlet, License)
+        try {
+            await syncSingleOutletToMaster(req.propertyDb, outlet, pinHash);
+        } catch (syncErr: any) {
+            console.warn('[OUTLET REGISTRATION] Master tenant/outlet sync warning:', syncErr.message);
         }
 
         const config = loadConfig();

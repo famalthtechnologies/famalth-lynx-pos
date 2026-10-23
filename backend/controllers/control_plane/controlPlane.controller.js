@@ -12,6 +12,7 @@ const socketHub_service_1 = require("../../services/socketHub.service");
 const emailService_1 = require("../../modules/emailService");
 const subscriptionInvoicePdf_service_1 = require("../../services/subscriptionInvoicePdf.service");
 const { invalidateLicenseCache } = require('../public/licenseManager');
+const { ensureMasterDatabaseSync } = require('../../services/masterSync.service');
 const { MasterTenant, MasterOutlet, MasterLicense, MasterReseller, MasterRelationshipManager, MasterStaffUser, SupportTicket, MasterInvoice, MasterAnnouncement, } = (0, master_1.default)(propertyDb_1.default);
 class ControlPlaneController {
     /**
@@ -19,6 +20,11 @@ class ControlPlaneController {
      */
     static async getFleetOverview(req, res) {
         try {
+            try {
+                await ensureMasterDatabaseSync(propertyDb_1.default);
+            } catch (syncErr) {
+                console.warn('[CONTROL_PLANE] Database auto-sync warning:', syncErr.message);
+            }
             const isResellerRole = req.masterStaff?.role === 'RESELLER_ADMIN' || req.masterStaff?.role === 'RESELLER';
             let resellerFilterId = null;
             if (isResellerRole) {
@@ -161,6 +167,9 @@ class ControlPlaneController {
      */
     static async getAllTenants(req, res) {
         try {
+            try {
+                await ensureMasterDatabaseSync(propertyDb_1.default);
+            } catch (_) {}
             const { search, status, reseller_id, rm_id } = req.query;
             const whereClause = {};
             if (status)
@@ -1234,6 +1243,9 @@ class ControlPlaneController {
      */
     static async getAllOutlets(req, res) {
         try {
+            try {
+                await ensureMasterDatabaseSync(propertyDb_1.default);
+            } catch (_) {}
             const outlets = await MasterOutlet.findAll({
                 include: [{ model: MasterTenant, as: 'tenant' }],
                 order: [['id', 'ASC']],

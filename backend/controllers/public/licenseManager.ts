@@ -3,8 +3,9 @@ const initMasterModels = require('../../models/master').default || require('../.
 const { isCloudEnvironment } = require('../../utils/backupTracker');
 const { sendToGoogleScript } = require("../../modules/driveService");
 const sysConfig = require('../../utils/configManager');
+const effectiveConfig = (sysConfig && sysConfig.default) ? sysConfig.default : (sysConfig || {});
 
-const SHEET_ID = sysConfig ? sysConfig.sheetId : null;
+const SHEET_ID = effectiveConfig.sheetId || null;
 
 // In-memory cache for verified licenses: outletCode -> { data, timestamp }
 const licenseCache = new Map();
@@ -33,7 +34,7 @@ async function verifyLicenseOnline(outletCode) {
         const { MasterOutlet, MasterTenant, MasterLicense } = initMasterModels(propertyDb);
 
         // 1. Direct real-time check against multi-tenant master PostgreSQL database
-        const outlet = await MasterOutlet.findOne({
+        let outlet = await MasterOutlet.findOne({
             where: { outlet_code: outletCode },
             include: [{
                 model: MasterTenant,
@@ -41,6 +42,30 @@ async function verifyLicenseOnline(outletCode) {
                 include: [{ model: MasterLicense, as: 'licenses' }]
             }]
         });
+
+        // Fallback: If not found in MasterOutlet, check if outlet is registered in local outlets table
+        if (!outlet && propertyDb?.models?.outlets) {
+            try {
+                const localOutlet = await propertyDb.models.outlets.findOne({
+                    where: { outlet_code: outletCode, is_active: true },
+                    bypassOutletFilter: true
+                });
+                if (localOutlet) {
+                    const { syncSingleOutletToMaster } = require('../../services/masterSync.service');
+                    await syncSingleOutletToMaster(propertyDb, localOutlet);
+                    outlet = await MasterOutlet.findOne({
+                        where: { outlet_code: outletCode },
+                        include: [{
+                            model: MasterTenant,
+                            as: 'tenant',
+                            include: [{ model: MasterLicense, as: 'licenses' }]
+                        }]
+                    });
+                }
+            } catch (localSyncErr: any) {
+                console.warn('[LICENSE] Local outlet sync fallback error:', localSyncErr.message);
+            }
+        }
 
         if (outlet) {
             // Check tenant status
@@ -107,6 +132,36 @@ async function verifyLicenseOnline(outletCode) {
 
             licenseCache.set(outletCode, { data: result, timestamp: Date.now() });
             return result;
+        }
+
+        // Check if outlet exists in local client.json for local server installations
+        if (!isCloudEnvironment()) {
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                const rootDir = (process as any).pkg ? path.dirname(process.execPath) : process.cwd();
+                const candidateFiles = [
+                    path.join(rootDir, 'client.json'),
+                    path.join(rootDir, 'backend', 'client.json'),
+                    path.join(process.cwd(), 'client.json'),
+                    path.join(process.cwd(), 'backend', 'client.json')
+                ];
+                const foundClientFile = candidateFiles.find(f => fs.existsSync(f));
+                if (foundClientFile) {
+                    const clients = JSON.parse(fs.readFileSync(foundClientFile, 'utf8'));
+                    const match = Array.isArray(clients) ? clients.find((c: any) => c.outlet_code === outletCode) : null;
+                    if (match) {
+                        const localResult = {
+                            license_status: 'VALID',
+                            days_remaining: 365,
+                            valid_till: match.expiry_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+                            message: 'Local server verified outlet via client configuration.'
+                        };
+                        licenseCache.set(outletCode, { data: localResult, timestamp: Date.now() });
+                        return localResult;
+                    }
+                }
+            } catch (_) {}
         }
 
         // Outlet not found in Master Enterprise Database:
