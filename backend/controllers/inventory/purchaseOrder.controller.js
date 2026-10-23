@@ -47,8 +47,10 @@ exports.createPurchaseOrder = async (req, res) => {
             line_status: normalizeLineStatus(item.line_status)
         }));
 
-        let total = 0;
-        items.forEach(i => total += (Number(i.qty) || 0) * (Number(i.rate) || 0));
+        let rawTotal = 0;
+        items.forEach(i => rawTotal += (Number(i.qty) || 0) * (Number(i.rate) || 0));
+        const roundOff = Number(req.body.round_off_amount ?? req.body.round_off ?? 0);
+        const total = Number((rawTotal + roundOff).toFixed(2));
 
         const po = await req.propertyDb.models.purchase_orders.create({
             outlet_id,
@@ -56,6 +58,7 @@ exports.createPurchaseOrder = async (req, res) => {
             manual_no,
             supplier_id,
             po_date,
+            round_off_amount: roundOff,
             total_amount: total,
             status: deriveHeaderStatus(normalizedItems),
             created_by: user_id
@@ -160,6 +163,7 @@ exports.getPurchaseOrderReport = async (req, res) => {
                 'supplier_id',
                 'po_date',
                 'total_amount',
+                'round_off_amount',
                 'status',
                 [Sequelize.col('supplier.supplier_name'), 'supplier_name']
             ],
@@ -338,9 +342,12 @@ exports.modifyPurchaseOrder = async (req, res) => {
             total += (Number(i.qty) || 0) * (Number(i.rate) || 0);
         }
 
+        const roundOff = Number(req.body.round_off_amount ?? req.body.round_off ?? po.round_off_amount ?? 0);
+        const finalTotal = Number((total + roundOff).toFixed(2));
         await po.update({
             supplier_id,
-            total_amount: total,
+            round_off_amount: roundOff,
+            total_amount: finalTotal,
             status: deriveHeaderStatus(normalizedItems)
         }, { transaction: t });
 

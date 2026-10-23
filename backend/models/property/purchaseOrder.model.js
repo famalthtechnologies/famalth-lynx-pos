@@ -6,6 +6,7 @@ module.exports = (sequelize, DataTypes) => {
         supplier_id: DataTypes.INTEGER,
         po_date: DataTypes.DATEONLY,
         total_amount: DataTypes.DECIMAL(12, 2),
+        round_off_amount: { type: DataTypes.DECIMAL(12, 2), defaultValue: 0.00 },
         status: DataTypes.STRING,
         created_by: DataTypes.INTEGER
     }, {

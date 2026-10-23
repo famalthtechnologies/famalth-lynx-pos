@@ -4,6 +4,7 @@ class PurchaseOrderReport {
   final String supplierName;
   final String status;
   final double totalAmount;
+  final double roundOffAmount;
   final DateTime poDate;
 
   PurchaseOrderReport({
@@ -12,6 +13,7 @@ class PurchaseOrderReport {
     required this.supplierName,
     required this.status,
     required this.totalAmount,
+    this.roundOffAmount = 0.0,
     required this.poDate,
   });
 
@@ -22,6 +24,7 @@ class PurchaseOrderReport {
       supplierName: json['supplier_name'] ?? '',
       status: json['status'] ?? '',
       totalAmount: double.tryParse(json['total_amount'].toString()) ?? 0,
+      roundOffAmount: double.tryParse((json['round_off_amount'] ?? 0).toString()) ?? 0,
       poDate: DateTime.parse(json['po_date']),
     );
   }

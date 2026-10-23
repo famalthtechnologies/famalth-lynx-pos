@@ -209,13 +209,40 @@ exports.paySupplierBill = async (req, res) => {
             return res.status(404).json({ success: false });
         }
 
-        const balance = bill.bill_amount - bill.paid_amount;
-        const totalApplied = Number(amount) + Number(credit_adjusted);
+        const balance = Number(bill.bill_amount) - Number(bill.paid_amount);
+        const numAmount = Number(amount || 0);
+        const creditAdjusted = Number(credit_adjusted || 0);
+        let round_off = Number(req.body.round_off || req.body.round_off_amount || 0);
 
-        if (totalApplied <= 0 || totalApplied > balance + 0.009) {
+        // Auto-calculate round-off if user rounded to nearest integer (e.g. paying 102.00 on 101.76 balance)
+        if (numAmount > 0 && Math.abs((numAmount + creditAdjusted) - balance) <= 1.0 && round_off === 0) {
+            if (numAmount + creditAdjusted > balance) {
+                round_off = Number(((numAmount + creditAdjusted) - balance).toFixed(2));
+            }
+        }
+
+        const effectiveApplied = numAmount + creditAdjusted;
+        const totalSettlementImpact = effectiveApplied + (round_off < 0 ? Math.abs(round_off) : 0);
+        const isFullSettlement = (balance - totalSettlementImpact) <= 0.01;
+
+        if (numAmount < 0 || creditAdjusted < 0) {
             await t.rollback();
             return res.status(400).json({
                 message: 'Invalid payment amount'
+            });
+        }
+
+        if (numAmount === 0 && creditAdjusted === 0) {
+            await t.rollback();
+            return res.status(400).json({
+                message: 'Payment amount or credit required'
+            });
+        }
+
+        if (!isFullSettlement && effectiveApplied > balance + 1.0) {
+            await t.rollback();
+            return res.status(400).json({
+                message: 'Payment amount exceeds outstanding balance'
             });
         }
 
@@ -231,17 +258,22 @@ exports.paySupplierBill = async (req, res) => {
 
         const oldBillData = bill.toJSON();
 
-        bill.paid_amount = Number(bill.paid_amount) + Number(totalApplied);
+        if (isFullSettlement) {
+            bill.paid_amount = Number(bill.bill_amount);
+            bill.status = 'PAID';
+        } else {
+            bill.paid_amount = Number(bill.paid_amount) + effectiveApplied + (round_off < 0 ? Math.abs(round_off) : 0);
+            if (bill.paid_amount >= Number(bill.bill_amount) - 0.009) {
+                bill.paid_amount = Number(bill.bill_amount);
+                bill.status = 'PAID';
+            } else {
+                bill.status = bill.paid_amount > 0 ? 'PARTIAL' : 'UNPAID';
+            }
+        }
 
-        const totalPaid = Number(bill.paid_amount);
-        const totalBill = Number(bill.bill_amount);
-
-        bill.status =
-            totalPaid >= totalBill
-                ? 'PAID'
-                : totalPaid > 0
-                    ? 'PARTIAL'
-                    : 'UNPAID';
+        if (round_off !== 0) {
+            bill.round_off_amount = Number((Number(bill.round_off_amount || 0) + round_off).toFixed(2));
+        }
 
         await bill.save({ transaction: t });
 
@@ -250,8 +282,9 @@ exports.paySupplierBill = async (req, res) => {
             supplier_id: bill.supplier_id,
             bill_id: bill.id,
             payment_date: paymentDate,
-            amount,
-            credit_adjusted,
+            amount: numAmount,
+            credit_adjusted: creditAdjusted,
+            round_off,
             payment_mode: paymentMode,
             reference_no: referenceNo,
             created_by: req.user.id
@@ -277,7 +310,7 @@ exports.paySupplierBill = async (req, res) => {
             ? (bill.bill_no.startsWith('PV-') ? bill.bill_no : `PV-${bill.bill_no}${grnTag}`)
             : (grnNo ? `PV-${grnNo}` : `PV-SUP`);
 
-        const remainingBal = Math.max(0, totalBill - totalPaid);
+        const remainingBal = bill.status === 'PAID' ? 0 : Math.max(0, Number(bill.bill_amount) - Number(bill.paid_amount));
         try {
             const prevEntries = await req.propertyDb.models.cash_ledger.findAll({
                 where: {
@@ -304,7 +337,7 @@ exports.paySupplierBill = async (req, res) => {
             console.error('Error updating GRN ledger entry notes:', uErr);
         }
 
-        if (amount > 0) {
+        if (numAmount > 0) {
             const paymentNote = note || (remainingBal <= 0.009
                 ? `Supplier payment for bill ${bill.bill_no}${grnTag} (Settled / Paid)`
                 : `Supplier payment for bill ${bill.bill_no}${grnTag} - outstanding ${remainingBal.toFixed(2)}`);
@@ -319,7 +352,7 @@ exports.paySupplierBill = async (req, res) => {
                 reference_no: supplierVNo,
                 party_name: supplier?.supplier_name || null,
                 payment_method: paymentMode,
-                amount_out: amount,
+                amount_out: numAmount,
                 adjustment_amount: remainingBal > 0.009 ? remainingBal : 0,
                 notes: paymentNote,
                 created_by: req.user.id,

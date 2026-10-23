@@ -16,6 +16,8 @@ router.post('/auth/initialize-master', StaffManagementController.initializeMaste
 
 // 1. Separate Login for Master Control Plane (Non-client)
 router.post('/auth/login', StaffManagementController.login);
+router.post('/auth/verify-login-otp', StaffManagementController.verifyLoginOtp);
+router.post('/auth/resend-login-otp', StaffManagementController.resendLoginOtp);
 
 // Password recovery & Reset (OTP / Email)
 router.post('/auth/recover-username', StaffManagementController.recoverUsername);

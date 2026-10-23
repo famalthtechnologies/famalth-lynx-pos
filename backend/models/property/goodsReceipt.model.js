@@ -12,6 +12,7 @@ module.exports = (sequelize, DataTypes) => {
             total_amount: DataTypes.DECIMAL(12, 2),
             total_gst: DataTypes.DECIMAL(12, 2),
             net_amount: DataTypes.DECIMAL(12, 2),
+            round_off_amount: { type: DataTypes.DECIMAL(12, 2), defaultValue: 0.00 },
             status: DataTypes.STRING,
             created_by: DataTypes.INTEGER
         }, {

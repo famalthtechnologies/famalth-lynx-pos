@@ -79,6 +79,7 @@ class SupplierBillController extends ChangeNotifier {
     DateTime? paymentDate,
     String note = '',
     double creditAdjusted = 0,
+    double roundOff = 0,
   }) async {
     await ApiClient.post(
       ApiEndpoints.paySupplierBill,
@@ -86,6 +87,7 @@ class SupplierBillController extends ChangeNotifier {
         "bill_id": billId,
         "amount": amount,
         "credit_adjusted": creditAdjusted,
+        "round_off": roundOff,
         "payment_mode": paymentMode,
         "reference_no": referenceNo,
         "payment_date": paymentDate == null

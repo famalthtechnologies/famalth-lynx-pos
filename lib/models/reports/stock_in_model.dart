@@ -18,6 +18,7 @@ class StockInModel {
   final double gst;
   final double taxAmount;
   final double totalAfterTax;
+  final double roundOffAmount;
   StockInModel({
     required this.inwardsNo,
     required this.date,
@@ -38,6 +39,7 @@ class StockInModel {
     required this.gst,
     required this.taxAmount,
     required this.totalAfterTax,
+    this.roundOffAmount = 0.0,
   });
 
   factory StockInModel.fromJson(Map<String, dynamic> json) {
@@ -63,6 +65,8 @@ class StockInModel {
       taxAmount: double.tryParse((json['tax_amount'] ?? 0).toString()) ?? 0,
       totalAfterTax:
           double.tryParse((json['total_after_tax'] ?? 0).toString()) ?? 0,
+      roundOffAmount:
+          double.tryParse((json['round_off_amount'] ?? 0).toString()) ?? 0,
     );
   }
 

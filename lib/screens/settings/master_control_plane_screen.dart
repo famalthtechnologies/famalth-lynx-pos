@@ -2036,7 +2036,11 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
           onPressed: () async {
             await ControlPlaneStorage.clear();
             if (!mounted) return;
-            Navigator.pop(context);
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const ControlPlaneLoginScreen()),
+              (route) => false,
+            );
           },
         ),
         const SizedBox(width: 8),

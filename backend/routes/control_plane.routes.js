@@ -18,6 +18,8 @@ router.post('/auth/request-owner-setup-otp', staffManagement_controller_1.defaul
 router.post('/auth/initialize-master', staffManagement_controller_1.default.initializeMasterOwner);
 // 1. Separate Login for Master Control Plane (Non-client)
 router.post('/auth/login', staffManagement_controller_1.default.login);
+router.post('/auth/verify-login-otp', staffManagement_controller_1.default.verifyLoginOtp);
+router.post('/auth/resend-login-otp', staffManagement_controller_1.default.resendLoginOtp);
 // Password recovery & Reset (OTP / Email)
 router.post('/auth/recover-username', staffManagement_controller_1.default.recoverUsername);
 router.post('/auth/forgot-password/request-otp', staffManagement_controller_1.default.requestPasswordResetOtp);

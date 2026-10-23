@@ -9,6 +9,7 @@ class SupplierBill {
   final double billAmount;
   final double paidAmount;
   final PaymentStatus status;
+  final double roundOffAmount;
 
   SupplierBill({
     required this.id,
@@ -19,6 +20,7 @@ class SupplierBill {
     required this.billAmount,
     required this.paidAmount,
     required this.status,
+    this.roundOffAmount = 0.0,
   });
 
   factory SupplierBill.fromJson(Map<String, dynamic> json) {
@@ -28,6 +30,7 @@ class SupplierBill {
       grnNo: json['grn_no']?.toString() ?? '',
       billNo: json['bill_no'] ?? '',
       billDate: DateTime.parse(json['bill_date']),
+      roundOffAmount: double.tryParse((json['round_off_amount'] ?? 0).toString()) ?? 0,
       billAmount: (double.parse(json['bill_amount']) ?? 0).toDouble(),
       paidAmount: (double.parse(json['paid_amount']) ?? 0).toDouble(),
       status: PaymentStatus.values.firstWhere(

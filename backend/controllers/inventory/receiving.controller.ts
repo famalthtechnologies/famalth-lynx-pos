@@ -68,6 +68,8 @@ export const createReceiving = async (req: Request, res: Response) => {
             receipt_date,
             supplier_bill_no,
             status,
+            round_off_amount,
+            round_off,
             items = []
         } = req.body;
 
@@ -81,13 +83,21 @@ export const createReceiving = async (req: Request, res: Response) => {
         }
 
         let total = 0, gst = 0;
-
         items.forEach((i: any) => {
-            total += i.qty * i.rate;
-            gst += (i.qty * i.rate) * i.tax / 100;
+            const lineAmt = (Number(i.qty) || 0) * (Number(i.rate) || 0);
+            total += lineAmt;
+            gst += lineAmt * (Number(i.tax) || 0) / 100;
         });
 
-        const netAmount = total + gst;
+        const unroundedNet = total + gst;
+        let roundOffVal = Number(round_off_amount ?? round_off ?? 0);
+        if (roundOffVal === 0 && (req.body.net_amount !== undefined || req.body.netAmount !== undefined)) {
+            const bodyNet = Number(req.body.net_amount ?? req.body.netAmount);
+            if (Number.isFinite(bodyNet) && bodyNet > 0 && Math.abs(bodyNet - unroundedNet) <= 1.0) {
+                roundOffVal = Number((bodyNet - unroundedNet).toFixed(2));
+            }
+        }
+        const netAmount = Number((unroundedNet + roundOffVal).toFixed(2));
         const existingBill = await (req as any).propertyDb.models.supplier_bills.findOne({
             where: {
                 outlet_id,
@@ -115,7 +125,8 @@ export const createReceiving = async (req: Request, res: Response) => {
             receipt_date,
             supplier_bill_no,
             total_amount: total,
-            total_gst: gst,
+            total_gst: Number(gst.toFixed(2)),
+            round_off_amount: roundOffVal,
             net_amount: netAmount,
             status: status || 'CLOSED',
             created_by: user_id
@@ -179,6 +190,7 @@ export const createReceiving = async (req: Request, res: Response) => {
             bill_no: supplier_bill_no,
             bill_date: receipt_date,
             bill_amount: netAmount,
+            round_off_amount: roundOffVal,
             paid_amount: 0,
             status: 'UNPAID'
         }, { transaction: t });
@@ -516,16 +528,25 @@ export const modifyReceiving = async (req: Request, res: Response) => {
                 }
             }
 
-            total += i.qty * i.rate;
-            gst += (i.qty * i.rate) * taxRate / 100;
+            total += (Number(i.qty) || 0) * (Number(i.rate) || 0);
+            gst += ((Number(i.qty) || 0) * (Number(i.rate) || 0)) * taxRate / 100;
         }
 
-        const netAmount = total + gst;
+        const unroundedNet = total + gst;
+        let roundOffVal = Number(req.body.round_off_amount ?? req.body.round_off ?? grn.round_off_amount ?? 0);
+        if (roundOffVal === 0 && (req.body.net_amount !== undefined || req.body.netAmount !== undefined)) {
+            const bodyNet = Number(req.body.net_amount ?? req.body.netAmount);
+            if (Number.isFinite(bodyNet) && bodyNet > 0 && Math.abs(bodyNet - unroundedNet) <= 1.0) {
+                roundOffVal = Number((bodyNet - unroundedNet).toFixed(2));
+            }
+        }
+        const netAmount = Number((unroundedNet + roundOffVal).toFixed(2));
 
         /// UPDATE GRN TOTAL
         await grn.update({
-            total_amount: total,
-            total_gst: gst,
+            total_amount: Number(total.toFixed(2)),
+            total_gst: Number(gst.toFixed(2)),
+            round_off_amount: roundOffVal,
             net_amount: netAmount
         }, { transaction: t });
 

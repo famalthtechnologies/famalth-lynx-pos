@@ -154,6 +154,7 @@ export const getPurchaseOrderReport = async (req: Request, res: Response) => {
                 'supplier_id',
                 'po_date',
                 'total_amount',
+                'round_off_amount',
                 'status',
                 [Sequelize.col('supplier.supplier_name'), 'supplier_name']
             ],
@@ -319,9 +320,12 @@ export const modifyPurchaseOrder = async (req: Request, res: Response) => {
             total += (Number(i.qty) || 0) * (Number(i.rate) || 0);
         }
 
+        const roundOff = Number(req.body.round_off_amount ?? req.body.round_off ?? po.round_off_amount ?? 0);
+        const finalTotal = Number((total + roundOff).toFixed(2));
         await po.update({
             supplier_id,
-            total_amount: total,
+            round_off_amount: roundOff,
+            total_amount: finalTotal,
             status: deriveHeaderStatus(normalizedItems)
         }, { transaction: t });
 

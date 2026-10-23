@@ -5819,14 +5819,13 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
       double initialBill = 0.0;
       for (final e in group) {
         final type = e.transactionType.trim().toUpperCase();
-        final refType = e.referenceType.trim().toUpperCase();
         final method = e.paymentMethod.trim().toUpperCase();
-        if (type == 'PURCHASE_GRN' || refType == 'SUPPLIER_BILL' || method == 'CREDIT') {
+        if (type == 'PURCHASE_GRN' || (type != 'SUPPLIER_PAYMENT' && method == 'CREDIT')) {
           if (e.adjustmentAmount > 0.009) {
             initialBill = e.adjustmentAmount;
             break;
           }
-          final m = RegExp(r'(?:outstanding|due|credit|bill|total|amount|net)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)', caseSensitive: false)
+          final m = RegExp(r'(?:outstanding|due|balance|rem(?:aining)?)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)', caseSensitive: false)
               .firstMatch(e.notes);
           if (m != null) {
             final v = double.tryParse(m.group(1) ?? '') ?? 0.0;
@@ -5858,7 +5857,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
             _cachedSupplierDue[e.id] = e.adjustmentAmount;
           } else {
             double due = 0.0;
-            final m = RegExp(r'outstanding\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)', caseSensitive: false)
+            final m = RegExp(r'(?:outstanding|due|balance|rem(?:aining)?)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)', caseSensitive: false)
                 .firstMatch(e.notes);
             if (m != null) {
               due = double.tryParse(m.group(1) ?? '') ?? 0.0;
@@ -5883,13 +5882,12 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
       double initialBill = 0.0;
       for (final e in group) {
         final type = e.transactionType.trim().toUpperCase();
-        final method = e.paymentMethod.trim().toUpperCase();
-        if (type == 'SALE_CREDIT' || method == 'CREDIT') {
+        if (type == 'SALE_CREDIT') {
           if (e.adjustmentAmount > 0.009) {
             initialBill = e.adjustmentAmount;
             break;
           }
-          final m = RegExp(r'(?:outstanding|due|credit|bill|total|amount)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)', caseSensitive: false)
+          final m = RegExp(r'(?:outstanding|due|credit|balance)\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)', caseSensitive: false)
               .firstMatch(e.notes);
           if (m != null) {
             final v = double.tryParse(m.group(1) ?? '') ?? 0.0;

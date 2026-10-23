@@ -2,6 +2,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -3410,7 +3411,25 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       if (res != null && res['success'] == true && mounted) {
         final list = (res['data'] as List<dynamic>?) ?? [];
         if (list.isNotEmpty) {
-          final ann = list.first as Map<String, dynamic>;
+          final prefs = await SharedPreferences.getInstance();
+          Map<String, dynamic>? targetAnn;
+          String? targetKey;
+
+          for (final item in list) {
+            final a = item as Map<String, dynamic>;
+            final annId = (a['id'] ?? a['title'] ?? '').toString();
+            final dismissKey = 'dismissed_announcement_$annId';
+            if (prefs.getBool(dismissKey) != true) {
+              targetAnn = a;
+              targetKey = dismissKey;
+              break;
+            }
+          }
+
+          if (targetAnn == null || !mounted) return;
+
+          final ann = targetAnn;
+          final dismissKey = targetKey!;
           final title = ann['title'] ?? 'Notice';
           final message = ann['message'] ?? '';
           final type = ann['type'] ?? 'OFFER';
@@ -3486,14 +3505,18 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(ctx),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await prefs.setBool(dismissKey, true);
+                  },
                   child: const Text('Dismiss', style: TextStyle(color: Color(0xFF64748B))),
                 ),
                 if (actionUrl != null && actionUrl.isNotEmpty)
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(backgroundColor: badgeColor, foregroundColor: Colors.white),
-                    onPressed: () {
+                    onPressed: () async {
                       Navigator.pop(ctx);
+                      await prefs.setBool(dismissKey, true);
                       launchUrl(Uri.parse(actionUrl), mode: LaunchMode.externalApplication);
                     },
                     icon: const Icon(Icons.open_in_browser_rounded, size: 16),

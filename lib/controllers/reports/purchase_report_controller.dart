@@ -20,6 +20,7 @@ class PurchaseReportController extends ChangeNotifier {
   List<PurchaseOrderReport> list = [];
 
   double totalAmount = 0;
+  double totalRoundOff = 0;
   int totalOrders = 0;
 
   List<Supplier> suppliers = [];
@@ -71,6 +72,7 @@ class PurchaseReportController extends ChangeNotifier {
 
     totalOrders = list.length;
 
+    totalRoundOff = list.fold(0, (sum, e) => sum + e.roundOffAmount);
     totalAmount = list.fold(
       0,
       (sum, e) => sum + e.totalAmount,

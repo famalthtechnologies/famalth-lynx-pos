@@ -381,6 +381,7 @@ class _SupplierPaymentScreenState extends State<SupplierPaymentScreen> {
   Future<void> _openPaymentDialog(SupplierBill bill) async {
     final amountCtrl = TextEditingController();
     final creditAdjustedCtrl = TextEditingController(text: '0');
+    final roundOffCtrl = TextEditingController(text: '0');
     final referenceCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
     String paymentMode = 'CASH';
@@ -412,7 +413,9 @@ class _SupplierPaymentScreenState extends State<SupplierPaymentScreen> {
             void validate() {
               final amt = double.tryParse(amountCtrl.text) ?? 0;
               final cred = double.tryParse(creditAdjustedCtrl.text) ?? 0;
+              final rOff = double.tryParse(roundOffCtrl.text) ?? 0;
               final tot = amt + cred;
+              final effective = tot + (rOff < 0 ? rOff.abs() : 0);
 
               if (amt < 0) {
                 errorText = 'Pay amount cannot be negative';
@@ -422,7 +425,7 @@ class _SupplierPaymentScreenState extends State<SupplierPaymentScreen> {
                 errorText = 'Exceeds available credit (${CurrencyService.format(availableCredit)})';
               } else if (tot <= 0) {
                 errorText = 'Enter pay amount or credit to adjust';
-              } else if (tot > bill.balance + 0.009) {
+              } else if (effective > bill.balance + 1.0) {
                 errorText = 'Total exceeds outstanding balance';
               } else {
                 errorText = null;
@@ -656,6 +659,36 @@ class _SupplierPaymentScreenState extends State<SupplierPaymentScreen> {
                         },
                       ),
                       const SizedBox(height: 14),
+                      TextField(
+                        controller: roundOffCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                        decoration: InputDecoration(
+                          labelText: 'Round Off Adjustment',
+                          hintText: 'e.g. +0.24 or -0.76',
+                          prefixIcon: const Icon(Icons.exposure, size: 20),
+                          suffixText: CurrencyService.code,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: Colors.blueGrey.shade300),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: Colors.blueGrey.shade200),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: Colors.blue.shade600, width: 2),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        ),
+                        onChanged: (v) {
+                          setDialogState(() {
+                            validate();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 14),
                       if (availableCredit > 0) ...[
                         TextField(
                           controller: creditAdjustedCtrl,
@@ -853,10 +886,12 @@ class _SupplierPaymentScreenState extends State<SupplierPaymentScreen> {
                   onPressed: errorText != null || (enteredAmount + enteredCredit) <= 0
                       ? null
                       : () async {
+                          final enteredRoundOff = double.tryParse(roundOffCtrl.text) ?? 0;
                           await ctrl.payBill(
                             billId: bill.id,
                             amount: enteredAmount,
                             creditAdjusted: enteredCredit,
+                            roundOff: enteredRoundOff,
                             paymentMode: paymentMode,
                             paymentDate: paymentDate,
                             referenceNo: referenceCtrl.text.trim(),

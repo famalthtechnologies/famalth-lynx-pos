@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { Op } from 'sequelize';
 import propertyDb from '../../db/propertyDb';
 import initMasterModels from '../../models/master';
@@ -16,6 +17,13 @@ function maskEmail(email: string): string {
   return `${name[0]}***${name[name.length - 1]}@${domain}`;
 }
 
+const controlPlaneLoginOtpStore = new Map<string, {
+  otp: string;
+  expiresAt: number;
+  lastSentAt: number;
+  staffId: string;
+  staffData: any;
+}>();
 const controlPlaneResetOtpStore = new Map<string, { otp: string; expiresAt: number; issuedAt: number; staffId: string }>();
 const ownerSetupOtpStore = new Map<string, { otp: string; expiresAt: number; lastSentAt: number }>();
 
@@ -74,9 +82,6 @@ export class StaffManagementController {
         });
       }
 
-      // Update last login
-      await staff.update({ last_login_at: new Date() });
-
       const staffId = staff.get('id') || staff.dataValues?.id || staff.id;
       const staffUsername = staff.get('username') || staff.dataValues?.username || staff.username;
       const staffEmail = staff.get('email') || staff.dataValues?.email || staff.email;
@@ -86,16 +91,106 @@ export class StaffManagementController {
       const staffFullName = staff.get('full_name') || staff.dataValues?.full_name || staff.full_name;
       const staffPhone = staff.get('phone') || staff.dataValues?.phone || staff.phone;
       const staffAvatarUrl = staff.get('avatar_url') || staff.dataValues?.avatar_url || staff.avatar_url;
-      const staffLastLogin = staff.get('last_login_at') || staff.dataValues?.last_login_at || staff.last_login_at;
 
-      // Generate Control Plane scoped token
+      // 2-Step Verification: Generate 6-digit OTP and send to operator's email
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const loginSessionToken = crypto.randomUUID();
+
+      controlPlaneLoginOtpStore.set(loginSessionToken, {
+        otp: otpCode,
+        expiresAt: Date.now() + 600000, // 10 minutes
+        lastSentAt: Date.now(),
+        staffId,
+        staffData: {
+          id: staffId,
+          username: staffUsername,
+          email: staffEmail,
+          full_name: staffFullName,
+          role: staffRole,
+          reseller_id: staffResellerId,
+          permissions: staffPermissions,
+          phone: staffPhone,
+          avatar_url: staffAvatarUrl,
+        },
+      });
+
+      console.log(`🔑 [LOGIN 2FA OTP] Target: ${staffEmail} | Verification Code: ${otpCode}`);
+
+      try {
+        await sendOtpEmail(staffEmail, otpCode, 'Famalth Lynx Cloud Console - 2-Step Login Verification');
+      } catch (err: any) {
+        console.warn('[LOGIN 2FA] Warning sending OTP email:', err.message);
+      }
+
+      return res.json({
+        success: true,
+        requires_otp: true,
+        login_session_token: loginSessionToken,
+        masked_email: maskEmail(staffEmail),
+        message: `2-Step verification code sent to ${maskEmail(staffEmail)}. Please enter the 6-digit code.`,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        message: 'Master Staff login failed: ' + error.message,
+      });
+    }
+  }
+
+  /**
+   * 1.1 Verify Login 2FA OTP
+   */
+  public static async verifyLoginOtp(req: Request, res: Response) {
+    try {
+      const { login_session_token, otp } = req.body;
+
+      if (!login_session_token || !otp) {
+        return res.status(400).json({
+          success: false,
+          message: 'Login session token and 6-digit OTP code are required.',
+        });
+      }
+
+      const session = controlPlaneLoginOtpStore.get(login_session_token);
+      if (!session) {
+        return res.status(400).json({
+          success: false,
+          message: 'Login session expired or invalid. Please log in again.',
+        });
+      }
+
+      if (Date.now() > session.expiresAt) {
+        controlPlaneLoginOtpStore.delete(login_session_token);
+        return res.status(400).json({
+          success: false,
+          message: 'Verification code has expired. Please request a new code.',
+        });
+      }
+
+      if (session.otp !== String(otp).trim()) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid verification code. Please check your email.',
+        });
+      }
+
+      // Valid OTP: delete session from store
+      controlPlaneLoginOtpStore.delete(login_session_token);
+
+      // Update last login in database
+      await MasterStaffUser.update(
+        { last_login_at: new Date() },
+        { where: { id: session.staffId } }
+      );
+
+      const staff = session.staffData;
       const tokenPayload = {
-        staff_id: staffId,
-        username: staffUsername,
-        email: staffEmail,
-        role: staffRole,
-        reseller_id: staffResellerId,
-        permissions: staffPermissions,
+        staff_id: staff.id,
+        username: staff.username,
+        email: staff.email,
+        role: staff.role,
+        reseller_id: staff.reseller_id,
+        permissions: staff.permissions,
         is_control_plane: true,
       };
 
@@ -107,23 +202,71 @@ export class StaffManagementController {
         data: {
           token,
           user: {
-            id: staffId,
-            username: staffUsername,
-            email: staffEmail,
-            full_name: staffFullName,
-            role: staffRole,
-            reseller_id: staffResellerId,
-            permissions: staffPermissions,
-            phone: staffPhone,
-            avatar_url: staffAvatarUrl,
-            last_login_at: staffLastLogin,
+            ...staff,
+            last_login_at: new Date(),
           },
         },
       });
     } catch (error: any) {
       return res.status(500).json({
         success: false,
-        message: 'Master Staff login failed: ' + error.message,
+        message: 'OTP Verification failed: ' + error.message,
+      });
+    }
+  }
+
+  /**
+   * 1.2 Resend Login 2FA OTP
+   */
+  public static async resendLoginOtp(req: Request, res: Response) {
+    try {
+      const { login_session_token } = req.body;
+
+      if (!login_session_token) {
+        return res.status(400).json({
+          success: false,
+          message: 'Login session token is required.',
+        });
+      }
+
+      const session = controlPlaneLoginOtpStore.get(login_session_token);
+      if (!session) {
+        return res.status(400).json({
+          success: false,
+          message: 'Session expired. Please log in again.',
+        });
+      }
+
+      const timeSince = Date.now() - session.lastSentAt;
+      if (timeSince < 45000) {
+        const waitSecs = Math.ceil((45000 - timeSince) / 1000);
+        return res.status(429).json({
+          success: false,
+          message: `Please wait ${waitSecs} seconds before requesting a new code.`,
+        });
+      }
+
+      const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      session.otp = newOtp;
+      session.expiresAt = Date.now() + 600000;
+      session.lastSentAt = Date.now();
+
+      console.log(`🔑 [RESEND LOGIN 2FA OTP] Target: ${session.staffData.email} | Code: ${newOtp}`);
+
+      try {
+        await sendOtpEmail(session.staffData.email, newOtp, 'Famalth Lynx Cloud Console - 2-Step Login Verification');
+      } catch (err: any) {
+        console.warn('[LOGIN 2FA] Warning sending OTP email:', err.message);
+      }
+
+      return res.json({
+        success: true,
+        message: `New verification code sent to ${maskEmail(session.staffData.email)}.`,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to resend code: ' + error.message,
       });
     }
   }

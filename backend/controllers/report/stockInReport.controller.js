@@ -27,6 +27,8 @@ exports.getStockInReport = async (req, res) => {
         COALESCE(sb.status, 'UNPAID') AS bill_status,
         COALESCE(sb.paid_amount, 0) AS paid_amount,
         COALESCE(sb.bill_amount - sb.paid_amount, 0) AS outstanding_amount,
+        COALESCE(gr.round_off_amount, sb.round_off_amount, 0) AS round_off_amount,
+        COALESCE(gr.net_amount, sb.bill_amount, 0) AS grn_net_amount,
         im.item_name,
         im.brand,
         im.unit,
