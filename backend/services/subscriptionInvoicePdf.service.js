@@ -93,14 +93,14 @@ function generateSubscriptionInvoicePdf(data) {
             doc.fillColor('#5F6368').fontSize(8.5).font(fontRegular).text(`Invoice number: ${data.invoiceNumber}`, leftX, y);
             // Top Right: Licensor Entity Details (Right aligned, Google style)
             let entityY = 48;
-            doc.fillColor('#202124').fontSize(8.5).font(fontBold).text('Famalth Technologies Inc.', rightX, entityY, { align: 'right', width: rightW });
+            doc.fillColor('#202124').fontSize(8.5).font(fontBold).text('Famalth Technologies', rightX, entityY, { align: 'right', width: rightW });
             entityY += 12;
             doc.fillColor('#5F6368').fontSize(8).font(fontRegular);
-            doc.text('Enterprise Cloud POS & Architecture', rightX, entityY, { align: 'right', width: rightW });
+            doc.text('Famalth Lynx Enterprise Retail Platform', rightX, entityY, { align: 'right', width: rightW });
             entityY += 11;
-            doc.text('Gordon House, Connaught Place', rightX, entityY, { align: 'right', width: rightW });
+            doc.text('Dehradun, Uttarakhand 248001', rightX, entityY, { align: 'right', width: rightW });
             entityY += 11;
-            doc.text('New Delhi 110001, India', rightX, entityY, { align: 'right', width: rightW });
+            doc.text('India', rightX, entityY, { align: 'right', width: rightW });
             entityY += 11;
             const licensorTaxId = country.toLowerCase().includes('india') ? 'GSTIN: 07AAAAF1234A1Z5' : 'Corporate Tax ID: 82-4910284';
             doc.text(`${licensorTaxId} • CIN: U72900DL2022PTC123456`, rightX, entityY, { align: 'right', width: rightW });

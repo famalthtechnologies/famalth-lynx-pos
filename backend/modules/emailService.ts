@@ -163,7 +163,7 @@ async function sendViaGmailOAuthApi(
     console.log(`[GMAIL API] Fetching OAuth2 access token for ${user}...`);
     const accessToken = await getGmailAccessToken(clientId, clientSecret, refreshToken);
 
-    const fromName = process.env.EMAIL_FROM || `System Admin <${user}>`;
+    const fromName = process.env.EMAIL_FROM || `Famalth Lynx <${user}>`;
     const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
     const messageParts = [
         `From: ${fromName}`,
@@ -213,14 +213,21 @@ async function sendViaGmailOAuthApi(
     });
 }
 
-async function sendViaResendApi(apiKey: string, to: string, subject: string, htmlContent: string): Promise<boolean> {
-    const fromAddress = process.env.EMAIL_FROM || "Retail POS <onboarding@resend.dev>";
-    const postData = JSON.stringify({
+async function sendViaResendApi(apiKey: string, to: string, subject: string, htmlContent: string, attachments?: any[]): Promise<boolean> {
+    const fromAddress = process.env.EMAIL_FROM || "Famalth Lynx <onboarding@resend.dev>";
+    const postPayload: any = {
         from: fromAddress,
         to: [to],
         subject: subject,
         html: htmlContent
-    });
+    };
+    if (attachments && attachments.length > 0) {
+        postPayload.attachments = attachments.map(a => ({
+            filename: a.filename,
+            content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : (typeof a.content === 'string' ? Buffer.from(a.content).toString('base64') : a.content)
+        }));
+    }
+    const postData = JSON.stringify(postPayload);
 
     return new Promise((resolve, reject) => {
         const req = https.request({
@@ -252,13 +259,63 @@ async function sendViaResendApi(apiKey: string, to: string, subject: string, htm
 }
 
 /**
+ * Injects Google-style unsubscribe footer and Famalth Lynx branding into every email
+ * Product Name: Famalth Lynx
+ * Company Name: Famalth Technologies
+ * Address: Dehradun, Uttarakhand 248001
+ */
+export function injectFamalthLynxFooter(htmlContent: string, recipientEmail?: string): string {
+    const appBaseUrl = process.env.APP_URL || process.env.PUBLIC_URL || 'http://localhost:5000';
+    const emailParam = encodeURIComponent(recipientEmail || '');
+    const unsubscribeUrl = `${appBaseUrl}/api/v1/unsubscribe?email=${emailParam}`;
+
+    // Prevent duplicate injection
+    if (
+        htmlContent.includes('unsubscribe-footer-famalth-lynx') ||
+        (htmlContent.includes('Dehradun, Uttarakhand 248001') && htmlContent.includes('unsubscribe'))
+    ) {
+        return htmlContent;
+    }
+
+    const footerHtml = `
+      <div class="unsubscribe-footer-famalth-lynx" style="margin-top: 36px; padding: 24px 16px 16px 16px; text-align: center; color: #5f6368; font-size: 11.5px; line-height: 1.6; font-family: 'Google Sans', Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; border-top: 1px solid #e8eaed; max-width: 600px; margin-left: auto; margin-right: auto;">
+        <p style="margin: 0 0 6px 0; color: #5f6368;">
+          You've received this email to let you know about important changes to your <strong>Famalth Lynx</strong> Account and services.
+        </p>
+        <p style="margin: 0 0 6px 0; color: #5f6368;">
+          If you want to stop receiving these emails, you can <a href="${unsubscribeUrl}" style="color: #1a73e8; text-decoration: underline;">unsubscribe</a>.<br/>
+          Even if you unsubscribe from these emails, you'll continue to receive security alerts.
+        </p>
+        <p style="margin: 10px 0 0 0; color: #80868b; font-size: 11px;">
+          © 2026 Famalth Technologies, Dehradun, Uttarakhand 248001
+        </p>
+      </div>
+    `;
+
+    if (htmlContent.includes('</body>')) {
+        return htmlContent.replace('</body>', `${footerHtml}</body>`);
+    }
+
+    return `${htmlContent}\n${footerHtml}`;
+}
+
+/**
  * Core function to send any generic email
  */
-export async function sendEmail(to: string, subject: string, htmlContent: string): Promise<any> {
+export async function sendEmail(
+    to: string, 
+    subject: string, 
+    htmlContent: string, 
+    attachments?: Array<{ filename: string; content?: any; path?: string; contentType?: string }>
+): Promise<any> {
+    // Automatically guarantee Google-style Famalth Lynx footer & unsubscribe link in EVERY email
+    htmlContent = injectFamalthLynxFooter(htmlContent, to);
+
     const emailUser = process.env.EMAIL_USER || process.env.EMAIL_ID || (sysConfig ? sysConfig.emailId : null);
     const emailPass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD || (sysConfig ? sysConfig.emailPass : null);
     const emailHost = process.env.EMAIL_HOST || 'smtp.gmail.com';
     const emailPort = Number(process.env.EMAIL_PORT) || 587;
+    const fromSender = process.env.EMAIL_FROM || `"Famalth Lynx" <${emailUser}>`;
 
     const secEnv = (process.env.EMAIL_SECURITY || process.env.EMAIL_SECURE_MODE || '').toString().trim().toUpperCase();
     const isSecureBool = process.env.EMAIL_SECURE === 'true' || process.env.EMAIL_SECURE === '1' || emailPort === 465 || secEnv === 'SSL';
@@ -303,12 +360,16 @@ export async function sendEmail(to: string, subject: string, htmlContent: string
         console.log(`[EMAIL MODE] Sending strictly via Standard SMTP to ${to}...`);
         const transporter = getTransporter();
         if (!transporter) throw new Error("Could not initialize SMTP transporter.");
-        const info = await transporter.sendMail({
-            from: `"System Admin" <${emailUser}>`,
+        const mailOptions: any = {
+            from: fromSender,
             to: to,
             subject: subject,
             html: htmlContent
-        });
+        };
+        if (attachments && attachments.length > 0) {
+            mailOptions.attachments = attachments;
+        }
+        const info = await transporter.sendMail(mailOptions);
         console.log(`[EMAIL SMTP SUCCESS] Sent to ${to}: ${info.messageId}`);
         return true;
     }
@@ -318,12 +379,16 @@ export async function sendEmail(to: string, subject: string, htmlContent: string
         const transporter = getTransporter();
         if (transporter) {
             try {
-                const info = await transporter.sendMail({
-                    from: `"System Admin" <${emailUser}>`,
+                const mailOptions: any = {
+                    from: fromSender,
                     to: to,
                     subject: subject,
                     html: htmlContent
-                });
+                };
+                if (attachments && attachments.length > 0) {
+                    mailOptions.attachments = attachments;
+                }
+                const info = await transporter.sendMail(mailOptions);
                 console.log(`[EMAIL SMTP SUCCESS] Sent to ${to}: ${info.messageId}`);
                 return true;
             } catch (smtpErr: any) {
@@ -334,12 +399,16 @@ export async function sendEmail(to: string, subject: string, htmlContent: string
                     try {
                         const fallbackTransporter = getTransporter(465);
                         if (fallbackTransporter) {
-                            const info = await fallbackTransporter.sendMail({
-                                from: `"System Admin" <${emailUser}>`,
+                            const fallbackMailOptions: any = {
+                                from: fromSender,
                                 to: to,
                                 subject: subject,
                                 html: htmlContent
-                            });
+                            };
+                            if (attachments && attachments.length > 0) {
+                                fallbackMailOptions.attachments = attachments;
+                            }
+                            const info = await fallbackTransporter.sendMail(fallbackMailOptions);
                             console.log(`[EMAIL SUCCESS via Port 465] Sent to ${to}: ${info.messageId}`);
                             return true;
                         }
@@ -354,7 +423,7 @@ export async function sendEmail(to: string, subject: string, htmlContent: string
     // Secondary Fallback if SMTP fails/not configured in AUTO mode
     if (process.env.RESEND_API_KEY) {
         try {
-            return await sendViaResendApi(process.env.RESEND_API_KEY, to, subject, htmlContent);
+            return await sendViaResendApi(process.env.RESEND_API_KEY, to, subject, htmlContent, attachments);
         } catch (resendErr: any) {
             console.error(`[EMAIL RESEND ERROR] ${resendErr?.message || resendErr}`);
         }
@@ -374,17 +443,20 @@ export async function sendEmail(to: string, subject: string, htmlContent: string
 export async function sendOtpEmail(to: string, otpCode: string, purpose: string = "Verification Request"): Promise<any> {
     console.log(`🔑 [OTP GENERATED] Target: ${to} | Verification Code: ${otpCode}`);
     const html = `
-        <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #eee; border-radius: 8px;">
-            <h2 style="color: #333;">${purpose}</h2>
-            <p style="color: #555;">You recently made a request that requires verification. Your 6-digit code is:</p>
-            <div style="background-color: #f4f7f6; padding: 15px; text-align: center; border-radius: 6px; margin: 20px 0;">
-                <h1 style="color: #0056b3; letter-spacing: 5px; margin: 0;">${otpCode}</h1>
+        <div style="font-family: 'Google Sans', Roboto, Arial, sans-serif; padding: 24px; max-width: 600px; margin: 0 auto; border: 1px solid #e8eaed; border-radius: 8px; background: #ffffff;">
+            <div style="margin-bottom: 20px;">
+                <h2 style="color: #202124; margin: 0 0 6px 0; font-size: 20px; font-weight: 600;">Famalth Lynx</h2>
+                <h3 style="color: #3c4043; margin: 0; font-size: 15px; font-weight: 500;">${purpose}</h3>
             </div>
-            <p style="color: #777; font-size: 12px;"><i>This code expires in 10 minutes. If you did not request this, please change your password immediately.</i></p>
+            <p style="color: #3c4043; font-size: 14px; line-height: 1.5;">You recently made a request for your <strong>Famalth Lynx</strong> account that requires verification. Your 6-digit code is:</p>
+            <div style="background-color: #f8f9fa; padding: 18px; text-align: center; border-radius: 8px; border: 1px solid #dadce0; margin: 20px 0;">
+                <h1 style="color: #1a73e8; letter-spacing: 6px; margin: 0; font-size: 32px; font-family: monospace;">${otpCode}</h1>
+            </div>
+            <p style="color: #5f6368; font-size: 12.5px; line-height: 1.5;"><i>This code expires in 10 minutes. If you did not initiate this request, please change your Famalth Lynx password immediately.</i></p>
         </div>
     `;
     try {
-        await sendEmail(to, `Your Verification Code: ${otpCode}`, html);
+        await sendEmail(to, `Your Famalth Lynx Verification Code: ${otpCode}`, html);
     } catch (err: any) {
         console.warn(`⚠️ [EMAIL NOTICE] Could not send OTP email to ${to}: ${err.message}. Use OTP: ${otpCode} from logs.`);
     }
@@ -396,17 +468,20 @@ export async function sendOtpEmail(to: string, otpCode: string, purpose: string 
  */
 export async function sendPasswordResetEmail(to: string, resetLink: string, username: string): Promise<any> {
     const html = `
-        <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #eee; border-radius: 8px;">
-            <h2 style="color: #333;">Password Reset Request</h2>
-            <p style="color: #555;">Hello <b>${username}</b>,</p>
-            <p style="color: #555;">We received a request to reset the password for your local admin account. Click the button below to set a new password:</p>
-            <div style="text-align: center; margin: 30px 0;">
-                <a href="${resetLink}" style="background-color: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Password</a>
+        <div style="font-family: 'Google Sans', Roboto, Arial, sans-serif; padding: 24px; max-width: 600px; margin: 0 auto; border: 1px solid #e8eaed; border-radius: 8px; background: #ffffff;">
+            <div style="margin-bottom: 20px;">
+                <h2 style="color: #202124; margin: 0 0 6px 0; font-size: 20px; font-weight: 600;">Famalth Lynx</h2>
+                <h3 style="color: #3c4043; margin: 0; font-size: 15px; font-weight: 500;">Password Reset Request</h3>
             </div>
-            <p style="color: #777; font-size: 12px;"><i>If the button doesn't work, copy and paste this link: <br>${resetLink}</i></p>
+            <p style="color: #3c4043; font-size: 14px;">Hello <b>${username}</b>,</p>
+            <p style="color: #3c4043; font-size: 14px; line-height: 1.5;">We received a request to reset the password for your <strong>Famalth Lynx</strong> admin account. Click the button below to set a new password:</p>
+            <div style="text-align: center; margin: 28px 0;">
+                <a href="${resetLink}" style="background-color: #1a73e8; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; display: inline-block;">Reset Password</a>
+            </div>
+            <p style="color: #5f6368; font-size: 12px;"><i>If the button doesn't work, copy and paste this link in your browser: <br>${resetLink}</i></p>
         </div>
     `;
-    return await sendEmail(to, "Reset Your Account Password", html);
+    return await sendEmail(to, "Famalth Lynx - Reset Your Account Password", html);
 }
 
 /**
@@ -414,12 +489,14 @@ export async function sendPasswordResetEmail(to: string, resetLink: string, user
  */
 export async function sendSystemAlert(to: string, alertMessage: string): Promise<any> {
     const html = `
-        <div style="font-family: sans-serif; padding: 20px; border-left: 4px solid #dc3545; background-color: #fff3f3;">
-            <h3 style="color: #dc3545; margin-top: 0;">System Alert</h3>
-            <p style="color: #333;">${alertMessage}</p>
+        <div style="font-family: 'Google Sans', Roboto, Arial, sans-serif; padding: 24px; max-width: 600px; margin: 0 auto; border: 1px solid #e8eaed; border-radius: 8px; background: #ffffff;">
+            <div style="border-left: 4px solid #d93025; background-color: #fce8e6; padding: 16px 20px; border-radius: 0 6px 6px 0;">
+                <h3 style="color: #c5221f; margin-top: 0; font-size: 17px;">Famalth Lynx System Alert</h3>
+                <p style="color: #202124; margin: 0; font-size: 14px; line-height: 1.5;">${alertMessage}</p>
+            </div>
         </div>
     `;
-    return await sendEmail(to, "Important System Alert", html);
+    return await sendEmail(to, "Important Famalth Lynx System Alert", html);
 }
 
 export async function sendUsernameRecoveryEmail(to: string, usernames: string[], outletName: string): Promise<any> {
@@ -428,41 +505,47 @@ export async function sendUsernameRecoveryEmail(to: string, usernames: string[],
         .filter(un => un.length > 0 && un.toLowerCase() !== 'undefined' && un.toLowerCase() !== 'null');
 
     const finalUsernames = validUsernames.length > 0 ? validUsernames : [to.split('@')[0]];
-    const usernameListHtml = finalUsernames.map(un => `<li style="font-size: 16px; font-weight: bold; color: #0056b3; margin-bottom: 5px;">${un}</li>`).join('');
+    const usernameListHtml = finalUsernames.map(un => `<li style="font-size: 16px; font-weight: bold; color: #1a73e8; margin-bottom: 5px; font-family: monospace;">${un}</li>`).join('');
 
     const html = `
-        <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #eee; border-radius: 8px;">
-            <h2 style="color: #333;">Username Recovery</h2>
-            <p style="color: #555;">We received a request to recover the usernames for <b>${outletName}</b>.</p>
-            <p style="color: #555;">Here are the active usernames associated with this account:</p>
-            <ul style="background-color: #f4f7f6; padding: 20px 40px; border-radius: 6px;">
+        <div style="font-family: 'Google Sans', Roboto, Arial, sans-serif; padding: 24px; max-width: 600px; margin: 0 auto; border: 1px solid #e8eaed; border-radius: 8px; background: #ffffff;">
+            <div style="margin-bottom: 20px;">
+                <h2 style="color: #202124; margin: 0 0 6px 0; font-size: 20px; font-weight: 600;">Famalth Lynx</h2>
+                <h3 style="color: #3c4043; margin: 0; font-size: 15px; font-weight: 500;">Username Recovery</h3>
+            </div>
+            <p style="color: #3c4043; font-size: 14px;">We received a request to recover the active usernames for <b>${outletName}</b>.</p>
+            <p style="color: #3c4043; font-size: 14px;">Here are the active usernames associated with your <strong>Famalth Lynx</strong> account:</p>
+            <ul style="background-color: #f8f9fa; padding: 20px 40px; border-radius: 8px; border: 1px solid #dadce0;">
                 ${usernameListHtml}
             </ul>
-            <p style="color: #777; font-size: 12px; margin-top: 20px;"><i>If you did not request this, you can safely ignore this email.</i></p>
+            <p style="color: #5f6368; font-size: 12px; margin-top: 20px;"><i>If you did not request this, you can safely ignore this email.</i></p>
         </div>
     `;
-    return await sendEmail(to, "Your Recovered Usernames", html);
+    return await sendEmail(to, "Your Recovered Famalth Lynx Usernames", html);
 }
 
 export async function sendOutletRecoveryEmail(to: string, outlets: any[]): Promise<any> {
     const outletListHtml = outlets.map(o => `
-        <li style="margin-bottom: 10px;">
-            <b>${o.property_name}</b> <br>
-            <span style="color: #0056b3; font-family: monospace; font-size: 16px;">${o.outlet_code}</span>
+        <li style="margin-bottom: 12px;">
+            <b style="color: #202124; font-size: 14px;">${o.property_name}</b> <br>
+            <span style="color: #1a73e8; font-family: monospace; font-size: 15px; font-weight: 600;">${o.outlet_code}</span>
         </li>
     `).join('');
 
     const html = `
-        <div style="font-family: sans-serif; padding: 20px; max-width: 600px; border: 1px solid #eee; border-radius: 8px;">
-            <h2 style="color: #333;">Outlet Recovery</h2>
-            <p style="color: #555;">We found the following outlets registered to your email address:</p>
-            <ul style="background-color: #f4f7f6; padding: 20px 40px; border-radius: 6px;">
+        <div style="font-family: 'Google Sans', Roboto, Arial, sans-serif; padding: 24px; max-width: 600px; margin: 0 auto; border: 1px solid #e8eaed; border-radius: 8px; background: #ffffff;">
+            <div style="margin-bottom: 20px;">
+                <h2 style="color: #202124; margin: 0 0 6px 0; font-size: 20px; font-weight: 600;">Famalth Lynx</h2>
+                <h3 style="color: #3c4043; margin: 0; font-size: 15px; font-weight: 500;">Outlet Recovery</h3>
+            </div>
+            <p style="color: #3c4043; font-size: 14px;">We found the following <strong>Famalth Lynx</strong> outlets registered to your email address:</p>
+            <ul style="background-color: #f8f9fa; padding: 20px 40px; border-radius: 8px; border: 1px solid #dadce0; list-style-type: square;">
                 ${outletListHtml}
             </ul>
-            <p style="color: #777; font-size: 12px; margin-top: 20px;"><i>Please keep these codes secure.</i></p>
+            <p style="color: #5f6368; font-size: 12px; margin-top: 20px;"><i>Please keep these codes secure.</i></p>
         </div>
     `;
-    return await sendEmail(to, "Your Recovered Outlet Codes", html);
+    return await sendEmail(to, "Your Recovered Famalth Lynx Outlet Codes", html);
 }
 
 export async function sendOutletRegistrationEmail(
@@ -544,11 +627,11 @@ export async function sendOutletRegistrationEmail(
                                 <tr>
                                     <td>
                                         <div style="font-size: 18px; font-weight: 600; color: #202124; letter-spacing: -0.3px;">
-                                            Famalth <span style="color: #1a73e8; font-weight: 600;">Retail</span>
+                                            Famalth <span style="color: #1a73e8; font-weight: 600;">Lynx</span>
                                         </div>
                                     </td>
                                     <td align="right" style="font-size: 12px; color: #5f6368; font-weight: 500;">
-                                        Point of Sale
+                                        Enterprise Point of Sale
                                     </td>
                                 </tr>
                             </table>
@@ -560,11 +643,11 @@ export async function sendOutletRegistrationEmail(
                         <td class="content-padding" style="padding: 32px 32px 24px 32px; background-color: #ffffff;">
                             
                             <h1 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 500; color: #202124; line-height: 1.4;">
-                                Your outlet account is ready
+                                Your Famalth Lynx outlet account is ready
                             </h1>
                             
                             <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #3c4043;">
-                                An administrator account has been provisioned for <strong>${outletName}</strong>. You can now sign in to your POS terminal and management dashboard using the credentials below.
+                                An administrator account has been provisioned for <strong>${outletName}</strong>. You can now sign in to your Famalth Lynx POS terminal and management dashboard using the credentials below.
                             </p>
 
                             <!-- Credentials Box -->
@@ -640,7 +723,7 @@ export async function sendOutletRegistrationEmail(
                                 You received this notification because an outlet account was registered with this email address (${to}).
                             </p>
                             <p style="margin: 0; font-size: 12px; color: #80868b; line-height: 1.5;">
-                                Famalth Retail Lynx &bull; Automated System Notification
+                                Famalth Lynx &bull; Famalth Technologies
                             </p>
                         </td>
                     </tr>
@@ -654,7 +737,7 @@ export async function sendOutletRegistrationEmail(
     `;
     
     try {
-        await sendEmail(to, `Famalth POS credentials for ${outletName} (${outletCode})`, html);
+        await sendEmail(to, `Famalth Lynx credentials for ${outletName} (${outletCode})`, html);
     } catch (err: any) {
         console.warn(`[EMAIL NOTICE] Could not send registration email to ${to}: ${err.message}`);
     }

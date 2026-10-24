@@ -89,6 +89,7 @@ import { startWhatsappQueueJob } from './jobs/whatsappQueueJob';
 import { startRecurringExpensesJob } from './jobs/recurringExpensesJob';
 import { startNightAuditJob } from './jobs/nightAuditJob';
 import { startNotesReminderJob } from './jobs/notesReminderJob';
+import { startLicenseExpiryNotificationJob } from './jobs/licenseExpiryNotificationJob';
 import { syncClientsJsonToMaster } from './utils/masterSync';
 import { initSocketHub } from './services/socketHub.service';
 
@@ -482,6 +483,9 @@ if (!fs.existsSync(licensePath)) {
         // Start background Notes Reminder worker
         startNotesReminderJob(propertyDb);
 
+        // Start background License Expiry & 10-Day Renewal Invoice notification dispatcher
+        startLicenseExpiryNotificationJob(propertyDb);
+
         // Auto-sync client properties to Master Control Plane
         await syncClientsJsonToMaster(propertyDb);
 
@@ -536,6 +540,10 @@ app.use('/api/payments/mpesa', require('./routes/mpesa.routes'));
 app.use('/api/payments/gateways', require('./routes/paymentGateways.routes'));
 app.use('/api/marketplace', require('./routes/marketplace.routes'));
 app.use('/api/v1/control-plane', require('./routes/control_plane.routes'));
+
+// Google-style Unsubscribe Landing Route
+const { renderUnsubscribePage } = require('./controllers/public/unsubscribe.controller');
+app.get(['/unsubscribe', '/api/v1/unsubscribe', '/api/unsubscribe'], renderUnsubscribePage);
 
 // Web SPA static file serving (Only active if public/ directory exists)
 const webBuildPath = path.join(rootDir, 'public');

@@ -484,6 +484,10 @@ if (!fs.existsSync(licensePath)) {
         const { startNotesReminderJob } = require('./jobs/notesReminderJob');
         startNotesReminderJob(propertyDb);
 
+        // Start background License Expiry & 10-Day Renewal Invoice notification dispatcher
+        const { startLicenseExpiryNotificationJob } = require('./jobs/licenseExpiryNotificationJob');
+        startLicenseExpiryNotificationJob(propertyDb);
+
         // Auto-sync client properties to Master Control Plane
         const { syncClientsJsonToMaster } = require("./utils/masterSync");
         await syncClientsJsonToMaster(propertyDb);
@@ -540,6 +544,10 @@ app.use('/api/payments/mpesa', require('./routes/mpesa.routes'));
 app.use('/api/payments/gateways', require('./routes/paymentGateways.routes'));
 app.use('/api/marketplace', require('./routes/marketplace.routes'));
 app.use('/api/v1/control-plane', require('./routes/control_plane.routes'));
+
+// Google-style Unsubscribe Landing Route
+const { renderUnsubscribePage } = require('./controllers/public/unsubscribe.controller');
+app.get(['/unsubscribe', '/api/v1/unsubscribe', '/api/unsubscribe'], renderUnsubscribePage);
 
 
 // Web SPA static file serving (Only active if public/ directory exists)

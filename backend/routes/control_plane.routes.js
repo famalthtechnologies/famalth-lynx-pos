@@ -55,6 +55,7 @@ router.post('/relationship-managers', controlPlaneAuth_middleware_1.requireContr
 // 7. Client POS Status Check (License Countdown Banner & RM Profile - Called by Client POS)
 router.get('/license-and-rm-status', controlPlane_controller_1.default.getLicenseAndRMStatus);
 // 8. Invoices, Payments & Bulk Subscriptions
+router.post('/check-expiry-notices', controlPlaneAuth_middleware_1.requireControlPlaneAuth, controlPlane_controller_1.default.triggerExpiryAndRenewalNotices);
 router.post('/licenses/bulk-extend', controlPlaneAuth_middleware_1.requireControlPlaneAuth, (0, controlPlaneAuth_middleware_1.requireStaffRole)(['SUPER_ADMIN', 'RESELLER_ADMIN']), controlPlane_controller_1.default.bulkExtendSubscriptions);
 router.post('/licenses/approve-payment/:tenantId', controlPlaneAuth_middleware_1.requireControlPlaneAuth, (0, controlPlaneAuth_middleware_1.requireStaffRole)(['SUPER_ADMIN', 'RESELLER_ADMIN']), controlPlane_controller_1.default.approvePaymentAndExtend);
 router.get('/invoices/download/:tenantId', controlPlane_controller_1.default.downloadInvoicePdf);

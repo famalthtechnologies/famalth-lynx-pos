@@ -836,6 +836,19 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
         {'status': newStatus, 'reason': 'Toggled via Enterprise Master Control Panel'},
       );
       if (res != null && res['success'] == true) {
+        if (mounted) {
+          final isLocked = newStatus == 'SUSPENDED';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                isLocked
+                    ? 'Remote Kill-Switch activated! Security notice email dispatched to registered email.'
+                    : 'Client service reactivated! Service restoration email dispatched to registered email.',
+              ),
+              backgroundColor: isLocked ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+            ),
+          );
+        }
         _fetchTenants();
         _fetchOverview();
       }
@@ -1400,6 +1413,14 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                     'tax_percentage': double.tryParse(taxRateController.text),
                   },
                 );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Billing quota & pricing saved! Update email dispatched to ${tenant['contact_email'] ?? 'registered email'}.'),
+                      backgroundColor: const Color(0xFF0284C7),
+                    ),
+                  );
+                }
                 _fetchTenants();
               },
               child: const Text('Save Billing & Quota', style: TextStyle(color: Colors.white)),
@@ -1687,7 +1708,7 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                     });
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('License for ${tenant['legal_name']} extended to $expiryText! Client system updated.'),
+                        content: Text('License extended to $expiryText! Renewal confirmation email dispatched to ${tenant['contact_email'] ?? 'registered email'}.'),
                         backgroundColor: const Color(0xFF16A34A),
                       ),
                     );
@@ -1747,11 +1768,257 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                         '/api/v1/control-plane/tenants/${tenant['id']}/assign-rm',
                         {'rm_id': selectedRmId},
                       );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('RM assigned successfully! Introduction email dispatched to ${tenant['contact_email'] ?? 'registered email'}.'),
+                            backgroundColor: const Color(0xFF10B981),
+                          ),
+                        );
+                      }
                       _fetchTenants();
                     },
               child: const Text('Assign RM', style: TextStyle(color: Colors.white)),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _approvePaymentDialog(Map<String, dynamic> tenant) async {
+    final metrics = tenant['licenseMetrics'] ?? {};
+    final activeLic = ((tenant['licenses'] as List<dynamic>?)?.isNotEmpty == true)
+        ? (tenant['licenses'] as List<dynamic>).first
+        : {};
+    final initialValidTill = metrics['validTill'] ?? tenant['license_end_date'] ?? activeLic['valid_till'];
+    DateTime curExpiry = (initialValidTill != null)
+        ? (DateTime.tryParse(initialValidTill.toString())?.toLocal() ?? DateTime.now())
+        : DateTime.now();
+    final baseTime = curExpiry.isAfter(DateTime.now()) ? curExpiry : DateTime.now();
+
+    final defaultAmt = (tenant['subscription_amount'] ?? metrics['subtotal'] ?? activeLic['subscription_amount'] ?? 4999.00).toString();
+    final amountController = TextEditingController(text: defaultAmt);
+    int selectedExtendDays = 365;
+    final daysController = TextEditingController(text: '365');
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final days = int.tryParse(daysController.text.trim()) ?? selectedExtendDays;
+          final newExpiry = baseTime.add(Duration(days: days));
+          final newExpiryStr = "${newExpiry.year}-${newExpiry.month.toString().padLeft(2, '0')}-${newExpiry.day.toString().padLeft(2, '0')}";
+          final curExpiryStr = "${curExpiry.year}-${curExpiry.month.toString().padLeft(2, '0')}-${curExpiry.day.toString().padLeft(2, '0')}";
+
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            title: Row(
+              children: [
+                const Icon(Icons.paid_rounded, color: Color(0xFF059669), size: 24),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Approve Payment & Increase License: ${tenant['legal_name']}',
+                    style: const TextStyle(color: Color(0xFF0F172A), fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFBBF7D0)),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Client Code:', style: TextStyle(color: Color(0xFF166534), fontSize: 12, fontWeight: FontWeight.w600)),
+                              Text(tenant['client_code'] ?? '', style: const TextStyle(color: Color(0xFF166534), fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Current Expiry:', style: TextStyle(color: Color(0xFF166534), fontSize: 12, fontWeight: FontWeight.w600)),
+                              Text(curExpiryStr, style: const TextStyle(color: Color(0xFF166534), fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('New Expiry After Approval:', style: TextStyle(color: Color(0xFF059669), fontSize: 12, fontWeight: FontWeight.bold)),
+                              Text(
+                                '$newExpiryStr (+$days d)',
+                                style: const TextStyle(color: Color(0xFF047857), fontSize: 13.5, fontWeight: FontWeight.w800, fontFamily: 'monospace'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Amount Paid by Customer:', style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: amountController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.currency_rupee, size: 18),
+                        hintText: 'e.g. 4999.00',
+                        filled: true,
+                        fillColor: Color(0xFFF8FAFC),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Increase License Validity By:', style: TextStyle(color: Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _buildPresetDayButton(30, '30 Days', selectedExtendDays, (d) {
+                          setDialogState(() {
+                            selectedExtendDays = d;
+                            daysController.text = d.toString();
+                          });
+                        }),
+                        _buildPresetDayButton(90, '90 Days', selectedExtendDays, (d) {
+                          setDialogState(() {
+                            selectedExtendDays = d;
+                            daysController.text = d.toString();
+                          });
+                        }),
+                        _buildPresetDayButton(180, '180 Days', selectedExtendDays, (d) {
+                          setDialogState(() {
+                            selectedExtendDays = d;
+                            daysController.text = d.toString();
+                          });
+                        }),
+                        _buildPresetDayButton(365, '365 Days (1 Yr)', selectedExtendDays, (d) {
+                          setDialogState(() {
+                            selectedExtendDays = d;
+                            daysController.text = d.toString();
+                          });
+                        }),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: daysController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Or enter custom number of days to increase',
+                        filled: true,
+                        fillColor: Color(0xFFF8FAFC),
+                        suffixText: 'days',
+                      ),
+                      onChanged: (val) {
+                        setDialogState(() {
+                          selectedExtendDays = int.tryParse(val) ?? 0;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFFBFDBFE)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.mark_email_read_outlined, size: 18, color: Color(0xFF0284C7)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Automated confirmation email stating "Payment Done — License Increased by +$days Days" and attached Paid Tax Invoice PDF will be sent to ${tenant['contact_email'] ?? 'registered email'}.',
+                              style: const TextStyle(color: Color(0xFF1E40AF), fontSize: 11, fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF059669)),
+                icon: const Icon(Icons.check_circle_rounded, size: 16, color: Colors.white),
+                label: const Text('Confirm Payment & Increase License', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                onPressed: () async {
+                  final amt = double.tryParse(amountController.text.trim()) ?? 0;
+                  final extendDays = int.tryParse(daysController.text.trim()) ?? 365;
+
+                  Navigator.pop(ctx);
+                  final res = await ApiClient.post(
+                    '/api/v1/control-plane/licenses/approve-payment/${tenant['id']}',
+                    {
+                      'amount': amt,
+                      'extend_days': extendDays,
+                    },
+                  );
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        backgroundColor: const Color(0xFF059669),
+                        content: Text(res != null && res['message'] != null
+                            ? res['message'].toString()
+                            : 'Payment approved! License increased by $extendDays days and confirmation email sent to ${tenant['contact_email'] ?? 'registered email'}.'),
+                      ),
+                    );
+                  }
+                  _fetchTenants();
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPresetDayButton(int days, String label, int selectedDays, Function(int) onSelect) {
+    final isSelected = selectedDays == days;
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            backgroundColor: isSelected ? const Color(0xFFDCFCE7) : Colors.white,
+            side: BorderSide(color: isSelected ? const Color(0xFF16A34A) : const Color(0xFFE2E8F0), width: isSelected ? 1.5 : 1),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+          ),
+          onPressed: () => onSelect(days),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isSelected ? const Color(0xFF15803D) : const Color(0xFF475569),
+              fontWeight: FontWeight.bold,
+              fontSize: 10.5,
+            ),
+          ),
         ),
       ),
     );
@@ -3094,6 +3361,27 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                                           style: const TextStyle(color: Color(0xFF15803D), fontSize: 11, fontWeight: FontWeight.bold),
                                         ),
                                       ),
+                                      const SizedBox(width: 8),
+                                      Builder(builder: (_) {
+                                        final payStatus = tenant['payment_status'] ?? metrics['paymentStatus'] ?? activeLic['payment_status'] ?? 'PENDING';
+                                        final isPaid = payStatus.toString().toUpperCase() == 'PAID';
+                                        return Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: isPaid ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: isPaid ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A)),
+                                          ),
+                                          child: Text(
+                                            isPaid ? 'Payment: PAID' : 'Payment: PENDING',
+                                            style: TextStyle(
+                                              color: isPaid ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        );
+                                      }),
                                     ],
                                   ),
                                 ),
@@ -3383,6 +3671,16 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                                         onPressed: () => _quickExtendLicenseDialog(tenant),
                                         icon: const Icon(Icons.more_time_rounded, size: 16),
                                         label: const Text('Extend Expiry (Max 30d)'),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: const Color(0xFF059669),
+                                          side: const BorderSide(color: Color(0xFF059669)),
+                                        ),
+                                        onPressed: () => _approvePaymentDialog(tenant),
+                                        icon: const Icon(Icons.paid_outlined, size: 16),
+                                        label: const Text('Approve Payment (+Days)'),
                                       ),
                                       const SizedBox(width: 10),
                                       OutlinedButton.icon(

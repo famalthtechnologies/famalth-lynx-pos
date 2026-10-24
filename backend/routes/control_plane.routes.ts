@@ -65,6 +65,7 @@ router.post('/relationship-managers', requireControlPlaneAuth, requireStaffRole(
 router.get('/license-and-rm-status', ControlPlaneController.getLicenseAndRMStatus);
 
 // 8. Invoices, Payments & Bulk Subscriptions
+router.post('/check-expiry-notices', requireControlPlaneAuth, ControlPlaneController.triggerExpiryAndRenewalNotices);
 router.post('/licenses/bulk-extend', requireControlPlaneAuth, requireStaffRole(['SUPER_ADMIN', 'RESELLER_ADMIN']), ControlPlaneController.bulkExtendSubscriptions);
 router.post('/licenses/approve-payment/:tenantId', requireControlPlaneAuth, requireStaffRole(['SUPER_ADMIN', 'RESELLER_ADMIN']), ControlPlaneController.approvePaymentAndExtend);
 router.get('/invoices/download/:tenantId', ControlPlaneController.downloadInvoicePdf);

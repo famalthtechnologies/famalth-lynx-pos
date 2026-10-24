@@ -364,7 +364,7 @@ export class SupportConsoleController {
       if (req.body.send_email) {
         const toEmail = (req.body.recipient_email || resolvedEmail || '').trim();
         if (toEmail) {
-          const emailSubject = req.body.email_subject || `[${ticket.ticket_number}] Support Resolved: ${ticket.subject}`;
+          const emailSubject = req.body.email_subject || `Support Ticket #${ticket.ticket_number} Resolved: ${ticket.subject}`;
           const emailBody = req.body.email_body || `Dear Customer (${resolvedOutletCode}),\n\nYour support ticket #${ticket.ticket_number} ("${ticket.subject}") has been marked as RESOLVED by Central Support.\n\nResolution Summary:\n${ticket.resolution_summary}\n\nThank you for choosing Retail POS,\nCentral Enterprise Support Team`;
 
           const htmlContent = `
@@ -437,19 +437,20 @@ export class SupportConsoleController {
 
       const plain = (ticket as any).toJSON();
       const resolvedOutletCode = plain.outlet?.outlet_code || plain.client_telemetry?.outletCode || plain.tenant?.client_code || `OUTLET#${plain.outlet_id}`;
-      const emailSubject = (subject || `[${ticket.ticket_number}] Support Update: ${ticket.subject}`).trim();
+      const emailSubject = (subject || `Support Ticket #${ticket.ticket_number}: ${ticket.subject}`).trim();
       const emailBody = (message || '').trim();
 
       const htmlContent = `
         <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
           <div style="background-color: #0284c7; padding: 16px 20px; border-radius: 6px; color: #ffffff;">
-            <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Retail Support Desk</h2>
+            <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.8px; opacity: 0.9; margin-bottom: 4px;">Famalth Lynx Enterprise Support</div>
+            <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Support Desk Response</h2>
             <p style="margin: 4px 0 0 0; font-size: 13px; color: #e0f2fe;">Ticket #${ticket.ticket_number} • Outlet: ${resolvedOutletCode}</p>
           </div>
           <div style="padding: 24px 8px; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${emailBody}</div>
           <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; color: #64748b; font-size: 12px;">
-            <p style="margin: 0; font-weight: 600;">Central Support Desk & Control Automation</p>
-            <p style="margin: 4px 0 0 0;">This email was sent directly from the Central Support System.</p>
+            <p style="margin: 0; font-weight: 600;">Famalth Lynx Central Support & Operations</p>
+            <p style="margin: 4px 0 0 0;">This communication was sent directly from the Famalth Lynx Control System.</p>
           </div>
         </div>
       `;

@@ -11,6 +11,7 @@ const master_1 = __importDefault(require("../../models/master"));
 const socketHub_service_1 = require("../../services/socketHub.service");
 const emailService_1 = require("../../modules/emailService");
 const subscriptionInvoicePdf_service_1 = require("../../services/subscriptionInvoicePdf.service");
+const controlPlaneNotification_service_1 = __importDefault(require("../../services/controlPlaneNotification.service"));
 const { invalidateLicenseCache } = require('../public/licenseManager');
 const { ensureMasterDatabaseSync } = require('../../services/masterSync.service');
 const { MasterTenant, MasterOutlet, MasterLicense, MasterReseller, MasterRelationshipManager, MasterStaffUser, SupportTicket, MasterInvoice, MasterAnnouncement, } = (0, master_1.default)(propertyDb_1.default);
@@ -343,6 +344,7 @@ class ControlPlaneController {
             if (!tenant) {
                 return res.status(404).json({ success: false, message: 'Tenant not found.' });
             }
+            const previousStatus = tenant.status;
             tenant.status = status;
             await tenant.save();
             // If suspended or deactivated, set kill-switch on all child outlets
@@ -358,6 +360,15 @@ class ControlPlaneController {
                 status,
                 reason: reason || `Administrative update: ${status}`,
             });
+            // Dispatch security / access notice email to registered email only if status actually changed
+            if (previousStatus !== status) {
+                controlPlaneNotification_service_1.default.notifyKillSwitchToggled(
+                    tenant,
+                    tenant.legal_name,
+                    isKillSwitched,
+                    reason || `Tenant status updated to ${status}.`
+                ).catch((err) => console.error('[ASYNC NOTIFY KILL-SWITCH ERROR]', err.message));
+            }
             return res.json({
                 success: true,
                 message: `Tenant ${tenant.legal_name} status updated to ${status}.`,
@@ -393,6 +404,17 @@ class ControlPlaneController {
                 status: outlet.is_kill_switched ? 'KILL_SWITCHED' : (outlet.is_active ? 'ACTIVE' : 'INACTIVE'),
                 reason: reason || 'Administrative action applied to outlet.',
             });
+            // Dispatch security / access notice email to registered client
+            MasterTenant.findByPk(outlet.tenant_id).then((tenant) => {
+                if (tenant) {
+                    controlPlaneNotification_service_1.default.notifyKillSwitchToggled(
+                        tenant,
+                        outlet.outlet_name,
+                        Boolean(outlet.is_kill_switched),
+                        outlet.kill_switch_reason || reason || 'Outlet status updated.'
+                    ).catch((err) => console.error('[ASYNC NOTIFY OUTLET KILL-SWITCH ERROR]', err.message));
+                }
+            }).catch((e) => console.error('[FIND TENANT FOR OUTLET KILL-SWITCH ERROR]', e.message));
             return res.json({
                 success: true,
                 message: `Outlet ${outlet.outlet_name} updated successfully.`,
@@ -534,6 +556,49 @@ class ControlPlaneController {
             invalidateLicenseCache();
             // Broadcast quota expansion to client POS terminals in real time
             (0, socketHub_service_1.broadcastQuotaUpdated)(tenantId, license);
+
+            // On Extend Expiry or Customer Payment: Dispatch email notification to registered client
+            if (targetValidTill) {
+                const daysExtended = Math.ceil((targetValidTill.getTime() - baseTime) / 86400000);
+                if (daysExtended > 0) {
+                    if (payment_status === 'PAID') {
+                        MasterInvoice.findOne({
+                            where: { tenant_id: tenantId },
+                            order: [['created_at', 'DESC']],
+                        }).then((latestInv) => {
+                            controlPlaneNotification_service_1.default.notifyPaymentReceivedAndLicenseExtended(
+                                tenant,
+                                license,
+                                subscription_amount || license.subscription_amount,
+                                daysExtended,
+                                targetValidTill,
+                                latestInv
+                            ).catch((err) => console.error('[ASYNC NOTIFY PAYMENT EXTEND ERROR]', err.message));
+                        }).catch((err) => console.error('[FIND INVOICE ERROR]', err.message));
+                    } else {
+                        controlPlaneNotification_service_1.default.notifyLicenseExpiryExtended(
+                            tenant,
+                            license,
+                            daysExtended,
+                            targetValidTill
+                        ).catch((err) => console.error('[ASYNC NOTIFY EXTEND ERROR]', err.message));
+                    }
+                }
+            }
+
+            // On New Licenses Pricing / Quota Update: Dispatch email notification to registered client
+            if (
+                subscription_amount !== undefined ||
+                tax_percentage !== undefined ||
+                max_terminals !== undefined ||
+                max_outlets !== undefined ||
+                tier_name !== undefined
+            ) {
+                controlPlaneNotification_service_1.default.notifyLicensePricingUpdated(tenant, license).catch((err) =>
+                    console.error('[ASYNC NOTIFY PRICING ERROR]', err.message)
+                );
+            }
+
             const daysLeft = targetValidTill
                 ? Math.ceil((targetValidTill.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
                 : 0;
@@ -604,6 +669,25 @@ class ControlPlaneController {
                     }
                 }
                 (0, socketHub_service_1.broadcastQuotaUpdated)(lic.tenant_id, lic);
+
+                // Async notifications on extend expiry or new pricing
+                MasterTenant.findByPk(lic.tenant_id).then((t) => {
+                    if (t) {
+                        if (extend_validity === true && Number(extend_days) > 0) {
+                            controlPlaneNotification_service_1.default.notifyLicenseExpiryExtended(
+                                t,
+                                lic,
+                                Number(extend_days),
+                                lic.valid_till
+                            ).catch((e) => console.error('[ASYNC NOTIFY BULK EXTEND ERROR]', e.message));
+                        }
+                        if (subscription_amount !== undefined || amount_adjustment !== undefined || tax_percentage !== undefined) {
+                            controlPlaneNotification_service_1.default.notifyLicensePricingUpdated(t, lic).catch((e) =>
+                                console.error('[ASYNC NOTIFY BULK PRICING ERROR]', e.message)
+                            );
+                        }
+                    }
+                }).catch((e) => console.error('[FIND TENANT FOR BULK EXTEND ERROR]', e.message));
             }
             const daysMsg = (extend_validity === true && Number(extend_days) > 0) ? ` and extended validity by ${extend_days} days` : ' (license validity duration preserved)';
             invalidateLicenseCache();
@@ -642,6 +726,25 @@ class ControlPlaneController {
             // Invalidate license cache so client software immediately sees renewed license
             invalidateLicenseCache();
             (0, socketHub_service_1.broadcastQuotaUpdated)(tenantId, license);
+
+            // Notify client of payment receipt & license extension
+            MasterTenant.findByPk(tenantId).then(async (t) => {
+                if (t) {
+                    const latestInv = await MasterInvoice.findOne({
+                        where: { tenant_id: tenantId },
+                        order: [['created_at', 'DESC']],
+                    });
+                    controlPlaneNotification_service_1.default.notifyPaymentReceivedAndLicenseExtended(
+                        t,
+                        license,
+                        amount || license.subscription_amount,
+                        extend_days,
+                        license.valid_till,
+                        latestInv
+                    ).catch((e) => console.error('[ASYNC NOTIFY APPROVE PAYMENT ERROR]', e.message));
+                }
+            }).catch((e) => console.error('[FIND TENANT ERROR]', e.message));
+
             return res.json({
                 success: true,
                 message: `Payment of ₹${amount || license.subscription_amount} approved. License auto-extended to ${new Date(license.valid_till).toLocaleDateString()}.`,
@@ -1002,8 +1105,17 @@ class ControlPlaneController {
             if (!rm) {
                 return res.status(404).json({ success: false, message: 'Relationship Manager not found.' });
             }
+            const previousRmId = tenant.rm_id;
             tenant.rm_id = rm.id;
             await tenant.save();
+
+            // On Assign RM: Dispatch introductory email to registered client only if RM actually changed
+            if (previousRmId !== rm.id) {
+                controlPlaneNotification_service_1.default.notifyRelationshipManagerAssigned(tenant, rm).catch((err) =>
+                    console.error('[ASYNC NOTIFY RM ASSIGNED ERROR]', err.message)
+                );
+            }
+
             return res.json({
                 success: true,
                 message: `Assigned RM ${rm.full_name} to ${tenant.legal_name}.`,
@@ -1347,6 +1459,23 @@ class ControlPlaneController {
         }
         catch (err) {
             console.error('getAllOutlets error:', err);
+            return res.status(500).json({ success: false, message: err.message });
+        }
+    }
+    /**
+     * 12. Trigger Expiry & Renewal Email Notices manually
+     */
+    static async triggerExpiryAndRenewalNotices(req, res) {
+        try {
+            const result = await controlPlaneNotification_service_1.default.checkAndDispatchExpiryAndRenewalNotices(propertyDb_1.default);
+            return res.json({
+                success: true,
+                message: `Dispatched ${result.renewalCount} renewal invoice(s) and ${result.expiredCount} expiry alert(s).`,
+                data: result,
+            });
+        }
+        catch (err) {
+            console.error('triggerExpiryAndRenewalNotices error:', err);
             return res.status(500).json({ success: false, message: err.message });
         }
     }

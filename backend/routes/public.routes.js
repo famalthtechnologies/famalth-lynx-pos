@@ -78,4 +78,8 @@ router.post('/dining/place-order', diningCtrl.placeCustomerDiningOrder);
 router.post('/dining/pay-bill', diningCtrl.payCustomerDiningBill);
 router.post('/dining/call-waiter', diningCtrl.callTableWaiter);
 
+// Google-style Unsubscribe Landing Page
+const { renderUnsubscribePage } = require('../controllers/public/unsubscribe.controller');
+router.get('/unsubscribe', renderUnsubscribePage);
+
 module.exports = router;
