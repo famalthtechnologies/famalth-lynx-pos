@@ -30,6 +30,15 @@ try {
     }
 }
 
+// Global safety handlers to ensure background workers / crons never crash the process
+process.on('uncaughtException', (err: any) => {
+    console.error('⚠️ [PROCESS] Uncaught Exception caught safely:', err?.message || err);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+    console.error('⚠️ [PROCESS] Unhandled Rejection caught safely:', reason?.message || reason);
+});
+
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -223,8 +232,8 @@ if (!fs.existsSync(licensePath)) {
                 ADD COLUMN IF NOT EXISTS enable_token_system BOOLEAN DEFAULT FALSE,
                 ADD COLUMN IF NOT EXISTS token_copies_count INTEGER DEFAULT 1,
                 ADD COLUMN IF NOT EXISTS device_printer_mappings JSONB DEFAULT '{}',
-                ADD COLUMN IF NOT EXISTS base_currency_code VARCHAR(20) DEFAULT 'KES',
-                ADD COLUMN IF NOT EXISTS base_currency_symbol VARCHAR(20) DEFAULT 'KSh',
+                ADD COLUMN IF NOT EXISTS base_currency_code VARCHAR(20) DEFAULT 'USD',
+                ADD COLUMN IF NOT EXISTS base_currency_symbol VARCHAR(20) DEFAULT '$',
                 ADD COLUMN IF NOT EXISTS currency_symbol_position VARCHAR(20) DEFAULT 'BEFORE',
                 ADD COLUMN IF NOT EXISTS currency_decimals INTEGER DEFAULT 2,
                 ADD COLUMN IF NOT EXISTS receipt_template_config JSONB DEFAULT '{}',

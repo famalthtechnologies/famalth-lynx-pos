@@ -163,11 +163,11 @@ module.exports = (sequelize, DataTypes) => {
         },
         base_currency_code: {
             type: DataTypes.STRING(20),
-            defaultValue: 'KES'
+            defaultValue: 'USD'
         },
         base_currency_symbol: {
             type: DataTypes.STRING(20),
-            defaultValue: 'KSh'
+            defaultValue: '$'
         },
         currency_symbol_position: {
             type: DataTypes.STRING(20),

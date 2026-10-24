@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../core/api/api_client.dart';
@@ -36,9 +37,27 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
 
   Map<String, dynamic>? _activeTicket;
   List<dynamic> _messages = [];
+  List<dynamic> _onlineAgents = [];
+  Timer? _pollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchActiveAgents();
+    _checkExistingTicket();
+    // Auto-refresh chat every 3 seconds while dialog is open
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (_activeTicket != null && _activeTicket!['id'] != null) {
+        _pollTicketMessages(silent: true);
+      } else {
+        _fetchActiveAgents(silent: true);
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _subjectController.dispose();
     _messageController.dispose();
     _chatInputController.dispose();
@@ -46,12 +65,49 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
     super.dispose();
   }
 
+  Future<void> _fetchActiveAgents({bool silent = false}) async {
+    try {
+      final res = await ApiClient.get('/api/v1/control-plane/support/agents');
+      if (res != null && res['success'] == true && mounted) {
+        setState(() {
+          _onlineAgents = res['data'] ?? [];
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _checkExistingTicket() async {
+    try {
+      final res = await ApiClient.get('/api/v1/control-plane/support/tickets?outlet_id=${widget.outletId}');
+      if (res != null && res['success'] == true && mounted) {
+        final List<dynamic> tickets = res['data'] ?? [];
+        final openTickets = tickets.where((t) => t['status'] == 'OPEN' || t['status'] == 'IN_PROGRESS').toList();
+        if (openTickets.isNotEmpty) {
+          final latest = openTickets.first;
+          final details = await ApiClient.get('/api/v1/control-plane/support/tickets/${latest['id']}');
+          if (details != null && details['success'] == true && mounted) {
+            setState(() {
+              _activeTicket = details['data'];
+              _messages = details['data']?['messages'] ?? [];
+            });
+            _scrollToBottom();
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _submitTicket() async {
     final subject = _subjectController.text.trim();
     final message = _messageController.text.trim();
 
     if (subject.isEmpty) {
-      showErrorSnackbar('Please enter an issue subject');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter an issue subject'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
       return;
     }
 
@@ -110,6 +166,17 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
     final text = _chatInputController.text.trim();
     if (text.isEmpty || _activeTicket == null || _activeTicket!['id'] == null) return;
 
+    final status = (_activeTicket?['status'] ?? '').toString().toUpperCase();
+    if (status == 'CLOSED' || status == 'RESOLVED') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This ticket is closed. Please start a new ticket to contact support.'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSendingMessage = true);
 
     try {
@@ -133,17 +200,21 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
     }
   }
 
-  Future<void> _pollTicketMessages() async {
+  Future<void> _pollTicketMessages({bool silent = false}) async {
     if (_activeTicket == null || _activeTicket!['id'] == null || !mounted) return;
     try {
       final ticketId = _activeTicket!['id'].toString();
       final res = await ApiClient.get('/api/v1/control-plane/support/tickets/$ticketId');
       if (res != null && res['success'] == true && mounted) {
+        final freshMessages = res['data']?['messages'] as List<dynamic>? ?? [];
+        final previousCount = _messages.length;
         setState(() {
           _activeTicket = res['data'];
-          _messages = res['data']['messages'] ?? [];
+          _messages = freshMessages;
         });
-        _scrollToBottom();
+        if (freshMessages.length > previousCount) {
+          _scrollToBottom();
+        }
       }
     } catch (_) {}
   }
@@ -215,7 +286,97 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
               ),
             ],
           ),
-          const Divider(color: Color(0xFFE2E8F0), height: 28),
+          const Divider(color: Color(0xFFE2E8F0), height: 20),
+          // Active Online Support Engineers Banner
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _onlineAgents.any((a) => a['is_online'] == true)
+                  ? const Color(0xFFF0FDF4)
+                  : const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: _onlineAgents.any((a) => a['is_online'] == true)
+                    ? const Color(0xFF86EFAC)
+                    : const Color(0xFFFDE68A),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _onlineAgents.any((a) => a['is_online'] == true)
+                        ? const Color(0xFF22C55E)
+                        : const Color(0xFFF59E0B),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            _onlineAgents.any((a) => a['is_online'] == true)
+                                ? 'ACTIVE SUPPORT ENGINEERS ONLINE'
+                                : 'SUPPORT ENGINEERS QUEUE READY',
+                            style: TextStyle(
+                              color: _onlineAgents.any((a) => a['is_online'] == true)
+                                  ? const Color(0xFF166534)
+                                  : const Color(0xFF92400E),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: _onlineAgents.any((a) => a['is_online'] == true)
+                                  ? const Color(0xFFDCFCE7)
+                                  : const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '${_onlineAgents.where((a) => a['is_online'] == true).length} Online',
+                              style: TextStyle(
+                                color: _onlineAgents.any((a) => a['is_online'] == true)
+                                    ? const Color(0xFF15803D)
+                                    : const Color(0xFFB45309),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        _onlineAgents.any((a) => a['is_online'] == true)
+                            ? _onlineAgents
+                                .where((a) => a['is_online'] == true)
+                                .map((a) => '${a['full_name']} (${a['role_level'] ?? "L2"} Specialist)')
+                                .join(' • ')
+                            : 'All incoming tickets are monitored live and assigned to the next available specialist.',
+                        style: TextStyle(
+                          color: _onlineAgents.any((a) => a['is_online'] == true)
+                              ? const Color(0xFF15803D)
+                              : const Color(0xFF92400E),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           const Text('Issue Subject', style: TextStyle(color: Color(0xFF334155), fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
           TextField(
@@ -315,12 +476,14 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
   Widget _buildLiveChatView() {
     final agent = _activeTicket?['agent'];
     final ticketNumber = _activeTicket?['ticket_number'] ?? 'TCK-LIVE';
+    final status = (_activeTicket?['status'] ?? 'OPEN').toString().toUpperCase();
+    final isClosed = status == 'CLOSED' || status == 'RESOLVED';
 
     return Column(
       children: [
         // Header
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: const BoxDecoration(
             color: Color(0xFFF8FAFC),
             border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
@@ -328,30 +491,117 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
           ),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: const Color(0xFF16A34A),
-                child: const Icon(Icons.support_agent, color: Colors.white, size: 22),
+              Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: isClosed ? const Color(0xFF64748B) : const Color(0xFF16A34A),
+                    child: const Icon(Icons.support_agent, color: Colors.white, size: 22),
+                  ),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: isClosed ? const Color(0xFF94A3B8) : const Color(0xFF22C55E),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Ticket #$ticketNumber: ${_activeTicket?['subject']}',
-                      style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 14),
-                      overflow: TextOverflow.ellipsis,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'Ticket #$ticketNumber: ${_activeTicket?['subject']}',
+                            style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 14),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (isClosed)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: const Color(0xFFCBD5E1)),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.lock_rounded, size: 11, color: Color(0xFF64748B)),
+                                SizedBox(width: 4),
+                                Text('CLOSED', style: TextStyle(color: Color(0xFF475569), fontSize: 10, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFDCFCE7),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.sync, size: 10, color: Color(0xFF16A34A)),
+                                SizedBox(width: 3),
+                                Text('LIVE (3s)', style: TextStyle(color: Color(0xFF16A34A), fontSize: 9.5, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      agent != null
-                          ? 'Assigned: ${agent['full_name']} (${agent['role_level']} Specialist)'
-                          : 'Routing to available support staff...',
-                      style: const TextStyle(color: Color(0xFF0284C7), fontSize: 12, fontWeight: FontWeight.w500),
+                    Row(
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(shape: BoxShape.circle, color: isClosed ? const Color(0xFF94A3B8) : const Color(0xFF16A34A)),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          isClosed
+                              ? 'This ticket is closed. Further messages are locked.'
+                              : (agent != null
+                                  ? 'Assigned: ${agent['full_name']} (${agent['role_level'] ?? "L2"} Specialist) • Active Online'
+                                  : 'Routing to live online support engineer...'),
+                          style: TextStyle(color: isClosed ? const Color(0xFF64748B) : const Color(0xFF0284C7), fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ],
                     ),
                   ],
                 ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Color(0xFF0284C7), size: 20),
+                tooltip: 'Refresh Messages',
+                onPressed: () => _pollTicketMessages(),
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('New Ticket', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                style: TextButton.styleFrom(foregroundColor: const Color(0xFF0284C7)),
+                onPressed: () {
+                  setState(() {
+                    _activeTicket = null;
+                    _messages = [];
+                    _subjectController.clear();
+                    _messageController.clear();
+                  });
+                },
               ),
               IconButton(
                 icon: const Icon(Icons.close, color: Color(0xFF64748B)),
@@ -418,48 +668,88 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
           ),
         ),
 
-        // Input bar
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            border: Border(top: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
-            borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
+        // Input bar or Closed Locked banner
+        if (isClosed)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              border: Border(top: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.lock_outline, color: Color(0xFF64748B), size: 18),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Ticket is closed. Conversation is locked.',
+                    style: TextStyle(color: Color(0xFF475569), fontSize: 13, fontWeight: FontWeight.w500),
                   ),
-                  child: TextField(
-                    controller: _chatInputController,
-                    style: const TextStyle(color: Color(0xFF0F172A)),
-                    onSubmitted: (_) => _sendChatMessage(),
-                    decoration: const InputDecoration(
-                      hintText: 'Type your message or response...',
-                      hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 12),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Start New Ticket', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                  onPressed: () {
+                    setState(() {
+                      _activeTicket = null;
+                      _messages = [];
+                      _subjectController.clear();
+                      _messageController.clear();
+                    });
+                  },
+                ),
+              ],
+            ),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: TextField(
+                      controller: _chatInputController,
+                      style: const TextStyle(color: Color(0xFF0F172A)),
+                      onSubmitted: (_) => _sendChatMessage(),
+                      decoration: const InputDecoration(
+                        hintText: 'Type your message or response...',
+                        hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 12),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                icon: _isSendingMessage
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)))
-                    : const Icon(Icons.send_rounded, color: Color(0xFF0284C7)),
-                onPressed: _isSendingMessage ? null : _sendChatMessage,
-              ),
-            ],
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: _isSendingMessage
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)))
+                      : const Icon(Icons.send_rounded, color: Color(0xFF0284C7)),
+                  onPressed: _isSendingMessage ? null : _sendChatMessage,
+                ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }

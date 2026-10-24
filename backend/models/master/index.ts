@@ -54,6 +54,9 @@ export function initMasterModels(sequelize: Sequelize) {
   MasterTenant.hasMany(SupportTicket, { foreignKey: 'tenant_id', as: 'tickets' });
   SupportTicket.belongsTo(MasterTenant, { foreignKey: 'tenant_id', as: 'tenant' });
 
+  MasterOutlet.hasMany(SupportTicket, { foreignKey: 'outlet_id', as: 'tickets' });
+  SupportTicket.belongsTo(MasterOutlet, { foreignKey: 'outlet_id', as: 'outlet' });
+
   SupportAgent.hasMany(SupportTicket, { foreignKey: 'assigned_agent_id', as: 'assigned_tickets' });
   SupportTicket.belongsTo(SupportAgent, { foreignKey: 'assigned_agent_id', as: 'agent' });
 

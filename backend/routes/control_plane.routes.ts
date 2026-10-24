@@ -86,6 +86,7 @@ router.get('/support/tickets', SupportConsoleController.getTickets);
 router.get('/support/tickets/:id', SupportConsoleController.getTicketDetails);
 router.post('/support/tickets/:id/messages', SupportConsoleController.postMessage);
 router.post('/support/tickets/:id/resolve', requireControlPlaneAuth, SupportConsoleController.resolveTicket);
+router.post('/support/tickets/:id/send-email', requireControlPlaneAuth, SupportConsoleController.sendTicketEmail);
 
 // 2. Automated Diagnostic Error & Query Analyzer
 router.post('/support/analyze-error', requireControlPlaneAuth, SupportConsoleController.analyzeDiagnosticError);
@@ -94,8 +95,8 @@ router.post('/support/analyze-error', requireControlPlaneAuth, SupportConsoleCon
 router.post('/support/data-doctor/execute', requireControlPlaneAuth, requireStaffRole(['SUPER_ADMIN', 'DEVELOPER', 'SUPPORT_AGENT']), SupportConsoleController.executeDataDoctorQuery);
 router.get('/support/data-doctor/schema', requireControlPlaneAuth, SupportConsoleController.getSystemSchema);
 
-// 4. Support Agents
-router.get('/support/agents', requireControlPlaneAuth, SupportConsoleController.getSupportAgents);
+// 4. Support Agents (Public read for client helpdesk & master console; status changes staff authenticated)
+router.get('/support/agents', SupportConsoleController.getSupportAgents);
 router.patch('/support/agents/:id/status', requireControlPlaneAuth, SupportConsoleController.toggleAgentOnline);
 
 module.exports = router;

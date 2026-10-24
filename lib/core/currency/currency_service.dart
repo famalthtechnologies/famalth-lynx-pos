@@ -2,8 +2,8 @@ import 'package:intl/intl.dart';
 import '../../models/inventory/settings/system_settings_model.dart';
 
 class CurrencyService {
-  static String _symbol = 'KSh';
-  static String _code = 'KES';
+  static String _symbol = '\$';
+  static String _code = 'USD';
   static String _position = 'BEFORE'; // 'BEFORE' or 'AFTER'
   static int _decimals = 2;
 
@@ -22,8 +22,8 @@ class CurrencyService {
   }
 
   static void updateFromSettings(SystemSettings settings) {
-    _symbol = settings.baseCurrencySymbol.isNotEmpty ? settings.baseCurrencySymbol : 'KSh';
-    _code = settings.baseCurrencyCode.isNotEmpty ? settings.baseCurrencyCode : 'KES';
+    _symbol = settings.baseCurrencySymbol.isNotEmpty ? settings.baseCurrencySymbol : '\$';
+    _code = settings.baseCurrencyCode.isNotEmpty ? settings.baseCurrencyCode : 'USD';
     _position = settings.currencySymbolPosition;
     _decimals = settings.currencyDecimals;
   }

@@ -54,7 +54,7 @@ async function syncClientsJsonToMaster(db) {
                                 tax_identifier: item.tax_id || '',
                                 status: item.status || 'ACTIVE',
                                 pin_hash: item.pin || null,
-                                rm_id: defaultRm ? defaultRm.id : null,
+                                rm_id: item.rm_id || null,
                                 custom_metadata: {
                                     folderId: item.folderId || '',
                                     machine_id: item.machine_id || '',
@@ -155,7 +155,7 @@ async function syncClientsJsonToMaster(db) {
                             tax_identifier: rawOutlet.tax_id || '',
                             status: rawOutlet.is_active ? 'ACTIVE' : 'SUSPENDED',
                             pin_hash: rawOutlet.recovery_pin_hash || null,
-                            rm_id: defaultRm ? defaultRm.id : null,
+                            rm_id: null,
                             custom_metadata: {
                                 registered_via: 'LOCAL_DATABASE_SYNC',
                                 synced_at: new Date().toISOString()

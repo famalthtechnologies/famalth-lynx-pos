@@ -3645,7 +3645,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
 
                   // Remote Control Plane License & Telemetry
                   FutureBuilder<dynamic>(
-                    future: ApiClient.get('/api/v1/control-plane/license-and-rm-status'),
+                    future: ApiClient.get('/api/v1/control-plane/license-and-rm-status?outlet_code=${user?.outletCode ?? ""}'),
                     builder: (fCtx, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(
@@ -3670,20 +3670,138 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
                         );
                       }
 
+                      final hasRealLic = data['hasActiveLicense'] == true || (data['validTill'] != null && data['validTill'].toString().isNotEmpty);
                       final isPaid = data['paymentStatus'] == 'PAID';
-                      final daysLeft = data['daysLeft'] ?? 365;
-                      final validTill = data['validTill']?.toString().split('T').first ?? 'Active';
+                      final daysLeft = data['daysLeft'] ?? 0;
+                      final validTill = data['validTill']?.toString().split('T').first ?? (hasRealLic ? 'Active' : 'Unassigned');
                       final startDate = data['softwareStartDate']?.toString().split('T').first ?? 'Standard';
                       final nextPayDate = data['nextPaymentDate']?.toString().split('T').first ?? validTill;
-                      final totalAmount = data['totalPaymentAmount'] ?? 5898.82;
-                      final graceDays = data['gracePeriodDays'] ?? 15;
+                      final subtotal = data['subscriptionAmount'] ?? 0.0;
+                      final taxRate = data['taxPercentage'] ?? 0.0;
+                      final totalAmount = data['totalPaymentAmount'] ?? 0.0;
+                      final graceDays = data['gracePeriodDays'] ?? 0;
                       final rm = data['relationshipManager'] as Map<String, dynamic>?;
                       final supportAgent = data['assignedSupportAgent'] as Map<String, dynamic>?;
-                      final tenantId = data['tenant']?['id'];
+                      final tenantId = data['tenantId'] ?? data['tenant']?['id'];
+                      final resolvedOutletCode = (data['outletCode'] ?? user?.outletCode ?? '').toString();
+                      final legalName = (data['legalName'] ?? propertyName).toString();
+                      final contactEmail = (data['contactEmail'] ?? fullEmail).toString();
 
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // 1. Outlet & Registered Client Identity
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'REGISTERED CLIENT & OUTLET',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.5,
+                                        color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                      ),
+                                    ),
+                                    if (resolvedOutletCode.isNotEmpty)
+                                      InkWell(
+                                        borderRadius: BorderRadius.circular(6),
+                                        onTap: () {
+                                          Clipboard.setData(ClipboardData(text: resolvedOutletCode));
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Outlet Code "$resolvedOutletCode" copied!'),
+                                              duration: const Duration(seconds: 2),
+                                              backgroundColor: const Color(0xFF10B981),
+                                            ),
+                                          );
+                                        },
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.copy_rounded, size: 12, color: theme.colorScheme.primary),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Copy Code',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: theme.colorScheme.primary,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(Icons.storefront_rounded, size: 16, color: theme.colorScheme.primary),
+                                    const SizedBox(width: 6),
+                                    SelectableText(
+                                      resolvedOutletCode.isNotEmpty ? resolvedOutletCode : 'OUTLET-ASSIGNED',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                      ),
+                                    ),
+                                    if (legalName.isNotEmpty) ...[
+                                      const SizedBox(width: 8),
+                                      Text('•', style: TextStyle(color: isDark ? Colors.white38 : Colors.grey)),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          legalName,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: isDark ? Colors.white70 : const Color(0xFF334155),
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                if (contactEmail.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.email_outlined, size: 14, color: isDark ? Colors.white60 : const Color(0xFF64748B)),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: SelectableText(
+                                          contactEmail,
+                                          style: TextStyle(
+                                            fontSize: 11.5,
+                                            color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // 2. Subscription Terms Card
                           Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
@@ -3706,7 +3824,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
                                         border: Border.all(color: isPaid ? const Color(0xFF10B981) : const Color(0xFFF59E0B)),
                                       ),
                                       child: Text(
-                                        isPaid ? 'PAID' : 'PAYMENT PENDING',
+                                        isPaid ? 'PAID / ACTIVE' : 'PAYMENT PENDING',
                                         style: TextStyle(
                                           color: isPaid ? const Color(0xFF10B981) : const Color(0xFFD97706),
                                           fontSize: 10,
@@ -3719,14 +3837,19 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
                                 const SizedBox(height: 8),
                                 Text('• Software Start: $startDate', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
                                 Text('• License Renewal: $validTill ($daysLeft days remaining)', style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
-                                Text('• Next Payment: $nextPayDate (Amount: ₹$totalAmount)', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0284C7))),
+                                Text('• Next Payment Due: $nextPayDate', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0284C7))),
+                                if (subtotal > 0 || totalAmount > 0)
+                                  Text(
+                                    '• Admin Plan Amount: ₹$subtotal + GST ($taxRate%) = ₹$totalAmount',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
+                                  ),
                                 Text('• Grace Period: $graceDays Days after expiry', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                               ],
                             ),
                           ),
                           const SizedBox(height: 12),
 
-                          // Download Invoice Button
+                          // 3. Download Invoice Button
                           if (tenantId != null)
                             ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
@@ -3744,9 +3867,30 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
                             ),
                           const SizedBox(height: 14),
 
-                          // Assigned Relationship Manager
-                          if (rm != null) ...[
-                            const Text('Assigned Relationship Manager', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                          // 4. Assigned Relationship Manager (Only display when real RM is explicitly assigned by software owner)
+                          if (rm != null &&
+                              (rm['full_name'] != null || rm['fullName'] != null) &&
+                              (rm['full_name']?.toString().trim().isNotEmpty == true || rm['fullName']?.toString().trim().isNotEmpty == true) &&
+                              !((rm['full_name'] ?? rm['fullName'] ?? '').toString().toLowerCase().contains('amit')) &&
+                              rm['rm_code'] != 'RM-101') ...[
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Assigned Relationship Manager', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                                if (rm['rmCode'] != null || rm['rm_code'] != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      (rm['rmCode'] ?? rm['rm_code'] ?? '').toString(),
+                                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                                    ),
+                                  ),
+                              ],
+                            ),
                             const SizedBox(height: 6),
                             Container(
                               padding: const EdgeInsets.all(10),
@@ -3758,32 +3902,39 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
                               child: Row(
                                 children: [
                                   CircleAvatar(
-                                    radius: 16,
+                                    radius: 18,
                                     backgroundColor: const Color(0xFF10B981).withValues(alpha: 0.15),
-                                    child: const Icon(Icons.person, color: Color(0xFF10B981), size: 18),
+                                    child: const Icon(Icons.person, color: Color(0xFF10B981), size: 20),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(rm['full_name'] ?? 'Account Manager', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                                        Text((rm['full_name'] ?? rm['fullName'] ?? 'Account Manager').toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                                        if (rm['designation'] != null && rm['designation'].toString().isNotEmpty)
+                                          Text(
+                                            rm['designation'].toString(),
+                                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF059669)),
+                                          ),
                                         Text(rm['email'] ?? '', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                                       ],
                                     ),
                                   ),
-                                  if (rm['phone'] != null)
+                                  if (rm['phone'] != null && rm['phone'].toString().trim().isNotEmpty)
                                     IconButton(
                                       icon: const Icon(Icons.call, color: Color(0xFF10B981), size: 18),
                                       tooltip: 'Call RM',
                                       onPressed: () => launchUrl(Uri.parse('tel:${rm['phone']}')),
                                     ),
-                                  if (rm['whatsapp_number'] != null || rm['phone'] != null)
+                                  if ((rm['whatsappNumber'] != null && rm['whatsappNumber'].toString().trim().isNotEmpty) ||
+                                      (rm['whatsapp_number'] != null && rm['whatsapp_number'].toString().trim().isNotEmpty) ||
+                                      (rm['phone'] != null && rm['phone'].toString().trim().isNotEmpty))
                                     IconButton(
                                       icon: const Icon(Icons.chat_bubble_rounded, color: Color(0xFF22C55E), size: 18),
                                       tooltip: 'WhatsApp RM',
                                       onPressed: () {
-                                        final wa = (rm['whatsapp_number'] ?? rm['phone'] ?? '').toString().replaceAll('+', '').replaceAll(' ', '');
+                                        final wa = (rm['whatsappNumber'] ?? rm['whatsapp_number'] ?? rm['phone'] ?? '').toString().replaceAll('+', '').replaceAll(' ', '').replaceAll('-', '');
                                         launchUrl(Uri.parse('https://wa.me/$wa'), mode: LaunchMode.externalApplication);
                                       },
                                     ),

@@ -4437,10 +4437,7 @@ COMMIT;
           ADD COLUMN IF NOT EXISTS remote_control_status VARCHAR(30) DEFAULT 'ACTIVE';
 
         -- SEED INITIAL DATA IF NOT PRESENT
-        -- Default Relationship Manager
-        INSERT INTO master_relationship_managers (rm_code, full_name, email, phone, whatsapp_number, designation)
-        VALUES ('RM-101', 'Amit Sharma', 'rm.famalth@gmail.com', '+91 9876543210', '+919876543210', 'Principal Account Executive')
-        ON CONFLICT (rm_code) DO NOTHING;
+        -- No dummy RM seeded by default. Real RM is only shown if explicitly created and assigned by admin.
 
         -- Default Reseller
         INSERT INTO master_resellers (reseller_code, company_name, contact_name, email, phone, commission_rate, allocated_license_credits)

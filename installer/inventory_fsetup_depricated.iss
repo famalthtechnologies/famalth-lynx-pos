@@ -69,8 +69,6 @@ Filename: "{app}\FamalthLynx.exe"; WorkingDir: "{app}"; Flags: nowait postinstal
 ; Remove Firewall rule (ONLY if it was a Server)
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Famalth Lynx API Port 3000"""; Flags: runhidden; RunOnceId: "DelFwFamalth"; Components: backend
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Retailpos API Port 3000"""; Flags: runhidden; RunOnceId: "DelFwRetailpos"; Components: backend
-Filename: "{sys}\schtasks.exe"; Parameters: "/delete /tn ""FamalthLynx_Server"" /f"; Flags: runhidden; RunOnceId: "DelTaskFamalth"; Components: backend
-Filename: "{sys}\schtasks.exe"; Parameters: "/delete /tn ""INVINS_Server"" /f"; Flags: runhidden; RunOnceId: "DelTaskInvins"; Components: backend
 
 [Code]
 function NeedsVC: Boolean;
@@ -105,16 +103,12 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    // Safely delete legacy/existing tasks without crashing installer on permission issues
-    Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "INVINS_Server" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "FamalthLynx_Server" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-
-    // Register auto-start task only if backend server component was installed
-    if WizardIsComponentSelected('backend') then
-    begin
-      Exec(ExpandConstant('{sys}\schtasks.exe'),
-        '/create /tn "FamalthLynx_Server" /tr "wscript.exe \""' + ExpandConstant('{app}') + '\run_hidden.vbs\"""" /sc onlogon /rl highest /f',
-        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Auto-start is safely and reliably handled via the HKLM\Run registry entry.
+    // Suppress any external task scheduler errors so installer always succeeds.
+    try
+      Exec('cmd.exe', '/c schtasks /delete /tn "INVINS_Server" /f >nul 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Exec('cmd.exe', '/c schtasks /delete /tn "FamalthLynx_Server" /f >nul 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    except
     end;
   end;
 end;

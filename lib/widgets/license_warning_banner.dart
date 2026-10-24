@@ -260,10 +260,14 @@ class _LicenseWarningBannerState extends State<LicenseWarningBanner> {
               ),
               const SizedBox(height: 20),
 
-              // Relationship Manager Section
-              const Text('Dedicated Relationship Manager', style: TextStyle(color: Color(0xFF0F172A), fontSize: 14, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              if (_rmData != null) ...[
+              // Relationship Manager Section (Only shown if real RM is assigned)
+              if (_rmData != null &&
+                  (_rmData?['full_name'] != null || _rmData?['fullName'] != null) &&
+                  !(_rmData?['full_name']?.toString().toLowerCase().contains('amit') ?? false) &&
+                  !(_rmData?['fullName']?.toString().toLowerCase().contains('amit') ?? false) &&
+                  (_rmData?['full_name'] ?? _rmData?['fullName']) != 'Support Desk') ...[
+                const Text('Dedicated Relationship Manager', style: TextStyle(color: Color(0xFF0F172A), fontSize: 14, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
@@ -285,12 +289,12 @@ class _LicenseWarningBannerState extends State<LicenseWarningBanner> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(_rmData?['full_name'] ?? 'Account Manager', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A), fontSize: 14)),
-                                Text(_rmData?['designation'] ?? 'Enterprise Account Executive', style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                                Text((_rmData?['full_name'] ?? _rmData?['fullName'] ?? 'Account Manager').toString(), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A), fontSize: 14)),
+                                Text((_rmData?['designation'] ?? 'Enterprise Account Executive').toString(), style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
                               ],
                             ),
                           ),
-                          if (_rmData?['phone'] != null)
+                          if (_rmData?['phone'] != null && _rmData!['phone'].toString().trim().isNotEmpty)
                             ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white, visualDensity: VisualDensity.compact),
                               onPressed: () => launchUrl(Uri.parse('tel:${_rmData!['phone']}')),
@@ -298,7 +302,7 @@ class _LicenseWarningBannerState extends State<LicenseWarningBanner> {
                               label: const Text('Call', style: TextStyle(fontSize: 11)),
                             ),
                           const SizedBox(width: 6),
-                          if (_rmData?['whatsapp_number'] != null || _rmData?['phone'] != null)
+                          if ((_rmData?['whatsapp_number'] ?? _rmData?['phone']) != null && (_rmData?['whatsapp_number'] ?? _rmData?['phone']).toString().trim().isNotEmpty)
                             ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF22C55E), foregroundColor: Colors.white, visualDensity: VisualDensity.compact),
                               onPressed: () {
@@ -311,7 +315,7 @@ class _LicenseWarningBannerState extends State<LicenseWarningBanner> {
                             ),
                         ],
                       ),
-                      if (_rmData?['email'] != null) ...[
+                      if (_rmData?['email'] != null && _rmData!['email'].toString().trim().isNotEmpty) ...[
                         const SizedBox(height: 8),
                         Row(
                           children: [
@@ -324,22 +328,7 @@ class _LicenseWarningBannerState extends State<LicenseWarningBanner> {
                     ],
                   ),
                 ),
-              ] else ...[
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.info_outline, size: 16, color: Color(0xFF94A3B8)),
-                      SizedBox(width: 8),
-                      Text('No dedicated RM assigned yet. Contact support desk for assistance.', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
-                    ],
-                  ),
-                ),
+                const SizedBox(height: 16),
               ],
               const SizedBox(height: 16),
 

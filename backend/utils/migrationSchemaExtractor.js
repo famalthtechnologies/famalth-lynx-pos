@@ -356,6 +356,106 @@ function extractSchemaFromMigrations() {
     return cachedSchema;
 }
 
+async function extractSchemaFromDatabase(db) {
+    if (db && typeof db.query === 'function') {
+        try {
+            const [columns] = await db.query(`
+                SELECT 
+                  c.table_name,
+                  c.column_name,
+                  c.data_type,
+                  c.character_maximum_length,
+                  c.is_nullable,
+                  tc.constraint_type
+                FROM information_schema.columns c
+                LEFT JOIN information_schema.key_column_usage kcu
+                  ON c.table_name = kcu.table_name 
+                  AND c.column_name = kcu.column_name
+                  AND c.table_schema = kcu.table_schema
+                LEFT JOIN information_schema.table_constraints tc
+                  ON kcu.constraint_name = tc.constraint_name
+                  AND kcu.table_name = tc.table_name
+                  AND kcu.table_schema = tc.table_schema
+                WHERE c.table_schema = 'public'
+                ORDER BY c.table_name, c.ordinal_position;
+            `);
+
+            if (Array.isArray(columns) && columns.length > 0) {
+                const tablesMap = {};
+                const domainSet = new Set();
+                let totalCols = 0;
+
+                for (const col of columns) {
+                    const tName = col.table_name.toLowerCase();
+                    if (!tablesMap[tName]) {
+                        tablesMap[tName] = {
+                            tableName: tName,
+                            columns: [],
+                        };
+                    }
+
+                    const isPk = col.constraint_type === 'PRIMARY KEY' || col.column_name === 'id';
+                    const isFk = col.constraint_type === 'FOREIGN KEY' || col.column_name.endsWith('_id');
+                    const typeStr = col.character_maximum_length 
+                        ? `${col.data_type}(${col.character_maximum_length})`
+                        : col.data_type;
+
+                    tablesMap[tName].columns.push({
+                        name: col.column_name,
+                        type: (typeStr || 'TEXT').toUpperCase(),
+                        isPrimaryKey: isPk,
+                        isForeignKey: isFk,
+                        isNullable: col.is_nullable === 'YES',
+                        description: isPk ? 'Primary key identifier' : (isFk ? 'Foreign key pointer' : `${col.column_name} field`),
+                    });
+                    totalCols++;
+                }
+
+                const tableList = [];
+                for (const [tName, rawTable] of Object.entries(tablesMap)) {
+                    const curated = TABLE_BUSINESS_USES[tName];
+                    const displayName = curated ? curated.displayName : formatDisplayName(tName);
+                    const domain = curated ? curated.domain : resolveDomain(tName);
+                    const businessUse = curated ? curated.businessUse : generateBusinessUse(tName, domain);
+
+                    const hasOutletId = rawTable.columns.some((c) => c.name.toLowerCase() === 'outlet_id');
+                    const defaultQuery = hasOutletId
+                        ? `SELECT * FROM ${tName} WHERE outlet_id = 1 ORDER BY 1 DESC LIMIT 25;`
+                        : `SELECT * FROM ${tName} ORDER BY 1 DESC LIMIT 25;`;
+
+                    domainSet.add(domain);
+
+                    tableList.push({
+                        tableName: tName,
+                        displayName,
+                        domain,
+                        businessUse,
+                        defaultQuery,
+                        columnCount: rawTable.columns.length,
+                        columns: rawTable.columns,
+                    });
+                }
+
+                tableList.sort((a, b) => a.tableName.localeCompare(b.tableName));
+
+                return {
+                    totalTables: tableList.length,
+                    totalColumns: totalCols,
+                    domains: ['ALL', ...Array.from(domainSet).sort()],
+                    tables: tableList,
+                };
+            }
+        } catch (err) {
+            console.warn('⚠️ [SCHEMA_EXTRACTOR] Database query fallback:', err.message);
+        }
+    }
+
+    return extractSchemaFromMigrations();
+}
+
+exports.extractSchemaFromMigrations = extractSchemaFromMigrations;
+exports.extractSchemaFromDatabase = extractSchemaFromDatabase;
 exports.default = {
     extractSchemaFromMigrations,
+    extractSchemaFromDatabase,
 };

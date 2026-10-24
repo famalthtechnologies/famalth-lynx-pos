@@ -73,13 +73,14 @@ router.get('/support/tickets', supportConsole_controller_1.default.getTickets);
 router.get('/support/tickets/:id', supportConsole_controller_1.default.getTicketDetails);
 router.post('/support/tickets/:id/messages', supportConsole_controller_1.default.postMessage);
 router.post('/support/tickets/:id/resolve', controlPlaneAuth_middleware_1.requireControlPlaneAuth, supportConsole_controller_1.default.resolveTicket);
+router.post('/support/tickets/:id/send-email', controlPlaneAuth_middleware_1.requireControlPlaneAuth, supportConsole_controller_1.default.sendTicketEmail);
 // 2. Automated Diagnostic Error & Query Analyzer
 router.post('/support/analyze-error', controlPlaneAuth_middleware_1.requireControlPlaneAuth, supportConsole_controller_1.default.analyzeDiagnosticError);
 // 3. Sandboxed Data Doctor SQL Execution (Mandatory WHERE Clause Scoped to Client & Outlet)
 router.post('/support/data-doctor/execute', controlPlaneAuth_middleware_1.requireControlPlaneAuth, (0, controlPlaneAuth_middleware_1.requireStaffRole)(['SUPER_ADMIN', 'DEVELOPER', 'SUPPORT_AGENT']), supportConsole_controller_1.default.executeDataDoctorQuery);
 router.get('/support/data-doctor/schema', controlPlaneAuth_middleware_1.requireControlPlaneAuth, supportConsole_controller_1.default.getSystemSchema);
-// 4. Support Agents
-router.get('/support/agents', controlPlaneAuth_middleware_1.requireControlPlaneAuth, supportConsole_controller_1.default.getSupportAgents);
+// 4. Support Agents (Public read for client helpdesk & master console; status changes staff authenticated)
+router.get('/support/agents', supportConsole_controller_1.default.getSupportAgents);
 router.patch('/support/agents/:id/status', controlPlaneAuth_middleware_1.requireControlPlaneAuth, supportConsole_controller_1.default.toggleAgentOnline);
 module.exports = router;
 exports.default = router;

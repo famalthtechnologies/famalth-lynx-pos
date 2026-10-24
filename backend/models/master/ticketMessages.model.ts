@@ -9,6 +9,7 @@ export interface TicketMessageAttributes {
   message: string;
   diagnostic_payload?: any;
   attachments?: any;
+  is_read_by_support?: boolean;
   created_at?: Date;
 }
 
@@ -22,6 +23,7 @@ export default (sequelize: Sequelize) => {
     declare public message: string;
     declare public diagnostic_payload?: any;
     declare public attachments?: any;
+    declare public is_read_by_support?: boolean;
   }
 
   TicketMessage.init(
@@ -58,6 +60,10 @@ export default (sequelize: Sequelize) => {
       attachments: {
         type: DataTypes.JSONB,
         defaultValue: [],
+      },
+      is_read_by_support: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
       },
     },
     {

@@ -768,10 +768,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           label: const Text('Master & Child Outlets', style: TextStyle(fontWeight: FontWeight.bold)),
                         ),
                       ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: RelationshipManagerCard(),
-                      ),
+                      const RelationshipManagerCard(),
                     ],
                   ),
                   _customSection(

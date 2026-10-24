@@ -12,6 +12,7 @@ export interface SupportTicketAttributes {
   client_telemetry?: any;
   resolution_summary?: string;
   resolved_at?: Date;
+  last_read_by_support_at?: Date;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -29,6 +30,7 @@ export default (sequelize: Sequelize) => {
     declare public client_telemetry?: any;
     declare public resolution_summary?: string;
     declare public resolved_at?: Date;
+    declare public last_read_by_support_at?: Date;
   }
 
   SupportTicket.init(
@@ -76,6 +78,10 @@ export default (sequelize: Sequelize) => {
         allowNull: true,
       },
       resolved_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      last_read_by_support_at: {
         type: DataTypes.DATE,
         allowNull: true,
       },

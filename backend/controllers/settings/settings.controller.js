@@ -179,6 +179,10 @@ exports.getSettings = async (req, res) => {
                     enable_token_system: false,
                     token_copies_count: 1,
                     device_printer_mappings: {},
+                    base_currency_code: 'USD',
+                    base_currency_symbol: '$',
+                    currency_symbol_position: 'BEFORE',
+                    currency_decimals: 2,
                     restaurant_settlement_mode: 'DIRECT'
                 }
             });
@@ -273,8 +277,8 @@ exports.saveSettings = async (req, res) => {
             token_copies_count: req.body.token_copies_count ?? 1,
             kot_print_mode: req.body.kot_print_mode || 'DIRECT',
             enable_kot_print: req.body.enable_kot_print ?? true,
-            base_currency_code: req.body.base_currency_code || 'KES',
-            base_currency_symbol: req.body.base_currency_symbol || 'KSh',
+            base_currency_code: req.body.base_currency_code || 'USD',
+            base_currency_symbol: req.body.base_currency_symbol || '$',
             currency_symbol_position: req.body.currency_symbol_position || 'BEFORE',
             currency_decimals: req.body.currency_decimals ?? 2,
             payment_modes: req.body.payment_modes || existing?.payment_modes || [

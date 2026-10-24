@@ -136,13 +136,13 @@ class SystemSettingsController extends ChangeNotifier {
     }
     final localSymbol = await LocalPreferences.getBaseCurrencySymbol();
     if (localSymbol != null && localSymbol.isNotEmpty && settings != null) {
-      if (settings!.baseCurrencySymbol.isEmpty || (settings!.baseCurrencySymbol == 'KSh' && localSymbol != 'KSh')) {
+      if (settings!.baseCurrencySymbol.isEmpty || settings!.baseCurrencySymbol == 'KSh' || localSymbol != settings!.baseCurrencySymbol) {
         settings!.baseCurrencySymbol = localSymbol;
       }
     }
     final localCode = await LocalPreferences.getBaseCurrencyCode();
     if (localCode != null && localCode.isNotEmpty && settings != null) {
-      if (settings!.baseCurrencyCode.isEmpty || (settings!.baseCurrencyCode == 'KES' && localCode != 'KES')) {
+      if (settings!.baseCurrencyCode.isEmpty || settings!.baseCurrencyCode == 'KES' || localCode != settings!.baseCurrencyCode) {
         settings!.baseCurrencyCode = localCode;
       }
     }

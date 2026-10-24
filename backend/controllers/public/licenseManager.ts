@@ -109,12 +109,9 @@ async function verifyLicenseOnline(outletCode) {
             let licenseState = 'VALID';
             let message = 'License active';
 
-            if (daysRemaining < -graceDays) {
+            if (daysRemaining <= 0) {
                 licenseState = 'EXPIRED';
-                message = `Software license expired on ${expiryDate.toLocaleDateString()}. Grace period of ${graceDays} days has ended. Please renew payment to continue.`;
-            } else if (daysRemaining <= 0) {
-                licenseState = 'GRACE';
-                message = `Software license expired on ${expiryDate.toLocaleDateString()}. Operating under ${graceDays}-day grace buffer.`;
+                message = `Software license expired on ${expiryDate.toLocaleDateString()}. Please renew subscription to continue.`;
             } else if (daysRemaining <= (activeLic.warning_zone_days || 15)) {
                 licenseState = 'WARNING';
                 message = `Software license expires in ${daysRemaining} days on ${expiryDate.toLocaleDateString()}.`;

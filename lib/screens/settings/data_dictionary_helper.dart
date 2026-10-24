@@ -315,6 +315,307 @@ class SystemDataDictionary {
         DataDictionaryColumn(name: 'is_active', type: 'BOOLEAN', description: 'true = active tax slab; false = retired slab'),
       ],
     ),
+
+    // 11. supplier_master
+    DataDictionaryTable(
+      tableName: 'supplier_master',
+      displayName: 'Supplier Master (Vendors)',
+      domain: 'Purchases & Vendors',
+      icon: Icons.local_shipping_rounded,
+      businessUse: 'Vendor profiles, GSTIN numbers, contact details, payment terms, and opening debit/credit balances.',
+      defaultQuery: 'SELECT id, supplier_name, gstin, phone, email, balance, is_active FROM supplier_master LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Supplier primary key', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'supplier_name', type: 'VARCHAR(150)', description: 'Vendor company or trade name'),
+        DataDictionaryColumn(name: 'gstin', type: 'VARCHAR(20)', description: 'Tax registration number (GSTIN / VAT)'),
+        DataDictionaryColumn(name: 'phone', type: 'VARCHAR(30)', description: 'Contact phone number'),
+        DataDictionaryColumn(name: 'email', type: 'VARCHAR(150)', description: 'Email address'),
+        DataDictionaryColumn(name: 'balance', type: 'NUMERIC(12,2)', description: 'Outstanding payable balance'),
+        DataDictionaryColumn(name: 'is_active', type: 'BOOLEAN', description: 'true = active vendor; false = blacklisted/archived'),
+      ],
+    ),
+
+    // 12. supplier_bills
+    DataDictionaryTable(
+      tableName: 'supplier_bills',
+      displayName: 'Purchase Bills & Inward GRNs',
+      domain: 'Purchases & Vendors',
+      icon: Icons.inventory_rounded,
+      businessUse: 'Vendor purchase bills, GRN voucher numbers, taxable values, and payment status.',
+      defaultQuery: 'SELECT id, bill_number, supplier_id, total_amount, paid_amount, payment_status, bill_date FROM supplier_bills ORDER BY id DESC LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Bill primary key', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'supplier_id', type: 'BIGINT', description: 'Vendor pointer in supplier_master', isForeignKey: true),
+        DataDictionaryColumn(name: 'bill_number', type: 'VARCHAR(100)', description: 'Invoice/Bill number issued by supplier'),
+        DataDictionaryColumn(name: 'total_amount', type: 'NUMERIC(12,2)', description: 'Gross invoice payable value'),
+        DataDictionaryColumn(name: 'paid_amount', type: 'NUMERIC(12,2)', description: 'Total disbursed payments against this bill'),
+        DataDictionaryColumn(name: 'payment_status', type: 'VARCHAR(30)', description: 'PAID, PARTIAL, or PENDING'),
+        DataDictionaryColumn(name: 'bill_date', type: 'DATE', description: 'Invoice bill date'),
+      ],
+    ),
+
+    // 13. supplier_payments
+    DataDictionaryTable(
+      tableName: 'supplier_payments',
+      displayName: 'Vendor Payments',
+      domain: 'Purchases & Vendors',
+      icon: Icons.payments_rounded,
+      businessUse: 'Payment disbursements made to vendors against purchase bills, cheque/NEFT references, and bank accounts.',
+      defaultQuery: 'SELECT id, payment_number, supplier_id, amount, payment_mode, payment_date FROM supplier_payments ORDER BY id DESC LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Payment voucher ID', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'supplier_id', type: 'BIGINT', description: 'Vendor pointer', isForeignKey: true),
+        DataDictionaryColumn(name: 'payment_number', type: 'VARCHAR(100)', description: 'Internal payment voucher number'),
+        DataDictionaryColumn(name: 'amount', type: 'NUMERIC(12,2)', description: 'Payment settlement amount'),
+        DataDictionaryColumn(name: 'payment_mode', type: 'VARCHAR(50)', description: 'CASH, CHEQUE, NEFT, RTGS, UPI'),
+        DataDictionaryColumn(name: 'payment_date', type: 'DATE', description: 'Payment execution date'),
+      ],
+    ),
+
+    // 14. purchase_orders
+    DataDictionaryTable(
+      tableName: 'purchase_orders',
+      displayName: 'Purchase Orders (PO)',
+      domain: 'Purchases & Vendors',
+      icon: Icons.assignment_rounded,
+      businessUse: 'Procurement orders dispatched to suppliers before inward goods delivery.',
+      defaultQuery: 'SELECT id, po_number, supplier_id, total_amount, status, order_date FROM purchase_orders ORDER BY id DESC LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'PO primary key', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'po_number', type: 'VARCHAR(100)', description: 'Sequential PO reference (e.g. PO-2026-001)'),
+        DataDictionaryColumn(name: 'supplier_id', type: 'BIGINT', description: 'Supplier reference', isForeignKey: true),
+        DataDictionaryColumn(name: 'total_amount', type: 'NUMERIC(12,2)', description: 'Estimated PO total'),
+        DataDictionaryColumn(name: 'status', type: 'VARCHAR(50)', description: 'DRAFT, SENT, RECEIVED, CANCELLED'),
+        DataDictionaryColumn(name: 'order_date', type: 'DATE', description: 'Date PO was created'),
+      ],
+    ),
+
+    // 15. bank_accounts
+    DataDictionaryTable(
+      tableName: 'bank_accounts',
+      displayName: 'Bank Accounts',
+      domain: 'Finance & Accounts',
+      icon: Icons.account_balance_rounded,
+      businessUse: 'Merchant bank accounts, UPI handles, clearing accounts, and reconciled book balances.',
+      defaultQuery: 'SELECT id, account_name, bank_name, account_number, current_balance, is_active FROM bank_accounts LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Bank account ID', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'account_name', type: 'VARCHAR(150)', description: 'Account display title'),
+        DataDictionaryColumn(name: 'bank_name', type: 'VARCHAR(100)', description: 'Banking institution name (e.g. HDFC, Chase)'),
+        DataDictionaryColumn(name: 'account_number', type: 'VARCHAR(50)', description: 'Bank account number'),
+        DataDictionaryColumn(name: 'current_balance', type: 'NUMERIC(14,2)', description: 'Current available balance in account'),
+        DataDictionaryColumn(name: 'is_active', type: 'BOOLEAN', description: 'true = active; false = closed'),
+      ],
+    ),
+
+    // 16. chart_of_accounts
+    DataDictionaryTable(
+      tableName: 'chart_of_accounts',
+      displayName: 'Chart of Accounts (COA)',
+      domain: 'Finance & Accounts',
+      icon: Icons.account_tree_rounded,
+      businessUse: 'General ledger chart of accounts hierarchy defining Assets, Liabilities, Incomes, and Expenses.',
+      defaultQuery: 'SELECT id, account_code, account_name, account_type, is_active FROM chart_of_accounts ORDER BY account_code LIMIT 20;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'COA primary key', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'account_code', type: 'VARCHAR(50)', description: 'Standard accounting code (e.g. 1000, 2000)'),
+        DataDictionaryColumn(name: 'account_name', type: 'VARCHAR(150)', description: 'Ledger account title'),
+        DataDictionaryColumn(name: 'account_type', type: 'VARCHAR(50)', description: 'ASSET, LIABILITY, EQUITY, INCOME, EXPENSE'),
+        DataDictionaryColumn(name: 'is_active', type: 'BOOLEAN', description: 'Active status flag'),
+      ],
+    ),
+
+    // 17. accounting_vouchers
+    DataDictionaryTable(
+      tableName: 'accounting_vouchers',
+      displayName: 'Accounting Vouchers',
+      domain: 'Finance & Accounts',
+      icon: Icons.receipt_long_rounded,
+      businessUse: 'Double-entry journal, payment, receipt, and contra voucher header records.',
+      defaultQuery: 'SELECT id, voucher_number, voucher_type, voucher_date, total_debit, total_credit FROM accounting_vouchers ORDER BY id DESC LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Voucher primary key', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'voucher_number', type: 'VARCHAR(100)', description: 'Voucher sequence identifier'),
+        DataDictionaryColumn(name: 'voucher_type', type: 'VARCHAR(50)', description: 'JOURNAL, PAYMENT, RECEIPT, CONTRA'),
+        DataDictionaryColumn(name: 'voucher_date', type: 'DATE', description: 'Transaction date'),
+        DataDictionaryColumn(name: 'total_debit', type: 'NUMERIC(14,2)', description: 'Sum of debit entries'),
+        DataDictionaryColumn(name: 'total_credit', type: 'NUMERIC(14,2)', description: 'Sum of credit entries'),
+      ],
+    ),
+
+    // 18. expenses
+    DataDictionaryTable(
+      tableName: 'expenses',
+      displayName: 'Expense Entries',
+      domain: 'Finance & Accounts',
+      icon: Icons.money_off_rounded,
+      businessUse: 'Operational daily store expense records (petty cash, stationery, packaging, tea, logistics).',
+      defaultQuery: 'SELECT id, title, amount, category, payment_mode, expense_date FROM expenses ORDER BY id DESC LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Expense entry ID', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'title', type: 'VARCHAR(200)', description: 'Expense title / narration'),
+        DataDictionaryColumn(name: 'amount', type: 'NUMERIC(12,2)', description: 'Amount spent'),
+        DataDictionaryColumn(name: 'category', type: 'VARCHAR(100)', description: 'Expense head / category'),
+        DataDictionaryColumn(name: 'payment_mode', type: 'VARCHAR(50)', description: 'CASH, BANK, UPI'),
+        DataDictionaryColumn(name: 'expense_date', type: 'DATE', description: 'Date incurred'),
+      ],
+    ),
+
+    // 19. hr_employees
+    DataDictionaryTable(
+      tableName: 'hr_employees',
+      displayName: 'Employees & Payroll Staff',
+      domain: 'HR & Payroll',
+      icon: Icons.badge_rounded,
+      businessUse: 'Employee profiles, designations, departments, basic salary, and joining dates.',
+      defaultQuery: 'SELECT id, employee_code, first_name, designation, department, basic_salary, is_active FROM hr_employees LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Employee ID', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'employee_code', type: 'VARCHAR(50)', description: 'Unique staff badge code'),
+        DataDictionaryColumn(name: 'first_name', type: 'VARCHAR(100)', description: 'Staff first name'),
+        DataDictionaryColumn(name: 'designation', type: 'VARCHAR(100)', description: 'Job role / designation'),
+        DataDictionaryColumn(name: 'department', type: 'VARCHAR(100)', description: 'Department (Sales, Kitchen, Cashier)'),
+        DataDictionaryColumn(name: 'basic_salary', type: 'NUMERIC(12,2)', description: 'Monthly basic remuneration'),
+        DataDictionaryColumn(name: 'is_active', type: 'BOOLEAN', description: 'true = active; false = exited'),
+      ],
+    ),
+
+    // 20. hr_attendance_punches
+    DataDictionaryTable(
+      tableName: 'hr_attendance_punches',
+      displayName: 'Staff Attendance & Punches',
+      domain: 'HR & Payroll',
+      icon: Icons.timer_rounded,
+      businessUse: 'Daily employee clock-in and clock-out punch logs with geolocation or terminal device ID.',
+      defaultQuery: 'SELECT id, employee_id, punch_time, punch_type, status FROM hr_attendance_punches ORDER BY id DESC LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Punch log ID', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'employee_id', type: 'BIGINT', description: 'Staff member pointer', isForeignKey: true),
+        DataDictionaryColumn(name: 'punch_time', type: 'TIMESTAMPTZ', description: 'Exact timestamp of punch'),
+        DataDictionaryColumn(name: 'punch_type', type: 'VARCHAR(20)', description: 'IN, OUT, BREAK_START, BREAK_END'),
+        DataDictionaryColumn(name: 'status', type: 'VARCHAR(30)', description: 'PRESENT, LATE, HALF_DAY'),
+      ],
+    ),
+
+    // 21. milk_subscriptions
+    DataDictionaryTable(
+      tableName: 'milk_subscriptions',
+      displayName: 'Milk Subscriptions & Deliveries',
+      domain: 'Deliveries & Subscriptions',
+      icon: Icons.local_drink_rounded,
+      businessUse: 'Daily customer milk subscription routines, allocated bottles/litres, and delivery routes.',
+      defaultQuery: 'SELECT id, customer_id, item_id, quantity, delivery_time, status FROM milk_subscriptions LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Subscription ID', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'customer_id', type: 'BIGINT', description: 'Customer pointer', isForeignKey: true),
+        DataDictionaryColumn(name: 'item_id', type: 'BIGINT', description: 'Milk product pointer', isForeignKey: true),
+        DataDictionaryColumn(name: 'quantity', type: 'NUMERIC(8,2)', description: 'Litres/units delivered per routine'),
+        DataDictionaryColumn(name: 'delivery_time', type: 'VARCHAR(20)', description: 'MORNING, EVENING, BOTH'),
+        DataDictionaryColumn(name: 'status', type: 'VARCHAR(30)', description: 'ACTIVE, PAUSED, CANCELLED'),
+      ],
+    ),
+
+    // 22. delivery_agents
+    DataDictionaryTable(
+      tableName: 'delivery_agents',
+      displayName: 'Delivery Agents & Drivers',
+      domain: 'Deliveries & Subscriptions',
+      icon: Icons.two_wheeler_rounded,
+      businessUse: 'Fleet delivery drivers, assigned routes, mobile phone numbers, and active delivery tracking.',
+      defaultQuery: 'SELECT id, agent_name, phone, vehicle_number, is_active FROM delivery_agents LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Delivery agent ID', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'agent_name', type: 'VARCHAR(150)', description: 'Driver / rider name'),
+        DataDictionaryColumn(name: 'phone', type: 'VARCHAR(30)', description: 'Mobile phone number'),
+        DataDictionaryColumn(name: 'vehicle_number', type: 'VARCHAR(50)', description: 'Motorbike / van registration'),
+        DataDictionaryColumn(name: 'is_active', type: 'BOOLEAN', description: 'Active driver status'),
+      ],
+    ),
+
+    // 23. whatsapp_campaigns
+    DataDictionaryTable(
+      tableName: 'whatsapp_campaigns',
+      displayName: 'WhatsApp Campaigns',
+      domain: 'CRM & WhatsApp',
+      icon: Icons.campaign_rounded,
+      businessUse: 'Marketing broadcasts, promotional message schedules, and recipient target customer groups.',
+      defaultQuery: 'SELECT id, campaign_name, template_name, total_recipients, sent_count, status FROM whatsapp_campaigns ORDER BY id DESC LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Campaign ID', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'campaign_name', type: 'VARCHAR(150)', description: 'Broadcast campaign name'),
+        DataDictionaryColumn(name: 'template_name', type: 'VARCHAR(100)', description: 'Meta approved WhatsApp template'),
+        DataDictionaryColumn(name: 'total_recipients', type: 'INT', description: 'Total phone numbers queued'),
+        DataDictionaryColumn(name: 'sent_count', type: 'INT', description: 'Successfully delivered count'),
+        DataDictionaryColumn(name: 'status', type: 'VARCHAR(30)', description: 'SCHEDULED, IN_PROGRESS, COMPLETED'),
+      ],
+    ),
+
+    // 24. system_settings
+    DataDictionaryTable(
+      tableName: 'system_settings',
+      displayName: 'System Settings & Regional Flags',
+      domain: 'Store & Infrastructure',
+      icon: Icons.settings_rounded,
+      businessUse: 'Store-level configuration flags: base currency symbol, rounding, tax mode, printers, and feature toggles.',
+      defaultQuery: 'SELECT id, outlet_id, base_currency_symbol, base_currency_code, billing_country, print_mode FROM system_settings LIMIT 5;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'Settings ID', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'outlet_id', type: 'INT', description: 'Outlet branch ID', isForeignKey: true),
+        DataDictionaryColumn(name: 'base_currency_symbol', type: 'VARCHAR(20)', description: 'Active currency symbol (e.g. \$, ₹, £)'),
+        DataDictionaryColumn(name: 'base_currency_code', type: 'VARCHAR(20)', description: 'Currency ISO code (e.g. USD, INR)'),
+        DataDictionaryColumn(name: 'billing_country', type: 'VARCHAR(100)', description: 'Tax jurisdiction country'),
+        DataDictionaryColumn(name: 'print_mode', type: 'VARCHAR(50)', description: 'DIRECT, PRINT_DIALOG'),
+      ],
+    ),
+
+    // 25. master_tenants
+    DataDictionaryTable(
+      tableName: 'master_tenants',
+      displayName: 'Master Tenants (SaaS Clients)',
+      domain: 'Control Plane & Fleet',
+      icon: Icons.business_rounded,
+      businessUse: 'Multi-tenant SaaS client business entities, company trade names, tax identifiers, and contact details.',
+      defaultQuery: 'SELECT id, client_code, trade_name, contact_email, contact_phone, status FROM master_tenants LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'UUID', description: 'Tenant UUID primary key', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'client_code', type: 'VARCHAR(50)', description: 'Unique merchant code'),
+        DataDictionaryColumn(name: 'trade_name', type: 'VARCHAR(200)', description: 'Business trading name'),
+        DataDictionaryColumn(name: 'contact_email', type: 'VARCHAR(150)', description: 'Billing contact email'),
+        DataDictionaryColumn(name: 'contact_phone', type: 'VARCHAR(50)', description: 'Primary phone number'),
+        DataDictionaryColumn(name: 'status', type: 'VARCHAR(30)', description: 'ACTIVE, SUSPENDED, DEACTIVATED'),
+      ],
+    ),
+
+    // 26. master_licenses
+    DataDictionaryTable(
+      tableName: 'master_licenses',
+      displayName: 'Master SaaS Licenses',
+      domain: 'Control Plane & Fleet',
+      icon: Icons.verified_user_rounded,
+      businessUse: 'SaaS software licenses, expiry valid_till dates, payment statuses, and permitted terminal counts.',
+      defaultQuery: 'SELECT id, tenant_id, license_key, tier_name, valid_till, payment_status, status FROM master_licenses ORDER BY id DESC LIMIT 15;',
+      columns: [
+        DataDictionaryColumn(name: 'id', type: 'BIGSERIAL', description: 'License primary key', isPrimaryKey: true),
+        DataDictionaryColumn(name: 'tenant_id', type: 'UUID', description: 'Tenant reference', isForeignKey: true),
+        DataDictionaryColumn(name: 'license_key', type: 'VARCHAR(100)', description: 'Encrypted cryptographic license key'),
+        DataDictionaryColumn(name: 'tier_name', type: 'VARCHAR(50)', description: 'ENTERPRISE_UNLIMITED, PROFESSIONAL'),
+        DataDictionaryColumn(name: 'valid_till', type: 'DATE', description: 'Expiration date of software license'),
+        DataDictionaryColumn(name: 'payment_status', type: 'VARCHAR(30)', description: 'PAID, PENDING, OVERDUE'),
+        DataDictionaryColumn(name: 'status', type: 'VARCHAR(30)', description: 'ACTIVE, EXPIRED, REVOKED'),
+      ],
+    ),
   ];
 
   static void showDictionaryModal(BuildContext context, Function(String sql) onSelectQuery) {
@@ -338,7 +639,7 @@ class _DataDictionaryDialogState extends State<_DataDictionaryDialog> {
   String _search = '';
   String _selectedDomain = 'ALL';
   List<DataDictionaryTable> _tables = SystemDataDictionary.tables;
-  List<String> _domains = ['ALL', 'Catalog & Inventory', 'Sales & Billing', 'Store & IAM', 'Finance & Cash', 'F&B & Restaurant'];
+  List<String> _domains = ['ALL', 'Catalog & Inventory', 'Sales & Billing', 'Purchases & Vendors', 'Finance & Accounts', 'HR & Payroll', 'Deliveries & Subscriptions', 'CRM & WhatsApp', 'F&B & Restaurant', 'Store & Infrastructure', 'Control Plane & Fleet'];
   bool _isLoadingSchema = false;
   int _totalColumns = 0;
   bool _isFromMigrations = false;

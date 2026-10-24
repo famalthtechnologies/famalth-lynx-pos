@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Op } from 'sequelize';
+import { Op, QueryTypes } from 'sequelize';
 import bcrypt from 'bcryptjs';
 import propertyDb from '../../db/propertyDb';
 import initMasterModels from '../../models/master';
@@ -1255,55 +1255,115 @@ export class ControlPlaneController {
       const { tenant_id, outlet_code } = req.query;
 
       let tenant: any = null;
+      let matchedOutlet: any = null;
+      let resolvedOutletCode: string | null = outlet_code ? String(outlet_code).trim() : null;
+
+      if (!resolvedOutletCode) {
+        resolvedOutletCode = (req as any).user?.outlet_code || (req as any).user?.outletCode || null;
+      }
+
       if (tenant_id) {
         tenant = await MasterTenant.findByPk(String(tenant_id), {
           include: [
             { model: MasterLicense, as: 'licenses' },
             { model: MasterRelationshipManager, as: 'relationship_manager' },
+            { model: MasterOutlet, as: 'outlets' },
           ],
         });
-      } else if (outlet_code) {
-        const outlet: any = await MasterOutlet.findOne({
-          where: { outlet_code: String(outlet_code) },
-          include: [
-            {
-              model: MasterTenant,
-              as: 'tenant',
+        if (tenant?.outlets && tenant.outlets.length > 0) {
+          matchedOutlet = tenant.outlets[0];
+          if (!resolvedOutletCode) {
+            resolvedOutletCode = matchedOutlet.outlet_code;
+          }
+        }
+      } else {
+        // If no outlet_code query provided, inspect local database outlets table
+        if (!resolvedOutletCode) {
+          try {
+            const localOutlet: any = await propertyDb.query(
+              'SELECT outlet_code FROM outlets WHERE is_active = true OR id = 1 ORDER BY id ASC LIMIT 1',
+              { type: QueryTypes.SELECT }
+            );
+            if (localOutlet && localOutlet[0]?.outlet_code) {
+              resolvedOutletCode = String(localOutlet[0].outlet_code).trim();
+            }
+          } catch (e) {
+            // fallback gracefully
+          }
+        }
+
+        if (resolvedOutletCode) {
+          matchedOutlet = await MasterOutlet.findOne({
+            where: { outlet_code: resolvedOutletCode },
+            include: [
+              {
+                model: MasterTenant,
+                as: 'tenant',
+                include: [
+                  { model: MasterLicense, as: 'licenses' },
+                  { model: MasterRelationshipManager, as: 'relationship_manager' },
+                  { model: MasterOutlet, as: 'outlets' },
+                ],
+              },
+            ],
+          });
+
+          if (matchedOutlet?.tenant) {
+            tenant = matchedOutlet.tenant;
+          } else {
+            // Check if MasterTenant client_code matches resolvedOutletCode
+            tenant = await MasterTenant.findOne({
+              where: { client_code: resolvedOutletCode },
               include: [
                 { model: MasterLicense, as: 'licenses' },
                 { model: MasterRelationshipManager, as: 'relationship_manager' },
+                { model: MasterOutlet, as: 'outlets' },
               ],
-            },
-          ],
-        });
-        tenant = outlet?.tenant;
+            });
+          }
+        }
+
+        // If still not found, fallback to the primary active master tenant
+        if (!tenant) {
+          tenant = await MasterTenant.findOne({
+            include: [
+              { model: MasterLicense, as: 'licenses' },
+              { model: MasterRelationshipManager, as: 'relationship_manager' },
+              { model: MasterOutlet, as: 'outlets' },
+            ],
+            order: [['updated_at', 'DESC']],
+          });
+          if (tenant?.outlets && tenant.outlets.length > 0) {
+            matchedOutlet = tenant.outlets[0];
+            if (!resolvedOutletCode) {
+              resolvedOutletCode = matchedOutlet.outlet_code;
+            }
+          }
+        }
       }
 
       if (!tenant) {
-        // Fallback default safe response
         return res.json({
           success: true,
           data: {
-            daysLeft: 365,
+            daysLeft: 0,
+            hasActiveLicense: false,
             warningZone: false,
             warningLevel: 'SAFE',
-            status: 'ACTIVE',
-            relationshipManager: {
-              fullName: 'Famalth Priority Care',
-              phone: '+91 9876543210',
-              whatsappNumber: '+919876543210',
-              email: 'care@famalth.com',
-            },
+            status: 'UNREGISTERED',
+            relationshipManager: null,
+            outletCode: resolvedOutletCode,
           },
         });
       }
 
       const activeLicense = (tenant.licenses || [])[0];
-      let daysLeft = 365;
+      const hasRealLicense = Boolean(activeLicense && activeLicense.valid_till);
+      let daysLeft = 0;
       let warningZone = false;
       let warningLevel: 'SAFE' | 'WARNING_AMBER' | 'CRITICAL_RED' | 'EXPIRED' = 'SAFE';
 
-      if (activeLicense && activeLicense.valid_till) {
+      if (hasRealLicense) {
         const diffMs = new Date(activeLicense.valid_till).getTime() - Date.now();
         daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
         const threshold = activeLicense.grace_period_days || activeLicense.warning_zone_days || 15;
@@ -1320,25 +1380,48 @@ export class ControlPlaneController {
         }
       }
 
-      const subtotal = Number(activeLicense?.subscription_amount || 4999.00);
-      const taxRate = Number(activeLicense?.tax_percentage || 18.00);
+      const subtotal = activeLicense?.subscription_amount != null ? Number(activeLicense.subscription_amount) : 0.00;
+      const taxRate = activeLicense?.tax_percentage != null ? Number(activeLicense.tax_percentage) : 0.00;
       const totalAmount = Number((subtotal + (subtotal * (taxRate / 100))).toFixed(2));
-      const paymentStatus = activeLicense?.payment_status || 'PAID';
-      const isPendingPayment = paymentStatus === 'PENDING' || daysLeft <= 10;
+      const paymentStatus = activeLicense?.payment_status || (hasRealLicense ? 'PAID' : 'UNASSIGNED');
+      const isPendingPayment = paymentStatus === 'PENDING' || (hasRealLicense && daysLeft <= 10);
+
+      // Relationship Manager: only return real data if explicitly assigned and not dummy
+      let rmData: any = null;
+      if (tenant.relationship_manager &&
+          tenant.relationship_manager.rm_code !== 'RM-101' &&
+          !tenant.relationship_manager.full_name?.toLowerCase().includes('amit')) {
+        rmData = {
+          id: tenant.relationship_manager.id,
+          fullName: tenant.relationship_manager.full_name || tenant.relationship_manager.name,
+          phone: tenant.relationship_manager.phone,
+          whatsappNumber: tenant.relationship_manager.whatsapp_number || tenant.relationship_manager.phone,
+          email: tenant.relationship_manager.email,
+          designation: tenant.relationship_manager.designation || 'Key Account Manager',
+          rmCode: tenant.relationship_manager.rm_code,
+        };
+      }
+
+      const finalOutletCode = resolvedOutletCode || matchedOutlet?.outlet_code || (tenant.outlets && tenant.outlets[0]?.outlet_code) || tenant.client_code;
 
       return res.json({
         success: true,
         data: {
           tenantId: tenant.id,
+          tenant: { id: tenant.id, legal_name: tenant.legal_name, client_code: tenant.client_code },
           clientCode: tenant.client_code,
+          outletCode: finalOutletCode,
           legalName: tenant.legal_name,
+          contactEmail: tenant.contact_email,
+          contactPhone: tenant.contact_phone,
+          hasActiveLicense: hasRealLicense,
           daysLeft,
           warningZone,
           warningLevel,
           status: tenant.status,
           softwareStartDate: activeLicense?.valid_from || tenant.created_at,
           validTill: activeLicense?.valid_till || null,
-          gracePeriodDays: activeLicense?.grace_period_days || 15,
+          gracePeriodDays: activeLicense?.grace_period_days || 0,
           nextPaymentDate: activeLicense?.next_payment_date || activeLicense?.valid_till,
           subscriptionAmount: subtotal,
           taxPercentage: taxRate,
@@ -1346,15 +1429,9 @@ export class ControlPlaneController {
           paymentStatus,
           isPendingPayment,
           invoiceDownloadUrl: `/api/v1/control-plane/invoices/download/${tenant.id}`,
-          maxTerminals: activeLicense?.max_terminals || 3,
+          maxTerminals: activeLicense?.max_terminals || 1,
           maxOutlets: activeLicense?.max_outlets || 1,
-          relationshipManager: tenant.relationship_manager || {
-            fullName: 'Famalth Priority Care',
-            phone: '+91 9876543210',
-            whatsappNumber: '919876543210',
-            email: 'care@famalth.com',
-            designation: 'Central Account Support Desk',
-          },
+          relationshipManager: rmData,
         },
       });
     } catch (err: any) {

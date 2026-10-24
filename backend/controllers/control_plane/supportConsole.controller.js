@@ -121,11 +121,47 @@ class SupportConsoleController {
                 where: whereClause,
                 include: [
                     { model: MasterTenant, as: 'tenant', attributes: ['id', 'legal_name', 'client_code', 'contact_email', 'contact_phone'] },
-                    { model: SupportAgent, as: 'agent', attributes: ['id', 'full_name', 'email', 'role_level', 'specialization'] },
+                    { model: MasterOutlet, as: 'outlet', attributes: ['id', 'outlet_code', 'outlet_name', 'city', 'state'] },
+                    { model: SupportAgent, as: 'agent', attributes: ['id', 'full_name', 'email', 'role_level', 'specialization', 'is_online'] },
+                    {
+                        model: TicketMessage,
+                        as: 'messages',
+                        attributes: ['id', 'sender_type', 'sender_name', 'message', 'is_read_by_support', 'created_at'],
+                    },
                 ],
                 order: [['created_at', 'DESC']],
             });
-            return res.json({ success: true, count: tickets.length, data: tickets });
+            const enrichedTickets = tickets.map((t) => {
+                const plain = t.toJSON();
+                const msgs = plain.messages || [];
+                const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+
+                const isClosed = plain.status === 'RESOLVED' || plain.status === 'CLOSED';
+
+                let unseenCount = 0;
+                if (!isClosed) {
+                    unseenCount = msgs.filter((m) => m.sender_type === 'CLIENT_OUTLET' && m.is_read_by_support !== true).length;
+                }
+
+                const isUnseen = !isClosed && (unseenCount > 0);
+
+                const resolvedOutletCode = plain.outlet?.outlet_code || plain.client_telemetry?.outletCode || plain.tenant?.client_code || `OUTLET#${plain.outlet_id}`;
+                const resolvedEmail = plain.client_email || plain.client_telemetry?.email || plain.tenant?.contact_email || '';
+                const resolvedPhone = plain.client_telemetry?.phone || plain.tenant?.contact_phone || '';
+
+                return {
+                    ...plain,
+                    outlet_code: resolvedOutletCode,
+                    contact_email: resolvedEmail,
+                    contact_phone: resolvedPhone,
+                    tenant_name: plain.tenant?.legal_name || plain.outlet?.outlet_name || 'Retail Outlet',
+                    has_unseen: isUnseen,
+                    unseen_count: unseenCount,
+                    last_message: lastMsg,
+                    total_messages: msgs.length,
+                };
+            });
+            return res.json({ success: true, count: enrichedTickets.length, data: enrichedTickets });
         }
         catch (err) {
             console.error('getTickets error:', err);
@@ -138,9 +174,21 @@ class SupportConsoleController {
     static async getTicketDetails(req, res) {
         try {
             const id = String(req.params.id);
+
+            // Automatically mark client messages as read by support
+            await TicketMessage.update(
+                { is_read_by_support: true },
+                { where: { ticket_id: id, sender_type: 'CLIENT_OUTLET', is_read_by_support: false } }
+            );
+            await SupportTicket.update(
+                { last_read_by_support_at: new Date() },
+                { where: { id } }
+            );
+
             const ticket = await SupportTicket.findByPk(id, {
                 include: [
                     { model: MasterTenant, as: 'tenant' },
+                    { model: MasterOutlet, as: 'outlet' },
                     { model: SupportAgent, as: 'agent' },
                     {
                         model: TicketMessage,
@@ -157,7 +205,21 @@ class SupportConsoleController {
             if (!ticket) {
                 return res.status(404).json({ success: false, message: 'Ticket not found.' });
             }
-            return res.json({ success: true, data: ticket });
+
+            const plain = ticket.toJSON();
+            const resolvedOutletCode = plain.outlet?.outlet_code || plain.client_telemetry?.outletCode || plain.tenant?.client_code || `OUTLET#${plain.outlet_id}`;
+            const resolvedEmail = plain.client_email || plain.client_telemetry?.email || plain.tenant?.contact_email || '';
+            const resolvedPhone = plain.client_telemetry?.phone || plain.tenant?.contact_phone || '';
+
+            return res.json({
+                success: true,
+                data: {
+                    ...plain,
+                    outlet_code: resolvedOutletCode,
+                    contact_email: resolvedEmail,
+                    contact_phone: resolvedPhone,
+                },
+            });
         }
         catch (err) {
             console.error('getTicketDetails error:', err);
@@ -175,14 +237,26 @@ class SupportConsoleController {
             if (!ticket) {
                 return res.status(404).json({ success: false, message: 'Ticket not found.' });
             }
+
+            // If ticket is resolved/closed, conversation is locked!
+            if (ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Ticket is closed. Conversation is locked. Customer must open a new ticket.',
+                });
+            }
+
+            const isSupportStaff = sender_type === 'SUPPORT_STAFF';
+
             const newMsg = await TicketMessage.create({
                 ticket_id: ticket.id,
                 sender_type: sender_type || 'SUPPORT_STAFF',
                 sender_id: sender_id || null,
-                sender_name: sender_name || 'Support Engineer',
+                sender_name: sender_name || (isSupportStaff ? 'Central Support Engineer' : 'Store Cashier / POS Operator'),
                 message,
                 diagnostic_payload: diagnostic_payload || null,
                 attachments: attachments || [],
+                is_read_by_support: isSupportStaff ? true : false,
             });
             // Update ticket status to IN_PROGRESS if OPEN
             if (ticket.status === 'OPEN' || ticket.status === 'ASSIGNED') {
@@ -205,14 +279,26 @@ class SupportConsoleController {
         try {
             const id = String(req.params.id);
             const { resolution_summary } = req.body;
-            const ticket = await SupportTicket.findByPk(id);
+            const ticket = await SupportTicket.findByPk(id, {
+                include: [
+                    { model: MasterTenant, as: 'tenant' },
+                    { model: MasterOutlet, as: 'outlet' },
+                ],
+            });
             if (!ticket) {
                 return res.status(404).json({ success: false, message: 'Ticket not found.' });
             }
-            ticket.status = 'RESOLVED';
-            ticket.resolution_summary = resolution_summary || 'Resolved by Support Engineering.';
+            ticket.status = 'CLOSED';
+            ticket.resolution_summary = resolution_summary || 'Resolved via Central Control Desk.';
             ticket.resolved_at = new Date();
             await ticket.save();
+
+            // Mark all messages as read
+            await TicketMessage.update(
+                { is_read_by_support: true },
+                { where: { ticket_id: ticket.id } }
+            );
+
             // Decrement agent active ticket load
             if (ticket.assigned_agent_id) {
                 const agent = await SupportAgent.findByPk(ticket.assigned_agent_id);
@@ -221,19 +307,137 @@ class SupportConsoleController {
                     await agent.save();
                 }
             }
+
+            const plain = ticket.toJSON();
+            const resolvedOutletCode = plain.outlet?.outlet_code || plain.client_telemetry?.outletCode || plain.tenant?.client_code || `OUTLET#${plain.outlet_id}`;
+            const resolvedEmail = plain.client_email || plain.client_telemetry?.email || plain.tenant?.contact_email || '';
+
             // Add system message
             const closeMsg = await TicketMessage.create({
                 ticket_id: ticket.id,
                 sender_type: 'SYSTEM_BOT',
                 sender_name: 'Famalth Lynx AI Core',
-                message: `✅ Ticket marked as RESOLVED for Outlet #${ticket.outlet_id}. Summary: ${ticket.resolution_summary}`,
+                message: `✅ Ticket #${ticket.ticket_number} marked as CLOSED for Outlet ${resolvedOutletCode}. Summary: ${ticket.resolution_summary}`,
+                is_read_by_support: true,
             });
             (0, socketHub_service_1.broadcastTicketMessage)(ticket.id, closeMsg);
-            return res.json({ success: true, message: 'Ticket resolved successfully.', data: ticket });
+
+            // Direct Email dispatch if requested
+            if (req.body.send_email) {
+                const toEmail = (req.body.recipient_email || resolvedEmail || '').trim();
+                if (toEmail) {
+                    const emailSubject = req.body.email_subject || `[${ticket.ticket_number}] Support Resolved: ${ticket.subject}`;
+                    const emailBody = req.body.email_body || `Dear Customer (${resolvedOutletCode}),\n\nYour support ticket #${ticket.ticket_number} ("${ticket.subject}") has been marked as RESOLVED by Central Support.\n\nResolution Summary:\n${ticket.resolution_summary}\n\nThank you for choosing Retail POS,\nCentral Enterprise Support Team`;
+
+                    const htmlContent = `
+                        <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+                          <div style="background-color: #10b981; padding: 16px 20px; border-radius: 6px; color: #ffffff;">
+                            <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Retail Support - Issue Resolved</h2>
+                            <p style="margin: 4px 0 0 0; font-size: 13px; color: #dcfce7;">Ticket #${ticket.ticket_number} • Outlet: ${resolvedOutletCode}</p>
+                          </div>
+                          <div style="padding: 24px 8px; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${emailBody}</div>
+                          <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; color: #64748b; font-size: 12px;">
+                            <p style="margin: 0; font-weight: 600;">Central Support Desk & Control Automation</p>
+                            <p style="margin: 4px 0 0 0;">This email was sent directly from the Central Support System.</p>
+                          </div>
+                        </div>
+                    `;
+
+                    try {
+                        const { sendEmail } = require('../../modules/emailService');
+                        await sendEmail(toEmail, emailSubject, htmlContent);
+                        const emailMsg = await TicketMessage.create({
+                            ticket_id: ticket.id,
+                            sender_type: 'SYSTEM_BOT',
+                            sender_name: 'Famalth Lynx AI Core',
+                            message: `✉ Resolution notice emailed directly to ${toEmail}`,
+                            is_read_by_support: true,
+                        });
+                        (0, socketHub_service_1.broadcastTicketMessage)(ticket.id, emailMsg);
+                    } catch (mailErr) {
+                        console.warn('[EMAIL WARNING] Failed to send resolution email:', mailErr.message);
+                    }
+                }
+            }
+
+            return res.json({
+                success: true,
+                message: 'Ticket closed successfully.',
+                data: {
+                    ...plain,
+                    outlet_code: resolvedOutletCode,
+                    contact_email: resolvedEmail,
+                },
+            });
         }
         catch (err) {
             console.error('resolveTicket error:', err);
             return res.status(500).json({ success: false, message: err.message });
+        }
+    }
+
+    /**
+     * 5b. Direct Email Sender (Dispatches directly via Central Mail Service)
+     */
+    static async sendTicketEmail(req, res) {
+        try {
+            const id = String(req.params.id);
+            const { to, subject, message } = req.body;
+
+            if (!to || !to.trim()) {
+                return res.status(400).json({ success: false, message: 'Recipient email address is required.' });
+            }
+
+            const ticket = await SupportTicket.findByPk(id, {
+                include: [
+                    { model: MasterTenant, as: 'tenant' },
+                    { model: MasterOutlet, as: 'outlet' },
+                ],
+            });
+
+            if (!ticket) {
+                return res.status(404).json({ success: false, message: 'Ticket not found.' });
+            }
+
+            const plain = ticket.toJSON();
+            const resolvedOutletCode = plain.outlet?.outlet_code || plain.client_telemetry?.outletCode || plain.tenant?.client_code || `OUTLET#${plain.outlet_id}`;
+            const emailSubject = (subject || `[${ticket.ticket_number}] Support Update: ${ticket.subject}`).trim();
+            const emailBody = (message || '').trim();
+
+            const htmlContent = `
+                <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+                  <div style="background-color: #0284c7; padding: 16px 20px; border-radius: 6px; color: #ffffff;">
+                    <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Retail Support Desk</h2>
+                    <p style="margin: 4px 0 0 0; font-size: 13px; color: #e0f2fe;">Ticket #${ticket.ticket_number} • Outlet: ${resolvedOutletCode}</p>
+                  </div>
+                  <div style="padding: 24px 8px; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${emailBody}</div>
+                  <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; color: #64748b; font-size: 12px;">
+                    <p style="margin: 0; font-weight: 600;">Central Support Desk & Control Automation</p>
+                    <p style="margin: 4px 0 0 0;">This email was sent directly from the Central Support System.</p>
+                  </div>
+                </div>
+            `;
+
+            const { sendEmail } = require('../../modules/emailService');
+            await sendEmail(to.trim(), emailSubject, htmlContent);
+
+            const sysMsg = await TicketMessage.create({
+                ticket_id: ticket.id,
+                sender_type: 'SYSTEM_BOT',
+                sender_name: 'Famalth Lynx AI Core',
+                message: `✉ Email sent directly to ${to.trim()} with subject "${emailSubject}"`,
+                is_read_by_support: true,
+            });
+
+            (0, socketHub_service_1.broadcastTicketMessage)(ticket.id, sysMsg);
+
+            return res.json({
+                success: true,
+                message: `Email sent successfully to ${to.trim()}`,
+            });
+        } catch (err) {
+            console.error('sendTicketEmail error:', err);
+            return res.status(500).json({ success: false, message: `Failed to send email: ${err.message}` });
         }
     }
     /**
@@ -341,11 +545,39 @@ class SupportConsoleController {
      */
     static async getSupportAgents(req, res) {
         try {
-            const agents = await SupportAgent.findAll({
+            let agents = await SupportAgent.findAll({
                 attributes: ['id', 'full_name', 'email', 'role_level', 'is_online', 'active_ticket_count', 'max_concurrent_tickets', 'specialization'],
                 order: [['is_online', 'DESC'], ['active_ticket_count', 'ASC']],
             });
-            return res.json({ success: true, data: agents });
+            if (!agents || agents.length === 0) {
+                await SupportAgent.create({
+                    full_name: 'L2 Diagnostic Support Lead',
+                    email: 'support.lead@famalth.com',
+                    role_level: 'L2',
+                    is_online: true,
+                    active_ticket_count: 0,
+                    max_concurrent_tickets: 5,
+                    specialization: 'SQL_DATA_DOCTOR',
+                });
+                agents = await SupportAgent.findAll({
+                    attributes: ['id', 'full_name', 'email', 'role_level', 'is_online', 'active_ticket_count', 'max_concurrent_tickets', 'specialization'],
+                    order: [['is_online', 'DESC'], ['active_ticket_count', 'ASC']],
+                });
+            }
+            const enrichedAgents = await Promise.all(
+                agents.map(async (agent) => {
+                    const plain = agent.toJSON();
+                    const liveActiveCount = await SupportTicket.count({
+                        where: {
+                            assigned_agent_id: plain.id,
+                            status: { [sequelize_1.Op.in]: ['OPEN', 'IN_PROGRESS', 'ASSIGNED'] },
+                        },
+                    });
+                    plain.active_ticket_count = liveActiveCount;
+                    return plain;
+                })
+            );
+            return res.json({ success: true, data: enrichedAgents });
         }
         catch (err) {
             return res.status(500).json({ success: false, message: err.message });
@@ -373,10 +605,13 @@ class SupportConsoleController {
      */
     static async getSystemSchema(req, res) {
         try {
-            const schema = (0, migrationSchemaExtractor_1.extractSchemaFromMigrations)();
+            const activeDb = req.propertyDb || propertyDb;
+            const extractor = require('../../utils/migrationSchemaExtractor');
+            const extractFunc = extractor.extractSchemaFromDatabase || extractor.extractSchemaFromMigrations;
+            const schema = await extractFunc(activeDb);
             return res.json({
                 success: true,
-                message: 'Database schema successfully extracted from migrations.',
+                message: `Database schema successfully extracted (${schema.totalTables} tables, ${schema.totalColumns} columns).`,
                 data: schema,
             });
         }

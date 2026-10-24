@@ -38,25 +38,30 @@ class _RelationshipManagerCardState extends State<RelationshipManagerCard> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Card(
-        color: Colors.white,
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-        ),
-      );
+      return const SizedBox.shrink();
     }
 
-    final hasRm = _rmData != null && (_rmData?['full_name'] != null || _rmData?['fullName'] != null);
-    final name = hasRm ? (_rmData?['full_name'] ?? _rmData?['fullName']) : 'Support Desk';
-    final designation = hasRm ? (_rmData?['designation'] ?? 'Account Manager') : 'Customer Care Team';
-    final phone = hasRm ? (_rmData?['phone'] ?? '') : '';
-    final rawWa = hasRm ? (_rmData?['whatsapp_number'] ?? _rmData?['whatsappNumber'] ?? '') : '';
-    final wa = rawWa.toString().replaceAll('+', '').replaceAll(' ', '');
-    final email = hasRm ? (_rmData?['email'] ?? 'care@famalth.com') : 'care@famalth.com';
+    final hasRm = _rmData != null &&
+        ((_rmData?['full_name'] != null && _rmData!['full_name'].toString().trim().isNotEmpty) ||
+            (_rmData?['fullName'] != null && _rmData!['fullName'].toString().trim().isNotEmpty));
+
+    final rawName = (_rmData?['full_name'] ?? _rmData?['fullName'] ?? '').toString().trim();
+    if (!hasRm ||
+        rawName.isEmpty ||
+        rawName.toLowerCase() == 'support desk' ||
+        rawName.toLowerCase().contains('amit')) {
+      return const SizedBox.shrink();
+    }
+
+    final name = rawName;
+    final designation = (_rmData?['designation'] ?? 'Dedicated Relationship Manager').toString();
+    final phone = (_rmData?['phone'] ?? '').toString().trim();
+    final rawWa = (_rmData?['whatsapp_number'] ?? _rmData?['whatsappNumber'] ?? phone).toString().trim();
+    final wa = rawWa.replaceAll('+', '').replaceAll(' ', '');
+    final email = (_rmData?['email'] ?? '').toString().trim();
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -138,50 +143,53 @@ class _RelationshipManagerCardState extends State<RelationshipManagerCard> {
             spacing: 10,
             runSpacing: 10,
             children: [
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF0284C7),
-                  side: const BorderSide(color: Color(0xFFBAE6FD)),
-                  backgroundColor: const Color(0xFFF0F9FF),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              if (phone.isNotEmpty)
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF0284C7),
+                    side: const BorderSide(color: Color(0xFFBAE6FD)),
+                    backgroundColor: const Color(0xFFF0F9FF),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => launchUrl(Uri.parse('tel:$phone')),
+                  icon: const Icon(Icons.phone_rounded, size: 16),
+                  label: Text(phone, style: const TextStyle(fontWeight: FontWeight.w600)),
                 ),
-                onPressed: () => launchUrl(Uri.parse('tel:$phone')),
-                icon: const Icon(Icons.phone_rounded, size: 16),
-                label: Text(phone, style: const TextStyle(fontWeight: FontWeight.w600)),
-              ),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF16A34A),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              if (wa.isNotEmpty)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF16A34A),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    final text = Uri.encodeComponent(
+                      'Hello $name, I am reaching out from our store terminal. License Days Left: $_daysLeft.',
+                    );
+                    launchUrl(
+                      Uri.parse('https://wa.me/$wa?text=$text'),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  },
+                  icon: const Icon(Icons.chat_bubble_rounded, size: 16),
+                  label: const Text('Direct WhatsApp', style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
-                onPressed: () {
-                  final text = Uri.encodeComponent(
-                    'Hello $name, I am reaching out from our store terminal. License Days Left: $_daysLeft.',
-                  );
-                  launchUrl(
-                    Uri.parse('https://wa.me/$wa?text=$text'),
-                    mode: LaunchMode.externalApplication,
-                  );
-                },
-                icon: const Icon(Icons.chat_bubble_rounded, size: 16),
-                label: const Text('Direct WhatsApp', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF475569),
-                  side: const BorderSide(color: Color(0xFFE2E8F0)),
-                  backgroundColor: const Color(0xFFF8FAFC),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              if (email.isNotEmpty)
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF475569),
+                    side: const BorderSide(color: Color(0xFFE2E8F0)),
+                    backgroundColor: const Color(0xFFF8FAFC),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => launchUrl(Uri.parse('mailto:$email')),
+                  icon: const Icon(Icons.mail_outline_rounded, size: 16),
+                  label: Text(email, style: const TextStyle(fontWeight: FontWeight.w600)),
                 ),
-                onPressed: () => launchUrl(Uri.parse('mailto:$email')),
-                icon: const Icon(Icons.mail_outline_rounded, size: 16),
-                label: Text(email, style: const TextStyle(fontWeight: FontWeight.w600)),
-              ),
             ],
           ),
         ],
