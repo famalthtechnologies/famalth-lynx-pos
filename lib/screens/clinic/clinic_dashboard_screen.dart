@@ -853,15 +853,78 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     });
   }
 
+  String _formatDoctorTitle(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'Doctor';
+    final clean = trimmed.replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+    return 'Dr. $clean';
+  }
+
+  bool _canDoctorEditAppointment(dynamic a) {
+    final role = _userRole.trim().toUpperCase();
+    if (role == 'ADMIN' ||
+        role == 'SUPERADMIN' ||
+        role == 'OWNER' ||
+        role == 'CLINIC_ADMIN' ||
+        role == 'MANAGER' ||
+        role == 'DOCTOR_ADMIN') {
+      return true;
+    }
+
+    String cleanDoc(String s) => s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+    final apptDocName = cleanDoc((a['attended_by_doctor_name'] ?? a['doctor_name'] ?? '').toString());
+    final myDocName = cleanDoc(_loggedInDoctorName);
+    final selectedDesk = cleanDoc(_selectedDoctorFilter);
+
+    if (myDocName.isNotEmpty && (apptDocName.contains(myDocName) || myDocName.contains(apptDocName))) {
+      return true;
+    }
+    if (selectedDesk.isNotEmpty && selectedDesk != 'all' && (apptDocName.contains(selectedDesk) || selectedDesk.contains(apptDocName))) {
+      return true;
+    }
+
+    final status = (a['status'] ?? '').toString().toUpperCase();
+    final isVisited = status == 'VISITED' || status == 'COMPLETED';
+    final hasRx = a['attended_by_doctor_name'] != null || 
+                  (a['prescription_notes'] != null && a['prescription_notes'].toString().isNotEmpty) ||
+                  (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty);
+    if (!isVisited && !hasRx && (role == 'DOCTOR' || role.contains('DOCTOR') || selectedDesk.isNotEmpty)) {
+      return true;
+    }
+
+    return false;
+  }
+
   void _openConsultationDialog(dynamic appointment) {
+    String effectiveDoctorName = _loggedInDoctorName;
+    int? effectiveDoctorId = _loggedInDoctorId;
+
+    if (_selectedDoctorFilter != 'ALL' && _selectedDoctorFilter.isNotEmpty) {
+      effectiveDoctorName = _selectedDoctorFilter;
+      final matched = _clinicDoctors.firstWhere(
+        (d) {
+          final fn = (d['full_name'] ?? '').toString().trim().toLowerCase();
+          final sel = _selectedDoctorFilter.trim().toLowerCase();
+          final cleanFn = fn.replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+          final cleanSel = sel.replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+          return cleanFn == cleanSel || fn == sel;
+        },
+        orElse: () => {},
+      );
+      if (matched.isNotEmpty && matched['id'] != null) {
+        effectiveDoctorId = int.tryParse('${matched['id']}') ?? effectiveDoctorId;
+      }
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => _DoctorPrescriptionDialog(
         appointment: appointment,
         userRole: _userRole,
-        loggedInDoctorName: _loggedInDoctorName,
-        loggedInDoctorId: _loggedInDoctorId,
+        loggedInDoctorName: effectiveDoctorName,
+        loggedInDoctorId: effectiveDoctorId,
+        selectedDeskDoctor: _selectedDoctorFilter,
         onSaved: () {
           _fetchAppointments();
           _fetchAnalytics();
@@ -2077,10 +2140,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                 // Doctor Consultation / View Rx
                 Builder(
                   builder: (context) {
-                    final apptDocName = (a['doctor_name'] ?? '').toString().trim().toLowerCase();
-                    final myDocName = _loggedInDoctorName.trim().toLowerCase();
-                    final isPrescribingDoctor = _userRole == 'DOCTOR' && myDocName.isNotEmpty &&
-                        (apptDocName.contains(myDocName) || myDocName.contains(apptDocName));
+                    final isPrescribingDoctor = _canDoctorEditAppointment(a);
 
                     return ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
@@ -2192,7 +2252,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                       children: [
                         Text(
                           _selectedDoctorFilter != 'ALL'
-                              ? 'Dr. $_selectedDoctorFilter Consultation Desk'
+                              ? '${_formatDoctorTitle(_selectedDoctorFilter)} Consultation Desk'
                               : 'All Doctors Consultation Desk',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
                         ),
@@ -2226,7 +2286,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                             final docName = (d['full_name'] ?? 'Doctor').toString();
                             return DropdownMenuItem(
                               value: docName,
-                              child: Text('Dr. $docName'),
+                              child: Text(_formatDoctorTitle(docName)),
                             );
                           }),
                         ],
@@ -2520,10 +2580,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                   ],
                   Builder(
                     builder: (context) {
-                      final apptDocName = (a['doctor_name'] ?? '').toString().trim().toLowerCase();
-                      final myDocName = _loggedInDoctorName.trim().toLowerCase();
-                      final isPrescribingDoctor = _userRole == 'DOCTOR' && myDocName.isNotEmpty &&
-                          (apptDocName.contains(myDocName) || myDocName.contains(apptDocName));
+                      final isPrescribingDoctor = _canDoctorEditAppointment(a);
 
                       return ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
@@ -4100,6 +4157,7 @@ class _DoctorPrescriptionDialog extends StatefulWidget {
   final String userRole;
   final String loggedInDoctorName;
   final int? loggedInDoctorId;
+  final String? selectedDeskDoctor;
 
   const _DoctorPrescriptionDialog({
     required this.appointment,
@@ -4108,6 +4166,7 @@ class _DoctorPrescriptionDialog extends StatefulWidget {
     this.userRole = '',
     this.loggedInDoctorName = '',
     this.loggedInDoctorId,
+    this.selectedDeskDoctor,
   });
 
   @override
@@ -4115,26 +4174,73 @@ class _DoctorPrescriptionDialog extends StatefulWidget {
 }
 
 class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
+  static String _formatDoctorName(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'Dr. Specialist';
+    final clean = trimmed.replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+    return 'Dr. $clean';
+  }
+
   bool get _canEdit {
     final role = widget.userRole.trim().toUpperCase();
-    final isDoctor = role == 'DOCTOR' || role.contains('DOCTOR');
-    if (!isDoctor) return false;
 
-    final apptDocId = widget.appointment['doctor_id'];
-    final apptDocName = (widget.appointment['attended_by_doctor_name'] ?? widget.appointment['doctor_name'] ?? '').toString().trim().toLowerCase();
-    final myName = widget.loggedInDoctorName.trim().toLowerCase();
-
-    if (widget.loggedInDoctorId != null && apptDocId != null && widget.loggedInDoctorId == apptDocId) {
+    // 1. Full admin / owner / clinic manager override
+    if (role == 'ADMIN' ||
+        role == 'SUPERADMIN' ||
+        role == 'OWNER' ||
+        role == 'CLINIC_ADMIN' ||
+        role == 'MANAGER' ||
+        role == 'DOCTOR_ADMIN') {
       return true;
     }
 
-    String clean(String s) => s.replaceAll(RegExp(r'^dr\.?\s*', caseSensitive: false), '').trim();
-    final cAppt = clean(apptDocName);
-    final cMine = clean(myName);
+    String clean(String s) =>
+        s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
 
-    if (cAppt.isEmpty || cMine.isEmpty) return true;
-    return cAppt.contains(cMine) || cMine.contains(cAppt);
+    final apptDocName = clean((widget.appointment['attended_by_doctor_name'] ??
+            widget.appointment['doctor_name'] ??
+            '')
+        .toString());
+    final myName = clean(widget.loggedInDoctorName);
+    final deskName = clean(widget.selectedDeskDoctor ?? '');
+
+    // 2. Matching doctor ID
+    final apptDocId = widget.appointment['doctor_id'];
+    if (widget.loggedInDoctorId != null &&
+        apptDocId != null &&
+        widget.loggedInDoctorId == apptDocId) {
+      return true;
+    }
+
+    // 3. Matching logged-in doctor name or selected consultation desk doctor name
+    if (myName.isNotEmpty && (apptDocName.contains(myName) || myName.contains(apptDocName))) {
+      return true;
+    }
+    if (deskName.isNotEmpty &&
+        deskName != 'all' &&
+        (apptDocName.contains(deskName) || deskName.contains(apptDocName))) {
+      return true;
+    }
+
+    // 4. If new consultation / patient waiting in queue and no prescription exists yet
+    final status = (widget.appointment['status'] ?? '').toString().toUpperCase();
+    final isVisited = status == 'VISITED' || status == 'COMPLETED';
+    final hasPrescription = widget.appointment['attended_by_doctor_name'] != null ||
+        (widget.appointment['prescription_notes'] != null &&
+            widget.appointment['prescription_notes'].toString().isNotEmpty) ||
+        (widget.appointment['prescribed_medicines'] is List &&
+            (widget.appointment['prescribed_medicines'] as List).isNotEmpty);
+
+    if (!isVisited && !hasPrescription) {
+      final isDoctor = role == 'DOCTOR' || role.contains('DOCTOR');
+      if (isDoctor || deskName.isNotEmpty) {
+        return true;
+      }
+    }
+
+    return false;
   }
+
   final TextEditingController _notesCtrl = TextEditingController();
   final TextEditingController _doctorCtrl = TextEditingController();
   final TextEditingController _diagnosisCtrl = TextEditingController();
@@ -4173,7 +4279,11 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
   void initState() {
     super.initState();
     _notesCtrl.text = widget.appointment['prescription_notes'] ?? '';
-    _doctorCtrl.text = widget.appointment['doctor_name'] ?? 'Dr. Specialist';
+    final initialDoc = (widget.appointment['attended_by_doctor_name'] ?? 
+                        widget.appointment['doctor_name'] ?? 
+                        (widget.selectedDeskDoctor != null && widget.selectedDeskDoctor != 'ALL' ? widget.selectedDeskDoctor : null) ?? 
+                        widget.loggedInDoctorName).toString();
+    _doctorCtrl.text = _formatDoctorName(initialDoc);
     _diagnosisCtrl.text = widget.appointment['diagnosis'] ?? widget.appointment['reason_for_visit'] ?? '';
 
     // Unpack existing vital signs if available
@@ -4940,7 +5050,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Read-Only View: Prescription authored by Dr. ${widget.appointment['attended_by_doctor_name'] ?? widget.appointment['doctor_name'] ?? 'Consultant'}. Only the prescribing doctor can edit this prescription. You can view all details and print the PDF Rx.',
+                        'Read-Only View: Prescription authored by ${_formatDoctorName((widget.appointment['attended_by_doctor_name'] ?? widget.appointment['doctor_name'] ?? 'Consultant').toString())}. Only the prescribing doctor can edit this prescription. You can view all details and print the PDF Rx.',
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
                       ),
                     ),
