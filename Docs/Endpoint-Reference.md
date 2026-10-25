@@ -486,4 +486,56 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 ---
 
-*Last Updated: October 2026 | Covers 100% of all 42 Express Route Modules & Developer Subsystems*
+## 43. Clinic Management & OPD Healthcare Suite (`/api/clinic`)
+
+- `GET /api/clinic/appointments` — List appointments filtered by date, doctor, status, and patient search query.
+- `POST /api/clinic/appointments` — Register patient and issue sequential OPD token number.
+- `PATCH /api/clinic/appointments/:id/status` — Update appointment state (`WAITING`, `IN_CONSULTATION`, `COMPLETED`, `CANCELLED`, `NO_SHOW`).
+- `POST /api/clinic/appointments/:id/prescription` — Save doctor consultation vitals, complaints, diagnosis, prescribed medicines, and lab investigations.
+- `POST /api/clinic/appointments/:id/send-to-billing` — Convert prescribed medicines and consultation fees into draft sales invoice for pharmacy checkout.
+- `POST /api/clinic/appointments/:id/accept-and-pay` — Settle consultation fee with Cash, UPI, or Card, generating an official invoice.
+- `PATCH /api/clinic/appointments/:id/billing-complete` — Mark appointment billing status as completed.
+- `GET /api/clinic/doctors` — Retrieve doctor directory with specialties, degrees, room numbers, and consultation fees.
+- `POST /api/clinic/doctors` — Create doctor profile and consulting schedule.
+- `PUT /api/clinic/doctors/:id` — Update doctor profile, consultation fee, or cabin allocation.
+- `DELETE /api/clinic/doctors/:id` — Archive or remove doctor profile.
+- `GET /api/clinic/medicines` — Search clinic pharmacy inventory with real-time stock balances and expiry dates.
+- `GET /api/clinic/patient-history` — Retrieve patient historical consultations, past vitals, and previous prescriptions.
+- `GET /api/clinic/patient-credit` — Check outstanding credit balance for patient ledger.
+- `POST /api/clinic/patient-credit/settle` — Post payment against patient outstanding credit.
+- `GET /api/clinic/clinical-tests` — Retrieve master catalog of diagnostic laboratory investigations.
+- `POST /api/clinic/clinical-tests` — Add or modify diagnostic laboratory test definitions.
+- `GET /api/clinic/analytics` — Clinic revenue analytics, doctor-wise patient counts, and OPD fee totals.
+- `GET /api/clinic/operating-status` — Check whether clinic is open today and public online booking enabled.
+- `POST /api/clinic/toggle-closed-today` — Emergency holiday closure toggle.
+- `GET /api/clinic/subscriptions` — List multi-session therapy packages (Physiotherapy, Dental, Dialysis).
+- `POST /api/clinic/subscriptions` — Enroll patient in therapy package.
+- `POST /api/clinic/subscriptions/:id/consume` — Punch and deduct completed therapy session.
+- `GET /api/clinic/subscriptions/:id/ledger` — View session punch history and remaining balance.
+
+---
+
+## 44. Public Patient Portal & Appointments (`/api/public/clinic`)
+
+- `GET /api/public/clinic/cities` — Retrieve cities where clinic doctors operate.
+- `GET /api/public/clinic/specialities` — Retrieve medical specialties for search filtering.
+- `GET /api/public/clinic/doctors` — Search public doctor directory by city and specialty.
+- `POST /api/public/clinic/request-email-otp` — Request 6-digit email OTP for patient identity verification.
+- `POST /api/public/clinic/verify-email-otp` — Cryptographically verify email OTP.
+- `POST /api/public/clinic/appointment` — Book self-service appointment slot.
+- `GET /api/public/clinic/patient-history` — Patient self-service portal to view past visits and download digital prescriptions.
+- `POST /api/public/clinic/cancel-appointment` — Patient self-service appointment cancellation.
+- `GET /api/public/clinic/operating-status` — Real-time clinic open/closed notification banner.
+- `GET /api/public/clinic/my-subscriptions` — View active therapy session packages and balances.
+
+---
+
+## 45. System Maintenance & Lockout Engine (`/api/system/maintenance`)
+
+- `GET /api/system/maintenance-status` — Public endpoint returning active maintenance mode status, countdown, and advance notice info.
+- `POST /api/system/maintenance` — Activate or deactivate system maintenance mode, set estimated duration, and customize lockout message (SuperAdmin / Owner only).
+- `POST /api/system/maintenance/advance-notice` — Broadcast or clear scheduled maintenance advance notice banner across all store dashboards.
+
+---
+
+*Last Updated: October 2026 | Covers 100% of all 45 Express Route Modules & Developer Subsystems*

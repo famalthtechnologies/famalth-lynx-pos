@@ -1,9 +1,19 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:excel/excel.dart' as exc;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
+import 'package:printing/printing.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/currency/currency_service.dart';
+import '../../core/utils/file_download_helper.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({Key? key}) : super(key: key);
@@ -1779,6 +1789,207 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     );
   }
 
+  Future<String?> _saveBytesToDownloads(String fileName, List<int> bytes) async {
+    try {
+      if (kIsWeb) {
+        await Printing.sharePdf(
+          bytes: Uint8List.fromList(bytes),
+          filename: fileName,
+        );
+        return fileName;
+      }
+      Directory? targetDir;
+      if (Platform.isWindows) {
+        final userProfile = Platform.environment['USERPROFILE'];
+        if (userProfile != null && Directory('$userProfile\\Downloads').existsSync()) {
+          targetDir = Directory('$userProfile\\Downloads');
+        }
+      }
+      targetDir ??= await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+      final filePath = p.join(targetDir.path, fileName);
+      final file = File(filePath);
+      await file.writeAsBytes(bytes, flush: true);
+      try {
+        await OpenFile.open(filePath);
+      } catch (_) {}
+      return filePath;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> _downloadSampleFile({bool isExcel = true}) async {
+    final nowStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final sampleRows = <List<String>>[
+      ['EmployeeCode', 'Date', 'InTime', 'OutTime', 'Status'],
+    ];
+
+    if (_employeesList.isNotEmpty) {
+      for (var i = 0; i < _employeesList.length && i < 5; i++) {
+        final emp = _employeesList[i];
+        final code = (emp['employee_code'] ?? emp['id'] ?? 'EMP00${i + 1}').toString();
+        sampleRows.add([code, nowStr, '09:00', '18:00', 'Present']);
+      }
+    } else {
+      sampleRows.addAll([
+        ['EMP001', nowStr, '09:00', '18:00', 'Present'],
+        ['EMP002', nowStr, '09:15', '18:30', 'Present'],
+        ['EMP003', nowStr, '10:00', '14:00', 'Half-Day'],
+        ['EMP004', nowStr, '', '', 'Absent'],
+      ]);
+    }
+
+    if (isExcel) {
+      final excel = exc.Excel.createExcel();
+      final defaultSheet = excel.getDefaultSheet();
+      if (defaultSheet != null) {
+        excel.rename(defaultSheet, 'Attendance');
+      }
+      final sheet = excel['Attendance'];
+      for (final row in sampleRows) {
+        sheet.appendRow(row.map((c) => exc.TextCellValue(c)).toList());
+      }
+      final bytes = excel.encode();
+      if (bytes != null) {
+        const fileName = 'attendance_sample_template.xlsx';
+        final savedPath = await _saveBytesToDownloads(fileName, bytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(savedPath != null
+                  ? 'Sample Excel template saved to: $savedPath'
+                  : 'Sample Excel template downloaded!'),
+              backgroundColor: const Color(0xFF0D9488),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    } else {
+      final csvContent = sampleRows.map((r) => r.join(',')).join('\n');
+      const fileName = 'attendance_sample_template.csv';
+      final ok = await saveOrDownloadTextFile(filename: fileName, content: csvContent);
+      if (mounted && ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sample CSV template downloaded successfully!'),
+            backgroundColor: Color(0xFF0D9488),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  String _cellToString(dynamic val) {
+    if (val == null) return '';
+    if (val is exc.DateCellValue) {
+      return '${val.year.toString().padLeft(4, '0')}-${val.month.toString().padLeft(2, '0')}-${val.day.toString().padLeft(2, '0')}';
+    }
+    if (val is exc.DateTimeCellValue) {
+      return '${val.year.toString().padLeft(4, '0')}-${val.month.toString().padLeft(2, '0')}-${val.day.toString().padLeft(2, '0')}';
+    }
+    if (val is exc.TimeCellValue) {
+      return '${val.hour.toString().padLeft(2, '0')}:${val.minute.toString().padLeft(2, '0')}';
+    }
+    if (val is exc.TextCellValue) {
+      return val.value.text?.trim() ?? val.toString().trim();
+    }
+    if (val is exc.IntCellValue) {
+      return val.value.toString();
+    }
+    if (val is exc.DoubleCellValue) {
+      return val.value.toString();
+    }
+    if (val is exc.BoolCellValue) {
+      return val.value.toString();
+    }
+    return val.toString().trim();
+  }
+
+  Future<void> _pickAndProcessFile(
+    TextEditingController textCtrl,
+    StateSetter setDlgState,
+    void Function() parseRows,
+  ) async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx', 'xls', 'csv'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final picked = result.files.single;
+      final extension = (picked.extension ?? '').toLowerCase();
+
+      Uint8List? bytes = picked.bytes;
+      if (bytes == null && picked.path != null) {
+        final file = File(picked.path!);
+        if (await file.exists()) {
+          bytes = await file.readAsBytes();
+        }
+      }
+
+      if (bytes == null || bytes.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not read the selected file.'), backgroundColor: Colors.red),
+          );
+        }
+        return;
+      }
+
+      if (extension == 'csv') {
+        final content = utf8.decode(bytes);
+        textCtrl.text = content;
+        parseRows();
+      } else {
+        // Excel (.xlsx, .xls)
+        final excel = exc.Excel.decodeBytes(bytes);
+        final lines = <String>[];
+        for (var table in excel.tables.keys) {
+          final rows = excel.tables[table]!.rows;
+          for (var row in rows) {
+            final rowValues = row.map((cell) => _cellToString(cell?.value)).toList();
+            if (rowValues.any((val) => val.isNotEmpty)) {
+              lines.add(rowValues.join(','));
+            }
+          }
+          if (lines.isNotEmpty) break; // Take first populated sheet
+        }
+
+        if (lines.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('The selected Excel sheet has no data rows.'), backgroundColor: Colors.orange),
+            );
+          }
+          return;
+        }
+
+        textCtrl.text = lines.join('\n');
+        parseRows();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Loaded ${picked.name} successfully!'),
+            backgroundColor: const Color(0xFF0D9488),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading file: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   void _showImportExcelDialog() {
     final textCtrl = TextEditingController();
     List<Map<String, dynamic>> parsedRows = [];
@@ -1792,7 +2003,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
           builder: (context, setDlgState) {
             void parseRows() {
               final raw = textCtrl.text.trim();
-              if (raw.isEmpty) return;
+              if (raw.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please upload an Excel/CSV file or paste data first.'), backgroundColor: Colors.orange),
+                );
+                return;
+              }
 
               final lines = raw.split('\n');
               final List<Map<String, dynamic>> list = [];
@@ -1808,9 +2024,27 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                 if (parts.isEmpty) continue;
 
                 final empCode = parts[0].trim();
-                final dateStr = parts.length > 1 ? parts[1].trim() : DateFormat('yyyy-MM-dd').format(DateTime.now());
-                final inTime = parts.length > 2 ? parts[2].trim() : '';
-                final outTime = parts.length > 3 ? parts[3].trim() : '';
+                if (empCode.isEmpty) continue;
+
+                var dateStr = parts.length > 1 ? parts[1].trim() : '';
+                if (dateStr.isEmpty) {
+                  dateStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+                } else if (dateStr.contains('T')) {
+                  dateStr = dateStr.split('T').first;
+                } else if (dateStr.contains(' ')) {
+                  dateStr = dateStr.split(' ').first;
+                }
+
+                var inTime = parts.length > 2 ? parts[2].trim() : '';
+                if (inTime.length > 5 && inTime.contains(':')) {
+                  inTime = inTime.substring(0, 5);
+                }
+
+                var outTime = parts.length > 3 ? parts[3].trim() : '';
+                if (outTime.length > 5 && outTime.contains(':')) {
+                  outTime = outTime.substring(0, 5);
+                }
+
                 final status = parts.length > 4 ? parts[4].trim() : (inTime.isNotEmpty ? 'Present' : 'Absent');
 
                 final matched = _employeesList.firstWhere(
@@ -1830,6 +2064,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                 });
               }
 
+              if (list.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('No valid rows could be parsed. Check column order.'), backgroundColor: Colors.red),
+                );
+                return;
+              }
+
               setDlgState(() {
                 parsedRows = list;
                 isParsed = true;
@@ -1843,7 +2084,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0D9488).withOpacity(0.12),
+                      color: const Color(0xFF0D9488).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.table_view_outlined, color: Color(0xFF0D9488), size: 22),
@@ -1854,14 +2095,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Import Attendance from Excel / CSV', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        Text('Paste rows copied from Excel or CSV sheet', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                        Text('Upload attendance sheet or paste copied rows directly', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                       ],
                     ),
                   ),
                 ],
               ),
               content: SizedBox(
-                width: 650,
+                width: 680,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1881,21 +2122,81 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 const Text('Expected Column Order:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF334155))),
-                                TextButton.icon(
-                                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                                  icon: const Icon(Icons.copy_all, size: 14, color: Color(0xFF0D9488)),
-                                  label: const Text('Copy Sample Template', style: TextStyle(fontSize: 11, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
-                                  onPressed: () {
-                                    const sample = "EmployeeCode,Date,InTime,OutTime,Status\nEMP001,2026-10-25,09:00,18:00,Present\nEMP002,2026-10-25,09:30,17:30,Present";
-                                    Clipboard.setData(const ClipboardData(text: sample));
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Sample CSV template copied to clipboard!')),
-                                    );
-                                  },
+                                Wrap(
+                                  spacing: 6,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    // Download Sample Template Popup
+                                    PopupMenuButton<String>(
+                                      tooltip: 'Download Sample Template',
+                                      onSelected: (val) {
+                                        if (val == 'excel') {
+                                          _downloadSampleFile(isExcel: true);
+                                        } else if (val == 'csv') {
+                                          _downloadSampleFile(isExcel: false);
+                                        }
+                                      },
+                                      itemBuilder: (context) => [
+                                        const PopupMenuItem(
+                                          value: 'excel',
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.description_outlined, size: 16, color: Color(0xFF107C41)),
+                                              SizedBox(width: 8),
+                                              Text('Download Excel (.xlsx)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                                            ],
+                                          ),
+                                        ),
+                                        const PopupMenuItem(
+                                          value: 'csv',
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.table_chart_outlined, size: 16, color: Color(0xFF0D9488)),
+                                              SizedBox(width: 8),
+                                              Text('Download CSV (.csv)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: const Color(0xFF0D9488)),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.file_download_outlined, size: 14, color: Color(0xFF0D9488)),
+                                            SizedBox(width: 4),
+                                            Text('Download Sample', style: TextStyle(fontSize: 11, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
+                                            SizedBox(width: 2),
+                                            Icon(Icons.arrow_drop_down, size: 14, color: Color(0xFF0D9488)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    TextButton.icon(
+                                      style: TextButton.styleFrom(
+                                        visualDensity: VisualDensity.compact,
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      ),
+                                      icon: const Icon(Icons.copy_all, size: 14, color: Color(0xFF0D9488)),
+                                      label: const Text('Copy Template', style: TextStyle(fontSize: 11, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
+                                      onPressed: () {
+                                        const sample = "EmployeeCode,Date,InTime,OutTime,Status\nEMP001,2026-10-25,09:00,18:00,Present\nEMP002,2026-10-25,09:30,17:30,Present";
+                                        Clipboard.setData(const ClipboardData(text: sample));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Sample CSV template copied to clipboard!')),
+                                        );
+                                      },
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 6),
                             const Text(
                               'Column 1: Employee Code/ID | Column 2: Date (YYYY-MM-DD) | Column 3: In Time (HH:mm) | Column 4: Out Time (HH:mm) | Column 5: Status (Present/Absent/Half-Day)',
                               style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
@@ -1905,11 +2206,72 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                       ),
                       const SizedBox(height: 14),
                       if (!isParsed) ...[
-                        const Text('Paste Excel / CSV Data:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        const SizedBox(height: 6),
+                        // Upload Box Card
+                        InkWell(
+                          onTap: () => _pickAndProcessFile(textCtrl, setDlgState, parseRows),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFCBD5E1), width: 1.5),
+                            ),
+                            child: Column(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0D9488).withValues(alpha: 0.12),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.cloud_upload_outlined, color: Color(0xFF0D9488), size: 28),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Upload Attendance File (Excel / CSV)',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E293B)),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Supports .xlsx, .xls, and .csv files. Rows are automatically read and validated.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                ),
+                                const SizedBox(height: 10),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF0D9488),
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  icon: const Icon(Icons.file_open_outlined, size: 16),
+                                  label: const Text('Browse & Upload File'),
+                                  onPressed: () => _pickAndProcessFile(textCtrl, setDlgState, parseRows),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Row(
+                          children: [
+                            Expanded(child: Divider(color: Color(0xFFE2E8F0))),
+                            Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 10),
+                              child: Text('OR PASTE DATA MANUALLY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
+                            ),
+                            Expanded(child: Divider(color: Color(0xFFE2E8F0))),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
                         TextField(
                           controller: textCtrl,
-                          maxLines: 8,
+                          maxLines: 5,
                           decoration: InputDecoration(
                             hintText: 'EMP001,2026-10-25,09:00,18:00,Present\nEMP002,2026-10-25,09:15,18:30,Present...',
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -1921,10 +2283,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text('Preview Parsed Rows (${parsedRows.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                            TextButton.icon(
-                              icon: const Icon(Icons.edit, size: 14),
-                              label: const Text('Edit Raw Data', style: TextStyle(fontSize: 12)),
-                              onPressed: () => setDlgState(() => isParsed = false),
+                            Wrap(
+                              spacing: 8,
+                              children: [
+                                TextButton.icon(
+                                  icon: const Icon(Icons.file_upload_outlined, size: 14),
+                                  label: const Text('Upload Another File', style: TextStyle(fontSize: 12)),
+                                  onPressed: () => _pickAndProcessFile(textCtrl, setDlgState, parseRows),
+                                ),
+                                TextButton.icon(
+                                  icon: const Icon(Icons.edit, size: 14),
+                                  label: const Text('Edit Raw Data', style: TextStyle(fontSize: 12)),
+                                  onPressed: () => setDlgState(() => isParsed = false),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -1990,14 +2362,23 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('Cancel'),
                 ),
-                if (!isParsed)
+                if (!isParsed) ...[
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0D9488),
+                      side: const BorderSide(color: Color(0xFF0D9488)),
+                    ),
+                    icon: const Icon(Icons.file_upload_outlined, size: 16),
+                    label: const Text('Upload File'),
+                    onPressed: () => _pickAndProcessFile(textCtrl, setDlgState, parseRows),
+                  ),
                   FilledButton.icon(
                     style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0D9488)),
                     icon: const Icon(Icons.remove_red_eye_outlined, size: 16),
                     label: const Text('Preview Data'),
                     onPressed: parseRows,
-                  )
-                else
+                  ),
+                ] else
                   FilledButton.icon(
                     style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0D9488)),
                     icon: isImporting

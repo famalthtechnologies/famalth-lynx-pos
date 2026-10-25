@@ -5762,6 +5762,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         type == 'SUBSCRIPTION_SETTLEMENT_CREDIT' ||
         type == 'SUBSCRIPTION_SETTLEMENT_PARTIAL' ||
         refType == 'SALE' ||
+        refType == 'CLINIC_APPOINTMENT' ||
         method == 'CREDIT';
   }
 
@@ -5772,8 +5773,10 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
     return type == 'REPAYMENT' ||
         type == 'CUSTOMER_REPAYMENT' ||
         type == 'WAIVE_OFF' ||
+        type == 'CONSULTATION_FEE' ||
         refType == 'REPAYMENT' ||
-        refType == 'WAIVE_OFF';
+        refType == 'WAIVE_OFF' ||
+        refType == 'CLINIC_APPOINTMENT';
   }
 
   String? _getSupplierBillKey(CashLedgerEntry entry) {
@@ -5810,7 +5813,12 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
     final refNo = entry.referenceNo.trim().toUpperCase();
     final notes = entry.notes.trim();
 
-    final match = RegExp(r'(?:for\s+|sale\s*#?|inv\s*#?|invoice\s*#?)([A-Za-z0-9_-]+)', caseSensitive: false)
+    final cleanRef = refNo.replaceFirst(RegExp(r'^(?:RV-|SV-|REC-)'), '');
+    if (cleanRef.startsWith('APPT-')) {
+      return 'CUST_SALE_$cleanRef';
+    }
+
+    final match = RegExp(r'(?:for\s+|sale\s*#?|inv\s*#?|invoice\s*#?|appt\s*#?)([A-Za-z0-9_-]+)', caseSensitive: false)
         .firstMatch('$refNo $notes');
     if (match != null) {
       return 'CUST_SALE_${match.group(1)!.toUpperCase()}';

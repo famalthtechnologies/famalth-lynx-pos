@@ -169,6 +169,23 @@ module.exports = (sequelize: any, DataTypes: any) => {
             type: DataTypes.BOOLEAN,
             allowNull: false,
             defaultValue: false
+        },
+        cancellation_reason: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
+        refund_amount: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: false,
+            defaultValue: 0.00
+        },
+        refund_mode: {
+            type: DataTypes.STRING(50),
+            allowNull: true
+        },
+        cancelled_at: {
+            type: DataTypes.DATE,
+            allowNull: true
         }
     }, {
         tableName: 'clinic_appointments',

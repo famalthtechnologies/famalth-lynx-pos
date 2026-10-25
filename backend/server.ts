@@ -418,6 +418,13 @@ if (!fs.existsSync(licensePath)) {
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_no VARCHAR(50);
                 ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS billing_sale_id INTEGER;
                 ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS billing_sale_no VARCHAR(50);
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS refund_amount DECIMAL(10, 2) DEFAULT 0.00;
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS refund_mode VARCHAR(50);
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS clinic_closed_today BOOLEAN DEFAULT FALSE;
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS clinic_closed_date VARCHAR(20) DEFAULT '';
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS clinic_closed_reason TEXT DEFAULT '';
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS public_display_options JSONB DEFAULT '{"show_clinic_name":true,"show_doctor_name":true,"show_address":true,"show_phone":true,"show_whatsapp":true,"show_email":true,"show_fees":true}'::jsonb;
             `);
             console.log('✅ Verified/added custom columns in property_info, restaurant_tables, kot_headers, sales_headers, item_master, clinic_appointments, and hr_biometric_devices');

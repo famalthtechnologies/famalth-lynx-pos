@@ -40,6 +40,12 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
   int _sessionNumber = 1;
   int _totalSessions = 6;
 
+  // Customer Credit / Ledger tracking
+  double _customerPendingCredit = 0.0;
+  List<dynamic> _unpaidBills = [];
+  bool _isLoadingCredit = false;
+  bool _settlePriorCreditWithToday = false;
+
   bool _isSubmitting = false;
   bool get _isPrepaid => (widget.appointment['payment_status'] ?? '').toString().toUpperCase() == 'PAID';
 
@@ -120,6 +126,30 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
     }
 
     _loadMasterPaymentMethods();
+    _fetchCustomerCredit();
+  }
+
+  Future<void> _fetchCustomerCredit() async {
+    final phone = (widget.appointment['patient_phone'] ?? '').toString().trim();
+    final name = (widget.appointment['patient_name'] ?? '').toString().trim();
+    if (phone.isEmpty && name.isEmpty) return;
+
+    setState(() => _isLoadingCredit = true);
+    try {
+      final res = await ApiClient.get(
+        ApiEndpoints.clinicPatientCredit,
+        queryParams: {'phone': phone, 'name': name},
+      );
+      if (res != null && res['success'] == true && mounted) {
+        setState(() {
+          _customerPendingCredit = double.tryParse('${res['total_credit_due']}') ?? 0.0;
+          _unpaidBills = res['unpaid_bills'] is List ? (res['unpaid_bills'] as List) : [];
+        });
+      }
+    } catch (_) {}
+    finally {
+      if (mounted) setState(() => _isLoadingCredit = false);
+    }
   }
 
   Future<void> _loadMasterPaymentMethods() async {
@@ -189,6 +219,7 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
         'paid_amount': _isPrepaid
             ? (double.tryParse('${widget.appointment['paid_amount']}') ?? feeAmount)
             : (_paymentOption == 'PACKAGE' ? 0.0 : (_paymentOption == 'PAID_NOW' ? feeAmount : 0.0)),
+        'settle_prior_credit': _paymentOption == 'PAID_NOW' && _settlePriorCreditWithToday,
       };
 
       if (_selectedDoctorName != null && _selectedDoctorName!.isNotEmpty) {
@@ -396,6 +427,51 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
                   ),
                 ),
               ] else ...[
+                if (_customerPendingCredit > 0) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFDE68A)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.account_balance_wallet_rounded, size: 20, color: Color(0xFFD97706)),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Customer Credit Alert: Prior Dues Pending',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFDC2626),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'Credit Due: ${CurrencyService.format(_customerPendingCredit)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'This patient has ${_unpaidBills.length} unpaid bill(s)/visit(s) totaling ${CurrencyService.format(_customerPendingCredit)} in outstanding customer credit.',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF78350F)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
                 // Payment Option Selection Tabs
                 const Text('Select Payment & Consultation Mode:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
                 const SizedBox(height: 10),
@@ -413,7 +489,7 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
                     const SizedBox(width: 8),
                     _modeCard(
                       title: 'Pay Later',
-                      subtitle: 'Pay at Clinic Exit',
+                      subtitle: 'Add to Customer Credit',
                       icon: Icons.schedule_rounded,
                       selected: _paymentOption == 'PAY_LATER',
                       color: const Color(0xFFD97706),
@@ -461,6 +537,45 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
                             ),
                           ],
                         ),
+                        if (_customerPendingCredit > 0) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _settlePriorCreditWithToday ? const Color(0xFFEFF6FF) : Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: _settlePriorCreditWithToday ? const Color(0xFF3B82F6) : const Color(0xFFCBD5E1)),
+                            ),
+                            child: CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              value: _settlePriorCreditWithToday,
+                              activeColor: const Color(0xFF2563EB),
+                              title: Text(
+                                'Bulk Pay / Also Settle Prior Credit (${CurrencyService.format(_customerPendingCredit)})',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF1E3A8A)),
+                              ),
+                              subtitle: Text(
+                                _settlePriorCreditWithToday
+                                    ? 'Clears today\'s fee + past outstanding credit dues in Universal Cash Ledger & Customer Ledger.'
+                                    : 'Check to collect today\'s fee and settle all past credit dues together.',
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF3B82F6)),
+                              ),
+                              onChanged: (val) {
+                                final isCheck = val ?? false;
+                                setState(() {
+                                  _settlePriorCreditWithToday = isCheck;
+                                  final baseFee = double.tryParse('${widget.appointment['consultation_fee'] ?? 0}') ?? 450.0;
+                                  if (isCheck) {
+                                    _amountCtrl.text = (baseFee + _customerPendingCredit).toStringAsFixed(2);
+                                  } else {
+                                    _amountCtrl.text = baseFee.toStringAsFixed(2);
+                                  }
+                                });
+                              },
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         const Text('Universal Payment Method (Recorded in Cash Ledger):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF166534))),
                         const SizedBox(height: 6),
@@ -499,25 +614,57 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: const Color(0xFFFDE68A)),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 28),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Appointment Accepted without Immediate Payment',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
+                        Row(
+                          children: [
+                            const Icon(Icons.schedule_rounded, color: Color(0xFFD97706), size: 28),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Appointment Accepted on Customer Credit (Pay Later)',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Fee (${CurrencyService.symbol}${_amountCtrl.text}) will be recorded in Customer Credit & Universal Cash Ledger.',
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFFB45309)),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'The doctor will attend patient. The fee (${CurrencyService.symbol}${_amountCtrl.text}) can be collected at the cashier or settled along with medicine billing.',
-                                style: const TextStyle(fontSize: 11, color: Color(0xFFB45309)),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
+                        ),
+                        const Divider(height: 18),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Prior Pending Credit Due:', style: TextStyle(fontSize: 12, color: Color(0xFF78350F))),
+                            Text(CurrencyService.format(_customerPendingCredit), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF92400E))),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Today\'s Consultation Fee (Added to Due):', style: TextStyle(fontSize: 12, color: Color(0xFF78350F))),
+                            Text('+ ${CurrencyService.symbol}${_amountCtrl.text}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFFDC2626))),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('New Total Customer Credit Due:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF92400E))),
+                            Text(
+                              CurrencyService.format(_customerPendingCredit + (double.tryParse(_amountCtrl.text.trim()) ?? 0.0)),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFFDC2626)),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -654,8 +801,8 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
                         : (_paymentOption == 'PACKAGE'
                             ? 'Confirm Package Session (Token #$tokenNo)'
                             : (widget.appointment['status'] == 'VISITED'
-                                ? 'Save Payment Details'
-                                : 'Accept (Pay Later) (Token #$tokenNo)')))),
+                                ? 'Update Credit Dues'
+                                : 'Accept on Credit (Pay Later) (Token #$tokenNo)')))),
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           onPressed: _isSubmitting ? null : _submit,

@@ -235,6 +235,18 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.BOOLEAN,
             defaultValue: true
         },
+        clinic_closed_today: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false
+        },
+        clinic_closed_date: {
+            type: DataTypes.STRING(20),
+            defaultValue: ''
+        },
+        clinic_closed_reason: {
+            type: DataTypes.TEXT,
+            defaultValue: ''
+        },
         allow_public_table_booking: {
             type: DataTypes.BOOLEAN,
             defaultValue: true

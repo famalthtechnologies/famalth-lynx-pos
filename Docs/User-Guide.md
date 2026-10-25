@@ -49,6 +49,8 @@ Click on any guide below for comprehensive step-by-step instructions:
 | 🔄 **[Operations Document Modifications](./User-Guide-Operations-Document-Modification-Workflows.md)** | Editing and revising existing Purchase Orders, GRNs, Material Requests, and Stock Issues with differential ledger updates. |
 | 🍽️ **[QR Table Dining & Multi-Seat Portal](./User-Guide-QR-Table-Ordering.md)** | Customer contactless self-service menu, per-seat ordering (Seat 1..4), split-bill requests, waiter quick service calls, and live kitchen timelines. |
 | 🏢 **[Enterprise SaaS Control Plane & Fleet Management](./User-Guide-Enterprise-Control-Plane-And-SaaS-Management.md)** | Master tenant governance, 30-day quota guard, relationship manager assignments, support ticket helpdesk, and PDF subscription invoices. |
+| 🏥 **[Clinic Management, OPD Queue & Digital Prescriptions](./User-Guide-Clinic-Management-And-OPD.md)** | Doctor consultation desk, vitals recording, live stock medicine prescribing, lab test orders, fee billing, and public patient portal. |
+| 🛠️ **[System Maintenance Mode & Emergency Lockout](./User-Guide-Maintenance-Mode-And-Lockout.md)** | Non-dismissible lockout modal, advance scheduled maintenance warning banners, and automatic client terminal resumption. |
 | 🛡️ **[Enterprise Disaster Recovery & Cloud Backup](./Disaster-Recovery-Documentation.md)** | Complete guide to automated AES-256 Google Drive backups, sync status tracking, and 1-click bare-metal store restoration. |
 
 ---

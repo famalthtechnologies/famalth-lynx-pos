@@ -55,6 +55,8 @@ mindmap
 | **Settings & Config Guide** | Admins | Configuration options and multi-tenant parameters | [Settings-Guide.md](./Settings-Guide.md) |
 | **Disaster Recovery & Restore** | Admins / Devs | AES-256 cloud backups, sync tracker & 1-click bare-metal restore | [Disaster-Recovery-Documentation.md](./Disaster-Recovery-Documentation.md) |
 | **Enterprise Control Plane** | SuperAdmins / DevOps | Multi-tenant SaaS governance, 30-day quota guard & Data Doctor | [User-Guide-Enterprise-Control-Plane-And-SaaS-Management.md](./User-Guide-Enterprise-Control-Plane-And-SaaS-Management.md) |
+| **Clinic & OPD Healthcare Suite** | Doctors / Receptionists | Patient OPD token queue, doctor consultation desk & digital prescriptions | [User-Guide-Clinic-Management-And-OPD.md](./User-Guide-Clinic-Management-And-OPD.md) |
+| **System Maintenance Mode** | DevOps / Admins | Advance warning banner & non-dismissible lockout modal | [User-Guide-Maintenance-Mode-And-Lockout.md](./User-Guide-Maintenance-Mode-And-Lockout.md) |
 | **Windows EXE Backend Packaging** | DevOps / Devs | Node.js pkg binary compilation, obfuscation & standalone bundle | [Windows-EXE-Packaging-And-Deployment-Guide.md](./Windows-EXE-Packaging-And-Deployment-Guide.md) |
 | **PostgreSQL Removal & Clean Reinstall** | SysAdmins / Support | Total PostgreSQL purge, registry wipe, and clean reinstallation | [PostgreSQL-Complete-Removal-Guide.md](./PostgreSQL-Complete-Removal-Guide.md) |
 
@@ -107,6 +109,8 @@ Step-by-step illustrated workflows written for store operators, cashiers, restau
 - 🔄 **[Operations Document Modifications User Guide](./User-Guide-Operations-Document-Modification-Workflows.md)**: Safely editing existing POs, GRNs, requisitions, and stock issues.
 - 🍽️ **[QR Table Dining & Multi-Seat Portal User Guide](./User-Guide-QR-Table-Ordering.md)**: Contactless self-ordering, per-seat ordering (Seat 1..4), split-bill requests & waiter quick calls.
 - 🏢 **[Enterprise SaaS Control Plane & Fleet Management](./User-Guide-Enterprise-Control-Plane-And-SaaS-Management.md)**: Master tenant governance, 30-day quota guard, relationship managers & support tickets.
+- 🏥 **[Clinic Management, OPD Queue & Digital Prescriptions](./User-Guide-Clinic-Management-And-OPD.md)**: Doctor consultation desk, vitals recording, stock medicine prescribing & public appointment portal.
+- 🛠️ **[System Maintenance Mode & Emergency Lockout](./User-Guide-Maintenance-Mode-And-Lockout.md)**: Non-dismissible lockout modal, advance maintenance notices & auto-resumption.
 - ❓ **[Complete Store Operations FAQ](./User-Guide-FAQ.md)**: Universal troubleshooting manual.
 
 ---
@@ -174,6 +178,8 @@ sequenceDiagram
 - 🛵 **[Third-Party Orders & Outlet OTP Architecture](./Developer-Guide-Third-Party-Orders-And-Outlet-OTP.md)**: Delivery aggregator order normalization, commissions & OTP onboarding.
 - 🔄 **[Operations Document Modifications & Differential Ledger](./Developer-Guide-Operations-Document-Modification-Workflows.md)**: Differential stock adjustments, row locking & tax group recalculation.
 - 🏢 **[Enterprise SaaS Control Plane & Data Doctor](./Developer-Guide-Enterprise-Control-Plane-And-Data-Doctor.md)**: Master IAM, multi-tenant fleet governance, 30-day quota guard, sandboxed Data Doctor SQL runner, vector PDF invoicing & Inno Setup packaging.
+- 🏥 **[Clinic Management & Digital Prescription Architecture](./Developer-Guide-Clinic-Management-And-OPD.md)**: Appointment state machine, doctor desk vitals JSONB, direct pharmacy billing & vector prescription PDF.
+- 🛠️ **[System Maintenance & Lockout Middleware Engine](./Developer-Guide-Maintenance-Mode-And-Lockout.md)**: Maintenance middleware, atomic JSON state storage, role-based bypass rules & Flutter interceptor.
 - 🍽️ **[QR Table Dining & Multi-Seat Architecture](./Developer-Guide-QR-Table-Ordering.md)**: Split-bill session engine, seat-level tagging, combined vs per-seat totals, and standalone dining app (`main_dining.dart`).
 - 🚀 **[1-Click Relational Store Migration Architecture](./One-Click-Cloud-Migration-Guide.md)**: In-memory relational ID translation engine and sequence re-alignment.
 - 🛍️ **[B2B Wholesale Marketplace & Community Chat Architecture](./B2B-Marketplace-And-Community-Guide.md)**: WebSocket chat protocols, vendor discovery, and direct PO translation.

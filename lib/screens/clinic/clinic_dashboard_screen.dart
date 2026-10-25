@@ -67,6 +67,11 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   DateTime _analyticsToDate = DateTime.now();
   String _analyticsRangeLabel = 'Last 30 Days';
 
+  // Clinic Operating Status (Today Open / Closed)
+  bool _isClinicClosedToday = false;
+  String _clinicClosedReason = '';
+  bool _isLoadingOperatingStatus = false;
+
   @override
   void initState() {
     super.initState();
@@ -79,6 +84,108 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     _fetchAppointments();
     _fetchAnalytics();
     _fetchSubscriptions();
+    _fetchOperatingStatus();
+  }
+
+  Future<void> _fetchOperatingStatus() async {
+    try {
+      final res = await ApiClient.get(ApiEndpoints.clinicOperatingStatus);
+      if (res != null && res['success'] == true && res['data'] != null && mounted) {
+        setState(() {
+          _isClinicClosedToday = res['data']['clinic_closed_today'] == true;
+          _clinicClosedReason = res['data']['clinic_closed_reason'] ?? '';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching clinic operating status: $e');
+    }
+  }
+
+  Future<void> _openToggleClinicClosedDialog() async {
+    final willClose = !_isClinicClosedToday;
+    final reasonCtrl = TextEditingController(text: willClose ? 'Clinic closed for administrative reasons' : '');
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(
+              willClose ? Icons.do_not_disturb_on_rounded : Icons.check_circle_rounded,
+              color: willClose ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+            ),
+            const SizedBox(width: 8),
+            Text(willClose ? 'Mark Clinic Closed Today?' : 'Mark Clinic Open Today?'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              willClose
+                  ? 'If you mark the clinic closed today, online public appointment bookings for today will be strictly BLOCKED.'
+                  : 'If you mark the clinic open, online public appointment bookings will be accepted for today.',
+              style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+            ),
+            if (willClose) ...[
+              const SizedBox(height: 16),
+              const Text('Reason (Shown to patients attempting to book online):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: reasonCtrl,
+                decoration: InputDecoration(
+                  hintText: 'e.g. Doctor on leave / Holiday / Maintenance',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: willClose ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(willClose ? 'Yes, Mark Closed' : 'Yes, Mark Open'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        final res = await ApiClient.post(ApiEndpoints.clinicToggleClosedToday, {
+          'is_closed': willClose,
+          'reason': reasonCtrl.text.trim(),
+        });
+        if (res != null && res['success'] == true && mounted) {
+          setState(() {
+            _isClinicClosedToday = willClose;
+            _clinicClosedReason = reasonCtrl.text.trim();
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res['message'] ?? (willClose ? 'Clinic marked closed today.' : 'Clinic marked open today.')),
+              backgroundColor: willClose ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to update operating status: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _checkUserRole() async {
@@ -196,6 +303,43 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
       );
     }
 
+    final status = (a['status'] ?? 'SCHEDULED').toString().toUpperCase();
+
+    if (status == 'CANCELLED') {
+      final refundAmt = double.tryParse('${a['refund_amount'] ?? 0}') ?? 0.0;
+      final isRefunded = payStatus == 'REFUNDED' || refundAmt > 0;
+      if (isRefunded) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0FDFA),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFF99F6E4)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.replay_rounded, size: 12, color: Color(0xFF0D9488)),
+              const SizedBox(width: 4),
+              Text(
+                'Refunded ${CurrencyService.format(refundAmt > 0 ? refundAmt : fee)} (${a['refund_mode'] ?? payMode})',
+                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
+              ),
+            ],
+          ),
+        );
+      }
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFFCBD5E1)),
+        ),
+        child: const Text('Cancelled (No Due)', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+      );
+    }
+
     if (payStatus == 'PAID') {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -226,9 +370,9 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.schedule_rounded, size: 12, color: Color(0xFFD97706)),
+            const Icon(Icons.account_balance_wallet_rounded, size: 12, color: Color(0xFFD97706)),
             const SizedBox(width: 4),
-            Text('Pay Later (${CurrencyService.symbol}${fee.toStringAsFixed(2)})', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+            Text('Credit Due: ${CurrencyService.symbol}${fee.toStringAsFixed(2)}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
           ],
         ),
       );
@@ -311,17 +455,33 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     } catch (_) {}
   }
 
-  Future<void> _updateStatus(dynamic appointmentId, String newStatus) async {
+  Future<void> _updateStatus(
+    dynamic appointmentId,
+    String newStatus, {
+    String? cancellationReason,
+    bool refundFee = true,
+    double? refundAmount,
+    String? refundMode,
+  }) async {
     try {
+      final payload = <String, dynamic>{'status': newStatus};
+      if (cancellationReason != null && cancellationReason.isNotEmpty) {
+        payload['cancellation_reason'] = cancellationReason;
+      }
+      if (newStatus == 'CANCELLED') {
+        payload['refund_fee'] = refundFee;
+        if (refundAmount != null) payload['refund_amount'] = refundAmount;
+        if (refundMode != null) payload['refund_mode'] = refundMode;
+      }
       final res = await ApiClient.patch(
         ApiEndpoints.clinicAppointmentStatus(appointmentId),
-        {'status': newStatus},
+        payload,
       );
       if (res != null && res['success'] == true && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Appointment marked as $newStatus'),
-            backgroundColor: const Color(0xFF059669),
+            content: Text(res['message'] ?? 'Appointment updated successfully'),
+            backgroundColor: newStatus == 'CANCELLED' ? const Color(0xFFDC2626) : const Color(0xFF059669),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -335,6 +495,267 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         );
       }
     }
+  }
+
+  Future<void> _openCancelAppointmentDialog(Map<String, dynamic> a) async {
+    final status = (a['status'] ?? 'SCHEDULED').toString().toUpperCase();
+    if (status == 'CANCELLED') return;
+
+    final fee = double.tryParse('${a['consultation_fee'] ?? 0}') ?? 0.0;
+    final paidAmt = double.tryParse('${a['paid_amount'] ?? 0}') ?? 0.0;
+    final payStatus = (a['payment_status'] ?? 'UNPAID').toString().toUpperCase();
+    final isPaid = payStatus == 'PAID' || paidAmt > 0;
+    final effectiveCollected = paidAmt > 0 ? paidAmt : (isPaid ? fee : 0.0);
+    final isPayLater = payStatus == 'PAY_LATER';
+
+    final patientName = a['patient_name'] ?? 'Patient';
+    final token = a['token_number'] ?? a['id'];
+
+    String selectedPreset = 'Patient requested cancellation';
+    final customReasonCtrl = TextEditingController();
+    bool refundFee = isPaid && effectiveCollected > 0;
+    String refundMode = (a['payment_mode'] ?? 'CASH').toString().toUpperCase();
+    if (refundMode == 'PACKAGE' || refundMode == 'PACKAGE_SUBSCRIPTION') refundMode = 'CASH';
+
+    final presetReasons = [
+      'Patient requested cancellation',
+      'Patient did not show up (No-Show)',
+      'Doctor unavailable / Emergency',
+      'Rescheduled to another date',
+      'Duplicate booking error',
+      'Other reason',
+    ];
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setDlgState) {
+            final isOther = selectedPreset == 'Other reason';
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.cancel_outlined, color: Color(0xFFDC2626), size: 22),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Cancel Appointment Visit',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                        ),
+                        Text(
+                          'Token #$token • $patientName',
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 480,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Fee Status & Refund/Credit info banner
+                      if (isPaid && effectiveCollected > 0) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFA7F3D0)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.verified_rounded, size: 16, color: Color(0xFF059669)),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Fee Paid: ${CurrencyService.format(effectiveCollected)} (${a['payment_mode'] ?? 'CASH'})',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF065F46)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                                controlAffinity: ListTileControlAffinity.leading,
+                                title: Text(
+                                  'Refund ${CurrencyService.format(effectiveCollected)} to patient',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46)),
+                                ),
+                                subtitle: const Text(
+                                  'Debits universal cash ledger & voids invoice from revenue',
+                                  style: TextStyle(fontSize: 11, color: Color(0xFF047857)),
+                                ),
+                                value: refundFee,
+                                onChanged: (val) => setDlgState(() => refundFee = val ?? true),
+                              ),
+                              if (refundFee) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    const Text('Refund Via: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                    const SizedBox(width: 8),
+                                    DropdownButton<String>(
+                                      value: refundMode,
+                                      isDense: true,
+                                      underline: const SizedBox(),
+                                      items: const [
+                                        DropdownMenuItem(value: 'CASH', child: Text('Cash', style: TextStyle(fontSize: 12))),
+                                        DropdownMenuItem(value: 'UPI', child: Text('UPI / QR', style: TextStyle(fontSize: 12))),
+                                        DropdownMenuItem(value: 'CARD', child: Text('Card', style: TextStyle(fontSize: 12))),
+                                        DropdownMenuItem(value: 'BANK', child: Text('Bank Transfer', style: TextStyle(fontSize: 12))),
+                                      ],
+                                      onChanged: (v) {
+                                        if (v != null) setDlgState(() => refundMode = v);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ] else if (isPayLater && fee > 0) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFFBEB),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFFDE68A)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.money_off_csred_rounded, size: 18, color: Color(0xFFD97706)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Credit Fee: ${CurrencyService.format(fee)} (Pay Later)',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF92400E)),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    const Text(
+                                      'This unpaid fee will be voided and will NOT be added to Customer Credit / Dues.',
+                                      style: TextStyle(fontSize: 11, color: Color(0xFFB45309)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+
+                      // Cancellation Reason Label
+                      const Text(
+                        'Reason for Cancellation *',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF334155)),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Presets
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: presetReasons.map((p) {
+                          final isSel = selectedPreset == p;
+                          return ChoiceChip(
+                            label: Text(p, style: TextStyle(fontSize: 11, fontWeight: isSel ? FontWeight.bold : FontWeight.normal)),
+                            selected: isSel,
+                            selectedColor: const Color(0xFFDC2626).withValues(alpha: 0.15),
+                            side: BorderSide(color: isSel ? const Color(0xFFDC2626) : const Color(0xFFCBD5E1)),
+                            onSelected: (val) {
+                              if (val) setDlgState(() => selectedPreset = p);
+                            },
+                          );
+                        }).toList(),
+                      ),
+
+                      if (isOther || selectedPreset.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: customReasonCtrl,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText: isOther ? 'Enter Reason Description *' : 'Additional Notes (Optional)',
+                            hintText: 'e.g. Patient called to cancel due to travel',
+                            isDense: true,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Keep Appointment', style: TextStyle(color: Color(0xFF64748B))),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFDC2626),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.check_rounded, size: 16),
+                  label: const Text('Confirm Cancellation'),
+                  onPressed: () {
+                    final fullReason = isOther
+                        ? customReasonCtrl.text.trim()
+                        : (customReasonCtrl.text.trim().isNotEmpty
+                            ? '$selectedPreset: ${customReasonCtrl.text.trim()}'
+                            : selectedPreset);
+
+                    if (fullReason.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please select or enter a cancellation reason.'), backgroundColor: Colors.red),
+                      );
+                      return;
+                    }
+
+                    Navigator.pop(dialogCtx);
+                    _updateStatus(
+                      a['id'],
+                      'CANCELLED',
+                      cancellationReason: fullReason,
+                      refundFee: refundFee,
+                      refundAmount: effectiveCollected,
+                      refundMode: refundMode,
+                    );
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _sendToBilling(dynamic appointment) async {
@@ -438,6 +859,9 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
       barrierDismissible: false,
       builder: (ctx) => _DoctorPrescriptionDialog(
         appointment: appointment,
+        userRole: _userRole,
+        loggedInDoctorName: _loggedInDoctorName,
+        loggedInDoctorId: _loggedInDoctorId,
         onSaved: () {
           _fetchAppointments();
           _fetchAnalytics();
@@ -505,6 +929,30 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           ],
         ),
         actions: [
+          // Clinic Operating Status Toggle (Open / Closed Today)
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              backgroundColor: _isClinicClosedToday ? const Color(0xFFFEF2F2) : const Color(0xFFF0FDF4),
+              foregroundColor: _isClinicClosedToday ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+              side: BorderSide(
+                color: _isClinicClosedToday ? const Color(0xFFF87171) : const Color(0xFF86EFAC),
+                width: 1.5,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            icon: Icon(
+              _isClinicClosedToday ? Icons.do_not_disturb_on_rounded : Icons.check_circle_rounded,
+              size: 16,
+              color: _isClinicClosedToday ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+            ),
+            label: Text(
+              _isClinicClosedToday ? 'Clinic Closed Today' : 'Clinic Open Today',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+            ),
+            onPressed: _openToggleClinicClosedDialog,
+          ),
+          const SizedBox(width: 8),
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFF0F172A),
@@ -1282,16 +1730,26 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                             decoration: BoxDecoration(
-                              color: isVisited ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB),
+                              color: status == 'CANCELLED'
+                                  ? const Color(0xFFFEF2F2)
+                                  : (isVisited ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB)),
                               borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: isVisited ? const Color(0xFF6EE7B7) : const Color(0xFFFDE68A)),
+                              border: Border.all(
+                                color: status == 'CANCELLED'
+                                    ? const Color(0xFFFCA5A5)
+                                    : (isVisited ? const Color(0xFF6EE7B7) : const Color(0xFFFDE68A)),
+                              ),
                             ),
                             child: Text(
-                              isVisited ? 'ATTENDED / VISITED' : 'WAITING IN QUEUE',
+                              status == 'CANCELLED'
+                                  ? 'CANCELLED'
+                                  : (isVisited ? 'ATTENDED / VISITED' : 'WAITING IN QUEUE'),
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                color: isVisited ? const Color(0xFF047857) : const Color(0xFFB45309),
+                                color: status == 'CANCELLED'
+                                    ? const Color(0xFFB91C1C)
+                                    : (isVisited ? const Color(0xFF047857) : const Color(0xFFB45309)),
                               ),
                             ),
                           ),
@@ -1350,6 +1808,28 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                             'Phone: ${a['patient_phone'] ?? '-'}  •  Age: ${a['patient_age'] ?? '-'}  •  ${(a['patient_gender'] ?? '-').toString().toUpperCase()}',
                             style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                           ),
+                          if (a['customer_pending_credit'] != null && (double.tryParse('${a['customer_pending_credit']}') ?? 0) > 0) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF2F2),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFFFCA5A5)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.account_balance_wallet_rounded, size: 11, color: Color(0xFFDC2626)),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    'Prior Credit: ${CurrencyService.format(double.parse('${a['customer_pending_credit']}'))}',
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFB91C1C)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                           const SizedBox(width: 12),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1477,12 +1957,40 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
               ),
             ],
 
-            const SizedBox(height: 14),
+            if (status == 'CANCELLED') ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.cancel_rounded, size: 16, color: Color(0xFFDC2626)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Cancellation Reason: ${a['cancellation_reason'] ?? 'Cancelled by Clinic'}' +
+                            (a['refund_amount'] != null && (double.tryParse('${a['refund_amount']}') ?? 0) > 0
+                                ? '  •  Refunded: ${CurrencyService.format(double.parse('${a['refund_amount']}'))} via ${a['refund_mode'] ?? 'CASH'}'
+                                : ''),
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFB91C1C)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
-            // Action Buttons
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
+            if (status != 'CANCELLED') ...[
+              const SizedBox(height: 14),
+
+              // Action Buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
                 // 1. Therapy / Service Package session admission (Available ONLY when this appointment is booked as a package session)
                 if (isPackageVisit && hasActiveSub && status != 'CANCELLED' && !isVisited) ...[
                   FilledButton.icon(
@@ -1529,7 +2037,9 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                     ),
                     icon: const Icon(Icons.payments_rounded, size: 16),
                     label: Text(
-                      fee > 0 ? 'Collect Fee (${CurrencyService.symbol}${fee.toStringAsFixed(2)})' : 'Collect Fee',
+                      payStatus == 'PAY_LATER'
+                          ? 'Settle Credit (${CurrencyService.symbol}${fee.toStringAsFixed(2)})'
+                          : (fee > 0 ? 'Collect Fee (${CurrencyService.symbol}${fee.toStringAsFixed(2)})' : 'Collect Fee'),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                     ),
                     onPressed: () => _openAcceptAndPayDialog(a),
@@ -1543,7 +2053,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                     style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
                     icon: const Icon(Icons.close_rounded, size: 15),
                     label: const Text('Cancel Visit', style: TextStyle(fontSize: 12)),
-                    onPressed: () => _updateStatus(a['id'], 'CANCELLED'),
+                    onPressed: () => _openCancelAppointmentDialog(a),
                   ),
 
                 const Spacer(),
@@ -1565,19 +2075,30 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                 ],
 
                 // Doctor Consultation / View Rx
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0284C7),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  icon: const Icon(Icons.edit_note_rounded, size: 18),
-                  label: Text(
-                    isVisited ? 'View / Edit Prescription' : 'Doctor Consultation',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                  onPressed: () => _openConsultationDialog(a),
+                Builder(
+                  builder: (context) {
+                    final apptDocName = (a['doctor_name'] ?? '').toString().trim().toLowerCase();
+                    final myDocName = _loggedInDoctorName.trim().toLowerCase();
+                    final isPrescribingDoctor = _userRole == 'DOCTOR' && myDocName.isNotEmpty &&
+                        (apptDocName.contains(myDocName) || myDocName.contains(apptDocName));
+
+                    return ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0284C7),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: Icon(isPrescribingDoctor ? Icons.edit_note_rounded : Icons.visibility_rounded, size: 18),
+                      label: Text(
+                        isVisited
+                            ? (isPrescribingDoctor ? 'View / Edit Prescription' : 'View Prescription')
+                            : (isPrescribingDoctor ? 'Doctor Consultation' : 'View Prescription'),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                      onPressed: () => _openConsultationDialog(a),
+                    );
+                  },
                 ),
 
                 const SizedBox(width: 8),
@@ -1619,7 +2140,8 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
               ],
             ),
           ],
-        ),
+        ],
+      ),
       ),
     );
   }
@@ -1630,14 +2152,18 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   Widget _buildDoctorDeskTab() {
     final isDoctorUser = _userRole == 'DOCTOR' && _loggedInDoctorName.isNotEmpty;
     final doctorQueue = _appointments.where((a) {
+      final status = (a['status'] ?? '').toString().toUpperCase();
+      // Cancelled visits are never sent or shown to doctor
+      if (status == 'CANCELLED') return false;
+
       if (_selectedDoctorFilter != 'ALL') {
         final dName = (a['doctor_name'] ?? '').toString().toLowerCase();
         if (!dName.contains(_selectedDoctorFilter.toLowerCase())) return false;
       }
       if (_doctorAttendanceFilter == 'ATTENDED') {
-        return (a['status'] ?? '').toString().toUpperCase() == 'VISITED';
+        return status == 'VISITED' || status == 'COMPLETED';
       } else if (_doctorAttendanceFilter == 'UNATTENDED') {
-        return (a['status'] ?? '').toString().toUpperCase() != 'VISITED';
+        return status == 'SCHEDULED' || status == 'CONFIRMED';
       }
       return true;
     }).toList();
@@ -1849,16 +2375,26 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                             decoration: BoxDecoration(
-                              color: isVisited ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB),
+                              color: status == 'CANCELLED'
+                                  ? const Color(0xFFFEF2F2)
+                                  : (isVisited ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB)),
                               borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: isVisited ? const Color(0xFF6EE7B7) : const Color(0xFFFDE68A)),
+                              border: Border.all(
+                                color: status == 'CANCELLED'
+                                    ? const Color(0xFFFCA5A5)
+                                    : (isVisited ? const Color(0xFF6EE7B7) : const Color(0xFFFDE68A)),
+                              ),
                             ),
                             child: Text(
-                              isVisited ? 'ATTENDED / VISITED' : 'WAITING IN QUEUE',
+                              status == 'CANCELLED'
+                                  ? 'CANCELLED'
+                                  : (isVisited ? 'ATTENDED / VISITED' : 'WAITING IN QUEUE'),
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                color: isVisited ? const Color(0xFF047857) : const Color(0xFFB45309),
+                                color: status == 'CANCELLED'
+                                    ? const Color(0xFFB91C1C)
+                                    : (isVisited ? const Color(0xFF047857) : const Color(0xFFB45309)),
                               ),
                             ),
                           ),
@@ -1922,54 +2458,94 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
               ),
             ],
 
-            const SizedBox(height: 14),
-
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (!isVisited)
-                  FilledButton.tonalIcon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFECFDF5),
-                      foregroundColor: const Color(0xFF059669),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
-                    label: const Text('Mark Consulted / Attended', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    onPressed: () => _updateStatus(a['id'], 'VISITED'),
-                  ),
-                const SizedBox(width: 8),
-                if (hasPrescription) ...[
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF0284C7),
-                      side: const BorderSide(color: Color(0xFFBAE6FD)),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    icon: const Icon(Icons.print_rounded, size: 16),
-                    label: const Text('Print PDF Rx', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    onPressed: () => _printPrescription(a),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0284C7),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  icon: const Icon(Icons.edit_note_rounded, size: 18),
-                  label: Text(
-                    isVisited ? 'View / Edit Prescription ($medCount Meds)' : 'Consult & Prescribe Rx',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                  onPressed: () => _openConsultationDialog(a),
+            if (status == 'CANCELLED') ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
                 ),
-              ],
-            ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.cancel_rounded, size: 16, color: Color(0xFFDC2626)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Cancellation Reason: ${a['cancellation_reason'] ?? 'Cancelled by Clinic'}' +
+                            (a['refund_amount'] != null && (double.tryParse('${a['refund_amount']}') ?? 0) > 0
+                                ? '  •  Refunded: ${CurrencyService.format(double.parse('${a['refund_amount']}'))} via ${a['refund_mode'] ?? 'CASH'}'
+                                : ''),
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFB91C1C)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            if (status != 'CANCELLED') ...[
+              const SizedBox(height: 14),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (!isVisited)
+                    FilledButton.tonalIcon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFECFDF5),
+                        foregroundColor: const Color(0xFF059669),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                      label: const Text('Mark Consulted / Attended', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      onPressed: () => _updateStatus(a['id'], 'VISITED'),
+                    ),
+                  const SizedBox(width: 8),
+                  if (hasPrescription) ...[
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF0284C7),
+                        side: const BorderSide(color: Color(0xFFBAE6FD)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: const Icon(Icons.print_rounded, size: 16),
+                      label: const Text('Print PDF Rx', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      onPressed: () => _printPrescription(a),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Builder(
+                    builder: (context) {
+                      final apptDocName = (a['doctor_name'] ?? '').toString().trim().toLowerCase();
+                      final myDocName = _loggedInDoctorName.trim().toLowerCase();
+                      final isPrescribingDoctor = _userRole == 'DOCTOR' && myDocName.isNotEmpty &&
+                          (apptDocName.contains(myDocName) || myDocName.contains(apptDocName));
+
+                      return ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0284C7),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: Icon(isPrescribingDoctor ? Icons.edit_note_rounded : Icons.visibility_rounded, size: 18),
+                        label: Text(
+                          isVisited
+                              ? (isPrescribingDoctor ? 'View / Edit Prescription ($medCount Meds)' : 'View Prescription ($medCount Meds)')
+                              : 'Consult & Prescribe Rx',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                        onPressed: () => _openConsultationDialog(a),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1981,6 +2557,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   // ==========================================
   Widget _buildPharmacyDeskTab() {
     final pharmacyQueue = _appointments.where((a) {
+      if ((a['status'] ?? '').toString().toUpperCase() == 'CANCELLED') return false;
       final hasRx = (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty) ||
           (a['prescription_notes'] != null && a['prescription_notes'].toString().isNotEmpty);
       if (!hasRx) return false;
@@ -3520,11 +4097,17 @@ class _DoctorPrescriptionDialog extends StatefulWidget {
   final dynamic appointment;
   final VoidCallback onSaved;
   final VoidCallback onSendBilling;
+  final String userRole;
+  final String loggedInDoctorName;
+  final int? loggedInDoctorId;
 
   const _DoctorPrescriptionDialog({
     required this.appointment,
     required this.onSaved,
     required this.onSendBilling,
+    this.userRole = '',
+    this.loggedInDoctorName = '',
+    this.loggedInDoctorId,
   });
 
   @override
@@ -3532,6 +4115,26 @@ class _DoctorPrescriptionDialog extends StatefulWidget {
 }
 
 class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
+  bool get _canEdit {
+    final role = widget.userRole.trim().toUpperCase();
+    final isDoctor = role == 'DOCTOR' || role.contains('DOCTOR');
+    if (!isDoctor) return false;
+
+    final apptDocId = widget.appointment['doctor_id'];
+    final apptDocName = (widget.appointment['attended_by_doctor_name'] ?? widget.appointment['doctor_name'] ?? '').toString().trim().toLowerCase();
+    final myName = widget.loggedInDoctorName.trim().toLowerCase();
+
+    if (widget.loggedInDoctorId != null && apptDocId != null && widget.loggedInDoctorId == apptDocId) {
+      return true;
+    }
+
+    String clean(String s) => s.replaceAll(RegExp(r'^dr\.?\s*', caseSensitive: false), '').trim();
+    final cAppt = clean(apptDocName);
+    final cMine = clean(myName);
+
+    if (cAppt.isEmpty || cMine.isEmpty) return true;
+    return cAppt.contains(cMine) || cMine.contains(cAppt);
+  }
   final TextEditingController _notesCtrl = TextEditingController();
   final TextEditingController _doctorCtrl = TextEditingController();
   final TextEditingController _diagnosisCtrl = TextEditingController();
@@ -4296,18 +4899,20 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                     label: Text('Past Rx (${_pastConsultations.length})', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                     onPressed: _showPastHistoryDialog,
                   ),
-                  const SizedBox(width: 6),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF7C3AED),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  if (_pastConsultations.isNotEmpty && _canEdit) ...[
+                    const SizedBox(width: 6),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF7C3AED),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: const Icon(Icons.replay_rounded, size: 16),
+                      label: const Text('Refill Last Rx', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: () => _repeatPreviousRx(_pastConsultations.first),
                     ),
-                    icon: const Icon(Icons.replay_rounded, size: 16),
-                    label: const Text('Refill Last Rx', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                    onPressed: () => _repeatPreviousRx(_pastConsultations.first),
-                  ),
+                  ],
                   const SizedBox(width: 6),
                 ],
 
@@ -4319,6 +4924,30 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
             ),
 
             const Divider(height: 16),
+
+            if (!_canEdit) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF93C5FD)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.lock_rounded, size: 16, color: Color(0xFF1D4ED8)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Read-Only View: Prescription authored by Dr. ${widget.appointment['attended_by_doctor_name'] ?? widget.appointment['doctor_name'] ?? 'Consultant'}. Only the prescribing doctor can edit this prescription. You can view all details and print the PDF Rx.',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             // ALLERGIES ALERT BANNER
             Container(
@@ -4361,28 +4990,31 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(a, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red.shade900)),
-                                    const SizedBox(width: 2),
-                                    InkWell(
-                                      onTap: () => setState(() => _patientAllergies.remove(a)),
-                                      child: Icon(Icons.close, size: 12, color: Colors.red.shade900),
-                                    ),
+                                    if (_canEdit) ...[
+                                      const SizedBox(width: 2),
+                                      InkWell(
+                                        onTap: () => setState(() => _patientAllergies.remove(a)),
+                                        child: Icon(Icons.close, size: 12, color: Colors.red.shade900),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               );
                             }).toList(),
                           ),
                   ),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF0284C7),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      side: const BorderSide(color: Color(0xFFBAE6FD)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  if (_canEdit)
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF0284C7),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        side: const BorderSide(color: Color(0xFFBAE6FD)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
+                      icon: const Icon(Icons.add, size: 14),
+                      label: const Text('Add Allergy', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: _openAddAllergyDialog,
                     ),
-                    icon: const Icon(Icons.add, size: 14),
-                    label: const Text('Add Allergy', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                    onPressed: _openAddAllergyDialog,
-                  ),
                 ],
               ),
             ),
@@ -4402,6 +5034,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                           flex: 4,
                           child: TextField(
                             controller: _doctorCtrl,
+                            readOnly: !_canEdit,
                             decoration: InputDecoration(
                               labelText: 'Attending Doctor Name',
                               isDense: true,
@@ -4414,6 +5047,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                           flex: 6,
                           child: TextField(
                             controller: _diagnosisCtrl,
+                            readOnly: !_canEdit,
                             decoration: InputDecoration(
                               labelText: 'Clinical Diagnosis & Symptoms',
                               hintText: 'e.g. Acute Pharyngitis, Viral Fever, Gastritis...',
@@ -4451,6 +5085,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                               Expanded(
                                 child: TextField(
                                   controller: _bpCtrl,
+                                  readOnly: !_canEdit,
                                   decoration: InputDecoration(
                                     labelText: 'Blood Pressure',
                                     hintText: '120/80',
@@ -4466,6 +5101,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                               Expanded(
                                 child: TextField(
                                   controller: _pulseCtrl,
+                                  readOnly: !_canEdit,
                                   decoration: InputDecoration(
                                     labelText: 'Pulse Rate',
                                     hintText: '72',
@@ -4481,6 +5117,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                               Expanded(
                                 child: TextField(
                                   controller: _tempCtrl,
+                                  readOnly: !_canEdit,
                                   decoration: InputDecoration(
                                     labelText: 'Temperature',
                                     hintText: '98.6',
@@ -4496,6 +5133,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                               Expanded(
                                 child: TextField(
                                   controller: _sugarCtrl,
+                                  readOnly: !_canEdit,
                                   decoration: InputDecoration(
                                     labelText: 'Blood Sugar',
                                     hintText: '110',
@@ -4511,6 +5149,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                               Expanded(
                                 child: TextField(
                                   controller: _weightCtrl,
+                                  readOnly: !_canEdit,
                                   decoration: InputDecoration(
                                     labelText: 'Weight',
                                     hintText: '65',
@@ -4526,6 +5165,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                               Expanded(
                                 child: TextField(
                                   controller: _spo2Ctrl,
+                                  readOnly: !_canEdit,
                                   decoration: InputDecoration(
                                     labelText: 'SpO2',
                                     hintText: '98',
@@ -4565,28 +5205,30 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
                               ),
                               const Spacer(),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFF0284C7),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              if (_canEdit) ...[
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF0284C7),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                  icon: const Icon(Icons.playlist_add_rounded, size: 16),
+                                  label: const Text('Add Test', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                  onPressed: _openAddLabTestDialog,
                                 ),
-                                icon: const Icon(Icons.playlist_add_rounded, size: 16),
-                                label: const Text('Add Test', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                                onPressed: _openAddLabTestDialog,
-                              ),
-                              const SizedBox(width: 8),
-                              FilledButton.tonalIcon(
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFFAF5FF),
-                                  foregroundColor: const Color(0xFF7C3AED),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                const SizedBox(width: 8),
+                                FilledButton.tonalIcon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFFFAF5FF),
+                                    foregroundColor: const Color(0xFF7C3AED),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                  icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
+                                  label: const Text('+ Custom Test', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                  onPressed: _openAddCustomTestDialog,
                                 ),
-                                icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
-                                label: const Text('+ Custom Test', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                                onPressed: _openAddCustomTestDialog,
-                              ),
+                              ],
                             ],
                           ),
 
@@ -4658,10 +5300,11 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                                         Text('(${t['unit']})', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                                         const SizedBox(width: 8),
                                       ],
-                                      IconButton(
-                                        icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
-                                        onPressed: () => setState(() => _labTests.removeAt(idx)),
-                                      ),
+                                      if (_canEdit)
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                                          onPressed: () => setState(() => _labTests.removeAt(idx)),
+                                        ),
                                     ],
                                   ),
                                 );
@@ -4672,72 +5315,74 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                       ),
                     ),
 
-                    const SizedBox(height: 12),
+                    if (_canEdit) ...[
+                      const SizedBox(height: 12),
 
-                    // SCAN OR UPLOAD PRESCRIPTION BANNER
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _uploadedFile != null ? Icons.check_circle_rounded : Icons.document_scanner_rounded,
-                            color: _uploadedFile != null ? const Color(0xFF059669) : const Color(0xFF0284C7),
-                            size: 24,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _uploadedFile != null
-                                      ? 'Scanned File: ${_uploadedFile!.name} (${(_uploadedFile!.size / 1024).toStringAsFixed(1)} KB)'
-                                      : 'Scan or Upload Patient Prescription Document',
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  _uploadedFile != null
-                                      ? 'Document attached. Click "Auto-Fill Rx" to extract medicines into the prescription.'
-                                      : 'Attach paper prescription photograph or PDF to auto-fill notes and pharmaceutical inventory.',
-                                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                                ),
-                              ],
+                      // SCAN OR UPLOAD PRESCRIPTION BANNER
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _uploadedFile != null ? Icons.check_circle_rounded : Icons.document_scanner_rounded,
+                              color: _uploadedFile != null ? const Color(0xFF059669) : const Color(0xFF0284C7),
+                              size: 24,
                             ),
-                          ),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF0284C7),
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _uploadedFile != null
+                                        ? 'Scanned File: ${_uploadedFile!.name} (${(_uploadedFile!.size / 1024).toStringAsFixed(1)} KB)'
+                                        : 'Scan or Upload Patient Prescription Document',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _uploadedFile != null
+                                        ? 'Document attached. Click "Auto-Fill Rx" to extract medicines into the prescription.'
+                                        : 'Attach paper prescription photograph or PDF to auto-fill notes and pharmaceutical inventory.',
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                  ),
+                                ],
+                              ),
                             ),
-                            icon: const Icon(Icons.upload_file_rounded, size: 16),
-                            label: Text(_uploadedFile != null ? 'Replace' : 'Scan / Upload', style: const TextStyle(fontSize: 12)),
-                            onPressed: _pickPrescriptionFile,
-                          ),
-                          if (_uploadedFile != null) ...[
-                            const SizedBox(width: 8),
-                            FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF059669),
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF0284C7),
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                               ),
-                              icon: _isAutoFilling
-                                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                  : const Icon(Icons.auto_fix_high_rounded, size: 16),
-                              label: const Text('Auto-Fill Rx', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                              onPressed: _isAutoFilling ? null : _autoFillFromScannedPrescription,
+                              icon: const Icon(Icons.upload_file_rounded, size: 16),
+                              label: Text(_uploadedFile != null ? 'Replace' : 'Scan / Upload', style: const TextStyle(fontSize: 12)),
+                              onPressed: _pickPrescriptionFile,
                             ),
+                            if (_uploadedFile != null) ...[
+                              const SizedBox(width: 8),
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF059669),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                ),
+                                icon: _isAutoFilling
+                                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                    : const Icon(Icons.auto_fix_high_rounded, size: 16),
+                                label: const Text('Auto-Fill Rx', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                onPressed: _isAutoFilling ? null : _autoFillFromScannedPrescription,
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
 
                     const SizedBox(height: 14),
 
@@ -4749,9 +5394,10 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
                         ),
                         const Spacer(),
-                        FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF0284C7),
+                        if (_canEdit)
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF0284C7),
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                           ),
@@ -4873,12 +5519,13 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                                     ],
                                   ),
                                 ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 18),
-                                  onPressed: () {
-                                    setState(() => _prescribedMedicines.removeAt(idx));
-                                  },
-                                ),
+                                if (_canEdit)
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 18),
+                                    onPressed: () {
+                                      setState(() => _prescribedMedicines.removeAt(idx));
+                                    },
+                                  ),
                               ],
                             ),
                           );
@@ -4890,6 +5537,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                     // DIET & LIFESTYLE ADVICE
                     TextField(
                       controller: _dietAdviceCtrl,
+                      readOnly: !_canEdit,
                       decoration: InputDecoration(
                         labelText: 'Dietary & Lifestyle Recommendations',
                         hintText: 'e.g. Low sodium intake, drink 2-3L water daily, avoid oily/fried foods, regular light exercise...',
@@ -4903,6 +5551,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                     // NOTES & PRECAUTIONS
                     TextField(
                       controller: _notesCtrl,
+                      readOnly: !_canEdit,
                       maxLines: 2,
                       decoration: InputDecoration(
                         labelText: 'Physician Notes, Advice & Special Precautions',
@@ -4937,22 +5586,35 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
 
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                  child: Text(_canEdit ? 'Cancel' : 'Close', style: const TextStyle(color: Color(0xFF64748B))),
                 ),
                 const SizedBox(width: 8),
 
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0284C7),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                if (_canEdit)
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0284C7),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: _saving ? null : _savePrescription,
+                    child: _saving
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Text('Save Prescription', style: TextStyle(fontWeight: FontWeight.bold)),
+                  )
+                else
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0284C7),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.print_rounded, size: 16),
+                    label: const Text('Print Rx (Read-Only)', style: TextStyle(fontWeight: FontWeight.bold)),
+                    onPressed: _printPrescription,
                   ),
-                  onPressed: _saving ? null : _savePrescription,
-                  child: _saving
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Save Prescription', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
               ],
             ),
           ],
@@ -5754,7 +6416,7 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                     Row(
                       children: [
                         ChoiceChip(
-                          label: const Text('Pay Later at Clinic'),
+                          label: const Text('Pay Later'),
                           selected: _paymentOption == 'PAY_LATER',
                           onSelected: (val) => setState(() => _paymentOption = 'PAY_LATER'),
                         ),

@@ -46,6 +46,10 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
   List<dynamic> _patientHistory = [];
   List<dynamic> _patientSubscriptions = [];
 
+  // Clinic Operating Status (Today Open / Closed)
+  bool _isClinicClosedToday = false;
+  String _clinicClosedReason = '';
+
   // Color palette
   static const Color primaryTeal = Color(0xFF0F766E);
   static const Color bgSoftSlate = Color(0xFFF8FAFC);
@@ -77,8 +81,23 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
     await Future.wait([
       _fetchCities(),
       _fetchSpecialities(),
+      _fetchOperatingStatus(),
     ]);
     await _fetchDoctors();
+  }
+
+  Future<void> _fetchOperatingStatus() async {
+    try {
+      final res = await ApiClient.get(ApiEndpoints.publicClinicOperatingStatus);
+      if (res != null && res['success'] == true && res['data'] != null && mounted) {
+        setState(() {
+          _isClinicClosedToday = res['data']['clinic_closed_today'] == true;
+          _clinicClosedReason = res['data']['clinic_closed_reason'] ?? '';
+        });
+      }
+    } catch (e) {
+      debugPrint('[CLINIC OPERATING STATUS ERR] $e');
+    }
   }
 
   Future<void> _loadPatientProfile() async {
@@ -189,6 +208,14 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
       if (res != null && res['success'] == true) {
         setState(() {
           _doctors = res['data'] ?? [];
+          final anyClosed = _doctors.any((d) => d['is_clinic_closed_today'] == true);
+          if (anyClosed) {
+            _isClinicClosedToday = true;
+            final docWithReason = _doctors.firstWhere((d) => d['is_clinic_closed_today'] == true, orElse: () => null);
+            if (docWithReason != null && docWithReason['clinic_closed_reason'] != null) {
+              _clinicClosedReason = docWithReason['clinic_closed_reason'];
+            }
+          }
         });
       }
     } catch (e) {
@@ -256,6 +283,121 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
       }
     } finally {
       if (mounted) setState(() => _isLoadingHistory = false);
+    }
+  }
+
+  Future<void> _cancelAppointmentAsPatient(Map<String, dynamic> appt) async {
+    final appointmentId = appt['id'];
+    String selectedReason = 'Change of schedule';
+    final customReasonCtrl = TextEditingController();
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.cancel_rounded, color: Color(0xFFDC2626)),
+              SizedBox(width: 8),
+              Text('Cancel Appointment'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Are you sure you want to cancel your appointment with ${appt['doctor_name'] ?? 'the Doctor'} on ${appt['appointment_date']} at ${appt['appointment_time']}?',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF334155)),
+              ),
+              const SizedBox(height: 16),
+              const Text('Reason for Cancellation:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                value: selectedReason,
+                decoration: InputDecoration(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'Change of schedule', child: Text('Change of schedule / Conflict')),
+                  DropdownMenuItem(value: 'Feeling better / Recovered', child: Text('Feeling better / Recovered')),
+                  DropdownMenuItem(value: 'Personal emergency', child: Text('Personal emergency')),
+                  DropdownMenuItem(value: 'Doctor consultation not required', child: Text('Consultation not required')),
+                  DropdownMenuItem(value: 'Booked by mistake', child: Text('Booked by mistake')),
+                  DropdownMenuItem(value: 'Other', child: Text('Other reason')),
+                ],
+                onChanged: (v) {
+                  if (v != null) setDlgState(() => selectedReason = v);
+                },
+              ),
+              if (selectedReason == 'Other') ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: customReasonCtrl,
+                  decoration: InputDecoration(
+                    hintText: 'Enter reason details...',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Keep Appointment'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Confirm Cancellation'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirm == true) {
+      final reasonText = selectedReason == 'Other' && customReasonCtrl.text.trim().isNotEmpty
+          ? customReasonCtrl.text.trim()
+          : selectedReason;
+
+      try {
+        final phone = (appt['patient_phone'] ?? _patientProfile?['phone'] ?? _historyLookupCtrl.text).toString().trim();
+        final email = (appt['patient_email'] ?? _patientProfile?['email'] ?? '').toString().trim();
+
+        final res = await ApiClient.post(ApiEndpoints.publicClinicCancelAppointment, {
+          'appointment_id': appointmentId,
+          'patient_phone': phone,
+          'patient_email': email,
+          'cancellation_reason': 'Patient cancelled online: $reasonText',
+        });
+
+        if (res != null && res['success'] == true && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Appointment cancelled successfully.'),
+              backgroundColor: Color(0xFFDC2626),
+            ),
+          );
+          _fetchPatientHistory();
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(res?['message'] ?? 'Failed to cancel appointment.')),
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error cancelling appointment: $e')),
+          );
+        }
+      }
     }
   }
 
@@ -649,6 +791,42 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
       children: [
         // 1. Patient Profile Banner (Swiggy / Dining standard)
         _buildPatientStatusBanner(),
+
+        // Clinic Closed Today Notice Banner
+        if (_isClinicClosedToday)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF2F2),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFF87171)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.do_not_disturb_on_rounded, color: Color(0xFFDC2626), size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Clinic is Closed Today',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF991B1B)),
+                      ),
+                      Text(
+                        _clinicClosedReason.isNotEmpty
+                            ? 'Notice: $_clinicClosedReason. Public appointments are closed for today.'
+                            : 'Notice: Public same-day appointments are not accepted today. Please book for future dates.',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFFB91C1C)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
 
         // 2. City & Speciality Filter Bar
         _buildCityAndSpecialtyHeader(),
@@ -1297,10 +1475,49 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
                                 style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontStyle: FontStyle.italic),
                               ),
                             ],
+                            if (status == 'CANCELLED') ...[
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFEF2F2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.cancel_rounded, size: 16, color: Color(0xFFDC2626)),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Cancellation: ${a['cancellation_reason'] ?? 'Appointment cancelled'}' +
+                                            (a['refund_amount'] != null && (double.tryParse('${a['refund_amount']}') ?? 0) > 0
+                                                ? '  •  Refunded: ${CurrencyService.format(double.parse('${a['refund_amount']}'))}'
+                                                : ''),
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFB91C1C)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 12),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
+                                if (status != 'CANCELLED' && status != 'VISITED' && status != 'COMPLETED') ...[
+                                  OutlinedButton.icon(
+                                    icon: const Icon(Icons.cancel_outlined, size: 15, color: Color(0xFFDC2626)),
+                                    label: const Text('Cancel Appointment', style: TextStyle(color: Color(0xFFDC2626), fontSize: 12, fontWeight: FontWeight.bold)),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: Color(0xFFFCA5A5)),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    ),
+                                    onPressed: () => _cancelAppointmentAsPatient(a),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
                                 SizedBox(
                                   width: 250,
                                   child: ElevatedButton.icon(
@@ -2425,6 +2642,10 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
     }
     for (int i = 0; i < 90; i++) {
       final candidate = cursor.add(Duration(days: i));
+      final isCandidateToday = candidate.year == now.year && candidate.month == now.month && candidate.day == now.day;
+      if (isCandidateToday && doc['is_clinic_closed_today'] == true) {
+        continue;
+      }
       if (_isDoctorAvailableOn(candidate, doc)) {
         return candidate;
       }
@@ -2918,6 +3139,10 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
                           firstDate: firstDate,
                           lastDate: lastDate,
                           selectableDayPredicate: (DateTime day) {
+                            if (_selectedDoctor['is_clinic_closed_today'] == true &&
+                                day.year == now.year && day.month == now.month && day.day == now.day) {
+                              return false;
+                            }
                             return _isDoctorAvailableOn(day, _selectedDoctor);
                           },
                           helpText: 'Select Available Consultation Date',

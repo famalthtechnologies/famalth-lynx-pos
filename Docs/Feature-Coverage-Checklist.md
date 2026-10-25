@@ -203,4 +203,23 @@ This matrix provides a 100% verified audit of all UI screens, Backend route modu
 
 ---
 
-*Last Verified: October 2026 | Total Project UI and Backend Feature Coverage: 100% Complete across all 18 Modules*
+### 19. Clinic Management, OPD Queue & Digital Prescription Suite
+| UI Screen / Feature | Backend Route | Non-Technical User Guide | Technical Developer Guide | Audit Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Clinic OPD & Doctor Desk** (`clinic_dashboard_screen.dart`) | `/api/clinic/*` | [Clinic Management Guide](./User-Guide-Clinic-Management-And-OPD.md) | [Clinic Dev Architecture](./Developer-Guide-Clinic-Management-And-OPD.md) | 🟢 100% Covered |
+| **Public Appointment Portal** (`public_appointment_booking_screen.dart`) | `/api/public/clinic/*` | [Patient Booking Guide](./User-Guide-Clinic-Management-And-OPD.md#7-public-patient-self-service-booking-portal) | [Clinic Dev Architecture](./Developer-Guide-Clinic-Management-And-OPD.md#5-public-patient-portal-rest-api-apipublicclinic) | 🟢 100% Covered |
+| **OPD Fee Settle & Pay** (`clinic_accept_pay_dialog.dart`) | `/api/clinic/appointments/:id/accept-and-pay` | [Consultation Fees Guide](./User-Guide-Clinic-Management-And-OPD.md#5-consultation-fees-billing--payment-settlement) | [Clinic Dev Architecture](./Developer-Guide-Clinic-Management-And-OPD.md#6-pharmacy-billing-bridge-sendtobillingdraft--acceptandpay) | 🟢 100% Covered |
+| **Prescription Vector PDF** (`clinic_prescription_pdf.dart`) | `/api/clinic/appointments/:id/prescription` | [Prescription Guide](./User-Guide-Clinic-Management-And-OPD.md#3-doctor-consultation-desk-vitals-diagnosis--rx-prescriptions) | [Prescription PDF Architecture](./Developer-Guide-Clinic-Management-And-OPD.md#7-digital-prescription-vector-pdf-generation) | 🟢 100% Covered |
+
+---
+
+### 20. System Maintenance Mode & Emergency Lockout Safeguard
+| UI Screen / Feature | Backend Route | Non-Technical User Guide | Technical Developer Guide | Audit Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Non-Dismissible Lockout Dialog** (`api_client.dart`) | `/api/system/maintenance-status` | [Maintenance Guide](./User-Guide-Maintenance-Mode-And-Lockout.md) | [Maintenance Architecture](./Developer-Guide-Maintenance-Mode-And-Lockout.md) | 🟢 100% Covered |
+| **Advance Notice Banner** (`main_dashboard_screen.dart`) | `/api/system/maintenance/advance-notice` | [Advance Notice Guide](./User-Guide-Maintenance-Mode-And-Lockout.md#2-phase-1-advance-maintenance-notice-banner) | [Maintenance Architecture](./Developer-Guide-Maintenance-Mode-And-Lockout.md#5-maintenance-rest-api-reference) | 🟢 100% Covered |
+| **Maintenance Trigger Control** (`master_control_plane_screen.dart`) | `/api/system/maintenance` | [Admin Trigger Guide](./User-Guide-Maintenance-Mode-And-Lockout.md#5-how-administrators-activate-maintenance-mode) | [Maintenance Architecture](./Developer-Guide-Maintenance-Mode-And-Lockout.md#2-maintenance-middleware-implementation-maintenancemiddlewarets) | 🟢 100% Covered |
+
+---
+
+*Last Verified: October 2026 | Total Project UI and Backend Feature Coverage: 100% Complete across all 20 Modules*
