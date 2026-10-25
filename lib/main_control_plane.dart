@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'core/api/api_client.dart';
 import 'core/config/app_config.dart';
 import 'core/auth/control_plane_storage.dart';
 import 'screens/control_plane/control_plane_login_screen.dart';
@@ -8,6 +9,7 @@ import 'main.dart' show globalSnackbarKey, globalNavigatorKey;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  ApiClient.isAdminConsole = true;
   await AppConfig.init();
 
   final bool isAuth = await ControlPlaneStorage.isAuthenticated();

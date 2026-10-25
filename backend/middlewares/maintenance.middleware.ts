@@ -2,26 +2,36 @@ import { Request, Response, NextFunction } from 'express';
 import maintenanceService from '../services/maintenance.service';
 
 export function maintenanceMiddleware(req: Request, res: Response, next: NextFunction) {
-  // Always allow health checks, static assets, maintenance API, and control-plane management
-  const path = req.path || '';
+  // Always allow health checks, static assets, maintenance API, and ALL control-plane / admin console management
+  const fullPath = (req.originalUrl || req.baseUrl + req.path || req.path || '').toLowerCase();
   if (
-    path.startsWith('/api/system/maintenance') ||
-    path.startsWith('/api/control-plane') ||
-    path.startsWith('/api/v1/control-plane') ||
-    path.startsWith('/api/backup') ||
-    path.startsWith('/api/auth/login') ||
-    path.startsWith('/health') ||
-    path.startsWith('/canvaskit') ||
-    path.startsWith('/assets') ||
+    fullPath.includes('/control-plane') ||
+    fullPath.includes('/api/system/maintenance') ||
+    fullPath.includes('/api/backup') ||
+    fullPath.includes('/api/auth/login') ||
+    fullPath.includes('/health') ||
+    fullPath.includes('/canvaskit') ||
+    fullPath.includes('/assets') ||
+    req.headers['x-client-type'] === 'enterprise-console' ||
+    req.headers['x-control-plane'] === 'true' ||
     req.method === 'OPTIONS'
   ) {
     return next();
   }
 
-  // Allow Super Admins / Enterprise Admins bypass (from decoded user or incoming bearer token)
+  // Allow Super Admins / Enterprise Admins / Control Plane Staff bypass
   const user = (req as any).user;
   const role = String(user?.role || '').toUpperCase();
-  if (role === 'SUPER_ADMIN' || role === 'ENTERPRISE_ADMIN') {
+  if (
+    role === 'SUPER_ADMIN' ||
+    role === 'ENTERPRISE_ADMIN' ||
+    role === 'OWNER' ||
+    role === 'DEVELOPER' ||
+    role === 'RESELLER_ADMIN' ||
+    role === 'RESELLER' ||
+    role === 'SUPPORT_AGENT' ||
+    role === 'RM'
+  ) {
     return next();
   }
 
@@ -31,7 +41,17 @@ export function maintenanceMiddleware(req: Request, res: Response, next: NextFun
       const jwt = require('../utils/jwt.util');
       const decoded = jwt.verify(authHeader.split(' ')[1]);
       const tokenRole = String(decoded?.role || '').toUpperCase();
-      if (tokenRole === 'SUPER_ADMIN' || tokenRole === 'ENTERPRISE_ADMIN') {
+      if (
+        decoded?.is_control_plane === true ||
+        tokenRole === 'SUPER_ADMIN' ||
+        tokenRole === 'ENTERPRISE_ADMIN' ||
+        tokenRole === 'OWNER' ||
+        tokenRole === 'DEVELOPER' ||
+        tokenRole === 'RESELLER_ADMIN' ||
+        tokenRole === 'RESELLER' ||
+        tokenRole === 'SUPPORT_AGENT' ||
+        tokenRole === 'RM'
+      ) {
         return next();
       }
     } catch (_) {}

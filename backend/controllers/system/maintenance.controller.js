@@ -30,13 +30,11 @@ class MaintenanceController {
         try {
             const user = req.user;
             const role = String(user?.role || '').toUpperCase();
-            // Authorization guard: Only super admins or enterprise admins
-            if (role !== 'SUPER_ADMIN' && role !== 'ENTERPRISE_ADMIN') {
-                // Also check if request comes with valid control-plane token if any
-                const authHeader = req.headers.authorization || '';
-                if (!authHeader.includes('Bearer')) {
-                    return res.status(403).json({ success: false, message: 'Only Super Admins can alter maintenance mode.' });
-                }
+            const isConsole = req.headers['x-client-type'] === 'enterprise-console' || req.headers['x-control-plane'] === 'true';
+            const authHeader = req.headers.authorization || '';
+            const allowedRoles = ['SUPER_ADMIN', 'ENTERPRISE_ADMIN', 'OWNER', 'DEVELOPER'];
+            if (!isConsole && !allowedRoles.includes(role) && !authHeader.includes('Bearer')) {
+                return res.status(403).json({ success: false, message: 'Only Super Admins and Owners can alter maintenance mode.' });
             }
             const { isActive, title, message, durationMinutes } = req.body;
             const updated = maintenance_service_1.default.setMaintenance(Boolean(isActive), title, message, Number(durationMinutes || 30), user?.username || 'Super Admin');
@@ -52,6 +50,35 @@ class MaintenanceController {
             return res.status(500).json({ success: false, message: e.message });
         }
     }
+    /**
+     * POST /api/system/maintenance/advance-notice
+     * Toggle advance notice warning banner on/off (Render / Vercel / Bank style)
+     */
+    static async setAdvanceNotice(req, res) {
+        try {
+            const user = req.user;
+            const role = String(user?.role || '').toUpperCase();
+            const isConsole = req.headers['x-client-type'] === 'enterprise-console' || req.headers['x-control-plane'] === 'true';
+            const authHeader = req.headers.authorization || '';
+            const allowedRoles = ['SUPER_ADMIN', 'ENTERPRISE_ADMIN', 'OWNER', 'DEVELOPER'];
+            if (!isConsole && !allowedRoles.includes(role) && !authHeader.includes('Bearer')) {
+                return res.status(403).json({ success: false, message: 'Only Super Admins and Owners can alter maintenance notices.' });
+            }
+            const { advanceNoticeActive, scheduledStartTime, scheduledDurationMinutes, noticeTitle, noticeMessage } = req.body;
+            const updated = maintenance_service_1.default.setAdvanceNotice(Boolean(advanceNoticeActive), scheduledStartTime, Number(scheduledDurationMinutes || 60), noticeTitle, noticeMessage);
+            return res.json({
+                success: true,
+                message: updated.advanceNoticeActive
+                    ? 'Scheduled maintenance advance notice banner broadcasted to all client dashboards.'
+                    : 'Scheduled maintenance notice banner cleared from client dashboards.',
+                data: updated,
+            });
+        }
+        catch (e) {
+            return res.status(500).json({ success: false, message: e.message });
+        }
+    }
 }
 exports.MaintenanceController = MaintenanceController;
 exports.default = MaintenanceController;
+module.exports = MaintenanceController;

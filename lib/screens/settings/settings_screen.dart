@@ -192,6 +192,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<Printer> _printers = const [];
   bool _loadingPrinters = false;
   bool _showNotifications = true;
+  bool _showExpiryAlerts = true;
+  bool _requireDepartmentForNonStockable = false;
   String _currentActiveModule = 'ALL';
   bool _didLoadBranding = false;
   bool _isCreatingEncBackup = false;
@@ -232,12 +234,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadLocalPreferences() async {
     final showNotifications = await LocalPreferences.getShowNotifications();
+    final showExpiryAlerts = await LocalPreferences.getShowExpiryAlerts();
+    final requireDept = await LocalPreferences.getRequireDepartmentForNonStockable();
     final machineId = await LocalPreferences.getMachineId();
     final userMap = await TokenStorage.getUser();
     final mod = userMap?['business_module'] ?? userMap?['outlet_module'] ?? 'ALL';
     if (!mounted) return;
     setState(() {
       _showNotifications = showNotifications;
+      _showExpiryAlerts = showExpiryAlerts;
+      _requireDepartmentForNonStockable = requireDept;
       _currentActiveModule = mod;
       _currentMachineId = machineId;
     });
@@ -645,6 +651,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     Future<void> saveAllSettings() async {
       await LocalPreferences.setShowNotifications(_showNotifications);
+      await LocalPreferences.setShowExpiryAlerts(_showExpiryAlerts);
+      await LocalPreferences.setRequireDepartmentForNonStockable(_requireDepartmentForNonStockable);
+      s.requireDepartmentForNonStockable = _requireDepartmentForNonStockable;
       await ctrl.save(s);
       await brandingCtrl.save(
         _branding.copyWith(themeKey: themeCtrl.themeKey),
@@ -1020,6 +1029,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                       _settingRow(
+                        title: 'Direct Department Issue for Non-Stockable Items',
+                        description: 'Show Department option in Vendor Receive Order (GRN) to issue non-stockable items directly upon receipt. When disabled, Department is hidden and not required.',
+                        control: Switch.adaptive(
+                          value: _requireDepartmentForNonStockable,
+                          onChanged: (v) => setState(() {
+                            _requireDepartmentForNonStockable = v;
+                            s.requireDepartmentForNonStockable = v;
+                          }),
+                        ),
+                      ),
+                      _settingRow(
                         title: 'Allow Negative Stock',
                         description: 'Allow issue/sale transactions even if current stock is zero or insufficient',
                         control: Switch.adaptive(
@@ -1192,6 +1212,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         control: Switch.adaptive(
                           value: _showNotifications,
                           onChanged: (v) => setState(() => _showNotifications = v),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Stock Expiry Alerts (6-Hourly)',
+                        description: 'Display 6-hourly critical stock expiry warnings and popup banners',
+                        control: Switch.adaptive(
+                          value: _showExpiryAlerts,
+                          onChanged: (v) => setState(() => _showExpiryAlerts = v),
                         ),
                       ),
                       _settingRow(

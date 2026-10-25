@@ -56,6 +56,7 @@ class SystemSettings {
   bool enableRetailBilling;
   bool enableRestaurantModule;
   bool enableInventoryModule;
+  bool requireDepartmentForNonStockable;
 
   SystemSettings({
     required this.autoReorder,
@@ -109,6 +110,7 @@ class SystemSettings {
     this.enableRetailBilling = true,
     this.enableRestaurantModule = true,
     this.enableInventoryModule = true,
+    this.requireDepartmentForNonStockable = false,
   })  : devicePrinterMappings = devicePrinterMappings ?? {},
         paymentModes = paymentModes ??
             [
@@ -269,6 +271,7 @@ class SystemSettings {
       enableRetailBilling: _parseBool(json['enable_retail_billing'] ?? json['enableRetailBilling'], true),
       enableRestaurantModule: _parseBool(json['enable_restaurant_module'] ?? json['enableRestaurantModule'], true),
       enableInventoryModule: _parseBool(json['enable_inventory_module'] ?? json['enableInventoryModule'], true),
+      requireDepartmentForNonStockable: _parseBool(json['require_department_for_non_stockable'] ?? json['requireDepartmentForNonStockable'], false),
       defaultCharges: rawCharges is List
           ? rawCharges
               .map((e) => BillingCharge.fromJson(Map<String, dynamic>.from(e)))
@@ -365,6 +368,7 @@ class SystemSettings {
       'enable_retail_billing': enableRetailBilling,
       'enable_restaurant_module': enableRestaurantModule,
       'enable_inventory_module': enableInventoryModule,
+      'require_department_for_non_stockable': requireDepartmentForNonStockable,
     };
   }
 }

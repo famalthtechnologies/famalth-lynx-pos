@@ -321,6 +321,11 @@ class _LoginScreenState extends State<LoginScreen>
           context,
           MaterialPageRoute(builder: (_) => targetScreen),
         );
+      } else if (result.licenseStatus == 'MAINTENANCE') {
+        ApiClient.showMaintenanceLockoutDialog(
+          title: 'System Under Scheduled Maintenance',
+          message: result.message,
+        );
       } else if (result.licenseStatus == 'EXPIRED') {
         _showExpiredDialog(result.message);
       }
@@ -395,6 +400,11 @@ class _LoginScreenState extends State<LoginScreen>
           context,
           MaterialPageRoute(builder: (_) => targetScreen),
         );
+      } else if (result.licenseStatus == 'MAINTENANCE') {
+        ApiClient.showMaintenanceLockoutDialog(
+          title: 'System Under Scheduled Maintenance',
+          message: result.message,
+        );
       } else if (result.licenseStatus == 'EXPIRED') {
         _showExpiredDialog(result.message);
       }
@@ -458,6 +468,11 @@ class _LoginScreenState extends State<LoginScreen>
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => targetScreen),
+        );
+      } else if (result.licenseStatus == 'MAINTENANCE') {
+        ApiClient.showMaintenanceLockoutDialog(
+          title: 'System Under Scheduled Maintenance',
+          message: result.message,
         );
       } else if (result.licenseStatus == 'EXPIRED') {
         _showExpiredDialog(result.message);

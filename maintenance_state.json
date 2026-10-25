@@ -1,10 +1,15 @@
 {
   "isActive": false,
-  "title": "System Under Scheduled Maintenance",
-  "message": "Scheduled system optimization is in progress. Store operations are temporarily paused.",
+  "title": "Test",
+  "message": "Test Msg",
   "startedAt": null,
   "durationMinutes": 30,
   "estimatedEndTime": null,
   "remainingMinutes": 0,
-  "enabledBy": "Super Admin"
+  "enabledBy": "Super Admin",
+  "advanceNoticeActive": false,
+  "scheduledStartTime": "now",
+  "scheduledDurationMinutes": 30,
+  "noticeTitle": "title",
+  "noticeMessage": "msg"
 }

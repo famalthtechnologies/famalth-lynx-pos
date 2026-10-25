@@ -23,7 +23,7 @@ export const getExpiryTracker = async (req: Request, res: Response) => {
             ],
             order: [
                 ['expiry_date', 'ASC'],
-                ['created_at', 'DESC']
+                ['id', 'DESC']
             ]
         });
 
@@ -60,55 +60,12 @@ export const getExpiryTracker = async (req: Request, res: Response) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const list = [];
+        const allEntries: any[] = [];
         for (const key of Object.keys(itemMap)) {
             const data = itemMap[key];
             const batches = data.batches;
 
-            // Sort batches by receipt_date descending
-            batches.sort((a: any, b: any) => new Date(b.receipt_date).getTime() - new Date(a.receipt_date).getTime());
-
-            const newestBatch = batches[0];
-            const olderBatches = batches.slice(1);
-            const oldestBatchWithStock = olderBatches.length > 0 ? olderBatches[olderBatches.length - 1] : null;
-
-            // Nearest expiring batch
-            const sortedByExpiry = [...batches].sort((a: any, b: any) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime());
-            const nearestExpBatch = sortedByExpiry[0];
-
-            const expDate = new Date(nearestExpBatch.expiry_date);
-            const diffTime = expDate.getTime() - today.getTime();
-            const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            let status = 'HEALTHY';
-            if (daysRemaining < 0) {
-                status = 'EXPIRED';
-            } else if (daysRemaining <= 30) {
-                status = 'CRITICAL';
-            } else if (daysRemaining <= 90) {
-                status = 'WARNING';
-            }
-
-            // Expiry comparison: Old stock vs New received item
-            // Compare newestBatch.expiry_date vs oldestBatchWithStock.expiry_date
-            let expiryComparison = 'NORMAL';
-            let daysDifference = 0;
-            if (oldestBatchWithStock) {
-                const newExpTime = new Date(newestBatch.expiry_date).getTime();
-                const oldExpTime = new Date(oldestBatchWithStock.expiry_date).getTime();
-                const diffDays = Math.round((newExpTime - oldExpTime) / (1000 * 60 * 60 * 24));
-                daysDifference = diffDays;
-                if (diffDays < 0) {
-                    // New shipment has LESS shelf life than old existing stock!
-                    expiryComparison = 'NEW_SHORTER_THAN_OLD';
-                } else if (diffDays > 0) {
-                    expiryComparison = 'NEW_LONGER_THAN_OLD';
-                } else {
-                    expiryComparison = 'SAME_EXPIRY';
-                }
-            }
-
-            // Get live stock balance from item_master or stock_ledger
+            // 1. Get live stock balance from item_master or stock_ledger
             let currentStock = data.total_received_qty;
             if (data.item_id) {
                 const itemMaster = await (req as any).propertyDb.models.item_master.findByPk(data.item_id, {
@@ -126,6 +83,84 @@ export const getExpiryTracker = async (req: Request, res: Response) => {
                 }
             }
 
+            // 2. FEFO (First Expired First Out) stock deduction:
+            // Earliest expiring batches are deducted first!
+            const totalReceived = data.total_received_qty;
+            let totalSold = Math.max(0, totalReceived - currentStock);
+
+            // Sort batches by expiry_date ASC
+            const sortedByExpiryAsc = [...batches].sort((a: any, b: any) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime());
+
+            let remainingSold = totalSold;
+            for (const b of sortedByExpiryAsc) {
+                const bQty = Number(b.qty || 0);
+                if (remainingSold >= bQty) {
+                    b.qty_sold = bQty;
+                    b.available_qty = 0;
+                    b.status = 'SOLD_OUT';
+                    remainingSold -= bQty;
+                } else {
+                    b.qty_sold = remainingSold;
+                    b.available_qty = Math.max(0, bQty - remainingSold);
+                    remainingSold = 0;
+
+                    const expDate = new Date(b.expiry_date);
+                    const diffTime = expDate.getTime() - today.getTime();
+                    const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    b.days_left = daysLeft;
+                    b.status = daysLeft < 0 ? 'EXPIRED' : (daysLeft <= 30 ? 'CRITICAL' : (daysLeft <= 90 ? 'WARNING' : 'HEALTHY'));
+                }
+            }
+
+            // 3. Identify active batch with remaining available stock
+            const activeBatches = sortedByExpiryAsc.filter(b => b.available_qty > 0);
+            const nearestActiveBatch = activeBatches.length > 0 ? activeBatches[0] : (sortedByExpiryAsc.length > 0 ? sortedByExpiryAsc[sortedByExpiryAsc.length - 1] : null);
+
+            let status = 'HEALTHY';
+            let daysRemaining = 999;
+            let nearestExpiryDate = nearestActiveBatch ? nearestActiveBatch.expiry_date : 'N/A';
+
+            if (currentStock <= 0) {
+                status = 'SOLD_OUT';
+                daysRemaining = 0;
+            } else if (nearestActiveBatch) {
+                const expDate = new Date(nearestActiveBatch.expiry_date);
+                const diffTime = expDate.getTime() - today.getTime();
+                daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (daysRemaining < 0) {
+                    status = 'EXPIRED';
+                } else if (daysRemaining <= 30) {
+                    status = 'CRITICAL';
+                } else if (daysRemaining <= 90) {
+                    status = 'WARNING';
+                } else {
+                    status = 'HEALTHY';
+                }
+            }
+
+            // Sort batches by receipt_date descending for comparison (newest vs older active)
+            const batchesByReceipt = [...batches].sort((a: any, b: any) => new Date(b.receipt_date).getTime() - new Date(a.receipt_date).getTime());
+            const newestBatch = batchesByReceipt[0];
+            const olderBatches = batchesByReceipt.slice(1);
+            const oldestBatchWithStock = olderBatches.find(b => b.available_qty > 0) || (olderBatches.length > 0 ? olderBatches[olderBatches.length - 1] : null);
+
+            let expiryComparison = 'NORMAL';
+            let daysDifference = 0;
+            if (oldestBatchWithStock) {
+                const newExpTime = new Date(newestBatch.expiry_date).getTime();
+                const oldExpTime = new Date(oldestBatchWithStock.expiry_date).getTime();
+                const diffDays = Math.round((newExpTime - oldExpTime) / (1000 * 60 * 60 * 24));
+                daysDifference = diffDays;
+                if (diffDays < 0) {
+                    expiryComparison = 'NEW_SHORTER_THAN_OLD';
+                } else if (diffDays > 0) {
+                    expiryComparison = 'NEW_LONGER_THAN_OLD';
+                } else {
+                    expiryComparison = 'SAME_EXPIRY';
+                }
+            }
+
             const itemEntry = {
                 item_id: data.item_id,
                 item_code: data.item_code,
@@ -134,47 +169,57 @@ export const getExpiryTracker = async (req: Request, res: Response) => {
                 unit: data.unit || 'PCS',
                 current_stock: currentStock,
                 total_received_qty: data.total_received_qty,
-                nearest_expiry_date: nearestExpBatch.expiry_date,
+                nearest_expiry_date: nearestExpiryDate,
                 days_remaining: daysRemaining,
                 status,
+                active_batch_available_qty: nearestActiveBatch ? nearestActiveBatch.available_qty : 0,
+                active_batches_count: activeBatches.length,
                 newest_batch_expiry: newestBatch.expiry_date,
                 old_batch_expiry: oldestBatchWithStock ? oldestBatchWithStock.expiry_date : null,
                 expiry_comparison: expiryComparison,
                 days_difference: daysDifference,
-                batches_count: batches.length
+                batches_count: batches.length,
+                batches: sortedByExpiryAsc
             };
 
-            // Filter if requested
-            if (status_filter && status_filter !== 'ALL' && itemEntry.status !== status_filter) {
-                continue;
-            }
-            if (search) {
-                const q = search.toLowerCase();
-                const match = itemEntry.item_name.toLowerCase().includes(q) ||
-                    (itemEntry.item_code && itemEntry.item_code.toLowerCase().includes(q)) ||
-                    (itemEntry.brand && itemEntry.brand.toLowerCase().includes(q));
-                if (!match) continue;
-            }
-
-            list.push(itemEntry);
+            allEntries.push(itemEntry);
         }
 
-        // Summary KPI counts
-        const expiredCount = list.filter(i => i.status === 'EXPIRED').length;
-        const criticalCount = list.filter(i => i.status === 'CRITICAL').length;
-        const warningCount = list.filter(i => i.status === 'WARNING').length;
-        const newShorterAlerts = list.filter(i => i.expiry_comparison === 'NEW_SHORTER_THAN_OLD').length;
+        // Sort by nearest active expiry first (lowest days_remaining first)
+        allEntries.sort((a, b) => a.days_remaining - b.days_remaining);
+
+        // Summary KPI counts across all tracked batches
+        const expiredCount = allEntries.filter(i => i.status === 'EXPIRED').length;
+        const criticalCount = allEntries.filter(i => i.status === 'CRITICAL').length;
+        const warningCount = allEntries.filter(i => i.status === 'WARNING').length;
+        const healthyCount = allEntries.filter(i => i.status === 'HEALTHY').length;
+        const newShorterAlerts = allEntries.filter(i => i.expiry_comparison === 'NEW_SHORTER_THAN_OLD').length;
+
+        // Apply filters to list returned
+        let filteredList = [...allEntries];
+        if (status_filter && status_filter !== 'ALL') {
+            filteredList = filteredList.filter(i => i.status === status_filter);
+        }
+        if (search) {
+            const q = search.toLowerCase();
+            filteredList = filteredList.filter(i =>
+                (i.item_name && i.item_name.toLowerCase().includes(q)) ||
+                (i.item_code && i.item_code.toLowerCase().includes(q)) ||
+                (i.brand && i.brand.toLowerCase().includes(q))
+            );
+        }
 
         return res.json({
             success: true,
             summary: {
-                total_tracked_items: list.length,
-                expired_count: expiredCount,
-                critical_count: criticalCount,
-                warning_count: warningCount,
-                new_shorter_alerts: newShorterAlerts
+                total_tracked: allEntries.length,
+                expired: expiredCount,
+                critical: criticalCount,
+                warning: warningCount,
+                healthy: healthyCount,
+                new_shorter_than_old: newShorterAlerts
             },
-            data: list
+            data: filteredList
         });
     } catch (err: any) {
         console.error('[GET EXPIRY TRACKER ERROR]', err);
@@ -207,7 +252,7 @@ export const getExpiryLedgerByItem = async (req: Request, res: Response) => {
                     attributes: ['id', 'grn_no', 'receipt_date', 'supplier_id', 'supplier_bill_no']
                 }
             ],
-            order: [['created_at', 'DESC']]
+            order: [['expiry_date', 'ASC'], ['id', 'ASC']]
         });
 
         // Supplier names lookup
@@ -222,10 +267,67 @@ export const getExpiryLedgerByItem = async (req: Request, res: Response) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
+        // Fetch current live stock balance
+        let currentStock = 0;
+        const sample = items[0];
+        if (sample) {
+            const itemCode = sample.item_code;
+            const itemIdNum = sample.item_id;
+            if (itemIdNum) {
+                const itemMaster = await (req as any).propertyDb.models.item_master.findByPk(itemIdNum, {
+                    attributes: ['opening_balance']
+                });
+                if (itemMaster && itemMaster.opening_balance !== null) {
+                    currentStock = Number(itemMaster.opening_balance);
+                }
+            }
+            if (itemCode) {
+                const lastLedger = await (req as any).propertyDb.models.stock_ledger.findOne({
+                    where: { outlet_id, item_code: itemCode },
+                    order: [['id', 'DESC']],
+                    attributes: ['balance']
+                });
+                if (lastLedger && lastLedger.balance !== null) {
+                    currentStock = Number(lastLedger.balance);
+                }
+            }
+        }
+
+        const totalReceived = items.reduce((sum: number, i: any) => sum + Number(i.qty || 0), 0);
+        let remainingSold = Math.max(0, totalReceived - currentStock);
+
+        // Calculate FEFO stock depletion per batch
         const ledger = items.map((i: any, index: number) => {
             const expDate = new Date(i.expiry_date);
             const diffTime = expDate.getTime() - today.getTime();
             const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            const batchQty = Number(i.qty || 0);
+
+            let qtySold = 0;
+            let qtyAvailable = 0;
+
+            if (remainingSold >= batchQty) {
+                qtySold = batchQty;
+                qtyAvailable = 0;
+                remainingSold -= batchQty;
+            } else {
+                qtySold = remainingSold;
+                qtyAvailable = Math.max(0, batchQty - remainingSold);
+                remainingSold = 0;
+            }
+
+            let status = 'ACTIVE';
+            if (qtyAvailable <= 0) {
+                status = 'SOLD OUT';
+            } else if (daysLeft < 0) {
+                status = 'EXPIRED';
+            } else if (daysLeft <= 30) {
+                status = 'CRITICAL';
+            } else if (daysLeft <= 90) {
+                status = 'WARNING';
+            } else {
+                status = 'ACTIVE';
+            }
 
             return {
                 batch_no: `BATCH-${i.grn?.grn_no || index + 1}`,
@@ -233,18 +335,21 @@ export const getExpiryLedgerByItem = async (req: Request, res: Response) => {
                 receipt_date: i.grn?.receipt_date,
                 supplier_bill_no: i.grn?.supplier_bill_no || '--',
                 supplier_name: supplierMap[i.grn?.supplier_id] || 'Direct Supplier',
-                qty_received: Number(i.qty || 0),
+                qty_received: batchQty,
+                qty_sold: qtySold,
+                qty_available: qtyAvailable,
                 purchase_rate: Number(i.rate || 0),
                 expiry_date: i.expiry_date,
                 days_left: daysLeft,
-                status: daysLeft < 0 ? 'EXPIRED' : (daysLeft <= 30 ? 'CRITICAL' : 'ACTIVE'),
-                is_latest_receiving: index === 0
+                status: status,
+                is_latest_receiving: index === items.length - 1
             };
         });
 
         return res.json({
             success: true,
-            data: ledger
+            data: ledger,
+            ledger: ledger
         });
     } catch (err: any) {
         console.error('[GET EXPIRY LEDGER ERROR]', err);
@@ -273,30 +378,34 @@ export const triggerExpiryNotifications = async (req: Request, res: Response) =>
                     attributes: ['id', 'grn_no', 'receipt_date']
                 }
             ],
-            limit: 20
+            order: [['expiry_date', 'ASC']]
         });
 
         let createdCount = 0;
         for (const item of expiringItems) {
-            const title = `⚠️ Expiry Alert: ${item.item_name}`;
-            const message = `Item ${item.item_name} (Batch GRN #${item.grn?.grn_no || ''}) expires on ${item.expiry_date}. Please check stock balance.`;
+            const expDate = new Date(item.expiry_date);
+            const daysLeft = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
-            // Deduplicate: check if notification exists for today
-            const exists = await (req as any).propertyDb.models.system_notifications.findOne({
+            const title = daysLeft < 0 ? `🚨 Expired Stock: ${item.item_name}` : `⚠️ Critical Expiry (<30d): ${item.item_name}`;
+            const message = `Item ${item.item_name} (Code: ${item.item_code || '--'}, Batch GRN #${item.grn?.grn_no || '--'}) ${daysLeft < 0 ? `expired on ${item.expiry_date}.` : `will expire on ${item.expiry_date} (${daysLeft} days remaining).`} Please review inventory.`;
+
+            // Check if notification exists
+            const existing = await (req as any).propertyDb.models.system_notifications.findOne({
                 where: {
                     outlet_id,
-                    module: 'EXPIRY',
-                    title
+                    module: 'EXPIRY_ALERT',
+                    entity_id: item.id
                 }
             });
 
-            if (!exists) {
+            if (!existing) {
                 await (req as any).propertyDb.models.system_notifications.create({
                     outlet_id,
-                    module: 'EXPIRY',
+                    module: 'EXPIRY_ALERT',
                     title,
                     message,
-                    type: 'WARNING',
+                    type: daysLeft < 0 ? 'CRITICAL' : 'WARNING',
+                    entity_id: item.id,
                     is_read: false
                 });
                 createdCount++;
@@ -305,22 +414,11 @@ export const triggerExpiryNotifications = async (req: Request, res: Response) =>
 
         return res.json({
             success: true,
-            message: `Scanned expiring batches. Created ${createdCount} notification alerts.`,
-            alerts_created: createdCount
+            message: `Batch expiry scan completed. ${createdCount} notification alerts generated.`,
+            count: createdCount
         });
     } catch (err: any) {
+        console.error('[TRIGGER EXPIRY ALERTS ERROR]', err);
         return res.status(500).json({ success: false, message: err.message });
     }
-};
-
-module.exports = {
-    getExpiryTracker,
-    getExpiryLedgerByItem,
-    triggerExpiryNotifications
-};
-
-export default {
-    getExpiryTracker,
-    getExpiryLedgerByItem,
-    triggerExpiryNotifications
 };

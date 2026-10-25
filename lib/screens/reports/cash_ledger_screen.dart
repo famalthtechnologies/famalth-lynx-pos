@@ -25,6 +25,7 @@ import '../../core/printing/pos_invoice_printer.dart';
 import '../../utils/branding_storage.dart';
 import '../../utils/pdf_report_builder.dart';
 import '../../widgets/sale_bill_preview_dialog.dart';
+import 'expiry_tracker_screen.dart';
 
 class CashLedgerScreen extends StatefulWidget {
   final int initialIndex;
@@ -5556,7 +5557,54 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEF2FF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFC7D2FE)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.hourglass_bottom_rounded, color: Color(0xFF4F46E5), size: 24),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Advanced Expiry & Batch Tracker',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E1B4B)),
+                        ),
+                        Text(
+                          'Inspect batch-wise shelf life, supplier GRNs, FEFO deductions & risk charts',
+                          style: TextStyle(fontSize: 11, color: Color(0xFF4338CA)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4F46E5),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    ),
+                    icon: const Icon(Icons.open_in_new_rounded, size: 15),
+                    label: const Text('Open Tracker', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen()),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
             ...ctrl.expiryItems.map((item) => Card(
                   elevation: 0,
                   shape: RoundedRectangleBorder(
@@ -5564,19 +5612,29 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                     side: BorderSide(color: Colors.grey.shade200),
                   ),
                   color: Colors.white,
-                  child: ListTile(
-                    title: Text('${item.itemName} (${item.itemCode})',
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(
-                        'Qty ${item.qty.toStringAsFixed(2)} ${item.unit}  -  Expiry ${_fmtDate(item.expiryDate)}'),
-                    trailing: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          _statusChip(item.status),
-                          Text('${item.daysLeft} days')
-                        ]),
-                  ))),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen()),
+                      );
+                    },
+                    child: ListTile(
+                      title: Text('${item.itemName} (${item.itemCode})',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(
+                          'Qty ${item.qty.toStringAsFixed(2)} ${item.unit}  -  Expiry ${_fmtDate(item.expiryDate)}'),
+                      trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _statusChip(item.status),
+                            const SizedBox(width: 8),
+                            Text('${item.daysLeft} days', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          ]),
+                    ),
+                  ),
+                )),
         if (ctrl.expiryItems.isEmpty) _emptyCard('No expiry items found.'),
       ]),
         );

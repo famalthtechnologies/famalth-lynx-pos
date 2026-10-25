@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const controlPlane_controller_1 = __importDefault(require("../controllers/control_plane/controlPlane.controller"));
 const supportConsole_controller_1 = __importDefault(require("../controllers/control_plane/supportConsole.controller"));
 const staffManagement_controller_1 = __importDefault(require("../controllers/control_plane/staffManagement.controller"));
+const maintenance_controller_1 = __importDefault(require("../controllers/system/maintenance.controller"));
 const controlPlaneAuth_middleware_1 = require("../middlewares/controlPlaneAuth.middleware");
 const router = express_1.default.Router();
 /* ==========================================================================
@@ -63,8 +64,12 @@ router.get('/invoices/download-by-id/:invoiceId', controlPlane_controller_1.defa
 router.get('/invoices/latest/:tenantId', controlPlane_controller_1.default.getLatestInvoice);
 router.get('/renewals/export', controlPlane_controller_1.default.exportRenewalsCsv);
 // 9. Announcements & Promotional Offers (Individual or Broadcast)
-router.post('/announcements', controlPlaneAuth_middleware_1.requireControlPlaneAuth, (0, controlPlaneAuth_middleware_1.requireStaffRole)(['SUPER_ADMIN', 'RESELLER_ADMIN', 'DEVELOPER', 'SUPPORT_AGENT']), controlPlane_controller_1.default.createAnnouncement);
+router.post('/announcements', controlPlaneAuth_middleware_1.requireControlPlaneAuth, (0, controlPlaneAuth_middleware_1.requireStaffRole)(['SUPER_ADMIN', 'OWNER', 'ENTERPRISE_ADMIN', 'RESELLER_ADMIN', 'DEVELOPER', 'SUPPORT_AGENT']), controlPlane_controller_1.default.createAnnouncement);
 router.get('/announcements/active', controlPlane_controller_1.default.getActiveAnnouncements);
+// 10. System Maintenance & Downtime Broadcast Aliases
+router.get('/maintenance-status', maintenance_controller_1.default.getStatus);
+router.post('/maintenance', maintenance_controller_1.default.setMaintenance);
+router.post('/maintenance/advance-notice', maintenance_controller_1.default.setAdvanceNotice);
 /* ==========================================================================
    SUPPORT CONSOLE & DATA DOCTOR ROUTES (Outlet-Wise Helpdesk & Query Studio)
    ========================================================================== */

@@ -20,6 +20,14 @@ class AuthService {
       if (res == null) throw Exception("No response from server");
 
       if (res['success'] != true) {
+        if (res['maintenance'] == true) {
+          return LoginResult(
+            success: false,
+            licenseStatus: 'MAINTENANCE',
+            daysRemaining: 0,
+            message: res['message'] ?? 'System Under Scheduled Maintenance',
+          );
+        }
         if (res['license_status'] == 'EXPIRED') {
           return LoginResult(
             success: false,
@@ -78,6 +86,14 @@ class AuthService {
       if (res == null) throw Exception("No response from server");
 
       if (res['success'] != true) {
+        if (res['maintenance'] == true) {
+          return LoginResult(
+            success: false,
+            licenseStatus: 'MAINTENANCE',
+            daysRemaining: 0,
+            message: res['message'] ?? 'System Under Scheduled Maintenance',
+          );
+        }
         if (res['license_status'] == 'EXPIRED') {
           return LoginResult(
             success: false,
@@ -133,6 +149,14 @@ class AuthService {
       if (res == null) throw Exception("No response from server");
 
       if (res['success'] != true) {
+        if (res['maintenance'] == true) {
+          return LoginResult(
+            success: false,
+            licenseStatus: 'MAINTENANCE',
+            daysRemaining: 0,
+            message: res['message'] ?? 'System Under Scheduled Maintenance',
+          );
+        }
         if (res['license_status'] == 'EXPIRED') {
           return LoginResult(
             success: false,

@@ -34,6 +34,11 @@ class MaintenanceService {
                     estimatedEndTime: parsed.estimatedEndTime || null,
                     remainingMinutes: 0,
                     enabledBy: parsed.enabledBy || 'Super Admin',
+                    advanceNoticeActive: Boolean(parsed.advanceNoticeActive),
+                    scheduledStartTime: parsed.scheduledStartTime || null,
+                    scheduledDurationMinutes: Number(parsed.scheduledDurationMinutes || 60),
+                    noticeTitle: parsed.noticeTitle || 'Scheduled Cloud Maintenance Notice',
+                    noticeMessage: parsed.noticeMessage || 'Our cloud infrastructure will undergo scheduled maintenance. Store operations may be temporarily paused.',
                 };
             }
         }
@@ -47,6 +52,11 @@ class MaintenanceService {
             estimatedEndTime: null,
             remainingMinutes: 0,
             enabledBy: 'Super Admin',
+            advanceNoticeActive: false,
+            scheduledStartTime: null,
+            scheduledDurationMinutes: 60,
+            noticeTitle: 'Scheduled Cloud Maintenance Notice',
+            noticeMessage: 'Our cloud infrastructure will undergo scheduled maintenance. Store operations may be temporarily paused.',
         };
     }
     saveState() {
@@ -80,6 +90,7 @@ class MaintenanceService {
         const now = new Date();
         const endTime = new Date(now.getTime() + durationMinutes * 60 * 1000);
         this.state = {
+            ...this.state,
             isActive,
             title: title || 'System Under Scheduled Maintenance',
             message: message || 'Scheduled system optimization is in progress. Store operations are temporarily paused.',
@@ -88,6 +99,18 @@ class MaintenanceService {
             estimatedEndTime: isActive ? endTime.toISOString() : null,
             remainingMinutes: isActive ? durationMinutes : 0,
             enabledBy,
+        };
+        this.saveState();
+        return { ...this.state };
+    }
+    setAdvanceNotice(advanceNoticeActive, scheduledStartTime, scheduledDurationMinutes = 60, noticeTitle, noticeMessage) {
+        this.state = {
+            ...this.state,
+            advanceNoticeActive: Boolean(advanceNoticeActive),
+            scheduledStartTime: scheduledStartTime || null,
+            scheduledDurationMinutes: Number(scheduledDurationMinutes || 60),
+            noticeTitle: noticeTitle || this.state.noticeTitle || 'Scheduled Cloud Maintenance Notice',
+            noticeMessage: noticeMessage || this.state.noticeMessage || 'Our cloud infrastructure will undergo scheduled maintenance. Store operations may be temporarily paused.',
         };
         this.saveState();
         return { ...this.state };

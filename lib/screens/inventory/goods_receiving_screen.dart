@@ -20,6 +20,7 @@ import '../../core/api/api_client.dart';
 import '../../models/inventory/item_model.dart';
 import '../../models/inventory/receive_item_model.dart';
 import '../../models/inventory/stock_location_model.dart';
+import '../../core/settings/local_preferences.dart';
 import '../../utils/branding_storage.dart';
 import '../../utils/inclusive_rate_helper.dart';
 import '../../widgets/entry_shortcuts.dart';
@@ -50,6 +51,7 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
   List<Item> _filteredBrands = [];
   StockLocationdata? _selectedDepartment;
   bool _isStockable = true;
+  bool _enableDepartmentIssue = false;
   bool _useInclusiveRates = false;
   String _inclusiveRateScope = 'BOTH';
   List<dynamic> poList = [];
@@ -156,6 +158,7 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
   }
 
   Future<void> _loadInitialData() async {
+    _enableDepartmentIssue = await LocalPreferences.getRequireDepartmentForNonStockable();
     await supplierCtrl.load();
     await depctrl.getdepartment();
     await itemCtrl.load();
@@ -261,14 +264,7 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
       return;
     }
 
-    if (!_isStockable && _selectedDepartment == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Department is required'),
-        ),
-      );
-      return;
-    }
+
 
     final taxPercent = double.tryParse(_tax.text.trim()) ?? 0;
     final buyRate = double.tryParse(_rate.text.trim()) ?? 0;
@@ -298,7 +294,10 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
       tax: taxPercent,
       itemId: _selectedBrandItemId.toString(),
       expiryDate: _expDate,
-      department: !_isStockable ? _selectedDepartment!.id.toString() : "",
+      department: (_enableDepartmentIssue && _selectedDepartment != null)
+          ? _selectedDepartment!.id.toString()
+          : "",
+      isStockable: _isStockable,
       remarks: _remarks.text.trim(),
       lineStatus: 'CLOSED',
     );
@@ -408,9 +407,13 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
 
       );
 
+      // Only issue to department if setting enabled, department selected, AND stockable is off (!e.isStockable)
       final departmentItems = _items
-          .where(
-              (e) => e.department != null && e.department.toString().isNotEmpty)
+          .where((e) =>
+              _enableDepartmentIssue &&
+              !e.isStockable &&
+              e.department != null &&
+              e.department.toString().trim().isNotEmpty)
           .toList();
 
       if (departmentItems.isNotEmpty) {
@@ -527,13 +530,10 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
 
     _expDate = r.expiryDate ?? DateTime.now();
 
-    final hasDepartment =
-        r.department != null && r.department!.trim().isNotEmpty;
-    _isStockable = !hasDepartment;
-
+    _isStockable = r.isStockable;
+    _selectedDepartment = null;
     final deptId = int.tryParse(r.department ?? "");
-
-    if (deptId != null) {
+    if (_enableDepartmentIssue && deptId != null) {
       final dept = depctrl.departments
           .where((e) => e.id == deptId)
           .cast<StockLocationdata?>()
@@ -698,6 +698,7 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
                           itemId: i['item_id'].toString(),
                           expiryDate: null,
                           department: i['department'],
+                          isStockable: matchedItem?.stockable ?? true,
                           lineStatus: 'CLOSED'),
 
                     );
@@ -904,7 +905,7 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
                     _isStockable = selected.stockable;
                     _useInclusiveRates = isInclusive;
                     _inclusiveRateScope = 'BOTH';
-                    if (_isStockable) {
+                    if (_isStockable || !_enableDepartmentIssue) {
                       _selectedDepartment = null;
                     }
                   });
@@ -1062,7 +1063,7 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
             onSubmit: () => _expDateFocus.requestFocus(),
           ),
           _dateFieldexp(),
-          if (!_isStockable)
+          if (_enableDepartmentIssue && !_isStockable)
             SizedBox(
               width: 260,
               child: Focus(
@@ -1074,16 +1075,22 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
                   }
                   return KeyEventResult.ignored;
                 },
-                child: DropdownButtonFormField<StockLocationdata>(
+                child: DropdownButtonFormField<StockLocationdata?>(
                   focusNode: _departmentFocus,
-                  initialValue: _selectedDepartment,
-                  decoration: const InputDecoration(labelText: 'Department'),
-                  items: depctrl.departments.map((d) {
-                    return DropdownMenuItem(
-                      value: d,
-                      child: Text(d.locationName),
-                    );
-                  }).toList(),
+                  value: _selectedDepartment,
+                  decoration: const InputDecoration(labelText: 'Department (Optional)'),
+                  items: [
+                    const DropdownMenuItem<StockLocationdata?>(
+                      value: null,
+                      child: Text('-- None (Optional) --', style: TextStyle(color: Colors.grey)),
+                    ),
+                    ...depctrl.departments.map((d) {
+                      return DropdownMenuItem<StockLocationdata?>(
+                        value: d,
+                        child: Text(d.locationName),
+                      );
+                    }),
+                  ],
                   onChanged: (val) {
                     setState(() {
                       _selectedDepartment = val;
@@ -1144,7 +1151,7 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
                 _expDate = selected;
               });
             }
-            if (!_isStockable) {
+            if (_enableDepartmentIssue && !_isStockable) {
               _departmentFocus.requestFocus();
             } else {
               _remarksFocus.requestFocus();
@@ -1157,7 +1164,7 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
 
   // ================= TABLE =================
   Widget _tableCard() {
-    final showDepartment = _items.any(
+    final showDepartment = _enableDepartmentIssue && _items.any(
       (e) => (e.department ?? '').trim().isNotEmpty,
     );
     return LayoutBuilder(builder: (context, constraints) {

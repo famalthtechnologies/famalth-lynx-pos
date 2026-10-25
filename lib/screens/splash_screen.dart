@@ -150,6 +150,31 @@ class _SplashScreenState extends State<SplashScreen> {
       PermissionService.init(role: role, permissions: perms);
     }
 
+    // Check if server is under active maintenance before loading dashboard
+    try {
+      dynamic maint;
+      try {
+        maint = await ApiClient.get('/api/system/maintenance-status', silent: true);
+      } catch (_) {
+        maint = await ApiClient.get('/api/v1/control-plane/maintenance-status', silent: true);
+      }
+      if (maint != null && maint['data']?['isActive'] == true) {
+        final uRole = (role ?? '').toUpperCase();
+        if (uRole != 'SUPER_ADMIN' && uRole != 'ENTERPRISE_ADMIN') {
+          if (!mounted) return;
+          _navigate(const LoginScreen());
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ApiClient.showMaintenanceLockoutDialog(
+              title: maint['data']['title'],
+              message: maint['data']['message'],
+              remainingMinutes: maint['data']['remainingMinutes'],
+            );
+          });
+          return;
+        }
+      }
+    } catch (_) {}
+
     if (!mounted) return;
 
     if (token == null) {

@@ -84,6 +84,19 @@ module.exports = (sequelize: any, DataTypes: any) => {
             type: DataTypes.TEXT,
             allowNull: true
         },
+        prescription_file_url: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
+        diagnosis: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
+        vital_signs: {
+            type: DataTypes.JSONB,
+            allowNull: true,
+            defaultValue: {}
+        },
         prescribed_medicines: {
             type: DataTypes.JSONB,
             allowNull: false,

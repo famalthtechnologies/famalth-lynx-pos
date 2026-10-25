@@ -2,6 +2,7 @@ import express from 'express';
 import ControlPlaneController from '../controllers/control_plane/controlPlane.controller';
 import SupportConsoleController from '../controllers/control_plane/supportConsole.controller';
 import StaffManagementController from '../controllers/control_plane/staffManagement.controller';
+import MaintenanceController from '../controllers/system/maintenance.controller';
 import { requireControlPlaneAuth, requireStaffRole } from '../middlewares/controlPlaneAuth.middleware';
 
 const router = express.Router();
@@ -74,8 +75,13 @@ router.get('/invoices/latest/:tenantId', ControlPlaneController.getLatestInvoice
 router.get('/renewals/export', ControlPlaneController.exportRenewalsCsv);
 
 // 9. Announcements & Promotional Offers (Individual or Broadcast)
-router.post('/announcements', requireControlPlaneAuth, requireStaffRole(['SUPER_ADMIN', 'RESELLER_ADMIN', 'DEVELOPER', 'SUPPORT_AGENT']), ControlPlaneController.createAnnouncement);
+router.post('/announcements', requireControlPlaneAuth, requireStaffRole(['SUPER_ADMIN', 'OWNER', 'ENTERPRISE_ADMIN', 'RESELLER_ADMIN', 'DEVELOPER', 'SUPPORT_AGENT']), ControlPlaneController.createAnnouncement);
 router.get('/announcements/active', ControlPlaneController.getActiveAnnouncements);
+
+// 10. System Maintenance & Downtime Broadcast Aliases
+router.get('/maintenance-status', MaintenanceController.getStatus);
+router.post('/maintenance', MaintenanceController.setMaintenance);
+router.post('/maintenance/advance-notice', MaintenanceController.setAdvanceNotice);
 
 
 /* ==========================================================================

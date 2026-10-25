@@ -10,5 +10,7 @@ const router = (0, express_1.Router)();
 router.get('/maintenance-status', maintenance_controller_1.default.getStatus);
 // Admin endpoint to toggle and update maintenance window
 router.post('/maintenance', maintenance_controller_1.default.setMaintenance);
+// Admin endpoint to toggle and broadcast advance warning notice banner
+router.post('/maintenance/advance-notice', maintenance_controller_1.default.setAdvanceNotice);
 exports.default = router;
 module.exports = router;

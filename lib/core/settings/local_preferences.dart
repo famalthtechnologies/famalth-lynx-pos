@@ -8,6 +8,9 @@ import '../../models/settings/app_branding_model.dart';
 
 class LocalPreferences {
   static const _showNotificationsKey = 'show_notifications';
+  static const _showExpiryAlertsKey = 'show_expiry_alerts';
+  static const _lastExpiryAlertTimestampKey = 'last_expiry_alert_timestamp';
+  static const _requireDepartmentForNonStockableKey = 'require_department_for_non_stockable';
   static const _themeKey = 'app_theme_key';
   static const _brandingKey = 'app_branding';
   static const _touchModeKey = 'touch_mode_enabled';
@@ -39,6 +42,36 @@ class LocalPreferences {
   static Future<void> setShowNotifications(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_showNotificationsKey, value);
+  }
+
+  static Future<bool> getShowExpiryAlerts() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_showExpiryAlertsKey) ?? true;
+  }
+
+  static Future<void> setShowExpiryAlerts(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showExpiryAlertsKey, value);
+  }
+
+  static Future<int> getLastExpiryAlertTimestamp() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_lastExpiryAlertTimestampKey) ?? 0;
+  }
+
+  static Future<void> setLastExpiryAlertTimestamp(int millis) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_lastExpiryAlertTimestampKey, millis);
+  }
+
+  static Future<bool> getRequireDepartmentForNonStockable() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_requireDepartmentForNonStockableKey) ?? false;
+  }
+
+  static Future<void> setRequireDepartmentForNonStockable(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_requireDepartmentForNonStockableKey, value);
   }
 
   static Future<bool> getTouchMode() async {

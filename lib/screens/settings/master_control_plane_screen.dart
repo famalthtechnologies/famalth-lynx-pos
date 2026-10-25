@@ -674,6 +674,7 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
   @override
   void initState() {
     super.initState();
+    ApiClient.isAdminConsole = true;
     _tabController = TabController(length: 6, vsync: this);
     _tabController.addListener(() {
       if (_tabController.index == 2) {
@@ -724,6 +725,7 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
 
   @override
   void dispose() {
+    ApiClient.isAdminConsole = false;
     _stopSupportLiveTimer();
     _supportChatScrollController.dispose();
     _tabController.dispose();
@@ -1056,7 +1058,12 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
 
   Future<void> _fetchMaintenanceStatus() async {
     try {
-      final res = await ApiClient.get('/api/system/maintenance-status', silent: true);
+      dynamic res;
+      try {
+        res = await ApiClient.get('/api/system/maintenance-status', silent: true);
+      } catch (_) {
+        res = await ApiClient.get('/api/v1/control-plane/maintenance-status', silent: true);
+      }
       if (res != null && res['success'] == true && res['data'] != null && mounted) {
         setState(() {
           _maintenanceState = res['data'] as Map<String, dynamic>;
@@ -1071,6 +1078,13 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
     final titleCtrl = TextEditingController(text: _maintenanceState['title'] ?? 'System Under Scheduled Maintenance');
     final msgCtrl = TextEditingController(text: _maintenanceState['message'] ?? 'Scheduled system optimization is in progress. Store operations are temporarily paused.');
 
+    // Advance Warning Notice (Render / Vercel / Bank style top banner notice 1-2 days before)
+    bool advanceActive = _maintenanceState['advanceNoticeActive'] == true;
+    final noticeTimeCtrl = TextEditingController(text: _maintenanceState['scheduledStartTime'] ?? 'Sunday, 02:00 AM UTC');
+    int noticeDuration = _maintenanceState['scheduledDurationMinutes'] ?? 60;
+    final noticeTitleCtrl = TextEditingController(text: _maintenanceState['noticeTitle'] ?? '⚠️ Scheduled System Maintenance Notice');
+    final noticeMsgCtrl = TextEditingController(text: _maintenanceState['noticeMessage'] ?? 'Cloud infrastructure optimization is scheduled. Store operations may be temporarily paused.');
+
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -1080,16 +1094,17 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
             children: [
               Icon(Icons.build_circle_rounded, color: active ? Colors.red.shade700 : const Color(0xFF0284C7)),
               const SizedBox(width: 10),
-              const Expanded(child: Text('Emergency Maintenance Mode', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+              const Expanded(child: Text('Enterprise Maintenance & Advance Notices', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
             ],
           ),
           content: SizedBox(
-            width: 520,
+            width: 580,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // SECTION 1: EMERGENCY / ACTIVE MAINTENANCE
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -1106,14 +1121,14 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                active ? 'Server Status: HALTED (Maintenance Active)' : 'Server Status: ONLINE (Normal Operations)',
+                                active ? 'Live Server Status: HALTED (Maintenance Active)' : 'Live Server Status: ONLINE (Normal Operations)',
                                 style: TextStyle(fontWeight: FontWeight.bold, color: active ? Colors.red.shade900 : const Color(0xFF1E3A8A), fontSize: 13),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 active
-                                    ? 'Store terminals cannot perform checkout or sync until resumed. Remaining: ~${_maintenanceState['remainingMinutes'] ?? duration}m.'
-                                    : 'All client POS terminals and clinics are operating normally.',
+                                    ? "Store terminals cannot perform checkout or sync until resumed. Remaining: ~${_maintenanceState['remainingMinutes'] ?? duration}m."
+                                    : "All client POS terminals and clinics are operating normally.",
                                 style: TextStyle(color: active ? Colors.red.shade700 : const Color(0xFF3B82F6), fontSize: 11),
                               ),
                             ],
@@ -1122,16 +1137,16 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                       ],
                     ),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
                   SwitchListTile(
-                    title: const Text('Halt All Outlets for Maintenance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    subtitle: const Text('Pauses all checkout, billing, and sync across all merchants.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    title: const Text('Halt All Outlets for Maintenance (Lockout Mode)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    subtitle: const Text('Pauses all checkout, billing, and sync across all merchants. Terminals show non-dismissible lockout dialog.', style: TextStyle(fontSize: 11, color: Colors.grey)),
                     value: active,
-                    activeColor: Colors.red.shade700,
+                    activeThumbColor: Colors.red.shade700,
                     contentPadding: EdgeInsets.zero,
                     onChanged: (val) => setDlgState(() => active = val),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   const Text('Downtime Duration Window:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   const SizedBox(height: 6),
                   Wrap(
@@ -1149,8 +1164,8 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 14),
-                  const Text('Notice Title:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 12),
+                  const Text('Lockout Notice Title:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   const SizedBox(height: 4),
                   TextField(
                     controller: titleCtrl,
@@ -1159,12 +1174,144 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  const Text('Message Displayed to Terminals:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 10),
+                  const Text('Lockout Message Displayed to Terminals:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   const SizedBox(height: 4),
                   TextField(
                     controller: msgCtrl,
-                    maxLines: 3,
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 10),
+
+                  // SECTION 2: ADVANCE NOTICE WARNING BANNER (Render / Vercel / Bank style)
+                  Row(
+                    children: [
+                      const Icon(Icons.campaign_rounded, color: Color(0xFFD97706), size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Advance Warning Notice Banner (Dashboard Top Banner)',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
+                        ),
+                      ),
+                      if (advanceActive)
+                        TextButton.icon(
+                          style: TextButton.styleFrom(foregroundColor: Colors.red.shade700),
+                          icon: const Icon(Icons.visibility_off_rounded, size: 16),
+                          label: const Text('Disappear / Clear', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          onPressed: () async {
+                            try {
+                              dynamic res;
+                              try {
+                                res = await ApiClient.post('/api/system/maintenance/advance-notice', {
+                                  'advanceNoticeActive': false,
+                                });
+                              } catch (_) {
+                                res = await ApiClient.post('/api/v1/control-plane/maintenance/advance-notice', {
+                                  'advanceNoticeActive': false,
+                                });
+                              }
+                              if (res != null && res['success'] == true) {
+                                setDlgState(() => advanceActive = false);
+                                _fetchMaintenanceStatus();
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Advance warning notice banner cleared.'), backgroundColor: Colors.orange),
+                                  );
+                                }
+                              }
+                            } catch (_) {}
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Displays a persistent top banner on all client dashboards (like Banks, Render & Vercel) 1 or 2 days in advance showing exact scheduled date and time.',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                  ),
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                    title: const Text('Broadcast Warning Banner on Dashboards', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    subtitle: const Text('Shows warning on client dashboards with date and time. Checks hourly on clients.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    value: advanceActive,
+                    activeThumbColor: const Color(0xFFD97706),
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: (val) => setDlgState(() => advanceActive = val),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Scheduled Date & Time:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            const SizedBox(height: 4),
+                            TextField(
+                              controller: noticeTimeCtrl,
+                              decoration: InputDecoration(
+                                isDense: true,
+                                hintText: 'e.g. 26-Oct-2026 at 02:00 AM UTC',
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Expected Duration:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            const SizedBox(height: 4),
+                            DropdownButtonFormField<int>(
+                              value: noticeDuration,
+                              decoration: InputDecoration(
+                                isDense: true,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 30, child: Text('30 mins')),
+                                DropdownMenuItem(value: 60, child: Text('60 mins')),
+                                DropdownMenuItem(value: 120, child: Text('2 hours')),
+                                DropdownMenuItem(value: 240, child: Text('4 hours')),
+                              ],
+                              onChanged: (v) {
+                                if (v != null) setDlgState(() => noticeDuration = v);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text('Notice Banner Title:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: noticeTitleCtrl,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text('Notice Banner Message:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: noticeMsgCtrl,
+                    maxLines: 2,
                     decoration: InputDecoration(
                       isDense: true,
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -1178,22 +1325,57 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: active ? Colors.red.shade700 : const Color(0xFF10B981),
+                backgroundColor: active ? Colors.red.shade700 : const Color(0xFF0284C7),
                 foregroundColor: Colors.white,
               ),
               onPressed: () async {
                 Navigator.pop(ctx);
                 try {
-                  final res = await ApiClient.post('/api/system/maintenance', {
-                    'isActive': active,
-                    'title': titleCtrl.text.trim(),
-                    'message': msgCtrl.text.trim(),
-                    'durationMinutes': duration,
-                  });
+                  // Save emergency maintenance with dual-route fallback
+                  dynamic res;
+                  try {
+                    res = await ApiClient.post('/api/system/maintenance', {
+                      'isActive': active,
+                      'title': titleCtrl.text.trim(),
+                      'message': msgCtrl.text.trim(),
+                      'durationMinutes': duration,
+                    });
+                  } catch (e1) {
+                    res = await ApiClient.post('/api/v1/control-plane/maintenance', {
+                      'isActive': active,
+                      'title': titleCtrl.text.trim(),
+                      'message': msgCtrl.text.trim(),
+                      'durationMinutes': duration,
+                    });
+                  }
+
+                  // Save advance warning notice with dual-route fallback
+                  try {
+                    await ApiClient.post('/api/system/maintenance/advance-notice', {
+                      'advanceNoticeActive': advanceActive,
+                      'scheduledStartTime': noticeTimeCtrl.text.trim(),
+                      'scheduledDurationMinutes': noticeDuration,
+                      'noticeTitle': noticeTitleCtrl.text.trim(),
+                      'noticeMessage': noticeMsgCtrl.text.trim(),
+                    });
+                  } catch (_) {
+                    try {
+                      await ApiClient.post('/api/v1/control-plane/maintenance/advance-notice', {
+                        'advanceNoticeActive': advanceActive,
+                        'scheduledStartTime': noticeTimeCtrl.text.trim(),
+                        'scheduledDurationMinutes': noticeDuration,
+                        'noticeTitle': noticeTitleCtrl.text.trim(),
+                        'noticeMessage': noticeMsgCtrl.text.trim(),
+                      });
+                    } catch (e2) {
+                      debugPrint('Advance notice fallback notice: $e2');
+                    }
+                  }
+
                   if (res != null && res['success'] == true && mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(res['message'] ?? 'Maintenance mode updated.'),
+                        content: Text(res['message'] ?? 'Maintenance settings updated.'),
                         backgroundColor: active ? Colors.red.shade700 : Colors.green.shade700,
                       ),
                     );
@@ -1205,7 +1387,7 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                   }
                 }
               },
-              child: Text(active ? 'Save & Stop All Outlets' : 'Resume All Outlets'),
+              child: Text(active ? 'Save & Stop All Outlets' : 'Save Maintenance Settings'),
             ),
           ],
         ),
@@ -1213,7 +1395,7 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
     );
   }
 
-  Future<void> _triggerSystemBackup() async {
+    Future<void> _triggerSystemBackup() async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Preparing complete enterprise system backup archive (.ZIP with database & media)...'),

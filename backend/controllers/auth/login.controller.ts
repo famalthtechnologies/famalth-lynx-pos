@@ -115,6 +115,23 @@ exports.login = async (req, res, next) => {
             return res.status(401).json({ success: false, message: 'Wrong password.' });
         }
 
+        const rawMaint = require('../../services/maintenance.service');
+        const maintenanceService = rawMaint.default || rawMaint.maintenanceService || rawMaint;
+        if (maintenanceService.isUnderMaintenance()) {
+            const uRole = String(user.role || '').toUpperCase();
+            if (uRole !== 'SUPER_ADMIN' && uRole !== 'ENTERPRISE_ADMIN') {
+                const status = maintenanceService.getStatus();
+                return res.status(503).json({
+                    success: false,
+                    maintenance: true,
+                    title: status.title,
+                    message: status.message,
+                    remainingMinutes: status.remainingMinutes,
+                    estimatedEndTime: status.estimatedEndTime
+                });
+            }
+        }
+
         try {
             const licenseData = await verifyLicenseOnline(outlet_code);
             daysRemaining = licenseData.days_remaining;
@@ -655,6 +672,23 @@ exports.pinLogin = async (req: any, res: any) => {
                 success: false,
                 message: `Access Denied: User '${user.username || user.full_name}' is assigned role '${user.role}', not '${role}'. Please upgrade role.`
             });
+        }
+
+        const rawMaintPin = require('../../services/maintenance.service');
+        const maintenanceServicePin = rawMaintPin.default || rawMaintPin.maintenanceService || rawMaintPin;
+        if (maintenanceServicePin.isUnderMaintenance()) {
+            const uRole = String(user.role || '').toUpperCase();
+            if (uRole !== 'SUPER_ADMIN' && uRole !== 'ENTERPRISE_ADMIN') {
+                const status = maintenanceServicePin.getStatus();
+                return res.status(503).json({
+                    success: false,
+                    maintenance: true,
+                    title: status.title,
+                    message: status.message,
+                    remainingMinutes: status.remainingMinutes,
+                    estimatedEndTime: status.estimatedEndTime
+                });
+            }
         }
 
         let licenseState = 'VALID';

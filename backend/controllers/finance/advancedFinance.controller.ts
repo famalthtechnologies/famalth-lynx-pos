@@ -2911,47 +2911,80 @@ exports.getExpiryReport = async (req, res) => {
                 where: { outlet_id: req.user.outlet_id },
                 attributes: ['grn_no', 'receipt_date']
             }],
-            order: [['item_code', 'ASC'], ['id', 'DESC']]
+            order: [['expiry_date', 'ASC'], ['id', 'ASC']]
         });
 
-        const latestByItem = new Map();
+        // Group rows by item_code
+        const itemRowsMap = new Map();
         for (const row of rows) {
             const key = String(row.item_code || '');
-            if (!latestByItem.has(key)) {
-                latestByItem.set(key, row);
+            if (!itemRowsMap.has(key)) {
+                itemRowsMap.set(key, []);
             }
+            itemRowsMap.get(key).push(row);
         }
 
         const today = startOfDay(new Date());
-        const data = Array.from(latestByItem.values())
-            .map((row) => {
-                const expiryDate = parseDateOnly(row.expiry_date);
+        const data = [];
+
+        for (const [code, itemBatches] of itemRowsMap.entries()) {
+            const currentStock = positiveStock.get(code) ?? 0;
+            const totalReceived = itemBatches.reduce((sum, b) => sum + Number(b.qty || 0), 0);
+            let remainingSold = Math.max(0, totalReceived - currentStock);
+
+            // Sort batches by expiry ASC (earliest expiry first)
+            itemBatches.sort((a, b) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime());
+
+            let activeBatch = null;
+            for (const b of itemBatches) {
+                const bQty = Number(b.qty || 0);
+                if (remainingSold >= bQty) {
+                    remainingSold -= bQty;
+                } else {
+                    activeBatch = b;
+                    break;
+                }
+            }
+
+            if (!activeBatch && itemBatches.length > 0) {
+                activeBatch = itemBatches[itemBatches.length - 1];
+            }
+
+            if (activeBatch) {
+                const expiryDate = parseDateOnly(activeBatch.expiry_date);
                 const daysLeft = Math.floor((expiryDate - today) / (1000 * 60 * 60 * 24));
                 const expiryState = daysLeft < 0 ? 'EXPIRED' : daysLeft <= alertDays ? 'NEAR_EXPIRY' : 'SAFE';
-                return {
-                    id: row.id,
-                    item_code: row.item_code,
-                    item_name: row.item_name,
-                    qty: positiveStock.get(String(row.item_code || '')) ?? 0,
-                    unit: row.unit || '',
-                    expiry_date: row.expiry_date,
+
+                data.push({
+                    id: activeBatch.id,
+                    item_code: activeBatch.item_code,
+                    item_name: activeBatch.item_name,
+                    qty: currentStock,
+                    unit: activeBatch.unit || '',
+                    expiry_date: activeBatch.expiry_date,
                     days_left: daysLeft,
                     status: expiryState,
-                    grn_no: row.grn?.grn_no || '',
-                    receipt_date: row.grn?.receipt_date || null
-                };
-            })
+                    grn_no: activeBatch.grn?.grn_no || '',
+                    receipt_date: activeBatch.grn?.receipt_date || null
+                });
+            }
+        }
+
+        // Sort by nearest active expiry first
+        data.sort((a, b) => a.days_left - b.days_left);
+
+        const filteredData = data
             .filter((row) => !search || row.item_name.toLowerCase().includes(search) || row.item_code.toLowerCase().includes(search))
             .filter((row) => status === 'ALL' || row.status === status);
 
         res.json({
             success: true,
             summary: {
-                total_items: data.length,
+                total_items: filteredData.length,
                 expired_count: data.filter((row) => row.status === 'EXPIRED').length,
                 near_expiry_count: data.filter((row) => row.status === 'NEAR_EXPIRY').length
             },
-            data
+            data: filteredData
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

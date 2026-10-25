@@ -977,6 +977,7 @@ class ControlPlaneController {
             if (!title || !message) {
                 return res.status(400).json({ success: false, message: 'Title and message are required.' });
             }
+            try { await MasterAnnouncement.sync({ alter: true }); } catch (_) {}
             const announcement = await MasterAnnouncement.create({
                 target_tenant_id: target_tenant_id || null,
                 title,
@@ -995,6 +996,7 @@ class ControlPlaneController {
     }
     static async getActiveAnnouncements(req, res) {
         try {
+            try { await MasterAnnouncement.sync({ alter: true }); } catch (_) {}
             const { tenantId } = req.query;
             const whereClause = { is_active: true };
             if (tenantId) {

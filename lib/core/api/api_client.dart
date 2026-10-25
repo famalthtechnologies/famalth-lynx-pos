@@ -26,7 +26,7 @@ class ApiClient {
   static Future<Map<String, String>> _headers([String? path]) async {
     String? token;
     final cleanPath = (path ?? '').trim();
-    final isControlPlaneRoute = cleanPath.contains('api/v1/control-plane');
+    final isControlPlaneRoute = cleanPath.contains('api/v1/control-plane') || isAdminConsole;
     final isPublicCpRoute = cleanPath.contains('auth/login') ||
         cleanPath.contains('auth/request-owner-setup-otp') ||
         cleanPath.contains('auth/setup-status') ||
@@ -57,6 +57,8 @@ class ApiClient {
       'outlet_id': activeOutletId.toString(),
       if (outletCode.isNotEmpty) 'x-outlet-code': outletCode,
       if (outletCode.isNotEmpty) 'outlet_code': outletCode,
+      if (isAdminConsole || isControlPlaneRoute) 'x-client-type': 'enterprise-console',
+      if (isAdminConsole || isControlPlaneRoute) 'x-control-plane': 'true',
     };
   }
 
@@ -121,6 +123,7 @@ class ApiClient {
     return _handleResponse(response, silent: silent);
   }
 
+  static bool isAdminConsole = false;
   static bool _isMaintenanceDialogOpen = false;
 
   static void showMaintenanceLockoutDialog({
@@ -128,6 +131,8 @@ class ApiClient {
     String? message,
     int? remainingMinutes,
   }) {
+    // Maintenance lockout is strictly for store clients / terminals, NEVER for Admin Console!
+    if (isAdminConsole) return;
     if (_isMaintenanceDialogOpen) return;
 
     final context = globalNavigatorKey.currentContext;
@@ -242,6 +247,18 @@ class ApiClient {
     final data = jsonDecode(response.body);
     if (response.statusCode >= 400 || (data is Map && data['success'] == false)) {
       if (response.statusCode == 503 || (data is Map && data['maintenance'] == true)) {
+        // Admin console is strictly exempt from client terminal lockout
+        if (isAdminConsole) {
+          return {
+            'success': true,
+            'maintenance': true,
+            'title': (data is Map ? data['title'] : null) ?? 'System Under Scheduled Maintenance',
+            'message': (data is Map ? data['message'] : null) ?? 'Scheduled system optimization is in progress.',
+            'remainingMinutes': data is Map ? data['remainingMinutes'] : 30,
+            'data': data is Map && data['data'] != null ? data['data'] : data,
+          };
+        }
+
         final title = (data is Map ? data['title'] : null) ?? 'System Under Scheduled Maintenance';
         final message = (data is Map ? data['message'] : null) ??
             'Scheduled system optimization is in progress. Store operations are temporarily paused.';

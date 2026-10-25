@@ -156,7 +156,7 @@ const savePrescription = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { id } = req.params;
-        const { prescription_notes, prescribed_medicines, doctor_name } = req.body;
+        const { prescription_notes, prescribed_medicines, doctor_name, prescription_file_url, diagnosis, vital_signs } = req.body;
 
         const appointment = await req.propertyDb.models.clinic_appointments.findOne({
             where: { id, outlet_id }
@@ -173,9 +173,10 @@ const savePrescription = async (req, res) => {
             visited_at: appointment.visited_at || new Date()
         };
 
-        if (doctor_name) {
-            updates.doctor_name = doctor_name;
-        }
+        if (doctor_name) updates.doctor_name = doctor_name;
+        if (prescription_file_url !== undefined) updates.prescription_file_url = prescription_file_url;
+        if (diagnosis !== undefined) updates.diagnosis = diagnosis;
+        if (vital_signs !== undefined) updates.vital_signs = vital_signs;
 
         await appointment.update(updates);
 
@@ -298,7 +299,7 @@ const getAvailableMedicines = async (req, res) => {
                 'unit',
                 'rate',
                 'retail_sale_price',
-                'tax_rate',
+                'tax_percent',
                 'opening_balance'
             ],
             limit: 100,
@@ -326,7 +327,7 @@ const getAvailableMedicines = async (req, res) => {
                 unit: it.unit || 'PCS',
                 purchase_rate: Number(it.rate || 0),
                 retail_sale_price: Number(it.retail_sale_price || it.rate || 0),
-                tax_percent: Number(it.tax_rate || 0),
+                tax_percent: Number(it.tax_percent || 0),
                 current_stock: stock,
                 in_stock: stock > 0
             });
@@ -363,6 +364,62 @@ const getClinicAnalytics = async (req, res) => {
         const draftSentCount = allAppointments.filter((a) => a.billing_status === 'DRAFT_SENT' || a.billing_status === 'BILLED').length;
 
         const uniquePhones = new Set(allAppointments.map((a) => a.patient_phone).filter(Boolean));
+        const totalConsultationFees = allAppointments.reduce((acc, a) => acc + Number(a.consultation_fee || 0), 0);
+
+        // Daily trend timeline (grouped by appointment_date)
+        const dateMap = {};
+        // Doctor performance & workload
+        const docMap = {};
+        // Top prescribed medicines
+        const medMap = {};
+        // Gender breakdown
+        let maleCount = 0, femaleCount = 0, otherCount = 0;
+
+        for (const a of allAppointments) {
+            const d = a.appointment_date ? a.appointment_date.toString().substring(0, 10) : 'Other';
+            if (!dateMap[d]) {
+                dateMap[d] = { date: d, appointments: 0, visited: 0, billed: 0, cancelled: 0 };
+            }
+            dateMap[d].appointments++;
+            if (a.status === 'VISITED') dateMap[d].visited++;
+            if (a.status === 'CANCELLED' || a.status === 'NO_SHOW') dateMap[d].cancelled++;
+            if (a.billing_status === 'DRAFT_SENT' || a.billing_status === 'BILLED') dateMap[d].billed++;
+
+            // Doctor
+            const docName = (a.doctor_name || 'General Physician').trim();
+            if (!docMap[docName]) {
+                docMap[docName] = { doctor: docName, count: 0, visited: 0 };
+            }
+            docMap[docName].count++;
+            if (a.status === 'VISITED') docMap[docName].visited++;
+
+            // Gender
+            const g = (a.patient_gender || '').toUpperCase();
+            if (g === 'MALE' || g === 'M') maleCount++;
+            else if (g === 'FEMALE' || g === 'F') femaleCount++;
+            else otherCount++;
+
+            // Medicines
+            if (Array.isArray(a.prescribed_medicines)) {
+                for (const m of a.prescribed_medicines) {
+                    const mKey = (m.item_code || m.item_name || 'Rx').toString();
+                    if (!medMap[mKey]) {
+                        medMap[mKey] = {
+                            item_name: m.item_name || 'Medicine',
+                            item_code: m.item_code || '-',
+                            times_prescribed: 0,
+                            total_qty: 0
+                        };
+                    }
+                    medMap[mKey].times_prescribed++;
+                    medMap[mKey].total_qty += Number(m.qty || 1);
+                }
+            }
+        }
+
+        const dailyTrends = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
+        const doctorWorkload = Object.values(docMap).sort((a, b) => b.count - a.count);
+        const topMedicines = Object.values(medMap).sort((a, b) => b.times_prescribed - a.times_prescribed).slice(0, 10);
 
         return res.json({
             success: true,
@@ -373,7 +430,13 @@ const getClinicAnalytics = async (req, res) => {
                 cancelled_count: cancelledCount,
                 draft_sent_count: draftSentCount,
                 unique_patients_count: uniquePhones.size,
-                attendance_rate_percent: totalAppointments > 0 ? Number(((visitedCount / totalAppointments) * 100).toFixed(1)) : 0
+                total_consultation_fees: totalConsultationFees,
+                attendance_rate_percent: totalAppointments > 0 ? Number(((visitedCount / totalAppointments) * 100).toFixed(1)) : 0,
+                billing_conversion_percent: visitedCount > 0 ? Number(((draftSentCount / visitedCount) * 100).toFixed(1)) : 0,
+                gender_demographics: { male: maleCount, female: femaleCount, other: otherCount },
+                daily_trends: dailyTrends,
+                doctor_workload: doctorWorkload,
+                top_medicines: topMedicines
             }
         });
     } catch (err) {

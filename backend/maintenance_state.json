@@ -1,10 +1,15 @@
 {
-  "isActive": true,
+  "isActive": false,
   "title": "System Under Scheduled Maintenance",
   "message": "Scheduled system optimization is in progress. Store operations are temporarily paused.",
-  "startedAt": "2026-10-25T08:41:31.691Z",
-  "durationMinutes": 30,
-  "estimatedEndTime": "2026-10-25T09:11:31.691Z",
-  "remainingMinutes": 30,
-  "enabledBy": "Super Admin"
+  "startedAt": null,
+  "durationMinutes": 15,
+  "estimatedEndTime": null,
+  "remainingMinutes": 0,
+  "enabledBy": "Super Admin",
+  "advanceNoticeActive": false,
+  "scheduledStartTime": "Sunday, 02:00 AM UTC",
+  "scheduledDurationMinutes": 60,
+  "noticeTitle": "Scheduled Cloud Maintenance Notice",
+  "noticeMessage": "Our cloud infrastructure will undergo scheduled maintenance. Store operations may be temporarily paused."
 }

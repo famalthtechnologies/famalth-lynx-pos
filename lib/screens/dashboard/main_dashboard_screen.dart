@@ -229,6 +229,9 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   Map<String, _GrowthComparison> growthComparisons = {};
   Timer? _notificationTimer;
   Timer? _liveHeartbeatTimer;
+  Timer? _maintenanceHourlyTimer;
+  Map<String, dynamic>? _maintenanceAdvanceNotice;
+  bool _isNoticeDismissedForSession = false;
   bool _isLicenseLockoutOpen = false;
   Timer? _customerOrderPollTimer;
   final Set<String> _seenCustomerOrderIds = {};
@@ -248,6 +251,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   String _drawerSearchQuery = '';
   Set<String> _favoriteDrawerItems = {};
   final UserNotesController _notesCtrl = UserNotesController();
+  bool _isFabExpanded = false;
 
   String get _billingCountry {
     try {
@@ -460,6 +464,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
     _startAppBarTimer();
     _startCustomerOrderPolling();
     _startLiveHeartbeatTimer();
+    _startMaintenanceHourlyCheck();
 
     _loadPropertyInfo();
 
@@ -489,8 +494,164 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   }
 
   
+  
+  void _startMaintenanceHourlyCheck() {
+    _maintenanceHourlyTimer?.cancel();
+    _fetchMaintenanceTelemetry();
+    // Hourly check (not every minute) to conserve bandwidth and avoid server polling overload
+    _maintenanceHourlyTimer = Timer.periodic(const Duration(hours: 1), (_) {
+      if (mounted) {
+        _fetchMaintenanceTelemetry();
+      }
+    });
+  }
+
+  Future<void> _fetchMaintenanceTelemetry() async {
+    try {
+      dynamic res;
+      try {
+        res = await ApiClient.get('/api/system/maintenance-status', silent: true);
+      } catch (_) {
+        res = await ApiClient.get('/api/v1/control-plane/maintenance-status', silent: true);
+      }
+      if (res != null && res['data'] is Map && mounted) {
+        final data = res['data'] as Map<String, dynamic>;
+        final isActive = data['isActive'] == true;
+        if (isActive) {
+          final role = await TokenStorage.getRole();
+          final uRole = (role ?? '').toUpperCase();
+          if (uRole != 'SUPER_ADMIN' && uRole != 'ENTERPRISE_ADMIN') {
+            ApiClient.showMaintenanceLockoutDialog(
+              title: data['title']?.toString(),
+              message: data['message']?.toString(),
+              remainingMinutes: data['remainingMinutes'] is num ? (data['remainingMinutes'] as num).toInt() : 30,
+            );
+          }
+        }
+
+        setState(() {
+          _maintenanceAdvanceNotice = data;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildScheduledMaintenanceNoticeBanner() {
+    if (_maintenanceAdvanceNotice == null || _isNoticeDismissedForSession) {
+      return const SizedBox.shrink();
+    }
+
+    final bool isNoticeActive = _maintenanceAdvanceNotice!['advanceNoticeActive'] == true;
+    if (!isNoticeActive) return const SizedBox.shrink();
+
+    final title = _maintenanceAdvanceNotice!['noticeTitle']?.toString() ?? '⚠️ Scheduled System Maintenance Notice';
+    final message = _maintenanceAdvanceNotice!['noticeMessage']?.toString() ?? 'Cloud infrastructure optimization is scheduled.';
+    final scheduledTime = _maintenanceAdvanceNotice!['scheduledStartTime'];
+    final duration = _maintenanceAdvanceNotice!['scheduledDurationMinutes'] ?? 60;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFFBEB), Color(0xFFFEF3C7)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFF59E0B), width: 1.5),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: Color(0xFFD97706),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.engineering_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: Color(0xFF92400E),
+                        ),
+                      ),
+                    ),
+                    if (scheduledTime != null && scheduledTime.toString().isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFDE68A),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFF59E0B)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.schedule_rounded, size: 12, color: Color(0xFF92400E)),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Window: $scheduledTime (~$duration mins)',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF78350F),
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          IconButton(
+            icon: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF92400E)),
+            tooltip: 'Dismiss for this session',
+            onPressed: () {
+              setState(() {
+                _isNoticeDismissedForSession = true;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   void _startLiveHeartbeatTimer() {
     _liveHeartbeatTimer?.cancel();
+    _maintenanceHourlyTimer?.cancel();
     _sendLiveActivityHeartbeat();
     _liveHeartbeatTimer = Timer.periodic(const Duration(hours: 1), (_) {
       if (mounted) {
@@ -1948,40 +2109,160 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
 
       final res = await ApiClient.get('/api/notifications', silent: true);
       if (res != null && res['data'] is List) {
+        final allowExpiryAlerts = await LocalPreferences.getShowExpiryAlerts();
+        final lastExpiryAlertTimestamp = await LocalPreferences.getLastExpiryAlertTimestamp();
+        final now = DateTime.now().millisecondsSinceEpoch;
+        const sixHoursMs = 6 * 60 * 60 * 1000;
+        bool expiryAlertShownThisCycle = false;
+
         for (final n in res['data']) {
           final id = n['id'] as int? ?? 0;
           if (id > 0 && n['is_read'] == false) {
             final key = 'sys_notif_$id';
+            final title = n['title']?.toString() ?? 'Notification';
+            final message = n['message']?.toString() ?? '';
+            final isExpiry = title.toLowerCase().contains('expiry') || n['module']?.toString() == 'EXPIRY_ALERT';
+
             if (!_shownNotificationIds.contains(id)) {
               _shownNotificationIds.add(id);
+
+              if (isExpiry) {
+                if (!allowExpiryAlerts) {
+                  // User turned off expiry alerts
+                  continue;
+                }
+                if (expiryAlertShownThisCycle || (now - lastExpiryAlertTimestamp < sixHoursMs)) {
+                  // 6-hour interval hasn't elapsed or already triggered in this loop
+                  continue;
+                }
+              }
+
               await NotificationService.show(
                 id,
-                n['title']?.toString() ?? 'Notification',
-                n['message']?.toString() ?? '',
+                title,
+                message,
                 uniqueKey: key,
               );
-              if (mounted && (n['title']?.toString().contains('Appointment') == true ||
-                  n['title']?.toString().contains('Reservation') == true ||
-                  n['title']?.toString().contains('Expiry') == true)) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Row(
-                      children: [
-                        const Icon(Icons.notifications_active, color: Colors.white),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text('${n['title']}: ${n['message'] ?? ''}',
-                              style: const TextStyle(fontWeight: FontWeight.w600)),
-                        ),
-                      ],
+
+              if (mounted && (title.contains('Appointment') ||
+                  title.contains('Reservation') ||
+                  isExpiry)) {
+
+                if (isExpiry) {
+                  expiryAlertShownThisCycle = true;
+                  await LocalPreferences.setLastExpiryAlertTimestamp(now);
+                  if (!mounted) return;
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  title,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.black26,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'Every 6 hrs',
+                                  style: TextStyle(fontSize: 10, color: Colors.white70),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            message,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12, color: Colors.white),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () async {
+                                  await LocalPreferences.setShowExpiryAlerts(false);
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Expiry alerts disabled. You can re-enable anytime in Settings.'),
+                                        duration: Duration(seconds: 3),
+                                      ),
+                                    );
+                                  }
+                                },
+                                child: const Text(
+                                  'Disable Alerts',
+                                  style: TextStyle(color: Colors.white70, fontSize: 11, decoration: TextDecoration.underline),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: Colors.deepOrange.shade800,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                ),
+                                onPressed: () {
+                                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen()),
+                                  );
+                                },
+                                child: const Text('View Batches', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      backgroundColor: Colors.deepOrange.shade800,
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 10),
                     ),
-                    backgroundColor: n['title']?.toString().contains('Expiry') == true
-                        ? Colors.deepOrange.shade700
-                        : Colors.teal.shade700,
-                    behavior: SnackBarBehavior.floating,
-                    duration: const Duration(seconds: 6),
-                  ),
-                );
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.notifications_active, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text('$title: $message',
+                                style: const TextStyle(fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                      ),
+                      backgroundColor: Colors.teal.shade700,
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 6),
+                    ),
+                  );
+                }
               }
             }
           }
@@ -2408,115 +2689,179 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: FloatingActionButton.extended(
-              heroTag: 'support_helpdesk_fab',
-              backgroundColor: const Color(0xFF0D9488),
-              foregroundColor: Colors.white,
-              elevation: 4,
-              icon: const Icon(Icons.support_agent_rounded, size: 20),
-              label: const Text('Live Support', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-              onPressed: () => SupportHelpdeskDialog.show(context),
+          if (_isFabExpanded) ...[
+            // 1. Live Support
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: FloatingActionButton.extended(
+                heroTag: 'support_helpdesk_fab',
+                backgroundColor: const Color(0xFF0D9488),
+                foregroundColor: Colors.white,
+                elevation: 4,
+                icon: const Icon(Icons.support_agent_rounded, size: 20),
+                label: const Text('Live Support', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                onPressed: () {
+                  setState(() => _isFabExpanded = false);
+                  SupportHelpdeskDialog.show(context);
+                },
+              ),
             ),
-          ),
-          // B2B Community & Supplier Chat Floating Button with unread notification badge
-          Consumer<CommunityController>(
-            builder: (context, commCtrl, _) {
-              if (!commCtrl.isMessagingEnabled) {
-                return const SizedBox.shrink();
-              }
-              final unread = commCtrl.totalUnreadCount;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: FloatingActionButton.extended(
-                  heroTag: 'community_chat_fab',
-                  backgroundColor: const Color(0xFF1E40AF), // Deep royal blue
-                  foregroundColor: Colors.white,
-                  elevation: 4,
-                  icon: const Icon(Icons.forum_rounded, size: 20),
-                  label: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('B2B Chat', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                      if (unread > 0) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEF4444), // Vibrant Red badge
-                            borderRadius: BorderRadius.circular(10),
+            // 2. B2B Community & Supplier Chat
+            Consumer<CommunityController>(
+              builder: (context, commCtrl, _) {
+                if (!commCtrl.isMessagingEnabled) {
+                  return const SizedBox.shrink();
+                }
+                final unread = commCtrl.totalUnreadCount;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: FloatingActionButton.extended(
+                    heroTag: 'community_chat_fab',
+                    backgroundColor: const Color(0xFF1E40AF),
+                    foregroundColor: Colors.white,
+                    elevation: 4,
+                    icon: const Icon(Icons.forum_rounded, size: 20),
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('B2B Chat', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        if (unread > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$unread',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                            ),
                           ),
-                          child: Text(
-                            '$unread',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
-                          ),
-                        ),
+                        ],
                       ],
-                    ],
+                    ),
+                    onPressed: () {
+                      setState(() => _isFabExpanded = false);
+                      CloudFeatureGate.navigate(
+                        context,
+                        featureName: 'B2B Merchant Community & Chat',
+                        featureDescription:
+                            'Real-time merchant-to-merchant messaging, wholesale inquiry channels, and direct supplier communication.',
+                        featureIcon: Icons.forum_rounded,
+                        destination: const CommunityHubScreen(),
+                      );
+                    },
                   ),
-                  onPressed: () {
-                    CloudFeatureGate.navigate(
-                      context,
-                      featureName: 'B2B Merchant Community & Chat',
-                      featureDescription:
-                          'Real-time merchant-to-merchant messaging, wholesale inquiry channels, and direct supplier communication.',
-                      featureIcon: Icons.forum_rounded,
-                      destination: const CommunityHubScreen(),
-                    );
-                  },
-                ),
-              );
-            },
-          ),
-          // Sticky Notes & Reminders Floating Button (Positioned right above LYNX ASSIST)
-          FloatingActionButton.extended(
-            heroTag: 'sticky_notes_fab',
-            backgroundColor: const Color(0xFFD97706),
-            foregroundColor: Colors.white,
-            elevation: 4,
-            icon: const Icon(Icons.sticky_note_2_rounded, size: 20),
-            label: AnimatedBuilder(
-              animation: _notesCtrl,
-              builder: (context, _) {
-                final count = _notesCtrl.activeRemindersCount;
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Sticky Notes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    if (count > 0) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '$count',
-                          style: const TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold, fontSize: 11),
-                        ),
-                      ),
-                    ],
-                  ],
                 );
               },
             ),
-            onPressed: () {
-              StickyNotesModal.show(context, _notesCtrl);
-            },
-          ),
-          const SizedBox(height: 12),
-          // LYNX ASSIST Floating AI Button
-          FloatingActionButton.extended(
-            heroTag: 'lynx_assist_fab',
-            backgroundColor: const Color(0xFFC81E1E),
-            foregroundColor: Colors.white,
-            elevation: 6,
-            icon: const Icon(Icons.smart_toy_rounded),
-            label: const Text('LYNX ASSIST', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-            onPressed: () {
-              LynxAssistModal.show(context, onActionTriggered: _handleLynxAction);
+            // 3. Sticky Notes & Reminders
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: FloatingActionButton.extended(
+                heroTag: 'sticky_notes_fab',
+                backgroundColor: const Color(0xFFD97706),
+                foregroundColor: Colors.white,
+                elevation: 4,
+                icon: const Icon(Icons.sticky_note_2_rounded, size: 20),
+                label: AnimatedBuilder(
+                  animation: _notesCtrl,
+                  builder: (context, _) {
+                    final count = _notesCtrl.activeRemindersCount;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Sticky Notes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        if (count > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$count',
+                              style: const TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold, fontSize: 11),
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+                onPressed: () {
+                  setState(() => _isFabExpanded = false);
+                  StickyNotesModal.show(context, _notesCtrl);
+                },
+              ),
+            ),
+            // 4. LYNX ASSIST Floating AI Button
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: FloatingActionButton.extended(
+                heroTag: 'lynx_assist_fab',
+                backgroundColor: const Color(0xFFC81E1E),
+                foregroundColor: Colors.white,
+                elevation: 6,
+                icon: const Icon(Icons.smart_toy_rounded, size: 20),
+                label: const Text('LYNX ASSIST', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                onPressed: () {
+                  setState(() => _isFabExpanded = false);
+                  LynxAssistModal.show(context, onActionTriggered: _handleLynxAction);
+                },
+              ),
+            ),
+          ],
+          // Master Expandable Floating Action Button
+          Consumer<CommunityController>(
+            builder: (context, commCtrl, _) {
+              final unread = commCtrl.isMessagingEnabled ? commCtrl.totalUnreadCount : 0;
+              final reminders = _notesCtrl.activeRemindersCount;
+              final totalAlerts = unread + reminders;
+
+              return FloatingActionButton(
+                heroTag: 'master_expandable_fab',
+                backgroundColor: _isFabExpanded ? const Color(0xFF1E293B) : const Color(0xFFC81E1E),
+                foregroundColor: Colors.white,
+                elevation: 6,
+                tooltip: _isFabExpanded ? 'Close Quick Actions' : 'LYNX Quick Actions',
+                onPressed: () {
+                  setState(() => _isFabExpanded = !_isFabExpanded);
+                },
+                child: Stack(
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.none,
+                  children: [
+                    AnimatedRotation(
+                      turns: _isFabExpanded ? 0.125 : 0.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Icon(
+                        _isFabExpanded ? Icons.close_rounded : Icons.apps_rounded,
+                        size: 26,
+                      ),
+                    ),
+                    if (!_isFabExpanded && totalAlerts > 0)
+                      Positioned(
+                        top: -8,
+                        right: -8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.white, width: 1.5),
+                          ),
+                          child: Text(
+                            '$totalAlerts',
+                            style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
             },
           ),
         ],
@@ -2526,6 +2871,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         child: SingleChildScrollView(
                 child: Column(
                   children: [
+                    _buildScheduledMaintenanceNoticeBanner(),
                     const LicenseWarningBanner(),
                     Consumer<NightAuditController>(
                       builder: (context, nightAuditCtrl, _) {
@@ -4053,6 +4399,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         return Icons.people_outline;
       case 'Restaurant (Beta)':
         return Icons.restaurant_menu;
+      case 'Clinic & Health (Beta)':
       case 'Clinic & Health':
         return Icons.medical_services_outlined;
       case 'Finance & Accounting (Beta)':
@@ -4212,6 +4559,15 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Vendor Receive Order (GRN)',
         'permission': 'STOCK_IN',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GoodsReceivingScreen())),
+      },
+      {
+        'category': 'Operations',
+        'icon': Icons.hourglass_bottom_rounded,
+        'label': 'Receiving Expiry & Batch Tracker',
+        'subLabel': 'Shelf-life intelligence, batch ledgers & expiry risk across Retail, Restaurant, Store & Clinic',
+        'permission': 'INVENTORY_MANAGEMENT',
+        'keywords': ['expiry', 'batch', 'shelf life', 'receiving ledger', 'grn expiry', 'restaurant expiry', 'retail expiry', 'store expiry'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen())),
       },
       {
         'category': 'Operations',
@@ -4585,13 +4941,46 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RestaurantAnalyticsReportsScreen())),
       },
 
-      // Clinic & Health Module
+      // Clinic & Health (Beta) Module
       {
-        'category': 'Clinic & Health',
+        'category': 'Clinic & Health (Beta)',
         'icon': Icons.medical_services_outlined,
         'label': 'Doctor Appointments & Consultation',
+        'subLabel': 'Patient consultation, Rx prescription auto-fill, vital signs & token queue',
+        'isBeta': true,
         'permission': 'POS_SALE',
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClinicDashboardScreen())),
+        'keywords': ['doctor', 'clinic', 'appointment', 'consultation', 'prescription', 'patient', 'token'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialIndex: 0))),
+      },
+      {
+        'category': 'Clinic & Health (Beta)',
+        'icon': Icons.point_of_sale_rounded,
+        'label': 'Clinic Billing & Pharmacy POS',
+        'subLabel': 'Prescription billing, direct medicine dispense & pharmacy cashier register',
+        'isBeta': true,
+        'permission': 'POS_SALE',
+        'keywords': ['clinic billing', 'pharmacy pos', 'medicine billing', 'dispense', 'rx bill'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleScreen())),
+      },
+      {
+        'category': 'Clinic & Health (Beta)',
+        'icon': Icons.hourglass_bottom_rounded,
+        'label': 'Receiving Expiry & Batch Tracker',
+        'subLabel': 'Medicine expiry watch, batch-wise shelf life & supplier receiving ledger',
+        'isBeta': true,
+        'permission': 'INVENTORY_MANAGEMENT',
+        'keywords': ['expiry', 'batch', 'shelf life', 'receiving ledger', 'grn expiry', 'medicine expiry'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen())),
+      },
+      {
+        'category': 'Clinic & Health (Beta)',
+        'icon': Icons.insights_rounded,
+        'label': 'Clinic Operational Intelligence',
+        'subLabel': 'Doctor workload, consultation revenue analytics & patient demographics',
+        'isBeta': true,
+        'permission': 'STORE_ANALYSIS',
+        'keywords': ['clinic analytics', 'doctor workload', 'consultation fees', 'demographics', 'clinic kpi'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialIndex: 1))),
       },
       {
         'category': 'Finance & Expenses',
@@ -5037,7 +5426,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       _isHospitalityBusiness ? 'Masters & Departments' : 'Masters',
       'HR & Payroll',
       'Restaurant (Beta)',
-      'Clinic & Health',
+      'Clinic & Health (Beta)',
       'Finance & Accounting (Beta)',
       'Finance & Expenses',
       'Stock View',
@@ -5169,6 +5558,15 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'permission': 'STOCK_IN',
         'keywords': ['vendor receive order', 'vendor receive', 'vendor order', 'vendor received order', 'grn', 'goods receiving', 'receive vendor stock', 'goods receipt note', 'stock in', 'vendor invoice', 'receive goods from vendor'],
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GoodsReceivingScreen())),
+      },
+      {
+        'category': 'Operations',
+        'icon': Icons.hourglass_bottom_rounded,
+        'label': 'Receiving Expiry & Batch Tracker',
+        'subLabel': 'Operations ➜ Shelf life, batch ledgers, shorter-expiry detection & inventory risk (Retail, Restaurant, Store & Clinic)',
+        'permission': 'INVENTORY_MANAGEMENT',
+        'keywords': ['expiry', 'batch', 'shelf life', 'receiving ledger', 'grn expiry', 'restaurant expiry', 'retail expiry', 'store expiry'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen())),
       },
       {
         'category': 'Operations',

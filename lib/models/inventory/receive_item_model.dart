@@ -16,6 +16,7 @@ class ReceiveItem {
   final bool isSaleTaxInclusive;
   final String inclusiveScope;
   final double? originalRate;
+  final bool isStockable;
 
   ReceiveItem({
     required this.itemId,
@@ -35,6 +36,7 @@ class ReceiveItem {
     this.isSaleTaxInclusive = false,
     this.inclusiveScope = 'NONE',
     this.originalRate,
+    this.isStockable = true,
   });
 
   double get amount => double.parse((qty * rate).toStringAsFixed(2));
@@ -58,6 +60,7 @@ class ReceiveItem {
         'expiry_date': expiryDate?.toIso8601String(),
         'department': department,
         'remarks': remarks,
+        'is_stockable': isStockable,
         'line_status': lineStatus
       };
 }
