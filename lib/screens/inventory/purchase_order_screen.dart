@@ -106,7 +106,13 @@ class _PurchaseOrderScreenState extends State<PurchaseOrderScreen> {
   double get totalAmount => _items.fold(0, (s, e) => s + e.amount);
   double get totalGST =>
       _items.fold(0, (s, e) => s + e.taxAmount);
-  double get netAmount => _items.fold(0, (s, e) => s + e.totalAfterTax);
+  double get unroundedNet => _items.fold(0, (s, e) => s + e.totalAfterTax);
+  double get roundOffAmount {
+    if (_items.isEmpty) return 0.0;
+    final rounded = unroundedNet.roundToDouble();
+    return double.parse((rounded - unroundedNet).toStringAsFixed(2));
+  }
+  double get netAmount => unroundedNet + roundOffAmount;
 
 
   String _fmtNumber(num value) {
@@ -508,6 +514,8 @@ class _PurchaseOrderScreenState extends State<PurchaseOrderScreen> {
         manualNo: "",
         supplierId: int.parse(_supplierId.toString()),
         poDate: _date,
+        roundOffAmount: roundOffAmount,
+        totalAmount: netAmount,
         items: _items.map((e) {
           return PurchaseItem(
             itemId: e.itemId,
@@ -1060,11 +1068,22 @@ class _PurchaseOrderScreenState extends State<PurchaseOrderScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
+          if (roundOffAmount.abs() > 0.001) ...[
+            const SizedBox(width: 12),
+            Chip(
+              backgroundColor: Colors.purple.shade50,
+              label: Text(
+                'Round Off : ${roundOffAmount >= 0 ? '+' : ''}${CurrencyService.format(roundOffAmount)}',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple.shade700),
+              ),
+            ),
+          ],
           const SizedBox(width: 12),
           Chip(
+            backgroundColor: Colors.green.shade50,
             label: Text(
               'Net : ${CurrencyService.format(netAmount)}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade800),
             ),
           ),
           const Spacer(),
@@ -1512,6 +1531,8 @@ class _PurchaseOrderScreenState extends State<PurchaseOrderScreen> {
                 children: [
                   _totalRow("Sub Total", totalAmount),
                   _totalRow(taxName, totalGST),
+                  if (roundOffAmount.abs() > 0.001)
+                    _totalRow("Round Off", roundOffAmount),
                   pw.Divider(color: PdfColors.grey400, thickness: 0.5),
                   _totalRow("Grand Total", grandTotal, bold: true),
                 ],

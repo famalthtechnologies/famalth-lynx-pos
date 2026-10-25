@@ -13,6 +13,8 @@ class ReceivingController extends ChangeNotifier {
     required DateTime receiptDate,
     required String supplierBillNo,
     required String? status,
+    double roundOffAmount = 0.0,
+    double? netAmount,
     required List items,
   }) async {
     loading = true;
@@ -26,6 +28,8 @@ class ReceivingController extends ChangeNotifier {
       "receipt_date": receiptDate.toIso8601String(),
       "supplier_bill_no": supplierBillNo,
       "status": status,
+      "round_off_amount": roundOffAmount,
+      "net_amount": netAmount,
       "items": items,
     };
 

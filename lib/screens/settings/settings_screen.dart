@@ -25,6 +25,7 @@ import '../../models/inventory/settings/system_settings_model.dart';
 import '../../models/settings/app_branding_model.dart';
 import '../../core/printing/device_printer_routing.dart';
 import '../../controllers/sales/sales_controller.dart';
+import '../../widgets/storage_backup_card.dart';
 import 'document_sequence_screen.dart';
 import 'commission_rules_screen.dart';
 import 'happy_hour_config_screen.dart';
@@ -1215,6 +1216,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // 2. SECURITY & GATEWAYS TAB
                 buildTabBody([
+                  _customSection(
+                    'Storage & Tenant Backups',
+                    'Discourse-style storage analytics, portable outlet snapshots, and server migration.',
+                    [
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: StorageBackupCard(),
+                      ),
+                    ],
+                  ),
                   if (AppConfig.isLocalServer)
                     _customSection(
                       'Data & Security',
@@ -2293,19 +2304,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 items: const [
                   DropdownMenuItem(
                     value: 'INVENTORY',
-                    child: Text('Inventory Only', overflow: TextOverflow.ellipsis),
+                    child: Text('Inventory Only (Stock & Warehouse)', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: 'RETAIL',
-                    child: Text('Retail (POS + Inventory)', overflow: TextOverflow.ellipsis),
+                    child: Text('Retail (POS Billing + Inventory)', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: 'RESTAURANT',
-                    child: Text('Restaurant (KDS + Inventory)', overflow: TextOverflow.ellipsis),
+                    child: Text('Restaurant (Dining + KDS + Inventory)', overflow: TextOverflow.ellipsis),
+                  ),
+                  DropdownMenuItem(
+                    value: 'CLINIC',
+                    child: Text('Clinic (Doctors + Appointments + Billing + Inventory)', overflow: TextOverflow.ellipsis),
+                  ),
+                  DropdownMenuItem(
+                    value: 'HRMS',
+                    child: Text('HRMS (Staff, Attendance & Biometrics Only)', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: 'ALL',
-                    child: Text('All Modules (Full Suite)', overflow: TextOverflow.ellipsis),
+                    child: Text('All Modules (Complete Enterprise Suite)', overflow: TextOverflow.ellipsis),
                   ),
                 ],
                 onChanged: (value) async {
@@ -2401,6 +2420,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Running Orders & KOT History Logs',
                 'Delivery Challans & Recurring Expenses',
                 '+ All Inventory, Stock & HRMS Features Included'
+              ],
+            ),
+            const SizedBox(height: 12),
+            _moduleCard(
+              title: '🩺 Clinic (Doctors + Appointments + Billing + Inventory)',
+              badgeColor: const Color(0xFF0D9488),
+              isSelected: _currentActiveModule == 'CLINIC',
+              features: [
+                'Doctor Directory & Specialty Profiles',
+                'Patient Reception & Online Appointment Booking',
+                'Clinical Notes & Doctor Consultation Screen',
+                'Medical Prescription Builder with Pharmacy Stock Lookup',
+                'Send Prescriptions to POS Billing Draft',
+                '+ All Inventory, Medicine Batches & Expiry Tracking Included'
+              ],
+            ),
+            const SizedBox(height: 12),
+            _moduleCard(
+              title: '👥 Dedicated HRMS (Staff, Attendance & Biometrics)',
+              badgeColor: const Color(0xFF6366F1),
+              isSelected: _currentActiveModule == 'HRMS',
+              features: [
+                'Employee Profiles, Designations & Staff Documents',
+                'Shifts & Weekly Offs Auto-Scheduler',
+                'Attendance Logs (Punch-In / Out, Overtime & Lateness)',
+                'Bulk Import Attendance from Excel / CSV Sheets',
+                'Biometric Machine Integration (ZKTeco/eSSL & HTTP Push Webhooks)',
+                'Leave Applications, Approvals & Monthly Payroll Processing'
               ],
             ),
             const SizedBox(height: 12),

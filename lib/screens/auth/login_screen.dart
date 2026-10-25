@@ -51,10 +51,13 @@ class _LoginScreenState extends State<LoginScreen>
   final _usernameCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _pinCtrl = TextEditingController();
+  final _qrCtrl = TextEditingController();
   final _usernameFocus = FocusNode();
   final _passwordFocus = FocusNode();
   final _pinFocus = FocusNode();
+  final _qrFocus = FocusNode();
   bool _isPinMode = false;
+  bool _isQrMode = false;
   List<QuickUser> _quickUsers = [];
   QuickUser? _selectedQuickUser;
   bool _isLoadingQuickUsers = false;
@@ -260,10 +263,84 @@ class _LoginScreenState extends State<LoginScreen>
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
     _pinCtrl.dispose();
+    _qrCtrl.dispose();
     _usernameFocus.dispose();
     _passwordFocus.dispose();
     _pinFocus.dispose();
+    _qrFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _loginWithQr([String? rawToken]) async {
+    final token = (rawToken ?? _qrCtrl.text).trim();
+    if (token.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please scan your QR badge or enter code'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    if (_selectedOutlet == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select an outlet'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    try {
+      setState(() {
+        _isloading = true;
+      });
+
+      final result = await AuthService.qrLogin(
+        token,
+        _selectedOutlet!,
+      );
+
+      if (!mounted) return;
+
+      if (result.success) {
+        if (_selectedOutlet != null && !AppConfig.outlets.contains(_selectedOutlet)) {
+          final updated = List<String>.from(AppConfig.outlets)..add(_selectedOutlet!);
+          await AppConfig.saveConfig(AppConfig.baseUrl, updated);
+        }
+
+        if (result.licenseStatus == 'WARNING') {
+          await _showExpiryWarningDialog(result.daysRemaining);
+        }
+
+        final targetScreen = await HomeRouteHelper.resolve();
+        if (!mounted) return;
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => targetScreen),
+        );
+      } else if (result.licenseStatus == 'EXPIRED') {
+        _showExpiredDialog(result.message);
+      }
+    } catch (e) {
+      if (e.toString().toLowerCase().contains("expired")) {
+        _showExpiredDialog(e.toString());
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception:', '').trim()),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        _isloading = false;
+        setState(() {});
+      }
+    }
   }
 
   Future<void> _loginWithPin() async {
@@ -1092,7 +1169,7 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           const SizedBox(height: 12),
 
-          // Auth Mode Selector Tabs: Password vs PIN
+          // Auth Mode Selector Tabs: Password vs PIN vs Staff QR Badge
           Container(
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
@@ -1104,16 +1181,19 @@ class _LoginScreenState extends State<LoginScreen>
               children: [
                 Expanded(
                   child: InkWell(
-                    onTap: () => setState(() => _isPinMode = false),
+                    onTap: () => setState(() {
+                      _isPinMode = false;
+                      _isQrMode = false;
+                    }),
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       decoration: BoxDecoration(
-                        color: !_isPinMode
+                        color: (!_isPinMode && !_isQrMode)
                             ? (isDark ? const Color(0xFF334155) : Colors.white)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
-                        boxShadow: !_isPinMode
+                        boxShadow: (!_isPinMode && !_isQrMode)
                             ? [
                                 BoxShadow(
                                   color: Colors.black.withOpacity(0.06),
@@ -1129,18 +1209,18 @@ class _LoginScreenState extends State<LoginScreen>
                           Icon(
                             Icons.lock_outline_rounded,
                             size: 16,
-                            color: !_isPinMode
+                            color: (!_isPinMode && !_isQrMode)
                                 ? primaryColor
                                 : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 4),
                           Text(
                             'Password',
                             style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: !_isPinMode ? FontWeight.bold : FontWeight.w500,
-                              color: !_isPinMode
-                                  ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                              fontSize: 12,
+                              fontWeight: (!_isPinMode && !_isQrMode) ? FontWeight.bold : FontWeight.w500,
+                              color: (!_isPinMode && !_isQrMode)
+                                   ? (isDark ? Colors.white : const Color(0xFF0F172A))
                                   : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
                             ),
                           ),
@@ -1153,7 +1233,10 @@ class _LoginScreenState extends State<LoginScreen>
                 Expanded(
                   child: InkWell(
                     onTap: () {
-                      setState(() => _isPinMode = true);
+                      setState(() {
+                        _isPinMode = true;
+                        _isQrMode = false;
+                      });
                       _loadQuickUsers();
                     },
                     borderRadius: BorderRadius.circular(8),
@@ -1184,13 +1267,67 @@ class _LoginScreenState extends State<LoginScreen>
                                 ? primaryColor
                                 : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 4),
                           Text(
                             'Quick PIN',
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: 12,
                               fontWeight: _isPinMode ? FontWeight.bold : FontWeight.w500,
                               color: _isPinMode
+                                  ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                                  : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _isPinMode = false;
+                        _isQrMode = true;
+                      });
+                      Future.delayed(const Duration(milliseconds: 100), () => _qrFocus.requestFocus());
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _isQrMode
+                            ? (isDark ? const Color(0xFF334155) : Colors.white)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: _isQrMode
+                            ? [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.06),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 1),
+                                )
+                              ]
+                            : null,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.qr_code_scanner_rounded,
+                            size: 16,
+                            color: _isQrMode
+                                ? primaryColor
+                                : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Scan QR',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: _isQrMode ? FontWeight.bold : FontWeight.w500,
+                              color: _isQrMode
                                   ? (isDark ? Colors.white : const Color(0xFF0F172A))
                                   : (isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B)),
                             ),
@@ -1205,7 +1342,7 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           const SizedBox(height: 14),
 
-          if (!_isPinMode) ...[
+          if (!_isPinMode && !_isQrMode) ...[
             TextFormField(
               controller: _usernameCtrl,
               focusNode: _usernameFocus,
@@ -1460,6 +1597,97 @@ class _LoginScreenState extends State<LoginScreen>
                     SizedBox(width: 8),
                     Icon(Icons.arrow_forward_rounded, size: 18),
                   ],
+                ),
+              ),
+            ),
+          ],
+          if (_isQrMode) ...[
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: primaryColor.withOpacity(0.3)),
+                boxShadow: [
+                  BoxShadow(
+                    color: primaryColor.withOpacity(0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      color: primaryColor.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.qr_code_scanner_rounded, size: 40, color: primaryColor),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Scan Staff QR Badge',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Scan your staff QR badge with barcode scanner, camera or type token below',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _qrCtrl,
+                    focusNode: _qrFocus,
+                    autofocus: true,
+                    textInputAction: TextInputAction.done,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontSize: 16,
+                      letterSpacing: 2,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    decoration: _enterpriseInputDecoration(
+                      labelText: 'Staff Badge Token / Scanner Input',
+                      prefixIcon: Icons.qr_code_rounded,
+                      hintText: 'Scan badge or paste token...',
+                    ),
+                    onFieldSubmitted: (val) => _loginWithQr(val),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 2,
+                ),
+                onPressed: () => _loginWithQr(),
+                icon: const Icon(Icons.login, size: 18),
+                label: const Text(
+                  'SCAN & SIGN IN',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  ),
                 ),
               ),
             ),

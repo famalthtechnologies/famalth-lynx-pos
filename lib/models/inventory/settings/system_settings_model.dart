@@ -51,6 +51,11 @@ class SystemSettings {
   Map<String, dynamic> kotTemplateConfig;
   Map<String, dynamic> tokenTemplateConfig;
   String restaurantSettlementMode; // 'DIRECT' or 'AFTER_BILL_PRINT'
+  bool enableClinicModule;
+  bool enableHrmsModule;
+  bool enableRetailBilling;
+  bool enableRestaurantModule;
+  bool enableInventoryModule;
 
   SystemSettings({
     required this.autoReorder,
@@ -99,6 +104,11 @@ class SystemSettings {
     Map<String, dynamic>? kotTemplateConfig,
     Map<String, dynamic>? tokenTemplateConfig,
     this.restaurantSettlementMode = 'DIRECT',
+    this.enableClinicModule = false,
+    this.enableHrmsModule = false,
+    this.enableRetailBilling = true,
+    this.enableRestaurantModule = true,
+    this.enableInventoryModule = true,
   })  : devicePrinterMappings = devicePrinterMappings ?? {},
         paymentModes = paymentModes ??
             [
@@ -254,6 +264,11 @@ class SystemSettings {
         return <String, dynamic>{};
       }(),
       restaurantSettlementMode: (json['restaurant_settlement_mode'] ?? json['restaurantSettlementMode'] ?? 'DIRECT').toString(),
+      enableClinicModule: _parseBool(json['enable_clinic_module'] ?? json['enableClinicModule'], false),
+      enableHrmsModule: _parseBool(json['enable_hrms_module'] ?? json['enableHrmsModule'], false),
+      enableRetailBilling: _parseBool(json['enable_retail_billing'] ?? json['enableRetailBilling'], true),
+      enableRestaurantModule: _parseBool(json['enable_restaurant_module'] ?? json['enableRestaurantModule'], true),
+      enableInventoryModule: _parseBool(json['enable_inventory_module'] ?? json['enableInventoryModule'], true),
       defaultCharges: rawCharges is List
           ? rawCharges
               .map((e) => BillingCharge.fromJson(Map<String, dynamic>.from(e)))
@@ -345,6 +360,11 @@ class SystemSettings {
       'enable_kot_print': enableKotPrint,
       'device_printer_mappings': devicePrinterMappings,
       'restaurant_settlement_mode': restaurantSettlementMode,
+      'enable_clinic_module': enableClinicModule,
+      'enable_hrms_module': enableHrmsModule,
+      'enable_retail_billing': enableRetailBilling,
+      'enable_restaurant_module': enableRestaurantModule,
+      'enable_inventory_module': enableInventoryModule,
     };
   }
 }

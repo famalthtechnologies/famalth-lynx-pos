@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -1574,6 +1575,11 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                   child: _buildRestaurantHeader(),
                 ),
 
+                // 1.1 BOOK TABLE FROM HOME BANNER
+                SliverToBoxAdapter(
+                  child: _buildBookTableHomeBanner(),
+                ),
+
                 // 2. MAIN TAB SELECTOR (FOOD MENU vs ORDER HISTORY & STATUS)
                 SliverToBoxAdapter(
                   child: _buildMainTabSelector(),
@@ -1603,6 +1609,277 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBookTableHomeBanner() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.table_restaurant, color: Colors.orange, size: 24),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Book a Table from Home',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Reserve your dining table online & skip the waiting line',
+                  style: TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: _openBookTableDialog,
+            child: const Text('Book Table', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openBookTableDialog() {
+    final nameCtrl = TextEditingController(text: _customerProfile?['name'] ?? '');
+    final phoneCtrl = TextEditingController(text: _customerProfile?['phone'] ?? '');
+    final emailCtrl = TextEditingController(text: _customerProfile?['email'] ?? '');
+    final remarksCtrl = TextEditingController();
+    DateTime resvDate = DateTime.now();
+    TimeOfDay resvTime = const TimeOfDay(hour: 19, minute: 30);
+    int guests = 2;
+    bool submitting = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDState) {
+            final dateStr = DateFormat('dd MMM yyyy').format(resvDate);
+            final timeStr = resvTime.format(ctx);
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+              contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
+              title: Row(
+                children: [
+                  const Icon(Icons.table_restaurant, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  const Text('Reserve Table from Home', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(dialogCtx),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 440,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(labelText: 'Customer Full Name *', isDense: true),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(labelText: 'Mobile Phone *', isDense: true),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: emailCtrl,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(labelText: 'Email Address (Optional)', isDense: true),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.calendar_today, size: 14),
+                              label: Text(dateStr),
+                              onPressed: () async {
+                                final picked = await showDatePicker(
+                                  context: ctx,
+                                  initialDate: resvDate,
+                                  firstDate: DateTime.now(),
+                                  lastDate: DateTime.now().add(const Duration(days: 60)),
+                                );
+                                if (picked != null) setDState(() => resvDate = picked);
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.access_time, size: 14),
+                              label: Text(timeStr),
+                              onPressed: () async {
+                                final picked = await showTimePicker(
+                                  context: ctx,
+                                  initialTime: resvTime,
+                                );
+                                if (picked != null) setDState(() => resvTime = picked);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          const Text('Number of Guests: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline),
+                            onPressed: guests > 1 ? () => setDState(() => guests--) : null,
+                          ),
+                          Text('$guests', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline),
+                            onPressed: guests < 20 ? () => setDState(() => guests++) : null,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: remarksCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Special Notes / Requests',
+                          hintText: 'e.g. Window seat, Birthday, Anniversary',
+                          isDense: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                  onPressed: submitting
+                      ? null
+                      : () async {
+                          if (nameCtrl.text.trim().isEmpty || phoneCtrl.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Name and phone are required')),
+                            );
+                            return;
+                          }
+
+                          setDState(() => submitting = true);
+                          try {
+                            final formattedDate = DateFormat('yyyy-MM-dd').format(resvDate);
+                            final formattedTime = '${resvTime.hour.toString().padLeft(2, '0')}:${resvTime.minute.toString().padLeft(2, '0')}';
+                            final res = await ApiClient.post(
+                              '/api/public/dining/book-table',
+                              {
+                                'customer_name': nameCtrl.text.trim(),
+                                'customer_phone': phoneCtrl.text.trim(),
+                                'customer_email': emailCtrl.text.trim(),
+                                'reservation_date': formattedDate,
+                                'reservation_time': '$formattedDate $formattedTime',
+                                'guest_count': guests,
+                                'remarks': remarksCtrl.text.trim(),
+                                'outlet_id': widget.outletId,
+                              },
+                            );
+
+                            if (res != null && res['success'] == true) {
+                              Navigator.pop(dialogCtx);
+                              if (context.mounted) {
+                                showDialog(
+                                  context: context,
+                                  builder: (sCtx) => AlertDialog(
+                                    title: const Row(
+                                      children: [
+                                        Icon(Icons.check_circle, color: Colors.green),
+                                        SizedBox(width: 8),
+                                        Text('Table Reservation Requested!'),
+                                      ],
+                                    ),
+                                    content: Text(
+                                      'Thank you ${nameCtrl.text.trim()}! Your table reservation request for $guests guest(s) on $dateStr at $timeStr has been received. The restaurant will confirm your table shortly.',
+                                    ),
+                                    actions: [
+                                      ElevatedButton(
+                                        onPressed: () => Navigator.pop(sCtx),
+                                        child: const Text('OK'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(res?['message'] ?? 'Could not book table')),
+                              );
+                            }
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Reservation error: $e')),
+                            );
+                          } finally {
+                            setDState(() => submitting = false);
+                          }
+                        },
+                  child: submitting
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Confirm Reservation'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 

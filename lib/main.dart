@@ -39,6 +39,7 @@ import 'controllers/inventory/marketplace_controller.dart';
 import 'controllers/inventory/supplier_controller.dart';
 import 'screens/dining/table_dining_screen.dart';
 import 'screens/control_plane/control_plane_login_screen.dart';
+import 'screens/clinic/public_appointment_booking_screen.dart';
 
 final GlobalKey<ScaffoldMessengerState> globalSnackbarKey =
     GlobalKey<ScaffoldMessengerState>();
@@ -422,6 +423,24 @@ class MyApp extends StatelessWidget {
              uri.path.startsWith('/control-plane'))) {
           return MaterialPageRoute(
             builder: (_) => const ControlPlaneLoginScreen(),
+          );
+        }
+        if (uri != null &&
+            (uri.path == '/clinic' ||
+             uri.path == '/doctor' ||
+             uri.path == '/appointments' ||
+             uri.path == '/book-appointment' ||
+             uri.path.startsWith('/clinic') ||
+             uri.path.startsWith('/doctor') ||
+             uri.path.startsWith('/appointments') ||
+             uri.path.startsWith('/book-appointment'))) {
+          final outletId = uri.queryParameters['outlet_id'] ?? uri.queryParameters['outlet'];
+          final doctorName = uri.queryParameters['doctor'] ?? uri.queryParameters['doctor_name'];
+          return MaterialPageRoute(
+            builder: (_) => PublicAppointmentBookingScreen(
+              initialOutletId: outletId,
+              initialDoctorName: doctorName,
+            ),
           );
         }
         return null;

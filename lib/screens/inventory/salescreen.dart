@@ -6659,6 +6659,45 @@ class _SaleScreenState extends State<SaleScreen> {
                                     },
                                   ),
                                   ActionChip(
+                                    avatar: const Icon(Icons.usb, size: 14, color: Color(0xFF059669)),
+                                    label: const Text('Push QR to USB Mobile', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+                                    backgroundColor: const Color(0xFFECFDF5),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: Color(0xFF10B981))),
+                                    onPressed: () async {
+                                      final due = paymentState.summary.balanceDue > 0 ? paymentState.summary.balanceDue : _payableInvoiceTotal;
+                                      final billNo = _saleNo.text.isNotEmpty ? _saleNo.text : 'BILL-${DateTime.now().millisecondsSinceEpoch % 10000}';
+                                      try {
+                                        final pushRes = await ApiClient.post(
+                                          ApiEndpoints.usbPushQr,
+                                          {
+                                            'amount': due,
+                                            'bill_no': billNo,
+                                            'upi_id': propertyCtrl.data?.upiId,
+                                            'payee_name': propertyCtrl.data?.upiPayeeName ?? propertyCtrl.data?.propertyName,
+                                          },
+                                        );
+                                        if (context.mounted) {
+                                          final pushed = pushRes?['pushed_via_adb'] == true;
+                                          final msg = pushed
+                                              ? 'QR successfully launched on connected USB mobile device! Waiting for customer to pay.'
+                                              : 'QR dispatched to customer display! (Connect phone via USB with USB debugging to auto-open screen).';
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              backgroundColor: pushed ? Colors.green.shade700 : Colors.teal.shade700,
+                                              content: Text(msg),
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Failed to push QR to USB mobile: $e')),
+                                          );
+                                        }
+                                      }
+                                    },
+                                  ),
+                                  ActionChip(
                                     avatar: const Icon(Icons.credit_card, size: 14, color: Color(0xFFD97706)),
                                     label: const Text('Smart Card Machine', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
                                     backgroundColor: Colors.white,

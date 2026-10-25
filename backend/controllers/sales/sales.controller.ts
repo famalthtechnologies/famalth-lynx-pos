@@ -1320,18 +1320,28 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
                 bucket.itemId,
                 transaction
             );
-            dailyLimit = toAmount(subscription.daily_allowed_qty);
+            const isQuota = subscription.subscription_type === 'QUOTA_SERVICE' || Number(subscription.total_allowed_services) > 0;
+            let remainingCoverage = 0;
             usageKey = `${subscription.id}_${bucket.itemId}_${saleDateKey}`;
-            const consumedTodayFromDb = await getSubscriptionConsumedQtyForDay(
-                req,
-                subscription.id,
-                saleDate,
-                transaction,
-                bucket.itemId
-            );
-            const inFlightConsumed = toAmount(inFlightConsumedByKey.get(usageKey) || 0);
-            const consumedToday = consumedTodayFromDb + inFlightConsumed;
-            const remainingCoverage = Math.max(dailyLimit - consumedToday, 0);
+            if (isQuota) {
+                const totalAllowed = Number(subscription.total_allowed_services) || 0;
+                const consumedSoFar = Number(subscription.services_consumed) || 0;
+                const inFlight = toAmount(inFlightConsumedByKey.get(usageKey) || 0);
+                remainingCoverage = Math.max(totalAllowed - (consumedSoFar + inFlight), 0);
+                dailyLimit = totalAllowed;
+            } else {
+                dailyLimit = toAmount(subscription.daily_allowed_qty);
+                const consumedTodayFromDb = await getSubscriptionConsumedQtyForDay(
+                    req,
+                    subscription.id,
+                    saleDate,
+                    transaction,
+                    bucket.itemId
+                );
+                const inFlightConsumed = toAmount(inFlightConsumedByKey.get(usageKey) || 0);
+                const consumedToday = consumedTodayFromDb + inFlightConsumed;
+                remainingCoverage = Math.max(dailyLimit - consumedToday, 0);
+            }
             if (remainingCoverage <= 0) continue;
 
             chosenSubscription = subscription;
@@ -1385,6 +1395,8 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
             rate: agreedRate,
             covered_amount: coveredAmount,
             excess_amount: excessQty * toAmount(bucket.rate || agreedRate),
+            consumption_type: (chosenSubscription.subscription_type === 'QUOTA_SERVICE' || Number(chosenSubscription.total_allowed_services) > 0) ? 'QUOTA_SERVICE' : 'DAILY_QTY',
+            is_paid_visit: false,
             status: 'PENDING',
             created_by: req.user.id
         });
@@ -1804,6 +1816,16 @@ async function persistMilkSubscriptionConsumptions({ req, transaction, sale, con
             },
             { transaction }
         );
+        try {
+            if (row.subscription_id) {
+                const sub = await req.propertyDb.models.milk_subscriptions.findByPk(row.subscription_id, { transaction });
+                if (sub && (sub.subscription_type === 'QUOTA_SERVICE' || Number(sub.total_allowed_services) > 0)) {
+                    await sub.increment('services_consumed', { by: Number(row.covered_qty || 1), transaction });
+                }
+            }
+        } catch (subIncrErr: any) {
+            console.error('[QUOTA CONSUMPTION INCREMENT FAIL]', subIncrErr.message);
+        }
     }
 }
 
@@ -6692,6 +6714,11 @@ exports.createSubscription = async (req, res) => {
                 delivery_charge_amount: idx === 0 ? toRoundedAmount(req.body.delivery_charge_amount ?? req.body.deliveryChargeAmount ?? 0.0) : 0.0,
                 delivery_charge_gst_percent: idx === 0 ? toRoundedAmount(req.body.delivery_charge_gst_percent ?? req.body.deliveryChargeGstPercent ?? 0.0) : 0.0,
                 delivery_charge_tax_amount: idx === 0 ? toRoundedAmount(req.body.delivery_charge_tax_amount ?? req.body.deliveryChargeTaxAmount ?? 0.0) : 0.0,
+                subscription_type: req.body.subscription_type || 'DAILY_QTY',
+                total_allowed_services: req.body.total_allowed_services ? Number(req.body.total_allowed_services) : 0,
+                services_consumed: 0,
+                service_unit_name: req.body.service_unit_name || 'Services',
+                per_service_price: req.body.per_service_price ? Number(req.body.per_service_price) : 0,
                 status: 'ACTIVE',
                 active_subscription: true,
                 created_by: req.user?.id || null,

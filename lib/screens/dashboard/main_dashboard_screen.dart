@@ -48,6 +48,7 @@ import '../inventory/stock_issue_screen.dart';
 import '../inventory/item_master_screen.dart';
 import '../inventory/b2b_marketplace_screen.dart';
 import '../community/community_hub_screen.dart';
+import '../../widgets/storage_backup_card.dart';
 import '../../controllers/community/community_controller.dart';
 import '../../widgets/cloud_feature_gate.dart';
 import '../../widgets/license_warning_banner.dart';
@@ -67,6 +68,8 @@ import '../inventory/stock_taking_screen.dart';
 import '../inventory/modifier_master_screen.dart';
 import '../inventory/supplier_return_refund_screen.dart';
 import '../inventory/supplier_return_screen.dart';
+import '../reports/expiry_tracker_screen.dart';
+import '../clinic/clinic_dashboard_screen.dart';
 import '../hrms/employee_screen.dart';
 import '../hrms/attendance_screen.dart';
 import '../hrms/payroll_screen.dart';
@@ -606,17 +609,26 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
 
   void _startCustomerOrderPolling() {
     _customerOrderPollTimer?.cancel();
-    _fetchAndCheckCustomerOrders();
-    _fetchAndCheckDiningAlerts();
+    if (ModuleCapability.hasRetail(_businessModule)) {
+      _fetchAndCheckCustomerOrders();
+    }
+    if (ModuleCapability.hasRestaurant(_businessModule)) {
+      _fetchAndCheckDiningAlerts();
+    }
     _customerOrderPollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       if (mounted) {
-        _fetchAndCheckCustomerOrders();
-        _fetchAndCheckDiningAlerts();
+        if (ModuleCapability.hasRetail(_businessModule)) {
+          _fetchAndCheckCustomerOrders();
+        }
+        if (ModuleCapability.hasRestaurant(_businessModule)) {
+          _fetchAndCheckDiningAlerts();
+        }
       }
     });
   }
 
   Future<void> _fetchAndCheckDiningAlerts() async {
+    if (!ModuleCapability.hasRestaurant(_businessModule)) return;
     try {
       final res = await ApiClient.get('/api/restaurant/dining/waiter-calls', silent: true);
       if (res['success'] == true && res['data'] is List) {
@@ -816,6 +828,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   }
 
   Future<void> _fetchAndCheckCustomerOrders() async {
+    if (!ModuleCapability.hasRetail(_businessModule)) return;
     try {
       final res = await ApiClient.get('/api/delivery/retailer/orders?today=true', silent: true);
       if (res['success'] == true && res['data'] is List) {
@@ -1947,6 +1960,29 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
                 n['message']?.toString() ?? '',
                 uniqueKey: key,
               );
+              if (mounted && (n['title']?.toString().contains('Appointment') == true ||
+                  n['title']?.toString().contains('Reservation') == true ||
+                  n['title']?.toString().contains('Expiry') == true)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(
+                      children: [
+                        const Icon(Icons.notifications_active, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text('${n['title']}: ${n['message'] ?? ''}',
+                              style: const TextStyle(fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ),
+                    backgroundColor: n['title']?.toString().contains('Expiry') == true
+                        ? Colors.deepOrange.shade700
+                        : Colors.teal.shade700,
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 6),
+                  ),
+                );
+              }
             }
           }
         }
@@ -4015,6 +4051,10 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         return Icons.folder_shared_outlined;
       case 'HR & Payroll':
         return Icons.people_outline;
+      case 'Restaurant (Beta)':
+        return Icons.restaurant_menu;
+      case 'Clinic & Health':
+        return Icons.medical_services_outlined;
       case 'Finance & Accounting (Beta)':
       case 'Finance & Accounting':
       case 'Finance & Expenses':
@@ -4544,6 +4584,15 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'permission': 'RESTAURANT_ANALYTICS',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RestaurantAnalyticsReportsScreen())),
       },
+
+      // Clinic & Health Module
+      {
+        'category': 'Clinic & Health',
+        'icon': Icons.medical_services_outlined,
+        'label': 'Doctor Appointments & Consultation',
+        'permission': 'POS_SALE',
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClinicDashboardScreen())),
+      },
       {
         'category': 'Finance & Expenses',
         'icon': Icons.payments_outlined,
@@ -4623,6 +4672,13 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Stock Balance',
         'permission': 'STOCK_BALANCE',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockBalanceScreen())),
+      },
+      {
+        'category': 'Stock View',
+        'icon': Icons.hourglass_bottom,
+        'label': 'Expiry & Batch Tracker',
+        'permission': 'STOCK_BALANCE',
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen())),
       },
       {
         'category': 'Stock View',
@@ -4920,6 +4976,28 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       },
       {
         'category': 'System',
+        'icon': Icons.dns_rounded,
+        'label': 'Storage & Backups',
+        'permission': 'SETTINGS',
+        'onTap': () {
+          Navigator.pop(context);
+          showDialog(
+            context: context,
+            builder: (_) => Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: const SizedBox(
+                width: 440,
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: StorageBackupCard(),
+                ),
+              ),
+            ),
+          );
+        },
+      },
+      {
+        'category': 'System',
         'icon': Icons.lock_reset,
         'label': 'Change Password',
         'onTap': () {
@@ -4959,6 +5037,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       _isHospitalityBusiness ? 'Masters & Departments' : 'Masters',
       'HR & Payroll',
       'Restaurant (Beta)',
+      'Clinic & Health',
       'Finance & Accounting (Beta)',
       'Finance & Expenses',
       'Stock View',

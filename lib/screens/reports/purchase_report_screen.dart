@@ -323,6 +323,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             _chip('Total Orders', ctrl.totalOrders.toDouble(), Colors.blue),
+            _chip('Total Round Off', ctrl.totalRoundOff, Colors.purple),
             _chip('Total Amount', ctrl.totalAmount, Colors.green),
           ],
         ),
@@ -348,6 +349,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                 DataColumn(label: Text('Date')),
                 DataColumn(label: Text('Supplier')),
                 DataColumn(label: Text('Status')),
+                DataColumn(label: Text('Round Off')),
                 DataColumn(label: Text('Total')),
                 DataColumn(label: Text('Actions')),
               ],
@@ -357,7 +359,14 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
                   DataCell(Text(DateFormat('dd-MMM-yyyy').format(po.poDate))),
                   DataCell(Text(po.supplierName)),
                   DataCell(Text(po.status)),
-                  DataCell(Text(CurrencyService.format(po.totalAmount))),
+                  DataCell(Text(
+                    '${po.roundOffAmount >= 0 ? '+' : ''}${CurrencyService.format(po.roundOffAmount)}',
+                    style: TextStyle(
+                      color: po.roundOffAmount != 0 ? Colors.purple.shade700 : Colors.black87,
+                      fontWeight: po.roundOffAmount != 0 ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  )),
+                  DataCell(Text(CurrencyService.format(po.totalAmount), style: const TextStyle(fontWeight: FontWeight.bold))),
                   DataCell(TextButton(
                     onPressed: () => _showPoDetails(po.id, po.poNo),
                     child: const Text('Show Items'),
@@ -548,7 +557,7 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     row += 2;
 
     // ===== Headers =====
-    final headers = ['PO No', 'Date', 'Supplier', 'Status', 'Total'];
+    final headers = ['PO No', 'Date', 'Supplier', 'Status', 'Round Off', 'Total'];
 
     for (int i = 0; i < headers.length; i++) {
       final cell = sheet
@@ -584,7 +593,8 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
           1, exc.TextCellValue(DateFormat('dd-MMM-yyyy').format(po.poDate)));
       setCell(2, exc.TextCellValue(po.supplierName));
       setCell(3, exc.TextCellValue(po.status));
-      setCell(4, exc.DoubleCellValue(po.totalAmount));
+      setCell(4, exc.DoubleCellValue(po.roundOffAmount));
+      setCell(5, exc.DoubleCellValue(po.totalAmount));
 
       row++;
     }
@@ -594,20 +604,22 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     // ===== Summary =====
     sheet
         .cell(exc.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row))
-        .value = exc.TextCellValue('Total Amount');
+        .value = exc.TextCellValue('Total Round Off');
     sheet
-        .cell(exc.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row))
+        .cell(exc.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row))
+        .value = exc.DoubleCellValue(ctrl.totalRoundOff);
+    sheet
+        .cell(exc.CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row))
+        .value = exc.DoubleCellValue(ctrl.totalAmount);
+    sheet
+        .cell(exc.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row))
         .cellStyle = exc.CellStyle(
       bold: true,
       fontColorHex: exc.ExcelColor.fromHexString('#FFFFFF'),
       backgroundColorHex: exc.ExcelColor.fromHexString('#1E3A8A'),
     );
-
     sheet
-        .cell(exc.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row))
-        .value = exc.DoubleCellValue(ctrl.totalAmount);
-    sheet
-        .cell(exc.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row))
+        .cell(exc.CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row))
         .cellStyle = exc.CellStyle(
       bold: true,
       fontColorHex: exc.ExcelColor.fromHexString('#FFFFFF'),
@@ -627,18 +639,20 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
     await PdfReportBuilder.generateAndPrintReport(
       title: 'Purchase Order Report',
       subtitle: 'From: ${DateFormat('dd-MMM-yyyy').format(ctrl.fromDate)}  To: ${DateFormat('dd-MMM-yyyy').format(ctrl.toDate)}',
-      headers: ['PO No', 'Date', 'Supplier', 'Status', 'Total (${CurrencyService.symbol})'],
+      headers: ['PO No', 'Date', 'Supplier', 'Status', 'Round Off (${CurrencyService.symbol})', 'Total (${CurrencyService.symbol})'],
       data: ctrl.list.map((po) {
         return [
           po.poNo,
           DateFormat('dd-MMM-yyyy').format(po.poDate),
           po.supplierName,
           po.status,
+          '${po.roundOffAmount >= 0 ? '+' : ''}${currency.format(po.roundOffAmount)}',
           currency.format(po.totalAmount),
         ];
       }).toList(),
       kpis: [
         PdfKpiItem(label: 'Total Orders', value: ctrl.totalOrders.toString(), color: PdfColor.fromHex('#1E40AF')),
+        PdfKpiItem(label: 'Total Round Off', value: currency.format(ctrl.totalRoundOff), color: PdfColor.fromHex('#7C3AED')),
         PdfKpiItem(label: 'Total Amount', value: currency.format(ctrl.totalAmount), color: PdfColor.fromHex('#166534')),
       ],
       cellAlignments: {
@@ -647,13 +661,15 @@ class _PurchaseReportScreenState extends State<PurchaseReportScreen> {
         2: pw.Alignment.centerLeft,
         3: pw.Alignment.center,
         4: pw.Alignment.centerRight,
+        5: pw.Alignment.centerRight,
       },
       columnWidths: {
         0: const pw.FlexColumnWidth(1.2),
         1: const pw.FlexColumnWidth(1.0),
-        2: const pw.FlexColumnWidth(2.5),
-        3: const pw.FlexColumnWidth(1.0),
-        4: const pw.FlexColumnWidth(1.3),
+        2: const pw.FlexColumnWidth(2.3),
+        3: const pw.FlexColumnWidth(0.9),
+        4: const pw.FlexColumnWidth(1.1),
+        5: const pw.FlexColumnWidth(1.3),
       },
       pdfFileName: 'Purchase_Report_${DateFormat('yyyyMMdd').format(DateTime.now())}',
     );

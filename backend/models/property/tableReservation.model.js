@@ -41,6 +41,18 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.TEXT,
             allowNull: true
         },
+        customer_email: {
+            type: DataTypes.STRING(150),
+            allowNull: true
+        },
+        reservation_date: {
+            type: DataTypes.DATEONLY,
+            allowNull: true
+        },
+        source: {
+            type: DataTypes.STRING(30),
+            defaultValue: 'IN_HOUSE'
+        },
         gstin: {
             type: DataTypes.STRING(20),
             allowNull: true

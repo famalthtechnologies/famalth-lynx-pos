@@ -4,6 +4,10 @@ const auth = require('../middlewares/auth.middleware');
 const propertyContext = require('../middlewares/propertyContext.middleware');
 const ctrl = require('../controllers/hrms/hrms.controller');
 
+// Public Webhook for Biometric Machines / Devices (Push logs)
+router.post('/biometric-punch', ctrl.receiveBiometricPushWebhook);
+router.post('/attendance/biometric-push', ctrl.receiveBiometricPushWebhook);
+
 // All HRMS routes require auth and propertyContext
 router.use(auth, propertyContext);
 
@@ -51,6 +55,14 @@ router.get('/attendance', ctrl.getAttendance);
 router.post('/attendance/punch-in', ctrl.punchIn);
 router.post('/attendance/punch-out', ctrl.punchOut);
 router.post('/attendance/manual', ctrl.manualAttendance);
+router.post('/attendance/bulk-import', ctrl.bulkImportAttendance);
+
+// Biometric Devices
+router.get('/biometric-devices', ctrl.getBiometricDevices);
+router.post('/biometric-devices', ctrl.createOrUpdateBiometricDevice);
+router.delete('/biometric-devices/:id', ctrl.deleteBiometricDevice);
+router.post('/biometric-devices/:id/test', ctrl.testBiometricDevice);
+router.post('/biometric-devices/:id/sync', ctrl.syncBiometricPunches);
 
 // Leaves
 router.get('/leaves', ctrl.getLeaves);

@@ -158,9 +158,35 @@ const TABLE_BUSINESS_USES: Record<string, { displayName: string; domain: string;
     domain: 'Security & Access',
     businessUse: 'Security audit trail capturing user actions, voids, price overrides, cancellations, and administrative events.',
   },
+  clinic_appointments: {
+    displayName: 'Clinic Appointments & Prescriptions',
+    domain: 'Clinic & Healthcare',
+    businessUse: 'Patient appointments, doctor consultations, visit statuses, clinical prescription diagnoses, and prescribed medicines linked to stock inventory.',
+  },
+  hr_biometric_devices: {
+    displayName: 'HR Biometric Devices',
+    domain: 'HR & Payroll',
+    businessUse: 'Biometric fingerprint, face recognition, and RFID card attendance terminals, IP address, port 4370, push API key, and punch synchronization status.',
+  },
+  table_reservations: {
+    displayName: 'Restaurant Table Reservations',
+    domain: 'Restaurant & Dining',
+    businessUse: 'Dine-in table booking reservations made in-house or from home via public web/app portal, customer contact details, party size, and seating status.',
+  },
+  milk_subscriptions: {
+    displayName: 'Customer Subscriptions & Service Quotas',
+    domain: 'Sales & POS',
+    businessUse: 'Recurring delivery subscriptions and service quota packages (e.g. clinic therapy sessions or monthly milk), quota limits, and usage balances.',
+  },
 };
 
 const DOMAIN_KEYWORDS: Record<string, string> = {
+  clinic: 'Clinic & Healthcare',
+  appointment: 'Clinic & Healthcare',
+  doctor: 'Clinic & Healthcare',
+  patient: 'Clinic & Healthcare',
+  prescription: 'Clinic & Healthcare',
+  biometric: 'HR & Payroll',
   sales: 'Sales & POS',
   invoice: 'Sales & POS',
   pos: 'Sales & POS',

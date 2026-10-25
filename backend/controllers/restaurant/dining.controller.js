@@ -1192,3 +1192,122 @@ exports.payCustomerDiningBill = async (req, res) => {
         return res.status(500).json({ success: false, error: err.message });
     }
 };
+
+/**
+ * 12. POST /api/public/dining/book-table
+ * Allows customers to book a table reservation from home via app or web
+ */
+exports.bookTablePublic = async (req, res) => {
+    try {
+        const outlet_id = await resolveOutletId(req);
+        if (!outlet_id) return res.status(400).json({ success: false, message: 'Outlet ID is required' });
+
+        const {
+            customer_name,
+            customer_phone,
+            customer_email,
+            reservation_date,
+            reservation_time,
+            guest_count = 1,
+            table_id,
+            remarks,
+            address,
+            gstin
+        } = req.body;
+
+        if (!customer_name || !customer_phone || !reservation_time) {
+            return res.status(400).json({
+                success: false,
+                message: 'Customer name, phone number, and reservation time are required.'
+            });
+        }
+
+        const settings = await req.propertyDb.models.system_settings.findOne({ where: { outlet_id } });
+        if (settings && settings.allow_public_table_booking === false) {
+            return res.status(403).json({
+                success: false,
+                message: 'Online table reservation is currently disabled for this outlet.'
+            });
+        }
+
+        let assignedTableId = table_id ? Number(table_id) : null;
+        if (!assignedTableId) {
+            const availableTable = await req.propertyDb.models.restaurant_tables.findOne({
+                where: { outlet_id, is_active: true }
+            });
+            if (availableTable) {
+                assignedTableId = availableTable.id;
+            }
+        }
+
+        const phone = customer_phone.trim();
+        let customer = await req.propertyDb.models.customers.findOne({
+            where: { outlet_id, customer_phone: phone }
+        });
+
+        if (!customer) {
+            customer = await req.propertyDb.models.customers.create({
+                outlet_id,
+                customer_name: customer_name.trim(),
+                customer_phone: phone,
+                customer_email: customer_email ? customer_email.trim().toLowerCase() : '',
+                customer_address: address ? address.trim() : null,
+                customer_gstin: gstin ? gstin.trim() : null
+            });
+        }
+
+        const dateVal = reservation_date || (reservation_time ? reservation_time.substring(0, 10) : new Date().toISOString().substring(0, 10));
+
+        const reservation = await req.propertyDb.models.table_reservations.create({
+            outlet_id,
+            table_id: assignedTableId,
+            customer_name: customer_name.trim(),
+            customer_phone: phone,
+            customer_email: customer_email ? customer_email.trim().toLowerCase() : null,
+            reservation_date: dateVal,
+            reservation_time,
+            guest_count: Number(guest_count) || 1,
+            status: 'Pending',
+            remarks: remarks || 'Online reservation from home',
+            address: address || null,
+            gstin: gstin || null,
+            source: 'ONLINE_HOME'
+        });
+
+        try {
+            const { getSocketHub } = require('../../services/socketHub.service');
+            const io = getSocketHub();
+            if (io) {
+                io.emit('table_reservation_created', {
+                    outlet_id,
+                    reservation_id: reservation.id,
+                    customer_name: reservation.customer_name,
+                    customer_phone: reservation.customer_phone,
+                    reservation_time: reservation.reservation_time,
+                    guest_count: reservation.guest_count,
+                    table_id: assignedTableId,
+                    source: 'ONLINE_HOME'
+                });
+            }
+        } catch (sErr) {}
+
+        try {
+            await req.propertyDb.models.system_notifications.create({
+                outlet_id,
+                title: 'New Table Reservation from Home',
+                message: `Table reservation request received from ${customer_name} (${phone}) for ${guest_count} guests at ${reservation_time}`,
+                type: 'INFO',
+                is_read: false
+            });
+        } catch (nErr) {}
+
+        return res.json({
+            success: true,
+            message: 'Table reservation received successfully! The restaurant will confirm your reservation shortly.',
+            data: reservation
+        });
+    } catch (err) {
+        console.error('[BOOK TABLE PUBLIC ERR]', err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};

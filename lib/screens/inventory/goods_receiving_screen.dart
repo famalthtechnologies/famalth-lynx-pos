@@ -211,7 +211,13 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
   // ================= CALC =================
   double get totalAmount => _items.fold(0, (s, e) => s + e.amount);
   double get totalGST => _items.fold(0, (s, e) => s + e.gst);
-  double get netAmount => _items.fold(0, (s, e) => s + e.totalAfterTax);
+  double get unroundedNet => _items.fold(0, (s, e) => s + e.totalAfterTax);
+  double get roundOffAmount {
+    if (_items.isEmpty) return 0.0;
+    final rounded = unroundedNet.roundToDouble();
+    return double.parse((rounded - unroundedNet).toStringAsFixed(2));
+  }
+  double get netAmount => unroundedNet + roundOffAmount;
 
   String _fmtNumber(num value) {
     return value % 1 == 0 ? value.toInt().toString() : value.toString();
@@ -374,6 +380,8 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
         receiptDate: _date,
         supplierBillNo: _supplierBill.text,
         status: 'CLOSED',
+        roundOffAmount: roundOffAmount,
+        netAmount: netAmount,
         items: _items
             .map((e) => {
                   "code": e.code,
@@ -1316,6 +1324,8 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
         children: [
           _totalChip('Amount', totalAmount),
           _totalChip(taxLabel, totalGST),
+          if (roundOffAmount.abs() > 0.001)
+            _totalChip('Round Off', roundOffAmount),
           _totalChip('Net', netAmount, highlight: true),
           const Spacer(),
           FilledButton.icon(
@@ -1674,6 +1684,8 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
                 children: [
                   _total("Sub Total", totalAmount),
                   _total(taxName, totalGST),
+                  if (roundOffAmount.abs() > 0.001)
+                    _total("Round Off", roundOffAmount),
                   pw.Divider(color: PdfColors.grey400, thickness: 0.5),
                   _total("Net Amount", netAmount, bold: true),
                 ],

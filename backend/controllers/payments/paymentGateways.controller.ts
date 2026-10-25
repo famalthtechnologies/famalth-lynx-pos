@@ -335,12 +335,137 @@ export const saveGatewaysConfig = async (req: Request, res: Response) => {
     }
 };
 
+export const getUsbConnectedDevices = async (req: Request, res: Response) => {
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        let devices: Array<{ id: string; status: string; model?: string }> = [];
+        try {
+            const { stdout } = await execAsync('adb devices -l', { timeout: 3000 });
+            const lines = (stdout || '').split('\n').map((l: string) => l.trim()).filter(Boolean);
+            for (const line of lines) {
+                if (line.startsWith('List of devices') || line.startsWith('* daemon')) continue;
+                const parts = line.split(/\s+/);
+                if (parts.length >= 2) {
+                    const id = parts[0];
+                    const status = parts[1];
+                    const modelMatch = line.match(/model:(\S+)/);
+                    const productMatch = line.match(/product:(\S+)/);
+                    const model = modelMatch ? modelMatch[1].replace(/_/g, ' ') : (productMatch ? productMatch[1] : 'Android Device');
+                    devices.push({ id, status, model });
+                }
+            }
+        } catch (adbErr: any) {
+            // adb not installed or error, devices list remains empty
+        }
+
+        return res.json({
+            success: true,
+            adb_available: true,
+            connected: devices.length > 0,
+            devices
+        });
+    } catch (err: any) {
+        return res.status(500).json({ success: false, message: err.message, devices: [] });
+    }
+};
+
+export const pushQrToUsbMobile = async (req: Request, res: Response) => {
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        const outlet_id = (req as any).user.outlet_id;
+        const { amount, order_no, txn_note, device_id, action = 'INTENT' } = req.body;
+
+        if (!amount || Number(amount) <= 0) {
+            return res.status(400).json({ success: false, message: 'Valid payment amount is required' });
+        }
+
+        const settings = await (req as any).propertyDb.models.system_settings.findOne({ where: { outlet_id } });
+        const propInfo = (req as any).propertyDb.models.property_info
+            ? await (req as any).propertyDb.models.property_info.findOne({ where: { outlet_id } }).catch(() => null)
+            : null;
+
+        const custom = safeParseJson(settings?.custom_settings);
+        const gateways = safeParseJson(custom.payment_gateways);
+        const upi = safeParseJson(gateways.upi);
+
+        const upiId = req.body.upi_id || upi.upi_id || propInfo?.upi_id || settings?.merchant_upi_id || '';
+        const payeeName = req.body.payee_name || upi.payee_name || propInfo?.upi_payee_name || propInfo?.legal_name || propInfo?.property_name || 'POS Merchant';
+
+        if (!upiId) {
+            return res.status(400).json({ success: false, message: 'UPI ID is not configured in Payment Gateways.' });
+        }
+
+        const note = txn_note || `Bill ${order_no || Date.now()}`;
+        const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${Number(amount).toFixed(2)}&cu=INR&tn=${encodeURIComponent(note)}`;
+
+        let adbPushed = false;
+        let adbMessage = 'No USB device detected';
+
+        try {
+            const devArg = device_id ? `-s ${device_id} ` : '';
+            if (action === 'BROWSER') {
+                const qrUrl = `http://127.0.0.1:${process.env.PORT || 3000}/api/public/customer-qr?amount=${amount}&upi_id=${encodeURIComponent(upiId)}&payee=${encodeURIComponent(payeeName)}&note=${encodeURIComponent(note)}`;
+                await execAsync(`adb ${devArg}shell am start -a android.intent.action.VIEW -d "${qrUrl}"`, { timeout: 4000 });
+                adbPushed = true;
+                adbMessage = 'Payment QR webpage opened on connected mobile browser';
+            } else {
+                await execAsync(`adb ${devArg}shell am start -a android.intent.action.VIEW -d "${upiUri}"`, { timeout: 4000 });
+                adbPushed = true;
+                adbMessage = 'UPI payment prompt popped up on connected mobile!';
+            }
+        } catch (adbErr: any) {
+            adbMessage = 'USB adb push attempt: ' + (adbErr.message || adbErr);
+        }
+
+        try {
+            const { getSocketHub } = require('../../services/socketHub.service');
+            const io = getSocketHub();
+            if (io) {
+                io.emit('customer_display_qr_popup', {
+                    outlet_id,
+                    amount: Number(amount).toFixed(2),
+                    order_no: order_no || '',
+                    upi_id: upiId,
+                    payee_name: payeeName,
+                    upi_uri: upiUri,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } catch (sockErr) {
+            // ignore
+        }
+
+        return res.json({
+            success: true,
+            usb_pushed: adbPushed,
+            message: adbPushed ? adbMessage : 'Payment QR generated successfully. ' + adbMessage,
+            upi_uri: upiUri,
+            upi_id: upiId,
+            payee_name: payeeName,
+            amount: Number(amount).toFixed(2)
+        });
+    } catch (err: any) {
+        console.error('[PUSH USB QR ERROR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 module.exports = {
     getGatewaysConfig,
-    saveGatewaysConfig
+    saveGatewaysConfig,
+    getUsbConnectedDevices,
+    pushQrToUsbMobile
 };
 
 export default {
     getGatewaysConfig,
-    saveGatewaysConfig
+    saveGatewaysConfig,
+    getUsbConnectedDevices,
+    pushQrToUsbMobile
 };

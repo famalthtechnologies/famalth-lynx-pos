@@ -28,11 +28,17 @@ const modifierCtrl = require('../controllers/inventory/itemModifier.controller')
 const stateCtrl = require('../controllers/system/state.controller');
 const backupController = require('../controllers/public/backup.controller');
 const syncDatabase = require('../modules/sheetService');
+const expiryCtrl = require('../controllers/inventory/expiry.controller');
 
 // Public endpoint for recovery flow (no login required).
 router.post('/backup/restore-local-enc', backupController.restoreFromLocalEnc);
 
 router.use(auth, license('INVENTORY'));
+
+// Expiry Tracker & Batch Ledger
+router.get('/expiry-tracker', expiryCtrl.getExpiryTracker);
+router.get('/expiry-ledger/:itemId', expiryCtrl.getExpiryLedgerByItem);
+router.post('/expiry-alerts/trigger', expiryCtrl.triggerExpiryNotifications);
 
 router.get('/property-info', ctrlprop.getPropertyInfo);
 router.post('/property-info', ctrlprop.savePropertyInfo);

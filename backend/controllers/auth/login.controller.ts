@@ -799,8 +799,101 @@ exports.getQuickUsers = async (req, res) => {
         }));
 
         return res.json({ success: true, data: formatted });
-    } catch (err) {
+    } catch (err: any) {
         console.error('[GET QUICK USERS ERROR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.loginWithQrToken = async (req: any, res: any) => {
+    try {
+        const { qr_token, outlet_code } = req.body;
+        const db = req.propertyDb;
+
+        if (!qr_token || !qr_token.toString().trim()) {
+            return res.status(400).json({ success: false, message: 'QR token is required.' });
+        }
+
+        const cleanToken = qr_token.toString().trim();
+
+        let whereClause: any = {
+            login_qr_token: cleanToken,
+            is_active: true
+        };
+
+        let currentOutlet: any = null;
+        if (outlet_code && outlet_code.trim()) {
+            currentOutlet = await db.models.outlets.findOne({
+                where: { outlet_code: outlet_code.trim(), is_active: true }
+            });
+            if (currentOutlet) {
+                whereClause.outlet_id = currentOutlet.id;
+            }
+        }
+
+        const user = await db.models.users.findOne({
+            where: whereClause,
+            bypassOutletFilter: true
+        });
+
+        if (!user) {
+            return res.status(401).json({ success: false, message: 'Invalid or expired QR code. Please ask your administrator to re-generate your QR badge.' });
+        }
+
+        if (!currentOutlet) {
+            currentOutlet = await db.models.outlets.findByPk(user.outlet_id, { bypassOutletFilter: true });
+        }
+
+        if (!currentOutlet || !currentOutlet.is_active) {
+            return res.status(401).json({ success: false, message: 'Outlet is inactive.' });
+        }
+
+        let permissions: any[] = [];
+        if (user.role === 'ADMIN') {
+            permissions = ['*'];
+        } else {
+            const roleObj = db.models.roles ? await db.models.roles.findOne({ where: { role_name: user.role } }).catch(() => null) : null;
+            permissions = roleObj?.permissions || ['POS_ACCESS', 'REPORTS_VIEW'];
+        }
+
+        const token = jwt.sign({
+            user_id: user.id,
+            outlet_id: currentOutlet.id,
+            role: user.role,
+            outlet_code: currentOutlet.outlet_code,
+            business_module: currentOutlet.business_module || 'ALL',
+            permissions
+        });
+
+        await user.update({ last_login: new Date() });
+
+        const property = await db.models.property_info.findOne({
+            where: { outlet_id: currentOutlet.id },
+            attributes: ['property_name', 'logo_path']
+        }).catch(() => null);
+
+        return res.json({
+            success: true,
+            message: `Welcome, ${user.full_name || user.username}!`,
+            token,
+            license_status: 'VALID',
+            days_remaining: 999,
+            user: {
+                id: user.id,
+                username: user.username,
+                name: user.full_name,
+                role: user.role,
+                outlet_id: currentOutlet.id,
+                outlet_code: currentOutlet.outlet_code,
+                outlet_name: currentOutlet.outlet_name,
+                business_module: currentOutlet.business_module || 'ALL',
+                property_name: property?.property_name || currentOutlet.outlet_name,
+                logo_path: property?.logo_path || null,
+                permissions
+            }
+        });
+    } catch (err: any) {
+        console.error('[QR LOGIN ERROR]', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 };

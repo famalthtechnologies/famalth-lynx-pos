@@ -637,3 +637,75 @@ exports.sendSupervisorOtp = async (req, res) => {
     }
 };
 
+exports.regenerateUserQrToken = async (req, res) => {
+    try {
+        const userId = req.params.id || req.body.user_id;
+        const outletId = req.user.outlet_id;
+        const crypto = require('crypto');
+
+        const user = await req.propertyDb.models.users.findOne({
+            where: { id: userId, outlet_id: outletId }
+        });
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Staff user not found' });
+        }
+
+        const newToken = `LYNX-STAFF-${user.id}-${crypto.randomBytes(12).toString('hex').toUpperCase()}`;
+        await user.update({ login_qr_token: newToken });
+
+        return res.json({
+            success: true,
+            message: 'Staff login QR code regenerated successfully. Previous QR codes are now invalidated.',
+            data: {
+                user_id: user.id,
+                username: user.username,
+                full_name: user.full_name,
+                role: user.role,
+                login_qr_token: newToken
+            }
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+exports.getUserQrToken = async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const outletId = req.user.outlet_id;
+        const crypto = require('crypto');
+
+        const user = await req.propertyDb.models.users.findOne({
+            where: { id: userId, outlet_id: outletId }
+        });
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Staff user not found' });
+        }
+
+        let token = user.login_qr_token;
+        if (!token) {
+            token = `LYNX-STAFF-${user.id}-${crypto.randomBytes(12).toString('hex').toUpperCase()}`;
+            await user.update({ login_qr_token: token });
+        }
+
+        const outlet = await req.propertyDb.models.outlets.findByPk(outletId);
+
+        return res.json({
+            success: true,
+            data: {
+                user_id: user.id,
+                username: user.username,
+                full_name: user.full_name,
+                role: user.role,
+                outlet_name: outlet?.outlet_name || 'Store',
+                outlet_code: outlet?.outlet_code || '',
+                login_qr_token: token
+            }
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+

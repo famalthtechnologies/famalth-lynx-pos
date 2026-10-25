@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
@@ -172,21 +173,43 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
         title: const Text('Attendance & Approvals', style: TextStyle(color: Color(0xFF1A1A2E), fontWeight: FontWeight.bold, fontSize: 17)),
         iconTheme: const IconThemeData(color: Color(0xFF1A1A2E)),
         actions: [
+          FilledButton.tonalIcon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF0D9488).withOpacity(0.12),
+              foregroundColor: const Color(0xFF0D9488),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            icon: const Icon(Icons.file_upload_outlined, size: 16),
+            label: const Text('Import Excel', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            onPressed: _showImportExcelDialog,
+          ),
+          const SizedBox(width: 6),
+          FilledButton.tonalIcon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5).withOpacity(0.12),
+              foregroundColor: const Color(0xFF4F46E5),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            ),
+            icon: const Icon(Icons.fingerprint_rounded, size: 16),
+            label: const Text('Biometrics', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            onPressed: _showBiometricMachineDialog,
+          ),
+          const SizedBox(width: 6),
           TextButton.icon(
-            icon: const Icon(Icons.beach_access, color: Color(0xFFE03E2D), size: 18),
-            label: const Text('Apply Bulk Leave', style: TextStyle(color: Color(0xFFE03E2D), fontWeight: FontWeight.bold, fontSize: 13)),
+            icon: const Icon(Icons.beach_access, color: Color(0xFFE03E2D), size: 16),
+            label: const Text('Bulk Leave', style: TextStyle(color: Color(0xFFE03E2D), fontWeight: FontWeight.bold, fontSize: 12)),
             onPressed: _showBulkLeaveDialog,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           TextButton.icon(
-            icon: const Icon(Icons.calendar_month, color: Color(0xFFE03E2D), size: 18),
-            label: const Text('Auto-Apply Weekly Offs', style: TextStyle(color: Color(0xFFE03E2D), fontWeight: FontWeight.bold, fontSize: 13)),
+            icon: const Icon(Icons.calendar_month, color: Color(0xFFE03E2D), size: 16),
+            label: const Text('Weekly Offs', style: TextStyle(color: Color(0xFFE03E2D), fontWeight: FontWeight.bold, fontSize: 12)),
             onPressed: _runAutoWeeklyOffs,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           TextButton.icon(
-            icon: const Icon(Icons.event_note, color: Color(0xFFE03E2D), size: 18),
-            label: const Text('Holidays', style: TextStyle(color: Color(0xFFE03E2D), fontWeight: FontWeight.bold, fontSize: 13)),
+            icon: const Icon(Icons.event_note, color: Color(0xFFE03E2D), size: 16),
+            label: const Text('Holidays', style: TextStyle(color: Color(0xFFE03E2D), fontWeight: FontWeight.bold, fontSize: 12)),
             onPressed: _showHolidaysDialog,
           ),
           const SizedBox(width: 8),
@@ -1753,6 +1776,606 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
           ],
         ),
       ),
+    );
+  }
+
+  void _showImportExcelDialog() {
+    final textCtrl = TextEditingController();
+    List<Map<String, dynamic>> parsedRows = [];
+    bool isParsed = false;
+    bool isImporting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDlgState) {
+            void parseRows() {
+              final raw = textCtrl.text.trim();
+              if (raw.isEmpty) return;
+
+              final lines = raw.split('\n');
+              final List<Map<String, dynamic>> list = [];
+
+              for (var i = 0; i < lines.length; i++) {
+                final line = lines[i].trim();
+                if (line.isEmpty) continue;
+                if (i == 0 && (line.toLowerCase().contains('code') || line.toLowerCase().contains('employee'))) {
+                  continue;
+                }
+
+                final parts = line.contains('\t') ? line.split('\t') : line.split(',');
+                if (parts.isEmpty) continue;
+
+                final empCode = parts[0].trim();
+                final dateStr = parts.length > 1 ? parts[1].trim() : DateFormat('yyyy-MM-dd').format(DateTime.now());
+                final inTime = parts.length > 2 ? parts[2].trim() : '';
+                final outTime = parts.length > 3 ? parts[3].trim() : '';
+                final status = parts.length > 4 ? parts[4].trim() : (inTime.isNotEmpty ? 'Present' : 'Absent');
+
+                final matched = _employeesList.firstWhere(
+                  (e) => (e['employee_code'] ?? '').toString().toLowerCase() == empCode.toLowerCase() ||
+                         (e['id'] ?? '').toString() == empCode,
+                  orElse: () => {},
+                );
+
+                list.add({
+                  'employee_code': empCode,
+                  'employee_name': matched.isNotEmpty ? (matched['full_name'] ?? '—') : 'Unknown Employee',
+                  'punch_date': dateStr,
+                  'punch_in': inTime,
+                  'punch_out': outTime,
+                  'status': status.isNotEmpty ? status : 'Present',
+                  'is_matched': matched.isNotEmpty,
+                });
+              }
+
+              setDlgState(() {
+                parsedRows = list;
+                isParsed = true;
+              });
+            }
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0D9488).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.table_view_outlined, color: Color(0xFF0D9488), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Import Attendance from Excel / CSV', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text('Paste rows copied from Excel or CSV sheet', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 650,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Expected Column Order:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF334155))),
+                                TextButton.icon(
+                                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                                  icon: const Icon(Icons.copy_all, size: 14, color: Color(0xFF0D9488)),
+                                  label: const Text('Copy Sample Template', style: TextStyle(fontSize: 11, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
+                                  onPressed: () {
+                                    const sample = "EmployeeCode,Date,InTime,OutTime,Status\nEMP001,2026-10-25,09:00,18:00,Present\nEMP002,2026-10-25,09:30,17:30,Present";
+                                    Clipboard.setData(const ClipboardData(text: sample));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Sample CSV template copied to clipboard!')),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Column 1: Employee Code/ID | Column 2: Date (YYYY-MM-DD) | Column 3: In Time (HH:mm) | Column 4: Out Time (HH:mm) | Column 5: Status (Present/Absent/Half-Day)',
+                              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (!isParsed) ...[
+                        const Text('Paste Excel / CSV Data:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: textCtrl,
+                          maxLines: 8,
+                          decoration: InputDecoration(
+                            hintText: 'EMP001,2026-10-25,09:00,18:00,Present\nEMP002,2026-10-25,09:15,18:30,Present...',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                            contentPadding: const EdgeInsets.all(12),
+                          ),
+                        ),
+                      ] else ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Preview Parsed Rows (${parsedRows.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            TextButton.icon(
+                              icon: const Icon(Icons.edit, size: 14),
+                              label: const Text('Edit Raw Data', style: TextStyle(fontSize: 12)),
+                              onPressed: () => setDlgState(() => isParsed = false),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 280),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: SingleChildScrollView(
+                            child: DataTable(
+                              headingRowHeight: 36,
+                              dataRowMinHeight: 32,
+                              dataRowMaxHeight: 38,
+                              horizontalMargin: 12,
+                              columnSpacing: 16,
+                              columns: const [
+                                DataColumn(label: Text('Code', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                                DataColumn(label: Text('Employee Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                                DataColumn(label: Text('Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                                DataColumn(label: Text('In', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                                DataColumn(label: Text('Out', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                                DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
+                              ],
+                              rows: parsedRows.map((r) {
+                                final isMatched = r['is_matched'] == true;
+                                return DataRow(
+                                  color: !isMatched ? WidgetStateProperty.all(Colors.red.shade50) : null,
+                                  cells: [
+                                    DataCell(Text(r['employee_code'] ?? '', style: const TextStyle(fontSize: 11))),
+                                    DataCell(Row(
+                                      children: [
+                                        if (!isMatched) const Icon(Icons.warning_amber, size: 12, color: Colors.red),
+                                        if (!isMatched) const SizedBox(width: 4),
+                                        Text(r['employee_name'] ?? '', style: TextStyle(fontSize: 11, color: isMatched ? Colors.black87 : Colors.red)),
+                                      ],
+                                    )),
+                                    DataCell(Text(r['punch_date'] ?? '', style: const TextStyle(fontSize: 11))),
+                                    DataCell(Text(r['punch_in'] ?? '', style: const TextStyle(fontSize: 11))),
+                                    DataCell(Text(r['punch_out'] ?? '', style: const TextStyle(fontSize: 11))),
+                                    DataCell(Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: r['status'] == 'Present' ? Colors.green.shade50 : Colors.orange.shade50,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(r['status'] ?? '', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: r['status'] == 'Present' ? Colors.green.shade800 : Colors.orange.shade800)),
+                                    )),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                if (!isParsed)
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0D9488)),
+                    icon: const Icon(Icons.remove_red_eye_outlined, size: 16),
+                    label: const Text('Preview Data'),
+                    onPressed: parseRows,
+                  )
+                else
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0D9488)),
+                    icon: isImporting
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.check_circle_outline, size: 16),
+                    label: Text(isImporting ? 'Importing...' : 'Confirm & Import (${parsedRows.length})'),
+                    onPressed: isImporting ? null : () async {
+                      setDlgState(() => isImporting = true);
+                      try {
+                        final res = await ApiClient.post('/api/hrms/attendance/bulk-import', {
+                          'punches': parsedRows,
+                        });
+                        if (res['success'] == true) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(res['message'] ?? 'Attendance imported successfully!'),
+                              backgroundColor: const Color(0xFF059669),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          _loadData();
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(res['message'] ?? 'Import failed'), backgroundColor: Colors.red),
+                          );
+                        }
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Import error: $e'), backgroundColor: Colors.red),
+                        );
+                      } finally {
+                        setDlgState(() => isImporting = false);
+                      }
+                    },
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showBiometricMachineDialog() {
+    List<dynamic> devices = [];
+    bool isLoading = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDlgState) {
+            Future<void> fetchDevices() async {
+              try {
+                final res = await ApiClient.get('/api/hrms/biometric-devices');
+                if (res['success'] == true && res['data'] is List) {
+                  setDlgState(() {
+                    devices = res['data'];
+                    isLoading = false;
+                  });
+                }
+              } catch (_) {
+                setDlgState(() => isLoading = false);
+              }
+            }
+
+            if (isLoading) {
+              fetchDevices();
+            }
+
+            void showAddDeviceDialog() {
+              final nameCtrl = TextEditingController(text: 'Front Office Machine');
+              final ipCtrl = TextEditingController(text: '192.168.1.201');
+              final portCtrl = TextEditingController(text: '4370');
+              final machineIdCtrl = TextEditingController(text: '1');
+              String selectedProtocol = 'STANDALONE_TCP';
+
+              showDialog(
+                context: context,
+                builder: (addCtx) => AlertDialog(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  title: const Text('Add Biometric Device', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  content: SizedBox(
+                    width: 420,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextField(
+                            controller: nameCtrl,
+                            decoration: const InputDecoration(labelText: 'Device Name', prefixIcon: Icon(Icons.badge_outlined)),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: TextField(
+                                  controller: ipCtrl,
+                                  decoration: const InputDecoration(labelText: 'IP Address', prefixIcon: Icon(Icons.lan_outlined)),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                flex: 1,
+                                child: TextField(
+                                  controller: portCtrl,
+                                  decoration: const InputDecoration(labelText: 'Port', prefixIcon: Icon(Icons.numbers)),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: machineIdCtrl,
+                            decoration: const InputDecoration(labelText: 'Machine Serial / ID', prefixIcon: Icon(Icons.fingerprint)),
+                          ),
+                          const SizedBox(height: 10),
+                          DropdownButtonFormField<String>(
+                            value: selectedProtocol,
+                            decoration: const InputDecoration(labelText: 'Communication Protocol', prefixIcon: Icon(Icons.settings_ethernet)),
+                            items: const [
+                              DropdownMenuItem(value: 'STANDALONE_TCP', child: Text('ZKTeco / eSSL (TCP 4370)')),
+                              DropdownMenuItem(value: 'ZKTECO_UDP', child: Text('ZKTeco UDP Protocol')),
+                              DropdownMenuItem(value: 'HTTP_PUSH_WEBHOOK', child: Text('HTTP Push Webhook (Cloud ADMS)')),
+                              DropdownMenuItem(value: 'ESSL_PUSH', child: Text('eSSL Realtime Push API')),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) selectedProtocol = v;
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text('Push Webhook URL for Hardware:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                    IconButton(
+                                      icon: const Icon(Icons.copy, size: 14),
+                                      onPressed: () {
+                                        final url = '${ApiClient.baseUrl}/api/hrms/biometric-punch';
+                                        Clipboard.setData(ClipboardData(text: url));
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Webhook URL copied! Configure in machine settings.')),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                Text('${ApiClient.baseUrl}/api/hrms/biometric-punch', style: const TextStyle(fontSize: 11, color: Colors.blue)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(addCtx), child: const Text('Cancel')),
+                    FilledButton(
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+                      child: const Text('Save Device'),
+                      onPressed: () async {
+                        try {
+                          final res = await ApiClient.post('/api/hrms/biometric-devices', {
+                            'device_name': nameCtrl.text.trim(),
+                            'ip_address': ipCtrl.text.trim(),
+                            'port': int.tryParse(portCtrl.text.trim()) ?? 4370,
+                            'machine_id': machineIdCtrl.text.trim(),
+                            'protocol': selectedProtocol,
+                          });
+                          if (res['success'] == true) {
+                            Navigator.pop(addCtx);
+                            fetchDevices();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Device added successfully!'), backgroundColor: Colors.green),
+                            );
+                          }
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Failed to save device: $e'), backgroundColor: Colors.red),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4F46E5).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.fingerprint, color: Color(0xFF4F46E5), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Biometric Machine Integration', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text('Manage attendance hardware, live sync and TCP ping tests', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 620,
+                child: isLoading
+                    ? const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()))
+                    : SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Configured Devices (${devices.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                FilledButton.tonalIcon(
+                                  style: FilledButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    backgroundColor: const Color(0xFF4F46E5).withOpacity(0.12),
+                                    foregroundColor: const Color(0xFF4F46E5),
+                                  ),
+                                  icon: const Icon(Icons.add, size: 16),
+                                  label: const Text('Add Machine', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  onPressed: showAddDeviceDialog,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            if (devices.isEmpty)
+                              Container(
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: const Center(
+                                  child: Text('No biometric devices configured yet.\nClick "Add Machine" to configure IP/Port for ZKTeco, eSSL, or Realtime devices.',
+                                      textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                                ),
+                              )
+                            else
+                              ...devices.map((d) {
+                                final isOnline = d['last_ping_status'] == 'ONLINE';
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: isOnline ? Colors.green.shade300 : const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: (isOnline ? Colors.green : Colors.indigo).withOpacity(0.1),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(Icons.devices_other, size: 20, color: isOnline ? Colors.green.shade700 : const Color(0xFF4F46E5)),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Text(d['device_name'] ?? 'Machine', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: (isOnline ? Colors.green : Colors.grey).withOpacity(0.12),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    d['last_ping_status'] ?? 'OFFLINE',
+                                                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isOnline ? Colors.green.shade800 : Colors.grey.shade700),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text('${d['ip_address']}:${d['port']} • Protocol: ${d['protocol']} • ID: ${d['machine_id']}',
+                                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                          ],
+                                        ),
+                                      ),
+                                      OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                                        icon: const Icon(Icons.network_ping, size: 14),
+                                        label: const Text('Test Ping', style: TextStyle(fontSize: 11)),
+                                        onPressed: () async {
+                                          try {
+                                            final pingRes = await ApiClient.post('/api/hrms/biometric-devices/${d['id']}/test', {});
+                                            fetchDevices();
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text(pingRes['message'] ?? 'Ping tested'),
+                                                backgroundColor: pingRes['is_online'] == true ? Colors.green : Colors.red,
+                                              ),
+                                            );
+                                          } catch (e) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Ping error: $e'), backgroundColor: Colors.red),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                      const SizedBox(width: 6),
+                                      FilledButton.tonalIcon(
+                                        style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+                                        icon: const Icon(Icons.sync, size: 14),
+                                        label: const Text('Sync', style: TextStyle(fontSize: 11)),
+                                        onPressed: () async {
+                                          try {
+                                            final syncRes = await ApiClient.post('/api/hrms/biometric-devices/${d['id']}/sync', {});
+                                            fetchDevices();
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text(syncRes['message'] ?? 'Sync completed'), backgroundColor: Colors.green),
+                                            );
+                                            _loadData();
+                                          } catch (e) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Sync failed: $e'), backgroundColor: Colors.red),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                                        onPressed: () async {
+                                          await ApiClient.delete('/api/hrms/biometric-devices/${d['id']}');
+                                          fetchDevices();
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                          ],
+                        ),
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 

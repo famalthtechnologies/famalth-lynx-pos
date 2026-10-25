@@ -120,6 +120,61 @@ class AuthService {
     }
   }
 
+  static Future<LoginResult> qrLogin(String qrToken, String oltCode) async {
+    try {
+      final res = await ApiClient.post(
+        ApiEndpoints.qrLogin,
+        {
+          'qr_token': qrToken,
+          'outlet_code': oltCode,
+        },
+      );
+
+      if (res == null) throw Exception("No response from server");
+
+      if (res['success'] != true) {
+        if (res['license_status'] == 'EXPIRED') {
+          return LoginResult(
+            success: false,
+            licenseStatus: 'EXPIRED',
+            daysRemaining: 0,
+            message: res['message'] ?? 'License expired',
+          );
+        }
+        throw Exception(res['message'] ?? "QR Badge Login failed");
+      }
+
+      final token = res['token'];
+      if (token == null) throw Exception("Token not received from server");
+
+      final user = res['user'] ?? {};
+      final userRole = user['role'] ?? '';
+      final permissions = List<String>.from(user['permissions'] ?? <String>[]);
+
+      PermissionService.init(
+        role: userRole,
+        permissions: permissions,
+      );
+
+      await Future.wait([
+        TokenStorage.save(token),
+        TokenStorage.saveRole(userRole),
+        TokenStorage.savePermissions(permissions),
+        TokenStorage.saveUser(user),
+        TokenStorage.saveLoginTime(),
+      ]);
+
+      return LoginResult(
+        success: true,
+        licenseStatus: res['license_status'] ?? 'VALID',
+        daysRemaining: res['days_remaining'] ?? 999,
+        message: 'Success',
+      );
+    } catch (e) {
+      throw Exception(e.toString().replaceAll('Exception:', '').trim());
+    }
+  }
+
   static Future<bool> switchOutlet(dynamic targetOutletId) async {
     try {
       final res = await ApiClient.post(

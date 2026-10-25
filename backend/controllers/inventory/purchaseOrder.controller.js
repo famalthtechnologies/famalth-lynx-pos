@@ -47,10 +47,31 @@ exports.createPurchaseOrder = async (req, res) => {
             line_status: normalizeLineStatus(item.line_status)
         }));
 
-        let rawTotal = 0;
-        items.forEach(i => rawTotal += (Number(i.qty) || 0) * (Number(i.rate) || 0));
-        const roundOff = Number(req.body.round_off_amount ?? req.body.round_off ?? 0);
-        const total = Number((rawTotal + roundOff).toFixed(2));
+        let rawAmount = 0;
+        let rawTax = 0;
+        items.forEach(i => {
+            const amt = (Number(i.qty) || 0) * (Number(i.rate) || 0);
+            rawAmount += amt;
+            const tx = Number(i.tax) || 0;
+            rawTax += (amt * tx / 100);
+        });
+        const unroundedTotal = Number((rawAmount + rawTax).toFixed(2));
+        let roundOff = 0;
+        if (req.body.round_off_amount !== undefined && req.body.round_off_amount !== null) {
+            roundOff = Number(req.body.round_off_amount);
+        } else if (req.body.round_off !== undefined && req.body.round_off !== null) {
+            roundOff = Number(req.body.round_off);
+        } else if (req.body.total_amount !== undefined || req.body.totalAmount !== undefined) {
+            const bodyTotal = Number(req.body.total_amount ?? req.body.totalAmount);
+            if (Number.isFinite(bodyTotal) && bodyTotal > 0 && Math.abs(bodyTotal - unroundedTotal) <= 1.0) {
+                roundOff = Number((bodyTotal - unroundedTotal).toFixed(2));
+            } else {
+                roundOff = Number((Math.round(unroundedTotal) - unroundedTotal).toFixed(2));
+            }
+        } else {
+            roundOff = Number((Math.round(unroundedTotal) - unroundedTotal).toFixed(2));
+        }
+        const total = Number((unroundedTotal + roundOff).toFixed(2));
 
         const po = await req.propertyDb.models.purchase_orders.create({
             outlet_id,
@@ -338,12 +359,34 @@ exports.modifyPurchaseOrder = async (req, res) => {
 
         let total = 0;
 
+        let rawAmount = 0;
+        let rawTax = 0;
         for (const i of items) {
-            total += (Number(i.qty) || 0) * (Number(i.rate) || 0);
+            const amt = (Number(i.qty) || 0) * (Number(i.rate) || 0);
+            rawAmount += amt;
+            const tx = Number(i.tax) || 0;
+            rawTax += (amt * tx / 100);
         }
 
-        const roundOff = Number(req.body.round_off_amount ?? req.body.round_off ?? po.round_off_amount ?? 0);
-        const finalTotal = Number((total + roundOff).toFixed(2));
+        const unroundedTotal = Number((rawAmount + rawTax).toFixed(2));
+        let roundOff = 0;
+        if (req.body.round_off_amount !== undefined && req.body.round_off_amount !== null) {
+            roundOff = Number(req.body.round_off_amount);
+        } else if (req.body.round_off !== undefined && req.body.round_off !== null) {
+            roundOff = Number(req.body.round_off);
+        } else if (req.body.total_amount !== undefined || req.body.totalAmount !== undefined) {
+            const bodyTotal = Number(req.body.total_amount ?? req.body.totalAmount);
+            if (Number.isFinite(bodyTotal) && bodyTotal > 0 && Math.abs(bodyTotal - unroundedTotal) <= 1.0) {
+                roundOff = Number((bodyTotal - unroundedTotal).toFixed(2));
+            } else {
+                roundOff = Number((Math.round(unroundedTotal) - unroundedTotal).toFixed(2));
+            }
+        } else if (po.round_off_amount !== undefined && po.round_off_amount !== null && Number(po.round_off_amount) !== 0) {
+            roundOff = Number(po.round_off_amount);
+        } else {
+            roundOff = Number((Math.round(unroundedTotal) - unroundedTotal).toFixed(2));
+        }
+        const finalTotal = Number((unroundedTotal + roundOff).toFixed(2));
         await po.update({
             supplier_id,
             round_off_amount: roundOff,

@@ -30,6 +30,7 @@ class _PaymentGatewaysScreenState extends State<PaymentGatewaysScreen> with Sing
   final _upiIdCtrl = TextEditingController();
   final _upiPayeeNameCtrl = TextEditingController();
   bool _printUpiQr = true;
+  bool _usbMobilePushEnabled = false;
 
   bool _razorpayEnabled = false;
   String _razorpayEnv = 'test';
@@ -265,6 +266,7 @@ class _PaymentGatewaysScreenState extends State<PaymentGatewaysScreen> with Sing
           _upiIdCtrl.text = upi['upi_id'] ?? '';
           _upiPayeeNameCtrl.text = upi['payee_name'] ?? '';
           _printUpiQr = upi['print_upi_qr'] ?? true;
+          _usbMobilePushEnabled = upi['usb_mobile_push_enabled'] ?? false;
 
           // Razorpay
           final rz = d['razorpay'] ?? {};
@@ -330,6 +332,7 @@ class _PaymentGatewaysScreenState extends State<PaymentGatewaysScreen> with Sing
           'upi_id': _upiIdCtrl.text.trim(),
           'payee_name': _upiPayeeNameCtrl.text.trim(),
           'print_upi_qr': _printUpiQr,
+          'usb_mobile_push_enabled': _usbMobilePushEnabled,
         },
         'razorpay': {
           'enabled': _razorpayEnabled,
@@ -920,6 +923,42 @@ class _PaymentGatewaysScreenState extends State<PaymentGatewaysScreen> with Sing
                     value: _printUpiQr,
                     onChanged: (v) => setState(() => _printUpiQr = v),
                   ),
+                  const Divider(height: 20),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    activeColor: Colors.teal,
+                    title: const Text('Direct Open QR on Mobile via USB (POS Machine Mode)', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
+                    subtitle: const Text('If customer mobile is connected to system via USB, directly pops up UPI intent or payment QR on their phone screen to pay instantly.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    value: _usbMobilePushEnabled,
+                    onChanged: (v) => setState(() => _usbMobilePushEnabled = v),
+                  ),
+                  if (_usbMobilePushEnabled) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.usb, size: 16),
+                      label: const Text('Detect Connected USB Devices'),
+                      onPressed: () async {
+                        try {
+                          final res = await ApiClient.get(ApiEndpoints.usbDevices);
+                          final count = res?['count'] ?? 0;
+                          final devs = (res?['devices'] as List?)?.join(', ') ?? 'None';
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(count > 0 ? 'Detected $count USB Device(s): $devs' : 'No USB devices detected. Connect phone via USB with USB debugging or file transfer.'),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Failed to query USB devices: $e')),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ],
                 ],
               ],
             ),

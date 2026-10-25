@@ -66,10 +66,25 @@ backups/
 *.dump
 *.sql
 *.sqlite
+*.posbak
 backend/backup-log.txt
 backend/backup_status.json
 backend/data/
 data/
+
+# User Uploads & Media Assets
+uploads/
+backend/uploads/
+
+# Runtime State & Machine-Specific Config
+sync_status.json
+backend/sync_status.json
+server_config.json
+backend/server_config.json
+init_process.log
+backend/init_process.log
+*.tsbuildinfo
+0
 
 # Temporary Test PDFs & Document Exports
 *.pdf

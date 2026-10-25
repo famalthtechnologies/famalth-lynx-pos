@@ -1,0 +1,10 @@
+{
+  "isActive": false,
+  "title": "System Under Scheduled Maintenance",
+  "message": "Scheduled system optimization is in progress. Store operations are temporarily paused.",
+  "startedAt": null,
+  "durationMinutes": 30,
+  "estimatedEndTime": null,
+  "remainingMinutes": 0,
+  "enabledBy": "Super Admin"
+}

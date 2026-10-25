@@ -211,6 +211,38 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.STRING(30),
             defaultValue: 'DIRECT'
         },
+        enable_clinic_module: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false
+        },
+        enable_hrms_module: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false
+        },
+        enable_retail_billing: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: true
+        },
+        enable_restaurant_module: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: true
+        },
+        enable_inventory_module: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: true
+        },
+        allow_public_appointments: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: true
+        },
+        allow_public_table_booking: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: true
+        },
+        usb_mobile_push_enabled: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false
+        },
         custom_settings: {
             type: DataTypes.JSONB,
             defaultValue: {}

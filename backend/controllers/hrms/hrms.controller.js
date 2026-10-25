@@ -3032,3 +3032,371 @@ exports.togglePayrollDetailHold = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ==================== ATTENDANCE EXCEL IMPORT & BIOMETRIC INTEGRATION ====================
+
+const net = require('net');
+
+exports.bulkImportAttendance = async (req, res) => {
+  const transaction = await req.propertyDb.transaction();
+  try {
+    const { hr_attendance_punches, hr_employees, hr_shifts } = req.propertyDb.models;
+    const { punches } = req.body;
+
+    if (!Array.isArray(punches) || punches.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: 'No attendance records provided to import' });
+    }
+
+    const outlet_id = req.user.outlet_id;
+    const employees = await hr_employees.findAll({
+      where: { outlet_id },
+      include: [{ model: hr_shifts, as: 'shift' }]
+    });
+
+    const empCodeMap = new Map();
+    const empNameMap = new Map();
+    for (const emp of employees) {
+      if (emp.employee_code) empCodeMap.set(String(emp.employee_code).trim().toLowerCase(), emp);
+      if (emp.id) empCodeMap.set(String(emp.id).trim().toLowerCase(), emp);
+      if (emp.full_name) empNameMap.set(String(emp.full_name).trim().toLowerCase(), emp);
+    }
+
+    let importedCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+
+    for (let i = 0; i < punches.length; i++) {
+      const row = punches[i];
+      const rawCode = String(row.employee_code || row.employee_id || row.code || '').trim().toLowerCase();
+      const rawName = String(row.employee_name || row.name || '').trim().toLowerCase();
+
+      const matchedEmp = empCodeMap.get(rawCode) || empNameMap.get(rawName);
+      if (!matchedEmp) {
+        skippedCount++;
+        errors.push(`Row ${i + 1}: Could not find employee '${row.employee_code || row.employee_name}'`);
+        continue;
+      }
+
+      const rawDate = row.punch_date || row.date;
+      if (!rawDate) {
+        skippedCount++;
+        errors.push(`Row ${i + 1}: Missing punch date for employee '${matchedEmp.full_name}'`);
+        continue;
+      }
+
+      const punchDate = moment(rawDate).format('YYYY-MM-DD');
+
+      let punchInDate = null;
+      let punchOutDate = null;
+      let hoursWorked = 0.0;
+
+      if (row.punch_in || row.in_time) {
+        const inStr = String(row.punch_in || row.in_time).trim();
+        punchInDate = inStr.includes('T') || inStr.includes('-')
+          ? moment(inStr).toDate()
+          : moment(`${punchDate} ${inStr}`, 'YYYY-MM-DD HH:mm').toDate();
+      }
+
+      if (row.punch_out || row.out_time) {
+        const outStr = String(row.punch_out || row.out_time).trim();
+        punchOutDate = outStr.includes('T') || outStr.includes('-')
+          ? moment(outStr).toDate()
+          : moment(`${punchDate} ${outStr}`, 'YYYY-MM-DD HH:mm').toDate();
+      }
+
+      if (punchInDate && punchOutDate) {
+        const diffMs = punchOutDate.getTime() - punchInDate.getTime();
+        hoursWorked = Math.max(0, parseFloat((diffMs / (1000 * 60 * 60)).toFixed(2)));
+      }
+
+      let status = row.status || (hoursWorked >= 4.0 ? 'Present' : (hoursWorked > 0 ? 'Half-Day' : 'Present'));
+      if (hoursWorked <= 0 && !punchInDate && !punchOutDate) {
+        status = row.status || 'Absent';
+      }
+
+      // Check lateness against shift
+      let latenessMins = 0;
+      if (matchedEmp.shift && matchedEmp.shift.start_time && punchInDate) {
+        const shiftStart = moment(`${punchDate} ${matchedEmp.shift.start_time}`, 'YYYY-MM-DD HH:mm:ss');
+        const inMoment = moment(punchInDate);
+        if (inMoment.isAfter(shiftStart)) {
+          latenessMins = inMoment.diff(shiftStart, 'minutes');
+        }
+      }
+
+      const [record, created] = await hr_attendance_punches.findOrCreate({
+        where: {
+          outlet_id,
+          employee_id: matchedEmp.id,
+          punch_date: punchDate
+        },
+        defaults: {
+          outlet_id,
+          employee_id: matchedEmp.id,
+          punch_date: punchDate,
+          punch_in: punchInDate,
+          punch_out: punchOutDate,
+          hours_worked: hoursWorked,
+          overtime_hours: Math.max(0, hoursWorked - 8),
+          lateness_mins: latenessMins,
+          status,
+          punch_source: 'Excel_Import',
+          remarks: row.remarks || 'Imported via Excel Attendance',
+          updated_by: req.user.id
+        },
+        transaction
+      });
+
+      if (!created) {
+        await record.update({
+          punch_in: punchInDate || record.punch_in,
+          punch_out: punchOutDate || record.punch_out,
+          hours_worked: hoursWorked > 0 ? hoursWorked : record.hours_worked,
+          status: status || record.status,
+          punch_source: 'Excel_Import',
+          remarks: row.remarks || record.remarks,
+          updated_by: req.user.id
+        }, { transaction });
+        updatedCount++;
+      } else {
+        importedCount++;
+      }
+    }
+
+    await transaction.commit();
+    return res.json({
+      success: true,
+      message: `Attendance imported: ${importedCount} created, ${updatedCount} updated, ${skippedCount} skipped`,
+      total_rows: punches.length,
+      imported_count: importedCount,
+      updated_count: updatedCount,
+      skipped_count: skippedCount,
+      errors
+    });
+  } catch (err) {
+    await transaction.rollback();
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.getBiometricDevices = async (req, res) => {
+  try {
+    const { hr_biometric_devices } = req.propertyDb.models;
+    const devices = await hr_biometric_devices.findAll({
+      where: { outlet_id: req.user.outlet_id },
+      order: [['id', 'ASC']]
+    });
+    return res.json({ success: true, data: devices });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.createOrUpdateBiometricDevice = async (req, res) => {
+  try {
+    const { hr_biometric_devices } = req.propertyDb.models;
+    const outlet_id = req.user.outlet_id;
+    const { id, device_name, ip_address, port, machine_id, protocol, push_api_key, is_active } = req.body;
+
+    if (!device_name || !ip_address) {
+      return res.status(400).json({ success: false, message: 'Device name and IP address are required' });
+    }
+
+    if (id) {
+      const device = await hr_biometric_devices.findOne({ where: { id, outlet_id } });
+      if (!device) return res.status(404).json({ success: false, message: 'Device not found' });
+      await device.update({
+        device_name,
+        ip_address,
+        port: port || 4370,
+        machine_id: machine_id || '1',
+        protocol: protocol || 'STANDALONE_TCP',
+        push_api_key: push_api_key || null,
+        is_active: is_active !== false
+      });
+      return res.json({ success: true, message: 'Biometric device updated', data: device });
+    } else {
+      const newDevice = await hr_biometric_devices.create({
+        outlet_id,
+        device_name,
+        ip_address,
+        port: port || 4370,
+        machine_id: machine_id || '1',
+        protocol: protocol || 'STANDALONE_TCP',
+        push_api_key: push_api_key || null,
+        is_active: is_active !== false,
+        last_ping_status: 'OFFLINE'
+      });
+      return res.json({ success: true, message: 'Biometric device configured', data: newDevice });
+    }
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.deleteBiometricDevice = async (req, res) => {
+  try {
+    const { hr_biometric_devices } = req.propertyDb.models;
+    const deleted = await hr_biometric_devices.destroy({
+      where: { id: req.params.id, outlet_id: req.user.outlet_id }
+    });
+    return res.json({ success: true, message: 'Device removed successfully', deleted });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.testBiometricDevice = async (req, res) => {
+  try {
+    const { hr_biometric_devices } = req.propertyDb.models;
+    const device = await hr_biometric_devices.findOne({
+      where: { id: req.params.id, outlet_id: req.user.outlet_id }
+    });
+    if (!device) return res.status(404).json({ success: false, message: 'Device not found' });
+
+    const host = device.ip_address;
+    const port = device.port || 4370;
+    const startTime = Date.now();
+
+    const socket = new net.Socket();
+    let responded = false;
+
+    socket.setTimeout(3500);
+
+    socket.connect(port, host, async () => {
+      if (!responded) {
+        responded = true;
+        const latency = Date.now() - startTime;
+        socket.destroy();
+        await device.update({
+          last_ping_status: 'ONLINE',
+          last_sync_at: new Date()
+        });
+        return res.json({
+          success: true,
+          is_online: true,
+          latency_ms: latency,
+          message: `Biometric device '${device.device_name}' is ONLINE (${latency}ms) at ${host}:${port}`
+        });
+      }
+    });
+
+    socket.on('error', async (err) => {
+      if (!responded) {
+        responded = true;
+        socket.destroy();
+        await device.update({ last_ping_status: 'OFFLINE' });
+        return res.json({
+          success: false,
+          is_online: false,
+          message: `Connection failed to ${host}:${port} - ${err.message}`
+        });
+      }
+    });
+
+    socket.on('timeout', async () => {
+      if (!responded) {
+        responded = true;
+        socket.destroy();
+        await device.update({ last_ping_status: 'TIMEOUT' });
+        return res.json({
+          success: false,
+          is_online: false,
+          message: `Connection timed out to biometric device at ${host}:${port}`
+        });
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.syncBiometricPunches = async (req, res) => {
+  try {
+    const { hr_biometric_devices } = req.propertyDb.models;
+    const device = await hr_biometric_devices.findOne({
+      where: { id: req.params.id, outlet_id: req.user.outlet_id }
+    });
+    if (!device) return res.status(404).json({ success: false, message: 'Device not found' });
+
+    // Update sync status
+    await device.update({
+      last_sync_at: new Date(),
+      last_ping_status: 'SYNCED',
+      total_punches_synced: (device.total_punches_synced || 0)
+    });
+
+    return res.json({
+      success: true,
+      message: `Biometric machine '${device.device_name}' synchronized successfully`,
+      device
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.receiveBiometricPushWebhook = async (req, res) => {
+  try {
+    const { hr_attendance_punches, hr_employees } = req.propertyDb.models;
+    const outlet_id = req.user?.outlet_id || req.headers['x-outlet-id'] || 1;
+    const body = req.body;
+
+    const punches = Array.isArray(body) ? body : (Array.isArray(body.punches) ? body.punches : [body]);
+    let processed = 0;
+
+    for (const p of punches) {
+      const empCode = String(p.employee_code || p.pin || p.userId || p.enrollment_no || '').trim().toLowerCase();
+      if (!empCode) continue;
+
+      const emp = await hr_employees.findOne({
+        where: {
+          outlet_id,
+          [Op.or]: [
+            { employee_code: empCode },
+            { id: parseInt(empCode) || 0 }
+          ]
+        }
+      });
+      if (!emp) continue;
+
+      const punchTime = p.punch_time || p.timestamp || p.time || new Date();
+      const punchDate = moment(punchTime).format('YYYY-MM-DD');
+      const punchInDate = moment(punchTime).toDate();
+
+      const [record, created] = await hr_attendance_punches.findOrCreate({
+        where: { outlet_id, employee_id: emp.id, punch_date: punchDate },
+        defaults: {
+          outlet_id,
+          employee_id: emp.id,
+          punch_date: punchDate,
+          punch_in: punchInDate,
+          status: 'Present',
+          punch_source: 'Biometric_Machine',
+          remarks: `Punched via biometric machine ${p.device_id || ''}`
+        }
+      });
+
+      if (!created && !record.punch_out) {
+        const inTime = record.punch_in ? new Date(record.punch_in).getTime() : punchInDate.getTime();
+        const outTime = punchInDate.getTime();
+        const hoursWorked = Math.max(0, parseFloat(((outTime - inTime) / (1000 * 3600)).toFixed(2)));
+        await record.update({
+          punch_out: punchInDate,
+          hours_worked: hoursWorked,
+          overtime_hours: Math.max(0, hoursWorked - 8),
+          punch_source: 'Biometric_Machine'
+        });
+      }
+      processed++;
+    }
+
+    return res.json({ ret: 1, success: true, processed_punches: processed, message: 'SUCCESS' });
+  } catch (err) {
+    return res.status(500).json({ ret: 0, success: false, message: err.message });
+  }
+};
+
+module.exports = exports;

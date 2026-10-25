@@ -89,13 +89,21 @@ export const createReceiving = async (req: Request, res: Response) => {
             gst += lineAmt * (Number(i.tax) || 0) / 100;
         });
 
-        const unroundedNet = total + gst;
-        let roundOffVal = Number(round_off_amount ?? round_off ?? 0);
-        if (roundOffVal === 0 && (req.body.net_amount !== undefined || req.body.netAmount !== undefined)) {
+        const unroundedNet = Number((total + gst).toFixed(2));
+        let roundOffVal = 0;
+        if (req.body.round_off_amount !== undefined && req.body.round_off_amount !== null) {
+            roundOffVal = Number(req.body.round_off_amount);
+        } else if (req.body.round_off !== undefined && req.body.round_off !== null) {
+            roundOffVal = Number(req.body.round_off);
+        } else if (req.body.net_amount !== undefined || req.body.netAmount !== undefined) {
             const bodyNet = Number(req.body.net_amount ?? req.body.netAmount);
             if (Number.isFinite(bodyNet) && bodyNet > 0 && Math.abs(bodyNet - unroundedNet) <= 1.0) {
                 roundOffVal = Number((bodyNet - unroundedNet).toFixed(2));
+            } else {
+                roundOffVal = Number((Math.round(unroundedNet) - unroundedNet).toFixed(2));
             }
+        } else {
+            roundOffVal = Number((Math.round(unroundedNet) - unroundedNet).toFixed(2));
         }
         const netAmount = Number((unroundedNet + roundOffVal).toFixed(2));
         const existingBill = await (req as any).propertyDb.models.supplier_bills.findOne({
@@ -532,13 +540,23 @@ export const modifyReceiving = async (req: Request, res: Response) => {
             gst += ((Number(i.qty) || 0) * (Number(i.rate) || 0)) * taxRate / 100;
         }
 
-        const unroundedNet = total + gst;
-        let roundOffVal = Number(req.body.round_off_amount ?? req.body.round_off ?? grn.round_off_amount ?? 0);
-        if (roundOffVal === 0 && (req.body.net_amount !== undefined || req.body.netAmount !== undefined)) {
+        const unroundedNet = Number((total + gst).toFixed(2));
+        let roundOffVal = 0;
+        if (req.body.round_off_amount !== undefined && req.body.round_off_amount !== null) {
+            roundOffVal = Number(req.body.round_off_amount);
+        } else if (req.body.round_off !== undefined && req.body.round_off !== null) {
+            roundOffVal = Number(req.body.round_off);
+        } else if (req.body.net_amount !== undefined || req.body.netAmount !== undefined) {
             const bodyNet = Number(req.body.net_amount ?? req.body.netAmount);
             if (Number.isFinite(bodyNet) && bodyNet > 0 && Math.abs(bodyNet - unroundedNet) <= 1.0) {
                 roundOffVal = Number((bodyNet - unroundedNet).toFixed(2));
+            } else {
+                roundOffVal = Number((Math.round(unroundedNet) - unroundedNet).toFixed(2));
             }
+        } else if (grn.round_off_amount !== undefined && grn.round_off_amount !== null && Number(grn.round_off_amount) !== 0) {
+            roundOffVal = Number(grn.round_off_amount);
+        } else {
+            roundOffVal = Number((Math.round(unroundedNet) - unroundedNet).toFixed(2));
         }
         const netAmount = Number((unroundedNet + roundOffVal).toFixed(2));
 

@@ -78,6 +78,18 @@ class StockInReportController extends ChangeNotifier {
         (sum, e) => sum + e.netAmount,
       );
 
+  double get totalRoundOff {
+    double sum = 0;
+    for (final list in groupFilteredByInvoice.values) {
+      if (list.isNotEmpty) {
+        sum += list.first.roundOffAmount;
+      }
+    }
+    return sum;
+  }
+
+  double get totalInvoiceNet => totalNet + totalRoundOff;
+
   // ================= GROUP BY INVOICE =================
   Map<int, List<StockInModel>> get groupFilteredByInvoice {
     final map = <int, List<StockInModel>>{};

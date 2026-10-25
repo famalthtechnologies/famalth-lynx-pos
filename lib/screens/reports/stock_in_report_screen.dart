@@ -296,8 +296,10 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
               final items = entry.value;
               final header = items.first;
 
-              final invoiceTotal =
+              final rawItemsTotal =
                   items.fold<double>(0, (s, e) => s + e.netAmount);
+              final invoiceRoundOff = header.roundOffAmount;
+              final invoiceTotal = rawItemsTotal + invoiceRoundOff;
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 20),
@@ -349,6 +351,11 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
                                 ? Colors.green
                                 : Colors.red,
                           ),
+                          if (invoiceRoundOff.abs() > 0.001)
+                            _headerChip(
+                              "Round Off: ${invoiceRoundOff >= 0 ? '+' : ''}${CurrencyService.format(invoiceRoundOff)}",
+                              Colors.purple,
+                            ),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -471,7 +478,9 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            "Invoice Total : ${CurrencyService.format(invoiceTotal)}",
+                            invoiceRoundOff.abs() > 0.001
+                                ? "Items: ${CurrencyService.format(rawItemsTotal)}  |  Round Off: ${invoiceRoundOff >= 0 ? '+' : ''}${CurrencyService.format(invoiceRoundOff)}  |  Invoice Total : ${CurrencyService.format(invoiceTotal)}"
+                                : "Invoice Total : ${CurrencyService.format(invoiceTotal)}",
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
@@ -542,8 +551,12 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
             const SizedBox(width: 16),
             _chip('Selected Records', ctrl.filteredData.length.toDouble(),
                 Colors.orange),
+            if (ctrl.totalRoundOff.abs() > 0.001) ...[
+              const SizedBox(width: 16),
+              _chip('Total Round Off', ctrl.totalRoundOff, Colors.purple),
+            ],
             const SizedBox(width: 16),
-            _chip('Total Net', ctrl.totalNet, Colors.green),
+            _chip('Total Net', ctrl.totalInvoiceNet, Colors.green),
           ],
         ),
       ),
@@ -801,6 +814,19 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
         row++;
       }
 
+      final invRoundOff = items.first.roundOffAmount;
+      final finalInvTotal = invoiceTotal + invRoundOff;
+
+      if (invRoundOff.abs() > 0.001) {
+        sheet
+            .cell(exc.CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: row))
+            .value = exc.TextCellValue('Round Off');
+        sheet
+            .cell(exc.CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: row))
+            .value = exc.DoubleCellValue(invRoundOff);
+        row++;
+      }
+
       // Invoice Total
       sheet
           .cell(exc.CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: row))
@@ -808,7 +834,7 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
 
       sheet
           .cell(exc.CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: row))
-          .value = exc.DoubleCellValue(invoiceTotal);
+          .value = exc.DoubleCellValue(finalInvTotal);
       row += 2;
     }
 
@@ -947,7 +973,9 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
                 children: [
                   _pdfKpiBlock('Total Invoices', invoicesCount.toString(), PdfColor.fromHex('#1E40AF')),
                   _pdfKpiBlock('Total Items', ctrl.filteredData.length.toString(), PdfColor.fromHex('#2563EB')),
-                  _pdfKpiBlock('Total Net Amount', currency.format(totalNetAmt), PdfColor.fromHex('#166534')),
+                  if (ctrl.totalRoundOff.abs() > 0.001)
+                    _pdfKpiBlock('Total Round Off', currency.format(ctrl.totalRoundOff), PdfColor.fromHex('#7C3AED')),
+                  _pdfKpiBlock('Total Net Amount', currency.format(ctrl.totalInvoiceNet), PdfColor.fromHex('#166534')),
                 ],
               ),
             ),
@@ -1043,13 +1071,18 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
               ),
             );
 
+            final invRoundOff = headerData.roundOffAmount;
+            final grandInvTotal = invoiceTotal + invRoundOff;
+
             widgets.add(
               pw.Align(
                 alignment: pw.Alignment.centerRight,
                 child: pw.Padding(
                   padding: const pw.EdgeInsets.only(top: 4, bottom: 10),
                   child: pw.Text(
-                    'Invoice Total: ${currency.format(invoiceTotal)}',
+                    invRoundOff.abs() > 0.001
+                        ? 'Items: ${currency.format(invoiceTotal)}  |  Round Off: ${invRoundOff >= 0 ? '+' : ''}${currency.format(invRoundOff)}  |  Invoice Total: ${currency.format(grandInvTotal)}'
+                        : 'Invoice Total: ${currency.format(grandInvTotal)}',
                     style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColor.fromHex('#166534')),
                   ),
                 ),

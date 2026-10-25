@@ -327,11 +327,11 @@ exports.updateOutletModule = async (req, res) => {
             });
         }
 
-        const validModules = ['INVENTORY', 'RETAIL', 'RESTAURANT', 'ALL'];
+        const validModules = ['INVENTORY', 'RETAIL', 'RESTAURANT', 'CLINIC', 'ALL'];
         if (!validModules.includes(business_module.toUpperCase())) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid business_module value. Allowed: INVENTORY, RETAIL, RESTAURANT, ALL'
+                message: 'Invalid business_module value. Allowed: INVENTORY, RETAIL, RESTAURANT, CLINIC, ALL'
             });
         }
 

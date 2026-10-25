@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:retailpos/controllers/security/user_controller.dart';
 
+import '../../core/api/api_client.dart';
+import '../../core/api/endpoints.dart';
 import '../../controllers/public/outlet_controller.dart' show OutletController;
 import '../../models/security/app_user_model.dart';
 import '../../core/permissions/module_capability.dart';
@@ -429,6 +432,11 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             await userCtrl.toggleStatus(u.id);
                             await _loadUsers();
                           },
+                        ),
+                        IconButton(
+                          tooltip: 'Staff QR Login Badge',
+                          icon: const Icon(Icons.qr_code_2, color: Colors.blueAccent),
+                          onPressed: () => _showUserQrBadge(u),
                         ),
                         IconButton(
                           tooltip: 'View Details',
@@ -1755,5 +1763,267 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           children: [Text(l), Text(v)],
         ),
       );
+
+  void _showUserQrBadge(AppUser u) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _StaffQrBadgeDialog(user: u),
+    );
+  }
+}
+
+class _StaffQrBadgeDialog extends StatefulWidget {
+  final AppUser user;
+
+  const _StaffQrBadgeDialog({required this.user});
+
+  @override
+  State<_StaffQrBadgeDialog> createState() => _StaffQrBadgeDialogState();
+}
+
+class _StaffQrBadgeDialogState extends State<_StaffQrBadgeDialog> {
+  bool _isLoading = true;
+  bool _isRegenerating = false;
+  String? _qrToken;
+  String? _qrDisplayUrl;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadQrToken();
+  }
+
+  Future<void> _loadQrToken() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final res = await ApiClient.get(ApiEndpoints.userLoginQr(widget.user.id));
+      if (res != null && res['success'] == true) {
+        setState(() {
+          _qrToken = res['data']?['qr_token'];
+          _qrDisplayUrl = res['data']?['login_qr_url'];
+        });
+      } else {
+        setState(() {
+          _error = res?['message'] ?? 'Failed to load QR token';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _regenerateQr() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Regenerate Staff QR Code?'),
+        content: const Text(
+          'This will invalidate any previously printed or shared QR badge for this staff member. Are you sure you want to proceed?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, Regenerate'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isRegenerating = true);
+    try {
+      final res = await ApiClient.post(ApiEndpoints.regenerateUserQr(widget.user.id), {});
+      if (res != null && res['success'] == true) {
+        setState(() {
+          _qrToken = res['data']?['qr_token'];
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.green,
+              content: Text('Staff QR code badge regenerated successfully!'),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(res?['message'] ?? 'Failed to regenerate QR code')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error regenerating QR: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRegenerating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+      contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+      title: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.qr_code_2, color: Colors.blueAccent, size: 28),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.user.fullName.isNotEmpty ? widget.user.fullName : widget.user.username,
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  'Role: ${widget.user.role}  •  Staff QR Login Badge',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 380,
+        child: _isLoading
+            ? const SizedBox(
+                height: 250,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            : _error != null
+                ? SizedBox(
+                    height: 200,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error_outline, size: 40, color: Colors.red.shade400),
+                          const SizedBox(height: 8),
+                          Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade700)),
+                          const SizedBox(height: 12),
+                          ElevatedButton(onPressed: _loadQrToken, child: const Text('Retry')),
+                        ],
+                      ),
+                    ),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            if (_qrToken != null && _qrToken!.isNotEmpty)
+                              QrImageView(
+                                data: _qrToken!,
+                                version: QrVersions.auto,
+                                size: 200.0,
+                                backgroundColor: Colors.white,
+                              )
+                            else
+                              const SizedBox(
+                                height: 200,
+                                child: Center(child: Text('No QR Token Generated')),
+                              ),
+                            const SizedBox(height: 8),
+                            Text(
+                              widget.user.username,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                            Text(
+                              widget.user.role.toUpperCase(),
+                              style: TextStyle(fontSize: 11, color: Colors.blue.shade700, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blue.shade100),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, size: 18, color: Colors.blue.shade800),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Staff can scan this badge on the POS Login screen with any barcode/QR scanner or camera to login instantly.',
+                                style: TextStyle(fontSize: 11, color: Colors.blue.shade900),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red.shade700,
+                          side: BorderSide(color: Colors.red.shade200),
+                        ),
+                        onPressed: _isRegenerating ? null : _regenerateQr,
+                        icon: _isRegenerating
+                            ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.refresh, size: 16),
+                        label: const Text('Regenerate QR (If Badge Leaked)'),
+                      ),
+                    ],
+                  ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
 }
 

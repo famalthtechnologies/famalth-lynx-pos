@@ -4,7 +4,7 @@ const { contextStorage } = require('../utils/context');
 
 export const authMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
+    const token = req.headers.authorization?.split(' ')[1] || (req.query?.token as string);
     if (!token) {
       // Check if we have an outlet identifier in query, body, or headers to bypass login for testing
       const rawOutlet =
@@ -80,6 +80,38 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     const store = contextStorage.getStore();
     if (store) {
       store.set('outlet_id', data.outlet_id);
+    }
+
+    // STRICT MULTI-OUTLET TENANCY GUARD (Gmail-like Data Isolation)
+    // Non-admin staff (cashiers, waiters, doctors, pharmacists, clerks) are strictly locked to their token's outlet.
+    // Query params or request body tampering (?outlet_id=999) cannot breach other outlets' data.
+    const userRole = (req.user?.role || '').toUpperCase();
+    const isMasterAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(userRole);
+    const tokenOutletId = Number(data.outlet_id || req.user.outlet_id || 1);
+
+    if (!isMasterAdmin) {
+      (req as any).outlet_id = tokenOutletId;
+      if (store) {
+        store.set('outlet_id', tokenOutletId);
+      }
+      if (req.query) {
+        req.query.outlet_id = String(tokenOutletId);
+        req.query.outletId = String(tokenOutletId);
+      }
+      if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+        req.body.outlet_id = tokenOutletId;
+        req.body.outletId = tokenOutletId;
+      }
+    } else {
+      // Admins who manage the organization can view or switch between authorized branches
+      const requestedOutlet = req.query?.outlet_id || req.query?.outletId || req.body?.outlet_id || req.body?.outletId || req.headers['x-outlet-id'];
+      if (requestedOutlet) {
+        const num = Number(requestedOutlet);
+        if (Number.isInteger(num) && num > 0) {
+          (req as any).outlet_id = num;
+          if (store) store.set('outlet_id', num);
+        }
+      }
     }
 
     try {

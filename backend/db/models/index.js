@@ -257,6 +257,8 @@ propertyDb.models.hr_employees =
     require('../../models/property/hrEmployee.model')(propertyDb, DataTypes);
 propertyDb.models.hr_attendance_punches =
     require('../../models/property/hrAttendancePunch.model')(propertyDb, DataTypes);
+propertyDb.models.hr_biometric_devices =
+    require('../../models/property/hrBiometricDevice.model')(propertyDb, DataTypes);
 propertyDb.models.hr_leave_applications =
     require('../../models/property/hrLeaveApplication.model')(propertyDb, DataTypes);
 propertyDb.models.hr_leave_balances =
@@ -293,6 +295,8 @@ propertyDb.models.kitchen_stations =
     require('../../models/property/kitchenStation.model')(propertyDb, DataTypes);
 propertyDb.models.table_reservations =
     require('../../models/property/tableReservation.model')(propertyDb, DataTypes);
+propertyDb.models.clinic_appointments =
+    require('../../models/property/clinicAppointment.model')(propertyDb, DataTypes);
 propertyDb.models.email_configurations =
     require('../../models/property/emailConfig.model')(propertyDb, DataTypes);
 propertyDb.models.email_templates =

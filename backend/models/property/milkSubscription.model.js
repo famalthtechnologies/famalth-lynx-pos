@@ -26,6 +26,31 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: false,
             defaultValue: 0
         },
+        subscription_type: {
+            type: DataTypes.STRING(40),
+            allowNull: false,
+            defaultValue: 'DAILY_QTY'
+        },
+        total_allowed_services: {
+            type: DataTypes.INTEGER,
+            allowNull: false,
+            defaultValue: 0
+        },
+        services_consumed: {
+            type: DataTypes.INTEGER,
+            allowNull: false,
+            defaultValue: 0
+        },
+        service_unit_name: {
+            type: DataTypes.STRING(50),
+            allowNull: false,
+            defaultValue: 'Services'
+        },
+        per_service_price: {
+            type: DataTypes.DECIMAL(12, 2),
+            allowNull: false,
+            defaultValue: 0.00
+        },
         total_payment_amount: {
             type: DataTypes.DECIMAL(12, 2),
             allowNull: false,

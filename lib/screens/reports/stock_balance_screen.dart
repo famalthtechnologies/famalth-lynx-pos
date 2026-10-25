@@ -10,6 +10,7 @@ import 'package:printing/printing.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 
 import 'package:intl/intl.dart';
+import 'expiry_tracker_screen.dart';
 import '../../controllers/reports/stock_balance_controller.dart';
 import '../../controllers/inventory/stock_transfer_controller.dart';
 import '../../core/currency/currency_service.dart';
@@ -388,6 +389,14 @@ class _StockBalanceScreenState extends State<StockBalanceScreen> {
       appBar: AppBar(
         title: const Text('Stock Balance & Reorder Report'),
         actions: [
+          IconButton(
+            tooltip: 'Receiving Expiry & Batch Tracker',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen()),
+            ),
+            icon: const Icon(Icons.hourglass_bottom, color: Colors.orangeAccent),
+          ),
           IconButton(
             onPressed: _exportExcel,
             icon: const Icon(Icons.file_download_outlined),

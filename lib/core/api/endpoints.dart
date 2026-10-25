@@ -4,6 +4,7 @@ class ApiEndpoints {
 
   static const login = '/api/auth/login';
   static const pinLogin = '/api/auth/pin-login';
+  static const qrLogin = '/api/auth/qr-login';
   static const quickUsers = '/api/auth/quick-users';
 
   static const items = '/api/inventory/items';
@@ -46,6 +47,10 @@ class ApiEndpoints {
   static const uploadLatest = '/api/inventory/backup/upload-latest';
   static const localEncBackup = '/api/inventory/backup/local-enc';
   static const restoreLocalEncBackup = '/api/inventory/backup/restore-local-enc';
+  static const storageStats = '/api/backup/storage-stats';
+  static const createTenantBackup = '/api/backup/tenant-backup';
+  static const restoreTenantBackup = '/api/backup/restore-tenant-backup';
+  static const downloadBackupBase = '/api/backup/download';
 
   static const String settings = '/api/inventory/settings';
   static const String taxGroups = '/api/settings/tax-groups';
@@ -237,4 +242,25 @@ class ApiEndpoints {
   static const String publicDiningBillDetails = '/api/public/dining/bill-details';
   static const String diningWaiterCalls = '/api/restaurant/dining/waiter-calls';
   static const String resolveWaiterCall = '/api/restaurant/dining/resolve-waiter-call';
+
+  // CLINIC & APPOINTMENTS
+  static const String clinicAppointments = '/api/clinic/appointments';
+  static const String clinicMedicines = '/api/clinic/medicines';
+  static const String clinicAnalytics = '/api/clinic/analytics';
+  static String clinicAppointmentStatus(dynamic id) => '/api/clinic/appointments/$id/status';
+  static String clinicAppointmentPrescription(dynamic id) => '/api/clinic/appointments/$id/prescription';
+  static String clinicAppointmentSendToBilling(dynamic id) => '/api/clinic/appointments/$id/send-to-billing';
+
+  // EXPIRY TRACKER & COMPARISON
+  static const String expiryTracker = '/api/inventory/expiry-tracker';
+  static const String expiryAlertsTrigger = '/api/inventory/expiry-alerts/trigger';
+  static String expiryLedger(dynamic itemId) => '/api/inventory/expiry-ledger/$itemId';
+
+  // USB MOBILE PAYMENT POPUP
+  static const String usbDevices = '/api/payments/gateways/usb-devices';
+  static const String usbPushQr = '/api/payments/gateways/usb-mobile/push-qr';
+
+  // STAFF QR BADGE LOGIN
+  static String userLoginQr(dynamic id) => '/api/users/$id/login-qr';
+  static String regenerateUserQr(dynamic id) => '/api/users/$id/regenerate-qr';
 }

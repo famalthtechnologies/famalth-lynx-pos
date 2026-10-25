@@ -16,6 +16,8 @@ router.use(license('ADMIN'));
 router.get('/supervisor-pin', ctrl.getSupervisorPin);
 router.put('/supervisor-pin', ctrl.updateSupervisorPin);
 
+router.get('/:id/login-qr', ctrl.getUserQrToken);
+router.post('/:id/regenerate-qr', ctrl.regenerateUserQrToken);
 router.get('/:id/permissions', ctrl.getPermissions);
 router.put('/:id/permissionsupdate', ctrl.updatePermissions);
 router.get('/', ctrl.listUsers);

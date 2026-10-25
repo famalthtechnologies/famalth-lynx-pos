@@ -4,7 +4,7 @@ import 'core/config/app_config.dart';
 import 'core/auth/control_plane_storage.dart';
 import 'screens/control_plane/control_plane_login_screen.dart';
 import 'screens/settings/master_control_plane_screen.dart';
-import 'main.dart' show globalSnackbarKey;
+import 'main.dart' show globalSnackbarKey, globalNavigatorKey;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +26,7 @@ class EnterpriseControlPlaneApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: globalNavigatorKey,
       scaffoldMessengerKey: globalSnackbarKey,
       title: 'Famalth Enterprise Control Plane',
       debugShowCheckedModeBanner: false,

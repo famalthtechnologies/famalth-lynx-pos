@@ -5075,6 +5075,161 @@ COMMIT;
         ALTER TABLE supplier_bills ADD COLUMN IF NOT EXISTS round_off_amount NUMERIC(12, 2) DEFAULT 0.00;
       `);
     }
+  },
+  {
+    version: 123,
+    description: "Add staff login QR token, clinic appointments, service quota subscriptions, table reservations expansion, and USB mobile push settings",
+    up: async (db: any) => {
+      await db.query(`
+        -- 1. Users login QR token
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS login_qr_token VARCHAR(255);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login_qr_token ON users(login_qr_token) WHERE login_qr_token IS NOT NULL;
+
+        -- 2. Service Quota Subscriptions (e.g. Clinic / Therapy / Sessions)
+        ALTER TABLE milk_subscriptions ADD COLUMN IF NOT EXISTS subscription_type VARCHAR(40) DEFAULT 'DAILY_QTY';
+        ALTER TABLE milk_subscriptions ADD COLUMN IF NOT EXISTS total_allowed_services INTEGER DEFAULT 0;
+        ALTER TABLE milk_subscriptions ADD COLUMN IF NOT EXISTS services_consumed INTEGER DEFAULT 0;
+        ALTER TABLE milk_subscriptions ADD COLUMN IF NOT EXISTS service_unit_name VARCHAR(50) DEFAULT 'Services';
+        ALTER TABLE milk_subscriptions ADD COLUMN IF NOT EXISTS per_service_price NUMERIC(12, 2) DEFAULT 0.00;
+
+        ALTER TABLE milk_subscription_consumptions ADD COLUMN IF NOT EXISTS consumption_type VARCHAR(40) DEFAULT 'DAILY_QTY';
+        ALTER TABLE milk_subscription_consumptions ADD COLUMN IF NOT EXISTS is_paid_visit BOOLEAN DEFAULT FALSE;
+
+        -- 3. Clinic Appointments & Prescriptions
+        CREATE TABLE IF NOT EXISTS clinic_appointments (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL REFERENCES outlets(id),
+          patient_id INTEGER,
+          patient_name VARCHAR(150) NOT NULL,
+          patient_phone VARCHAR(20) NOT NULL,
+          patient_email VARCHAR(150),
+          patient_age INTEGER,
+          patient_gender VARCHAR(20),
+          appointment_date DATE NOT NULL,
+          appointment_time VARCHAR(20) NOT NULL,
+          doctor_name VARCHAR(150),
+          department VARCHAR(100),
+          reason_for_visit TEXT,
+          status VARCHAR(30) DEFAULT 'SCHEDULED',
+          visited_at TIMESTAMP WITH TIME ZONE,
+          prescription_notes TEXT,
+          prescribed_medicines JSONB DEFAULT '[]'::jsonb,
+          billing_sale_id INTEGER,
+          billing_status VARCHAR(30) DEFAULT 'PENDING',
+          source VARCHAR(30) DEFAULT 'POS',
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_clinic_appointments_outlet_date ON clinic_appointments(outlet_id, appointment_date);
+        CREATE INDEX IF NOT EXISTS idx_clinic_appointments_patient ON clinic_appointments(outlet_id, patient_phone);
+
+        -- 4. Restaurant Table Booking from Home
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS customer_email VARCHAR(150);
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS reservation_date DATE;
+        ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'IN_HOUSE';
+
+        -- 5. System Settings for Clinic & USB Mobile
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_clinic_module BOOLEAN DEFAULT FALSE;
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS allow_public_appointments BOOLEAN DEFAULT TRUE;
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS allow_public_table_booking BOOLEAN DEFAULT TRUE;
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS usb_mobile_push_enabled BOOLEAN DEFAULT FALSE;
+      `);
+    }
+  },
+  {
+    version: 124,
+    description: "Doctor directory public listing by city, specialty, verification badge, and patient email verification",
+    up: async (db: any) => {
+      await db.query(`
+        -- 1. Doctor Profile columns on users
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality VARCHAR(100);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS qualification VARCHAR(100);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS experience_years INTEGER DEFAULT 0;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS consultation_fee NUMERIC(10,2) DEFAULT 0.00;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_public_listed BOOLEAN DEFAULT TRUE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified_badge BOOLEAN DEFAULT TRUE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS doctor_city VARCHAR(100);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS doctor_bio TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS available_days VARCHAR(100) DEFAULT 'Mon,Tue,Wed,Thu,Fri,Sat';
+
+        -- 2. Patient email verification on customers
+        ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_email_verified BOOLEAN DEFAULT FALSE;
+        ALTER TABLE customers ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP;
+
+        -- 3. Clinic appointments doctor and email verification link
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS doctor_id INTEGER;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS consultation_fee NUMERIC(10,2) DEFAULT 0.00;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS is_email_verified BOOLEAN DEFAULT FALSE;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS email_otp_verified_at TIMESTAMP;
+      `);
+    }
+  },
+  {
+    version: 125,
+    description: "HRMS module & Biometric Attendance device integration, attendance excel import support",
+    up: async (db: any) => {
+      await db.query(`
+        -- 1. Biometric Devices Table
+        CREATE TABLE IF NOT EXISTS hr_biometric_devices (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL,
+          device_name VARCHAR(150) NOT NULL,
+          ip_address VARCHAR(100) NOT NULL,
+          port INTEGER DEFAULT 4370,
+          machine_id VARCHAR(100) DEFAULT '1',
+          protocol VARCHAR(50) DEFAULT 'STANDALONE_TCP',
+          push_api_key VARCHAR(255),
+          is_active BOOLEAN DEFAULT TRUE,
+          last_sync_at TIMESTAMP,
+          last_ping_status VARCHAR(50) DEFAULT 'OFFLINE',
+          total_punches_synced INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_hr_biometric_outlet ON hr_biometric_devices(outlet_id);
+
+        -- 2. System settings module flags
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_hrms_module BOOLEAN DEFAULT FALSE;
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_retail_billing BOOLEAN DEFAULT TRUE;
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_restaurant_module BOOLEAN DEFAULT TRUE;
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_inventory_module BOOLEAN DEFAULT TRUE;
+
+        -- 3. Punch import tracking on hr_attendance_punches
+        ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS remarks TEXT;
+        ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS biometric_device_id INTEGER;
+      `);
+    }
+  },
+  {
+    version: 126,
+    description: "Multi-outlet tenancy performance indexes: enforce index scans for outlet-scoped data queries across inventory, sales, dining, and finance",
+    up: async (db: any) => {
+      await db.query(`
+        -- Multi-Outlet High-Performance Isolation B-Tree Indexes
+        CREATE INDEX IF NOT EXISTS idx_item_master_outlet_id ON item_master(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_stock_ledger_outlet_id ON stock_ledger(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_kot_headers_outlet_id ON kot_headers(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_goods_receipts_outlet_id ON goods_receipts(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_purchase_orders_outlet_id ON purchase_orders(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_supplier_bills_outlet_id ON supplier_bills(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_supplier_payments_outlet_id ON supplier_payments(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_expenses_outlet_id ON expenses(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_restaurant_tables_outlet_id ON restaurant_tables(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_table_reservations_outlet_id ON table_reservations(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_customers_outlet_id ON customers(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_sales_headers_outlet_id ON sales_headers(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_hr_employees_outlet_id ON hr_employees(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_outlet_id ON accounting_vouchers(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_user_notes_outlet_id ON user_notes(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_bank_accounts_outlet_id ON bank_accounts(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_system_settings_outlet_id ON system_settings(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_damage_headers_outlet_id ON damage_headers(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_return_headers_outlet_id ON return_headers(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_stock_taking_outlet_id ON stock_taking(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_supplier_master_outlet_id ON supplier_master(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_milk_subscriptions_outlet_id ON milk_subscriptions(outlet_id);
+      `);
+    }
   }
 ];
 

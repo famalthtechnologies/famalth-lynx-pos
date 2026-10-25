@@ -77,6 +77,21 @@ router.post('/dining/register-profile', diningCtrl.registerCustomerDiningProfile
 router.post('/dining/place-order', diningCtrl.placeCustomerDiningOrder);
 router.post('/dining/pay-bill', diningCtrl.payCustomerDiningBill);
 router.post('/dining/call-waiter', diningCtrl.callTableWaiter);
+router.post('/dining/book-table', diningCtrl.bookTablePublic);
+
+// Public Doctor Portal & Clinic Appointment System
+const clinicCtrl = require('../controllers/clinic/clinic.controller');
+router.get('/clinic/cities', clinicCtrl.getPublicDoctorCities);
+router.get('/clinic/specialities', clinicCtrl.getPublicSpecialities);
+router.get('/clinic/doctors', clinicCtrl.getPublicDoctors);
+router.post('/clinic/request-email-otp', clinicCtrl.requestPatientEmailOtp);
+router.post('/clinic/verify-email-otp', clinicCtrl.verifyPatientEmailOtp);
+router.post('/clinic/appointment', clinicCtrl.bookAppointmentPublic);
+router.get('/clinic/patient-history', clinicCtrl.getPatientHistoryPublic);
+
+// Customer UPI QR Landing Page
+const { renderCustomerQrPage } = require('../controllers/public/customerQr.controller');
+router.get('/customer-qr', renderCustomerQrPage);
 
 // Google-style Unsubscribe Landing Page
 const { renderUnsubscribePage } = require('../controllers/public/unsubscribe.controller');

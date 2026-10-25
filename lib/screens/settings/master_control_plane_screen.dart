@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/control_plane_storage.dart';
+import '../../core/config/app_config.dart';
 import '../control_plane/control_plane_login_screen.dart';
 import 'data_dictionary_helper.dart';
 
@@ -644,6 +649,28 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
   List<dynamic> _staffMembers = [];
   List<dynamic> _resellersList = [];
 
+  // Enterprise Storage & Outlet Storage
+  Map<String, dynamic>? _enterpriseStorage;
+  List<dynamic> _outletStorageList = [];
+  bool _isLoadingStorage = false;
+
+  // Continuous Scrolling & Enterprise Pagination (10 by 10)
+  int _clientVisibleCount = 10;
+  int _outletVisibleCount = 10;
+  final TextEditingController _outletSearchController = TextEditingController();
+  String _outletSearchQuery = '';
+  final ScrollController _clientScrollController = ScrollController();
+  final ScrollController _outletScrollController = ScrollController();
+
+  // Emergency Maintenance Mode Telemetry
+  Map<String, dynamic> _maintenanceState = {
+    'isActive': false,
+    'title': 'System Under Scheduled Maintenance',
+    'message': 'Scheduled system optimization is in progress. Store operations are temporarily paused.',
+    'remainingMinutes': 0,
+    'durationMinutes': 30,
+  };
+
   @override
   void initState() {
     super.initState();
@@ -655,6 +682,30 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
         _stopSupportLiveTimer();
       }
     });
+
+    // Continuous scrolling listeners: automatically reveals next 10 items on scroll
+    _clientScrollController.addListener(() {
+      if (_clientScrollController.hasClients &&
+          _clientScrollController.position.pixels >= _clientScrollController.position.maxScrollExtent - 200) {
+        if (_clientVisibleCount < _tenants.length) {
+          setState(() {
+            _clientVisibleCount = (_clientVisibleCount + 10).clamp(0, _tenants.length + 10);
+          });
+        }
+      }
+    });
+
+    _outletScrollController.addListener(() {
+      if (_outletScrollController.hasClients &&
+          _outletScrollController.position.pixels >= _outletScrollController.position.maxScrollExtent - 200) {
+        if (_outletVisibleCount < _outletStorageList.length) {
+          setState(() {
+            _outletVisibleCount = (_outletVisibleCount + 10).clamp(0, _outletStorageList.length + 10);
+          });
+        }
+      }
+    });
+
     _checkAuthAndLoad();
   }
 
@@ -679,6 +730,9 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
     _ticketChatInputController.dispose();
     _sqlQueryController.dispose();
     _errorAnalyzerController.dispose();
+    _outletSearchController.dispose();
+    _clientScrollController.dispose();
+    _outletScrollController.dispose();
     super.dispose();
   }
 
@@ -691,6 +745,8 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
       _fetchSupportAgents(),
       _fetchRMs(),
       _fetchStaffMembers(),
+      _fetchEnterpriseStorage(silent: true),
+      _fetchMaintenanceStatus(),
     ]);
     if (mounted) {
       setState(() => _isLoading = false);
@@ -824,6 +880,464 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
         setState(() => _rms = res['data'] ?? []);
       }
     } catch (_) {}
+  }
+
+  Future<void> _fetchEnterpriseStorage({bool silent = false}) async {
+    if (!silent && mounted) setState(() => _isLoadingStorage = true);
+    try {
+      final res = await ApiClient.get('/api/backup/enterprise-storage', silent: silent);
+      if (res != null && res['success'] == true && mounted) {
+        setState(() {
+          _enterpriseStorage = res['data']?['systemStorage'] as Map<String, dynamic>?;
+          _outletStorageList = res['data']?['outletStorageList'] as List<dynamic>? ?? [];
+          _isLoadingStorage = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingStorage = false);
+    }
+  }
+
+  Future<void> _downloadBackupFile(String downloadRelativeOrAbsoluteUrl, String defaultFilename) async {
+    try {
+      final token = await ControlPlaneStorage.getToken();
+      final serverBase = AppConfig.baseUrl.replaceAll(RegExp(r'/+$'), '');
+      String fullUrl = downloadRelativeOrAbsoluteUrl.startsWith('http')
+          ? downloadRelativeOrAbsoluteUrl
+          : '$serverBase${downloadRelativeOrAbsoluteUrl.startsWith('/') ? '' : '/'}$downloadRelativeOrAbsoluteUrl';
+
+      if (token != null && token.isNotEmpty && !fullUrl.contains('token=')) {
+        final separator = fullUrl.contains('?') ? '&' : '?';
+        fullUrl = '$fullUrl${separator}token=${Uri.encodeComponent(token)}';
+      }
+
+      String? downloadsDirPath;
+      if (!kIsWeb) {
+        if (Platform.isWindows) {
+          final userProfile = Platform.environment['USERPROFILE'];
+          if (userProfile != null && userProfile.isNotEmpty) {
+            downloadsDirPath = '$userProfile\\Downloads';
+          }
+        } else if (Platform.isMacOS || Platform.isLinux) {
+          final home = Platform.environment['HOME'];
+          if (home != null && home.isNotEmpty) {
+            downloadsDirPath = '$home/Downloads';
+          }
+        }
+      }
+
+      if (downloadsDirPath != null) {
+        final dir = Directory(downloadsDirPath);
+        if (!dir.existsSync()) {
+          dir.createSync(recursive: true);
+        }
+
+        final savePath = '$downloadsDirPath${Platform.pathSeparator}$defaultFilename';
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Downloading $defaultFilename directly to Downloads folder...'),
+              backgroundColor: const Color(0xFF0284C7),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+
+        final client = HttpClient();
+        final request = await client.getUrl(Uri.parse(fullUrl));
+        if (token != null && token.isNotEmpty) {
+          request.headers.set('Authorization', 'Bearer $token');
+        }
+        final response = await request.close();
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final file = File(savePath);
+          final sink = file.openWrite();
+          await response.pipe(sink);
+          await sink.close();
+
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved to Downloads: $defaultFilename'),
+              backgroundColor: Colors.green.shade700,
+              duration: const Duration(seconds: 10),
+              action: SnackBarAction(
+                label: 'Open Folder',
+                textColor: Colors.white,
+                onPressed: () {
+                  if (Platform.isWindows) {
+                    Process.run('explorer.exe', ['/select,', savePath]);
+                  } else if (Platform.isMacOS) {
+                    Process.run('open', ['-R', savePath]);
+                  } else if (Platform.isLinux) {
+                    Process.run('xdg-open', [downloadsDirPath!]);
+                  }
+                },
+              ),
+            ),
+          );
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Direct file download error: $e');
+    }
+
+    // Fallback: Launch in external browser
+    try {
+      final token = await ControlPlaneStorage.getToken();
+      final serverBase = AppConfig.baseUrl.replaceAll(RegExp(r'/+$'), '');
+      String fallbackUrl = downloadRelativeOrAbsoluteUrl.startsWith('http')
+          ? downloadRelativeOrAbsoluteUrl
+          : '$serverBase${downloadRelativeOrAbsoluteUrl.startsWith('/') ? '' : '/'}$downloadRelativeOrAbsoluteUrl';
+      if (token != null && token.isNotEmpty && !fallbackUrl.contains('token=')) {
+        final separator = fallbackUrl.contains('?') ? '&' : '?';
+        fallbackUrl = '$fallbackUrl${separator}token=${Uri.encodeComponent(token)}';
+      }
+      final uri = Uri.parse(fallbackUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (launchErr) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to download: $launchErr'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _triggerOutletBackup(int outletId, String outletCode, String outletName) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Generating isolated .posbak backup for $outletName ($outletCode)...'),
+        backgroundColor: const Color(0xFF0284C7),
+      ),
+    );
+
+    try {
+      final res = await ApiClient.post('/api/backup/tenant-backup?outlet_id=$outletId', {});
+      if (res != null && res['success'] == true) {
+        if (!mounted) return;
+        final downloadUrl = res['data']?['downloadUrl'] ?? '';
+        final filename = res['data']?['filename'] ?? '${outletCode}_backup.posbak';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Backup ready: ${res['message'] ?? 'Snapshot secured'}'),
+            backgroundColor: Colors.green.shade700,
+            action: downloadUrl.isNotEmpty
+                ? SnackBarAction(
+                    label: 'Save to Downloads',
+                    textColor: Colors.white,
+                    onPressed: () => _downloadBackupFile(downloadUrl, filename),
+                  )
+                : null,
+          ),
+        );
+        if (downloadUrl.isNotEmpty) {
+          _downloadBackupFile(downloadUrl, filename);
+        }
+        _fetchEnterpriseStorage(silent: true);
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res?['message'] ?? 'Backup failed.'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Backup error: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _fetchMaintenanceStatus() async {
+    try {
+      final res = await ApiClient.get('/api/system/maintenance-status', silent: true);
+      if (res != null && res['success'] == true && res['data'] != null && mounted) {
+        setState(() {
+          _maintenanceState = res['data'] as Map<String, dynamic>;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _showMaintenanceModeDialog() async {
+    bool active = _maintenanceState['isActive'] == true;
+    int duration = _maintenanceState['durationMinutes'] ?? 30;
+    final titleCtrl = TextEditingController(text: _maintenanceState['title'] ?? 'System Under Scheduled Maintenance');
+    final msgCtrl = TextEditingController(text: _maintenanceState['message'] ?? 'Scheduled system optimization is in progress. Store operations are temporarily paused.');
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.build_circle_rounded, color: active ? Colors.red.shade700 : const Color(0xFF0284C7)),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Emergency Maintenance Mode', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+            ],
+          ),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: active ? Colors.red.shade50 : const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: active ? Colors.red.shade200 : const Color(0xFFBFDBFE)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(active ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded, color: active ? Colors.red.shade700 : const Color(0xFF1D4ED8), size: 28),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                active ? 'Server Status: HALTED (Maintenance Active)' : 'Server Status: ONLINE (Normal Operations)',
+                                style: TextStyle(fontWeight: FontWeight.bold, color: active ? Colors.red.shade900 : const Color(0xFF1E3A8A), fontSize: 13),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                active
+                                    ? 'Store terminals cannot perform checkout or sync until resumed. Remaining: ~${_maintenanceState['remainingMinutes'] ?? duration}m.'
+                                    : 'All client POS terminals and clinics are operating normally.',
+                                style: TextStyle(color: active ? Colors.red.shade700 : const Color(0xFF3B82F6), fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  SwitchListTile(
+                    title: const Text('Halt All Outlets for Maintenance', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    subtitle: const Text('Pauses all checkout, billing, and sync across all merchants.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    value: active,
+                    activeColor: Colors.red.shade700,
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: (val) => setDlgState(() => active = val),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Downtime Duration Window:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    children: [15, 30, 45, 60, 120, 240].map((mins) {
+                      final isSel = duration == mins;
+                      return ChoiceChip(
+                        label: Text('$mins mins'),
+                        selected: isSel,
+                        selectedColor: const Color(0xFF0284C7),
+                        labelStyle: TextStyle(color: isSel ? Colors.white : Colors.black87, fontSize: 11, fontWeight: FontWeight.bold),
+                        onSelected: (sel) {
+                          if (sel) setDlgState(() => duration = mins);
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text('Notice Title:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: titleCtrl,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Message Displayed to Terminals:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: msgCtrl,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: active ? Colors.red.shade700 : const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                try {
+                  final res = await ApiClient.post('/api/system/maintenance', {
+                    'isActive': active,
+                    'title': titleCtrl.text.trim(),
+                    'message': msgCtrl.text.trim(),
+                    'durationMinutes': duration,
+                  });
+                  if (res != null && res['success'] == true && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(res['message'] ?? 'Maintenance mode updated.'),
+                        backgroundColor: active ? Colors.red.shade700 : Colors.green.shade700,
+                      ),
+                    );
+                    _fetchMaintenanceStatus();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+                  }
+                }
+              },
+              child: Text(active ? 'Save & Stop All Outlets' : 'Resume All Outlets'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _triggerSystemBackup() async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Preparing complete enterprise system backup archive (.ZIP with database & media)...'),
+        backgroundColor: Color(0xFF0284C7),
+      ),
+    );
+
+    try {
+      final res = await ApiClient.post('/api/backup/system-backup', {
+        'format': 'zip',
+        'includeUploads': true,
+      });
+      if (res != null && res['success'] == true) {
+        if (!mounted) return;
+        final filename = res['data']?['filename'] ?? 'famalth_enterprise_backup_${DateTime.now().millisecondsSinceEpoch}.zip';
+        final downloadUrl = '/api/backup/download/${Uri.encodeComponent(filename)}';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['message'] ?? 'Complete enterprise system backup archive created!'),
+            backgroundColor: Colors.green.shade700,
+            action: SnackBarAction(
+              label: 'Download ZIP',
+              textColor: Colors.white,
+              onPressed: () => _downloadBackupFile(downloadUrl, filename),
+            ),
+          ),
+        );
+        _downloadBackupFile(downloadUrl, filename);
+        _fetchEnterpriseStorage(silent: true);
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res?['message'] ?? 'System backup failed.'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('System backup error: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _triggerSystemRestore() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['zip', 'posbak', 'enc', 'json'],
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      Uint8List? bytes = file.bytes;
+      if (bytes == null && file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+
+      if (bytes == null || bytes.isEmpty) return;
+
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red, size: 24),
+              SizedBox(width: 8),
+              Expanded(child: Text('Confirm Full System Restore')),
+            ],
+          ),
+          content: Text(
+            'You are about to restore the system-wide snapshot "${file.name}".\n\n'
+            'This will update catalog and system schemas across all merchants.\n'
+            'Do you wish to proceed?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Proceed Restore', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm != true) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Restoring full system snapshot... Please wait.'),
+          backgroundColor: Color(0xFF0284C7),
+        ),
+      );
+
+      final base64Payload = base64Encode(bytes);
+      final res = await ApiClient.post('/api/backup/restore-system-backup', {
+        'base64': base64Payload,
+        'filename': file.name,
+      });
+
+      if (res != null && res['success'] == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['message'] ?? 'Full system restore completed successfully!'),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+        _fetchEnterpriseStorage(silent: true);
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res?['message'] ?? 'Restore failed.'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Restore error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   // --- ACTIONS ---
@@ -2454,11 +2968,30 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
             _GrowthTrendPoint('Oct 26', 0, 0, 11),
           ];
 
+    final breakdown = _enterpriseStorage?['breakdown'] as Map<String, dynamic>? ?? {};
+    final dbBytes = (breakdown['databaseBytes'] as num?)?.toDouble() ?? 109295295.0;
+    final backupsBytes = (breakdown['backupsBytes'] as num?)?.toDouble() ?? 0.0;
+    final uploadsBytes = (breakdown['uploadsBytes'] as num?)?.toDouble() ?? 0.0;
+    final dbMb = dbBytes / (1024 * 1024);
+    final backupsMb = backupsBytes / (1024 * 1024);
+    final uploadsMb = uploadsBytes / (1024 * 1024);
+
     final List<_StorageDoughnutPoint> storageData = [
-      _StorageDoughnutPoint('POS Orders & Invoices (42%)', 14.8, const Color(0xFF0284C7)),
-      _StorageDoughnutPoint('Daily Automated Backups (28%)', 9.8, const Color(0xFF10B981)),
-      _StorageDoughnutPoint('Catalog & Images (18%)', 6.3, const Color(0xFFF59E0B)),
-      _StorageDoughnutPoint('System & Telemetry Logs (12%)', 4.2, const Color(0xFF8B5CF6)),
+      _StorageDoughnutPoint(
+        'Database (${breakdown['databasePretty'] ?? '104 MB'})',
+        dbMb < 1 ? 1.0 : dbMb,
+        const Color(0xFF0284C7),
+      ),
+      _StorageDoughnutPoint(
+        'Backups (${breakdown['backupsPretty'] ?? '0 B'})',
+        backupsMb < 0.5 ? 0.5 : backupsMb,
+        const Color(0xFF10B981),
+      ),
+      _StorageDoughnutPoint(
+        'Media & Uploads (${breakdown['uploadsPretty'] ?? '0 B'})',
+        uploadsMb < 0.5 ? 0.5 : uploadsMb,
+        const Color(0xFFF59E0B),
+      ),
     ];
 
     final totalRev = double.tryParse((licenses['totalRevenue'] ?? 54989.0).toString()) ?? 54989.0;
@@ -2820,36 +3353,42 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          const Row(
+                          Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text('Database Storage', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
-                              Text('35.1 GB / 100 GB (35.1%)', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 12)),
+                              const Text('Database Storage', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                              Text(
+                                '${breakdown['databasePretty'] ?? '104 MB'} DB • ${_enterpriseStorage?['totalFreePretty'] ?? '54 GB'} free',
+                                style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
                             ],
                           ),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
-                            child: const LinearProgressIndicator(
-                              value: 0.351,
+                            child: LinearProgressIndicator(
+                              value: (((_enterpriseStorage?['percentageUsed'] as num?)?.toDouble() ?? 35.0) / 100.0).clamp(0.01, 1.0),
                               minHeight: 6,
-                              backgroundColor: Color(0xFFF1F5F9),
-                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0284C7)),
+                              backgroundColor: const Color(0xFFF1F5F9),
+                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0284C7)),
                             ),
                           ),
-                          const Row(
+                          Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text('Sync Network Bandwidth', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
-                              Text('128.5 GB / 500 GB (25.7%)', style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 12)),
+                              const Text('System Disk Allocation', style: TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                              Text(
+                                '${_enterpriseStorage?['totalUsedPretty'] ?? '141 GB'} / ${_enterpriseStorage?['totalDiskPretty'] ?? '200 GB'} (${_enterpriseStorage?['percentageUsed'] ?? 72}%)',
+                                style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
                             ],
                           ),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
-                            child: const LinearProgressIndicator(
-                              value: 0.257,
+                            child: LinearProgressIndicator(
+                              value: (((_enterpriseStorage?['percentageUsed'] as num?)?.toDouble() ?? 72.0) / 100.0).clamp(0.01, 1.0),
                               minHeight: 6,
-                              backgroundColor: Color(0xFFF1F5F9),
-                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                              backgroundColor: const Color(0xFFF1F5F9),
+                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEF4444)),
                             ),
                           ),
                         ],
@@ -2879,6 +3418,10 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
               }
             },
           ),
+          const SizedBox(height: 24),
+
+          // Particular Outlet-Wise Storage Breakdown Card
+          _buildOutletWiseStorageCard(),
           const SizedBox(height: 24),
 
           // Quick Actions Bar
@@ -2952,11 +3495,345 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
     );
   }
 
+  Widget _buildOutletWiseStorageCard() {
+    final filteredOutlets = _outletStorageList.where((item) {
+      if (_outletSearchQuery.isEmpty) return true;
+      final q = _outletSearchQuery;
+      final name = (item['outletName'] ?? '').toString().toLowerCase();
+      final code = (item['outletCode'] ?? '').toString().toLowerCase();
+      final module = (item['businessModule'] ?? '').toString().toLowerCase();
+      return name.contains(q) || code.contains(q) || module.contains(q);
+    }).toList();
+
+    final visibleOutlets = filteredOutlets.take(_outletVisibleCount).toList();
+    final isMaintenanceActive = _maintenanceState['isActive'] == true;
+
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.dns_rounded, color: Color(0xFF0284C7), size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'Particular Outlet-Wise Storage & Bandwidth Breakdown',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        if (isMaintenanceActive) ...[
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.red.shade400),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.pause_circle_filled, size: 12, color: Colors.red),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Maintenance Active (~${_maintenanceState['remainingMinutes'] ?? 30}m)',
+                                  style: TextStyle(color: Colors.red.shade900, fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Live database size, monthly sync bandwidth, recorded transaction volumes, and portable backup archives per branch.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                    ),
+                  ],
+                ),
+              ),
+              // Header Global Control Buttons
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isMaintenanceActive ? Colors.red.shade700 : const Color(0xFFE11D48),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: Icon(isMaintenanceActive ? Icons.pause_circle_filled : Icons.build_circle_rounded, size: 16),
+                    label: Text(isMaintenanceActive ? 'Stop All Outlets (Active)' : 'Emergency Maintenance'),
+                    onPressed: _showMaintenanceModeDialog,
+                  ),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0D9488),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.archive_rounded, size: 16),
+                    label: const Text('Complete System Backup (.ZIP)'),
+                    onPressed: _triggerSystemBackup,
+                  ),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFD97706),
+                      side: const BorderSide(color: Color(0xFFD97706)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.settings_backup_restore_rounded, size: 16),
+                    label: const Text('Restore System'),
+                    onPressed: _triggerSystemRestore,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 20, color: Color(0xFF64748B)),
+                    tooltip: 'Refresh Storage & Bandwidth',
+                    onPressed: () => _fetchEnterpriseStorage(),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Search Bar for Outlets
+          SizedBox(
+            height: 40,
+            child: TextField(
+              controller: _outletSearchController,
+              decoration: InputDecoration(
+                hintText: 'Search outlet branch name, code, or business module...',
+                hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF64748B)),
+                suffixIcon: _outletSearchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.close, size: 16),
+                        onPressed: () => setState(() {
+                          _outletSearchController.clear();
+                          _outletSearchQuery = '';
+                          _outletVisibleCount = 10;
+                        }),
+                      )
+                    : null,
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              onChanged: (val) {
+                setState(() {
+                  _outletSearchQuery = val.trim().toLowerCase();
+                  _outletVisibleCount = 10;
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          if (_isLoadingStorage && _outletStorageList.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: CircularProgressIndicator(color: Color(0xFF0284C7)),
+              ),
+            )
+          else if (filteredOutlets.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('No outlets found matching "$_outletSearchQuery".', style: TextStyle(color: Colors.grey.shade500)),
+              ),
+            )
+          else ...[
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowColor: WidgetStateProperty.all(const Color(0xFFF8FAFC)),
+                dataRowMinHeight: 52,
+                dataRowMaxHeight: 64,
+                columns: const [
+                  DataColumn(label: Text('Outlet Branch', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  DataColumn(label: Text('Module', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  DataColumn(label: Text('Tracked Records', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  DataColumn(label: Text('Database Size', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  DataColumn(label: Text('Sync Bandwidth', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  DataColumn(label: Text('Backups Stored', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  DataColumn(label: Text('Total Footprint', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                  DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                ],
+                rows: visibleOutlets.map((item) {
+                  final oId = item['outletId'];
+                  final oCode = item['outletCode'] ?? '';
+                  final oName = item['outletName'] ?? '';
+                  final oModule = item['businessModule'] ?? 'ALL';
+                  final records = item['recordCount'] ?? 0;
+                  final dbPretty = item['databasePretty'] ?? '0 B';
+                  final bandwidthPretty = item['bandwidthPretty'] ?? '0 B';
+                  final backupsPretty = item['backupsPretty'] ?? '0 B';
+                  final backupsCount = item['backupsCount'] ?? 0;
+                  final totalPretty = item['totalPretty'] ?? '0 B';
+                  final percent = (item['percentageOfUsed'] as num?)?.toDouble() ?? 0.0;
+                  final latestTimeAgo = item['latestBackupTimeAgo'] ?? 'No backups';
+
+                  return DataRow(
+                    cells: [
+                      DataCell(
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(oName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            const SizedBox(height: 2),
+                            Text('$oCode (ID: #$oId)', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                          ],
+                        ),
+                      ),
+                      DataCell(
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0284C7).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            oModule,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0284C7)),
+                          ),
+                        ),
+                      ),
+                      DataCell(Text('$records rows', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+                      DataCell(Text(dbPretty, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0284C7)))),
+                      // Bandwidth Column
+                      DataCell(
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.swap_vert_rounded, size: 14, color: Color(0xFF10B981)),
+                            const SizedBox(width: 4),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(bandwidthPretty, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                                Text('Monthly Sync', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      DataCell(
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(backupsPretty, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            Text('$backupsCount snapshots • $latestTimeAgo', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                          ],
+                        ),
+                      ),
+                      DataCell(
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(totalPretty, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                            Text('$percent% of used', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                          ],
+                        ),
+                      ),
+                      DataCell(
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0284C7),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                          icon: const Icon(Icons.download_rounded, size: 14),
+                          label: const Text('Export .posbak'),
+                          onPressed: () => _triggerOutletBackup(int.tryParse('$oId') ?? 1, oCode, oName),
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Enterprise Pagination Footer (10 by 10 Continuous Scrolling)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Showing ${visibleOutlets.length} of ${filteredOutlets.length} outlets • Continuous Scrolling (10 by 10)',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w500),
+                ),
+                if (visibleOutlets.length < filteredOutlets.length)
+                  TextButton.icon(
+                    style: TextButton.styleFrom(foregroundColor: const Color(0xFF0284C7)),
+                    icon: const Icon(Icons.arrow_downward_rounded, size: 15),
+                    label: Text('Reveal Next 10 (${filteredOutlets.length - visibleOutlets.length} remaining)'),
+                    onPressed: () {
+                      setState(() {
+                        _outletVisibleCount = (_outletVisibleCount + 10).clamp(0, filteredOutlets.length);
+                      });
+                    },
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   // ==========================================
   // TAB 2: TENANTS & OUTLETS
   // ==========================================
   Widget _buildTenantsTab() {
     final filtered = _filteredTenants;
+    final visibleClients = filtered.take(_clientVisibleCount).toList();
     final thisMonthCount = _tenants.where(_isThisMonthRenewal).length;
     final nextMonthCount = _tenants.where(_isNextMonthRenewal).length;
     final expiringCount = _tenants.where((t) => (t['licenseMetrics']?['daysLeft'] ?? 999) <= 30).length;
@@ -3137,11 +4014,48 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                       ),
                     )
                   : ListView.separated(
-                      itemCount: filtered.length,
-                      separatorBuilder: (_, __) => const Divider(color: Color(0xFFE2E8F0), height: 1),
-                      itemBuilder: (ctx, i) {
-                        final tenant = filtered[i];
-                        final outlets = (tenant['outlets'] as List<dynamic>?) ?? [];
+                      controller: _clientScrollController,
+                      itemCount: visibleClients.length + (filtered.length > visibleClients.length ? 1 : 0),
+                        separatorBuilder: (_, __) => const Divider(color: Color(0xFFE2E8F0), height: 1),
+                        itemBuilder: (ctx, i) {
+                          if (i == visibleClients.length) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                              color: const Color(0xFFF1F5F9),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Text(
+                                        'Showing ${visibleClients.length} of ${filtered.length} clients • Continuous Scrolling (10 by 10)',
+                                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(foregroundColor: const Color(0xFF0284C7)),
+                                    icon: const Icon(Icons.arrow_downward_rounded, size: 14),
+                                    label: Text('Reveal Next 10 (${filtered.length - visibleClients.length} remaining)'),
+                                    onPressed: () {
+                                      setState(() {
+                                        _clientVisibleCount = (_clientVisibleCount + 10).clamp(0, filtered.length);
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          final tenant = visibleClients[i];
+                          final outlets = (tenant['outlets'] as List<dynamic>?) ?? [];
                         final metrics = tenant['licenseMetrics'] ?? {};
                         final rm = tenant['relationship_manager'];
                         final reseller = tenant['reseller'];
@@ -3386,9 +4300,9 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                                   ),
                                 ),
                                 const SizedBox(height: 5),
-                                // Line 3: Email, Phone, Address & Individual Usage Metrics
+                                // Line 3: Email, Phone, Address
                                 Text(
-                                  'Email: ${tenant['contact_email'] != null && tenant['contact_email'].toString().isNotEmpty ? tenant['contact_email'] : "N/A"} • Phone: ${tenant['contact_phone'] != null && tenant['contact_phone'].toString().isNotEmpty ? tenant['contact_phone'] : "N/A"} | Address: ${tenant['billing_address'] != null && tenant['billing_address'].toString().isNotEmpty ? tenant['billing_address'] : "N/A"} | Storage: ${metrics['storageMb'] != null ? "${metrics['storageMb']} MB / 10 GB" : "N/A"} | Bandwidth: ${metrics['bandwidthMb'] != null ? "${metrics['bandwidthMb']} MB / 50 GB" : "N/A"}',
+                                  'Email: ${tenant['contact_email'] != null && tenant['contact_email'].toString().isNotEmpty ? tenant['contact_email'] : "N/A"} • Phone: ${tenant['contact_phone'] != null && tenant['contact_phone'].toString().isNotEmpty ? tenant['contact_phone'] : "N/A"} | Address: ${tenant['billing_address'] != null && tenant['billing_address'].toString().isNotEmpty ? tenant['billing_address'] : "N/A"}',
                                   style: const TextStyle(color: Color(0xFF64748B), fontSize: 11.5),
                                 ),
                               ],
@@ -3503,91 +4417,7 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                                   ),
                                   const SizedBox(height: 14),
 
-                                  // Section 2: Individual Client Usage Metrics (Storage & Bandwidth)
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF8FAFC),
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        // Individual Storage
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  const Row(
-                                                    children: [
-                                                      Icon(Icons.dns_outlined, size: 14, color: Color(0xFF0284C7)),
-                                                      SizedBox(width: 4),
-                                                      Text('Client Database Storage', style: TextStyle(color: Color(0xFF475569), fontSize: 11, fontWeight: FontWeight.bold)),
-                                                    ],
-                                                  ),
-                                                  Text(
-                                                    metrics['storageMb'] != null ? '${metrics['storageMb']} MB / 10,240 MB' : 'N/A',
-                                                    style: const TextStyle(color: Color(0xFF0F172A), fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 6),
-                                              ClipRRect(
-                                                borderRadius: BorderRadius.circular(4),
-                                                child: LinearProgressIndicator(
-                                                  value: metrics['storageMb'] != null ? ((metrics['storageMb'] as num) / 10240.0).clamp(0.0, 1.0) : 0.0,
-                                                  minHeight: 6,
-                                                  backgroundColor: const Color(0xFFE2E8F0),
-                                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF0284C7)),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 20),
-                                        // Individual Bandwidth
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  const Row(
-                                                    children: [
-                                                      Icon(Icons.swap_vert_rounded, size: 14, color: Color(0xFF10B981)),
-                                                      SizedBox(width: 4),
-                                                      Text('Monthly Sync Bandwidth', style: TextStyle(color: Color(0xFF475569), fontSize: 11, fontWeight: FontWeight.bold)),
-                                                    ],
-                                                  ),
-                                                  Text(
-                                                    metrics['bandwidthMb'] != null ? '${metrics['bandwidthMb']} MB / 51,200 MB' : 'N/A',
-                                                    style: const TextStyle(color: Color(0xFF0F172A), fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 6),
-                                              ClipRRect(
-                                                borderRadius: BorderRadius.circular(4),
-                                                child: LinearProgressIndicator(
-                                                  value: metrics['bandwidthMb'] != null ? ((metrics['bandwidthMb'] as num) / 51200.0).clamp(0.0, 1.0) : 0.0,
-                                                  minHeight: 6,
-                                                  backgroundColor: const Color(0xFFE2E8F0),
-                                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 14),
-
-                                  // Section 3: Client & Outlet Profile Information
+                                  // Section 2: Client & Outlet Profile Information
                                   Container(
                                     padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(

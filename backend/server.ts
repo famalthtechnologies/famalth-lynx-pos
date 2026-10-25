@@ -243,6 +243,10 @@ if (!fs.existsSync(licensePath)) {
                 ADD COLUMN IF NOT EXISTS kot_template_config JSONB DEFAULT '{}',
                 ADD COLUMN IF NOT EXISTS token_template_config JSONB DEFAULT '{}',
                 ADD COLUMN IF NOT EXISTS restaurant_settlement_mode VARCHAR(30) DEFAULT 'DIRECT',
+                ADD COLUMN IF NOT EXISTS enable_clinic_module BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS allow_public_appointments BOOLEAN DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS allow_public_table_booking BOOLEAN DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS usb_mobile_push_enabled BOOLEAN DEFAULT FALSE,
                 ADD COLUMN IF NOT EXISTS custom_settings JSONB DEFAULT '{}';
             `);
             console.log('✅ Verified/added currency, payment_modes, template configs, merchant_upi_id and subscription delivery charge columns in system_settings table');
@@ -255,9 +259,14 @@ if (!fs.existsSync(licensePath)) {
                 ALTER TABLE milk_subscriptions 
                 ADD COLUMN IF NOT EXISTS delivery_charge_amount NUMERIC(12,2) DEFAULT 0.0,
                 ADD COLUMN IF NOT EXISTS delivery_charge_gst_percent NUMERIC(12,2) DEFAULT 0.0,
-                ADD COLUMN IF NOT EXISTS delivery_charge_tax_amount NUMERIC(12,2) DEFAULT 0.0;
+                ADD COLUMN IF NOT EXISTS delivery_charge_tax_amount NUMERIC(12,2) DEFAULT 0.0,
+                ADD COLUMN IF NOT EXISTS subscription_type VARCHAR(40) DEFAULT 'DAILY_QTY',
+                ADD COLUMN IF NOT EXISTS total_allowed_services INTEGER DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS services_consumed INTEGER DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS service_unit_name VARCHAR(50) DEFAULT 'Services',
+                ADD COLUMN IF NOT EXISTS per_service_price NUMERIC(12,2) DEFAULT 0.0;
             `);
-            console.log('✅ Verified/added delivery charge columns in milk_subscriptions table');
+            console.log('✅ Verified/added delivery charge and service quota columns in milk_subscriptions table');
         } catch (colErr: any) {
             console.warn('⚠️ Failed to dynamically alter table milk_subscriptions:', colErr.message);
         }
@@ -308,8 +317,94 @@ if (!fs.existsSync(licensePath)) {
                 ADD COLUMN IF NOT EXISTS food_type VARCHAR(20) DEFAULT 'VEG',
                 ADD COLUMN IF NOT EXISTS dietary_type VARCHAR(20) DEFAULT 'VEG',
                 ADD COLUMN IF NOT EXISTS is_veg BOOLEAN DEFAULT TRUE;
+
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS login_qr_token VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS speciality VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS qualification VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS experience_years INTEGER DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS consultation_fee NUMERIC(10,2) DEFAULT 0.00,
+                ADD COLUMN IF NOT EXISTS is_public_listed BOOLEAN DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS is_verified_badge BOOLEAN DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS doctor_city VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS doctor_bio TEXT,
+                ADD COLUMN IF NOT EXISTS available_days VARCHAR(100) DEFAULT 'Mon,Tue,Wed,Thu,Fri,Sat';
+
+                ALTER TABLE customers
+                ADD COLUMN IF NOT EXISTS is_email_verified BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP;
+
+                CREATE TABLE IF NOT EXISTS clinic_appointments (
+                    id SERIAL PRIMARY KEY,
+                    outlet_id INTEGER NOT NULL,
+                    patient_id INTEGER,
+                    patient_name VARCHAR(150) NOT NULL,
+                    patient_phone VARCHAR(20) NOT NULL,
+                    patient_email VARCHAR(150),
+                    patient_age INTEGER,
+                    patient_gender VARCHAR(20),
+                    appointment_date DATE NOT NULL,
+                    appointment_time VARCHAR(20) NOT NULL,
+                    doctor_name VARCHAR(150),
+                    doctor_id INTEGER,
+                    consultation_fee NUMERIC(10,2) DEFAULT 0.00,
+                    is_email_verified BOOLEAN DEFAULT FALSE,
+                    email_otp_verified_at TIMESTAMP,
+                    department VARCHAR(100),
+                    reason_for_visit TEXT,
+                    status VARCHAR(30) DEFAULT 'SCHEDULED',
+                    visited_at TIMESTAMP,
+                    prescription_notes TEXT,
+                    prescribed_medicines JSONB DEFAULT '[]',
+                    billing_sale_id INTEGER,
+                    billing_status VARCHAR(30) DEFAULT 'PENDING',
+                    source VARCHAR(30) DEFAULT 'POS',
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS hr_biometric_devices (
+                    id SERIAL PRIMARY KEY,
+                    outlet_id INTEGER NOT NULL,
+                    device_name VARCHAR(150) NOT NULL,
+                    ip_address VARCHAR(100) NOT NULL,
+                    port INTEGER DEFAULT 4370,
+                    machine_id VARCHAR(100) DEFAULT '1',
+                    protocol VARCHAR(50) DEFAULT 'STANDALONE_TCP',
+                    push_api_key VARCHAR(255),
+                    is_active BOOLEAN DEFAULT TRUE,
+                    last_sync_at TIMESTAMP WITH TIME ZONE,
+                    last_ping_status VARCHAR(50) DEFAULT 'OFFLINE',
+                    total_punches_synced INTEGER DEFAULT 0,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_hrms_module BOOLEAN DEFAULT FALSE;
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_retail_billing BOOLEAN DEFAULT TRUE;
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_restaurant_module BOOLEAN DEFAULT TRUE;
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_inventory_module BOOLEAN DEFAULT TRUE;
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_clinic_module BOOLEAN DEFAULT FALSE;
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS allow_public_appointments BOOLEAN DEFAULT TRUE;
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS allow_public_table_booking BOOLEAN DEFAULT TRUE;
+                ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS usb_mobile_push_enabled BOOLEAN DEFAULT FALSE;
+
+                ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS round_off_amount NUMERIC(12, 2) DEFAULT 0.00;
+                ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS round_off_amount NUMERIC(12, 2) DEFAULT 0.00;
+                ALTER TABLE supplier_payments ADD COLUMN IF NOT EXISTS round_off NUMERIC(12, 2) DEFAULT 0.00;
+                ALTER TABLE supplier_bills ADD COLUMN IF NOT EXISTS round_off_amount NUMERIC(12, 2) DEFAULT 0.00;
+
+                ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS customer_email VARCHAR(150);
+                ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS reservation_date DATE;
+                ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'IN_HOUSE';
+
+                ALTER TABLE milk_subscription_consumptions ADD COLUMN IF NOT EXISTS consumption_type VARCHAR(40) DEFAULT 'DAILY_QTY';
+                ALTER TABLE milk_subscription_consumptions ADD COLUMN IF NOT EXISTS is_paid_visit BOOLEAN DEFAULT FALSE;
+
+                ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS remarks TEXT;
+                ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS biometric_device_id INTEGER;
             `);
-            console.log('✅ Verified/added custom columns in property_info, restaurant_tables, kot_headers, sales_headers, and item_master');
+            console.log('✅ Verified/added custom columns in property_info, restaurant_tables, kot_headers, sales_headers, item_master, clinic_appointments, and hr_biometric_devices');
         } catch (colErr: any) {
             console.warn('⚠️ Failed to dynamically alter table property_info/restaurant_tables/item_master:', colErr.message);
         }
@@ -499,6 +594,13 @@ if (!fs.existsSync(licensePath)) {
 
 // No-auth: Flutter uses this at startup to anchor its internal clock against DB time
 app.use('/api/system/server-time', require('./routes/systemTime.routes'));
+const rawSystemRoutes = require('./routes/system.routes');
+app.use('/api/system', rawSystemRoutes.default || rawSystemRoutes);
+
+// Global Maintenance Mode Guard: Pauses all store terminals during server maintenance
+const rawMaintenance = require('./middlewares/maintenance.middleware');
+const maintenanceGuard = rawMaintenance.default || rawMaintenance.maintenanceMiddleware || rawMaintenance;
+app.use(maintenanceGuard);
 
 app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/public', require('./routes/public.routes'));
@@ -540,6 +642,8 @@ app.use('/api/payments/mpesa', require('./routes/mpesa.routes'));
 app.use('/api/payments/gateways', require('./routes/paymentGateways.routes'));
 app.use('/api/marketplace', require('./routes/marketplace.routes'));
 app.use('/api/v1/control-plane', require('./routes/control_plane.routes'));
+app.use('/api/clinic', require('./routes/clinic.routes'));
+app.use('/api/backup', require('./routes/backup.routes'));
 
 // Google-style Unsubscribe Landing Route
 const { renderUnsubscribePage } = require('./controllers/public/unsubscribe.controller');
