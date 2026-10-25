@@ -97,6 +97,7 @@ router.post('/clinic/request-email-otp', clinicCtrl.requestPatientEmailOtp);
 router.post('/clinic/verify-email-otp', clinicCtrl.verifyPatientEmailOtp);
 router.post('/clinic/appointment', clinicCtrl.bookAppointmentPublic);
 router.get('/clinic/patient-history', clinicCtrl.getPatientHistoryPublic);
+router.get('/clinic/my-subscriptions', clinicCtrl.getPublicPatientSubscriptions);
 
 // Customer UPI QR Landing Page
 const { renderCustomerQrPage } = require('../controllers/public/customerQr.controller');

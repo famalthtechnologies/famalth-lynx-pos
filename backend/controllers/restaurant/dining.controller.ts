@@ -1223,7 +1223,7 @@ export const resolveWaiterCall = async (req: Request, res: Response) => {
 export const getPublicDiningTables = async (req: Request, res: Response) => {
     try {
         const outlet_id = await resolveOutletId(req);
-        const whereClause: any = { is_active: true };
+        const whereClause: any = {};
         if (outlet_id) whereClause.outlet_id = outlet_id;
 
         const tables = await (req as any).propertyDb.models.restaurant_tables.findAll({
@@ -1332,12 +1332,14 @@ export const bookTablePublic = async (req: Request, res: Response) => {
 
         let assignedTableId = table_id ? Number(table_id) : null;
         if (!assignedTableId) {
-            const availableTable = await (req as any).propertyDb.models.restaurant_tables.findOne({
-                where: { outlet_id, is_active: true }
-            });
-            if (availableTable) {
-                assignedTableId = availableTable.id;
-            }
+            try {
+                const availableTable = await (req as any).propertyDb.models.restaurant_tables.findOne({
+                    where: { outlet_id }
+                });
+                if (availableTable) {
+                    assignedTableId = availableTable.id;
+                }
+            } catch (_) {}
         }
 
         const phone = customer_phone.trim();
@@ -1368,7 +1370,7 @@ export const bookTablePublic = async (req: Request, res: Response) => {
             reservation_time,
             guest_count: Number(guest_count) || 1,
             status: 'Pending',
-            remarks: remarks || 'Online reservation from home',
+            remarks: remarks || (req.body && req.body.special_requests) || 'Online reservation from home',
             address: address || null,
             gstin: gstin || null,
             source: 'ONLINE_HOME'

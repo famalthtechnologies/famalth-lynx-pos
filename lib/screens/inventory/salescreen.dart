@@ -63,6 +63,8 @@ class SaleScreen extends StatefulWidget {
   final List<int>? preloadedKotIds;
   final String? preloadedCustomerName;
   final String? preloadedCustomerPhone;
+  final String? preloadedDoctorName;
+  final int? preloadedAppointmentId;
   final bool affectStock;
   final String? challanNo;
   final bool openDraftsOnLaunch;
@@ -75,6 +77,8 @@ class SaleScreen extends StatefulWidget {
     this.preloadedKotIds,
     this.preloadedCustomerName,
     this.preloadedCustomerPhone,
+    this.preloadedDoctorName,
+    this.preloadedAppointmentId,
     this.affectStock = true,
     this.challanNo,
     this.openDraftsOnLaunch = false,
@@ -89,6 +93,7 @@ class _SaleScreenState extends State<SaleScreen> {
   final settingsCtrl = SystemSettingsController();
   Printer? _defaultPrinter;
   int? _preloadedTableId;
+  int? _preloadedAppointmentId;
   List<int>? _preloadedKotIds;
   bool _isRestaurantModule = false;
   bool get _isRestaurantActive => _isRestaurantModule || _isKotOrderLocked;
@@ -269,6 +274,7 @@ class _SaleScreenState extends State<SaleScreen> {
       }
 
       _preloadedTableId = widget.preloadedTableId;
+      _preloadedAppointmentId = widget.preloadedAppointmentId;
       _preloadedKotIds = widget.preloadedKotIds;
 
       // Run independent initial HTTP requests in parallel for 10x faster screen launch
@@ -313,6 +319,10 @@ class _SaleScreenState extends State<SaleScreen> {
 
       final pName = widget.preloadedCustomerName?.trim() ?? '';
       final pPhone = widget.preloadedCustomerPhone?.trim() ?? '';
+      final pDoctor = widget.preloadedDoctorName?.trim() ?? '';
+      if (pDoctor.isNotEmpty) {
+        _doctorName.text = pDoctor;
+      }
       if (pName.isNotEmpty || pPhone.isNotEmpty) {
         _customerName.text = pName;
         _customerPhone.text = pPhone;
@@ -7975,6 +7985,22 @@ class _SaleScreenState extends State<SaleScreen> {
       _pendingPreviousAdjustment = 0;
       _pendingAdvanceApplied = 0;
       _pendingAdvanceCreated = 0;
+      // Link completed sale to clinic appointment if opened from clinic consultation
+      if (_preloadedAppointmentId != null) {
+        final targetSaleId = savedSaleId > 0 ? savedSaleId : (int.tryParse((saveResponse?['data']?['primary_sale_id'] ?? saveResponse?['sale_id'] ?? 0).toString()) ?? 0);
+        final String saleNum = (saveResponse?['data']?['primary_sale_no'] ?? saveResponse?['data']?['sale_no'] ?? saveResponse?['sale_no'] ?? order.saleNo).toString();
+        try {
+          ApiClient.patch(
+            ApiEndpoints.clinicAppointmentBillingComplete(_preloadedAppointmentId!),
+            {
+              'sale_id': targetSaleId > 0 ? targetSaleId : null,
+              'sale_no': saleNum,
+            },
+          );
+        } catch (e) {
+          debugPrint('Error updating appointment billing status: $e');
+        }
+      }
       final customerId = _selectedCustomer?.id;
       for (final scheme in _selectedSchemes) {
         final isOneTime = scheme.repeatMode.toUpperCase() == 'ONCE' ||
@@ -8000,7 +8026,8 @@ class _SaleScreenState extends State<SaleScreen> {
     }
 
     final bool isRestaurantTableSale = _preloadedTableId != null || order.tableId != null;
-    if (isEditing || (status == 'COMPLETED' && isRestaurantTableSale) || ((status == 'PRINTED' || status == 'RUNNING') && isRestaurantTableSale)) {
+    final bool isClinicConsultationSale = _preloadedAppointmentId != null;
+    if (isEditing || (status == 'COMPLETED' && (isRestaurantTableSale || isClinicConsultationSale)) || ((status == 'PRINTED' || status == 'RUNNING') && isRestaurantTableSale)) {
       if (Navigator.canPop(context)) {
         Navigator.pop(context, true);
       }

@@ -42,6 +42,15 @@ const ROLE_PERMISSIONS = {
     ],
     CAPTAIN: [
         'RETAIL_SALES'
+    ],
+    DOCTOR: [
+        'CLINIC_MODULE', 'DOCTOR_DESK', 'PRESCRIBE_MEDICINE', 'PATIENT_HISTORY'
+    ],
+    RECEPTIONIST: [
+        'CLINIC_MODULE', 'RECEPTION_DESK', 'APPOINTMENT_BOOKING', 'ACCEPT_PAY_APPOINTMENT'
+    ],
+    PHARMACIST: [
+        'CLINIC_MODULE', 'PHARMACY_DESK', 'RETAIL_SALES', 'REPRINT_SALES_BILL'
     ]
 };
 
@@ -56,7 +65,10 @@ const ROLE_MAX_DISCOUNTS = {
     WAITER: 5.0,
     CAPTAIN: 15.0,
     KDS: 0.0,
-    MARKETING: 25.0
+    MARKETING: 25.0,
+    DOCTOR: 20.0,
+    RECEPTIONIST: 10.0,
+    PHARMACIST: 15.0
 };
 
 exports.listUsers = async (req, res) => {
@@ -125,7 +137,13 @@ exports.checkUsernameAvailability = async (req, res) => {
 };
 
 exports.createUser = async (req, res) => {
-    const { username, full_name, mobile, role, permissions, password, contact_email, max_discount_percent, pin_code, show_in_quick_login } = req.body;
+    const {
+        username, full_name, mobile, role, permissions, password, contact_email,
+        max_discount_percent, pin_code, show_in_quick_login,
+        speciality, qualification, registration_no, experience_years,
+        consultation_fee, whatsapp_no, doctor_city, doctor_bio, available_days,
+        is_public_listed, public_display_options
+    } = req.body;
 
     const outlet_id = req.user.outlet_id;
 
@@ -227,6 +245,25 @@ exports.createUser = async (req, res) => {
         password_hash: hash,
         pin_code: cleanPin,
         show_in_quick_login: show_in_quick_login !== undefined ? Boolean(show_in_quick_login) : false,
+        speciality: speciality ? speciality.trim() : (role === 'DOCTOR' ? 'General Physician' : null),
+        qualification: qualification ? qualification.trim() : (role === 'DOCTOR' ? 'MBBS' : null),
+        registration_no: registration_no ? registration_no.trim() : null,
+        experience_years: experience_years ? Number(experience_years) : 0,
+        consultation_fee: consultation_fee ? Number(consultation_fee) : 0.00,
+        whatsapp_no: whatsapp_no ? whatsapp_no.trim() : null,
+        doctor_city: doctor_city ? doctor_city.trim() : null,
+        doctor_bio: doctor_bio ? doctor_bio.trim() : null,
+        available_days: available_days || 'Mon,Tue,Wed,Thu,Fri,Sat',
+        is_public_listed: is_public_listed !== undefined ? Boolean(is_public_listed) : true,
+        public_display_options: public_display_options || {
+            show_clinic_name: true,
+            show_doctor_name: true,
+            show_address: true,
+            show_phone: true,
+            show_whatsapp: true,
+            show_email: true,
+            show_fees: true
+        },
         is_active: true
     });
 
@@ -295,7 +332,12 @@ exports.changePassword = async (req, res) => {
 };
 
 exports.updateUser = async (req, res) => {
-    const { full_name, mobile, role, contact_email, max_discount_percent, pin_code, show_in_quick_login } = req.body;
+    const {
+        full_name, mobile, role, contact_email, max_discount_percent, pin_code, show_in_quick_login,
+        speciality, qualification, registration_no, experience_years,
+        consultation_fee, whatsapp_no, doctor_city, doctor_bio, available_days,
+        is_public_listed, public_display_options
+    } = req.body;
 
     const user = await req.propertyDb.models.users.findByPk(req.params.id);
     if (!user) {
@@ -306,6 +348,18 @@ exports.updateUser = async (req, res) => {
     const roleChanged = role && role !== oldData.role;
 
     const updatePayload: any = { full_name, mobile, role, contact_email };
+    if (speciality !== undefined) updatePayload.speciality = speciality ? speciality.trim() : null;
+    if (qualification !== undefined) updatePayload.qualification = qualification ? qualification.trim() : null;
+    if (registration_no !== undefined) updatePayload.registration_no = registration_no ? registration_no.trim() : null;
+    if (experience_years !== undefined) updatePayload.experience_years = Number(experience_years);
+    if (consultation_fee !== undefined) updatePayload.consultation_fee = Number(consultation_fee);
+    if (whatsapp_no !== undefined) updatePayload.whatsapp_no = whatsapp_no ? whatsapp_no.trim() : null;
+    if (doctor_city !== undefined) updatePayload.doctor_city = doctor_city ? doctor_city.trim() : null;
+    if (doctor_bio !== undefined) updatePayload.doctor_bio = doctor_bio ? doctor_bio.trim() : null;
+    if (available_days !== undefined) updatePayload.available_days = available_days;
+    if (is_public_listed !== undefined) updatePayload.is_public_listed = Boolean(is_public_listed);
+    if (public_display_options !== undefined) updatePayload.public_display_options = public_display_options;
+
     if (max_discount_percent !== undefined) {
         updatePayload.max_discount_percent = max_discount_percent;
     }

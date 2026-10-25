@@ -46,6 +46,8 @@ class ClinicPrescriptionPdf {
     final appointmentTime = appointment['appointment_time']?.toString() ?? '';
     final doctorName = (appointment['doctor_name'] ?? 'Dr. Specialist').toString();
     final department = appointment['department'] ?? 'General Medicine';
+    final docQual = (appointment['doctor_qualification'] ?? appointment['qualification'] ?? '').toString();
+    final docReg = (appointment['doctor_reg_no'] ?? appointment['registration_no'] ?? '').toString();
     final diagnosis = appointment['diagnosis'] ?? appointment['prescription_notes'] ?? 'General Health Consultation';
     final notes = appointment['prescription_notes'] ?? '';
     final token = appointment['id']?.toString() ?? '1';
@@ -194,6 +196,16 @@ class ClinicPrescriptionPdf {
                             doctorName.startsWith('Dr') ? doctorName : 'Dr. $doctorName',
                             style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900),
                           ),
+                          if (docQual.isNotEmpty)
+                            pw.Text(
+                              docQual,
+                              style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey800),
+                            ),
+                          if (docReg.isNotEmpty)
+                            pw.Text(
+                              'Reg No: $docReg',
+                              style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                            ),
                           pw.Text(
                             'Department: $department',
                             style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey800),
@@ -374,6 +386,16 @@ class ClinicPrescriptionPdf {
                               doctorName.startsWith('Dr') ? doctorName : 'Dr. $doctorName',
                               style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
                             ),
+                            if (docQual.isNotEmpty)
+                              pw.Text(
+                                docQual,
+                                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                              ),
+                            if (docReg.isNotEmpty)
+                              pw.Text(
+                                'Reg No: $docReg',
+                                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
+                              ),
                             pw.Text(
                               'Authorized Medical Practitioner',
                               style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),

@@ -10,6 +10,7 @@ import '../../models/security/app_user_model.dart';
 import '../../core/permissions/module_capability.dart';
 import '../../core/auth/token_storage.dart';
 import '../../core/config/app_constants.dart';
+import '../../core/currency/currency_service.dart';
 
 /// ================= SCREEN =================
 class Permission1 {
@@ -341,7 +342,76 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   cells: [
                     DataCell(Text(u.username)),
                     DataCell(Text(u.fullName)),
-                    DataCell(Text(u.role)),
+                    DataCell(
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (u.role.toUpperCase() == 'DOCTOR') ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0284C7).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.medical_services_rounded, size: 12, color: Color(0xFF0284C7)),
+                                  SizedBox(width: 4),
+                                  Text('DOCTOR', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF0284C7))),
+                                ],
+                              ),
+                            ),
+                            if (u.speciality != null && u.speciality!.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2.0),
+                                child: Text(
+                                  '${u.speciality} (${CurrencyService.symbol}${u.consultationFee.toStringAsFixed(0)})',
+                                  style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                                ),
+                              ),
+                          ] else if (u.role.toUpperCase() == 'RECEPTIONIST') ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFD97706).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFFD97706).withValues(alpha: 0.3)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.assignment_ind_rounded, size: 12, color: Color(0xFFD97706)),
+                                  SizedBox(width: 4),
+                                  Text('RECEPTIONIST', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
+                                ],
+                              ),
+                            ),
+                          ] else if (u.role.toUpperCase() == 'PHARMACIST') ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF059669).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFF059669).withValues(alpha: 0.3)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.medication_rounded, size: 12, color: Color(0xFF059669)),
+                                  SizedBox(width: 4),
+                                  Text('PHARMACIST', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+                                ],
+                              ),
+                            ),
+                          ] else ...[
+                            Text(u.role),
+                          ],
+                        ],
+                      ),
+                    ),
                     DataCell(
                       Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -621,7 +691,19 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     final pinCode = TextEditingController();
     final maxDiscount = TextEditingController(text: '100');
     final otpCtrl = TextEditingController();
-    String role = 'STORE';
+
+    // Doctor profile controllers
+    final docSpeciality = TextEditingController(text: 'General Physician');
+    final docQualification = TextEditingController(text: 'MBBS');
+    final docFee = TextEditingController(text: '500.00');
+    final docRegNo = TextEditingController();
+    final docExp = TextEditingController(text: '5');
+    final docCity = TextEditingController();
+    final docBio = TextEditingController();
+    final docDays = TextEditingController(text: 'Mon,Tue,Wed,Thu,Fri,Sat');
+    bool docIsPublic = true;
+
+    String role = AppConstants.getRolesForModule(_userBusinessModule).first;
     bool showInQuickLogin = false;
 
     bool isEmailVerified = false;
@@ -769,7 +851,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                 .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                                 .toList();
                           })(),
-                          onChanged: (v) => role = v!,
+                          onChanged: (v) => setDialogState(() => role = v!),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
@@ -860,6 +942,140 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             contentPadding: EdgeInsets.zero,
                           ),
                         ),
+                        if (role.toUpperCase() == 'DOCTOR') ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF0F9FF),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFBAE6FD)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Icon(Icons.medical_services_rounded, size: 16, color: Color(0xFF0284C7)),
+                                    SizedBox(width: 6),
+                                    Text('Doctor Clinical & Public Profile Details',
+                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0369A1))),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docSpeciality,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Speciality (e.g. Cardiologist)',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docQualification,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Qualification (e.g. MBBS, MD)',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docFee,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: InputDecoration(
+                                          labelText: 'Consultation Fee (${CurrencyService.symbol})',
+                                          isDense: true,
+                                          border: const OutlineInputBorder(),
+                                          prefixText: '${CurrencyService.symbol} ',
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docRegNo,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Medical Reg. Number',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docExp,
+                                        keyboardType: TextInputType.number,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Experience (Years)',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docCity,
+                                        decoration: const InputDecoration(
+                                          labelText: 'City / Location',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: docDays,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Available Days',
+                                    hintText: 'Mon,Tue,Wed,Thu,Fri,Sat',
+                                    isDense: true,
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: docBio,
+                                  maxLines: 2,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Doctor Bio / Brief Summary',
+                                    isDense: true,
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                SwitchListTile(
+                                  value: docIsPublic,
+                                  onChanged: (v) => setDialogState(() => docIsPublic = v),
+                                  title: const Text('Show in Public Patient Booking App', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  subtitle: const Text('Patients can discover this doctor and book OPD appointments', style: TextStyle(fontSize: 11)),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 16),
                         const Divider(),
                         const SizedBox(height: 8),
@@ -970,6 +1186,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                               maxDiscountPercent: double.tryParse(maxDiscount.text.trim()) ?? 100.0,
                               permissions: AppConstants.getDefaultPermissionsForRole(role, _userBusinessModule),
                               password: password.text,
+                              speciality: role.toUpperCase() == 'DOCTOR' ? docSpeciality.text.trim() : null,
+                              qualification: role.toUpperCase() == 'DOCTOR' ? docQualification.text.trim() : null,
+                              consultationFee: role.toUpperCase() == 'DOCTOR' ? (double.tryParse(docFee.text.trim()) ?? 0.0) : null,
+                              registrationNo: role.toUpperCase() == 'DOCTOR' ? docRegNo.text.trim() : null,
+                              experienceYears: role.toUpperCase() == 'DOCTOR' ? (int.tryParse(docExp.text.trim()) ?? 0) : null,
+                              doctorCity: role.toUpperCase() == 'DOCTOR' ? docCity.text.trim() : null,
+                              doctorBio: role.toUpperCase() == 'DOCTOR' ? docBio.text.trim() : null,
+                              availableDays: role.toUpperCase() == 'DOCTOR' ? docDays.text.trim() : null,
+                              isPublicListed: role.toUpperCase() == 'DOCTOR' ? docIsPublic : null,
                             );
                             await _loadUsers();
                             if (ctx.mounted) {
@@ -1138,6 +1363,18 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     final pinCode = TextEditingController(text: u.pinCode ?? '');
     final maxDiscount = TextEditingController(text: u.maxDiscountPercent.toStringAsFixed(0));
     final otpCtrl = TextEditingController();
+
+    // Doctor profile controllers
+    final docSpeciality = TextEditingController(text: u.speciality ?? 'General Physician');
+    final docQualification = TextEditingController(text: u.qualification ?? 'MBBS');
+    final docFee = TextEditingController(text: u.consultationFee.toStringAsFixed(2));
+    final docRegNo = TextEditingController(text: u.registrationNo ?? '');
+    final docExp = TextEditingController(text: u.experienceYears.toString());
+    final docCity = TextEditingController(text: u.doctorCity ?? '');
+    final docBio = TextEditingController(text: u.doctorBio ?? '');
+    final docDays = TextEditingController(text: u.availableDays ?? 'Mon,Tue,Wed,Thu,Fri,Sat');
+    bool docIsPublic = u.isPublicListed;
+
     String role = u.role;
     bool showInQuickLogin = u.showInQuickLogin;
 
@@ -1239,7 +1476,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                 .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                                 .toList();
                           })(),
-                          onChanged: (v) => role = v!,
+                          onChanged: (v) => setDialogState(() => role = v!),
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
@@ -1305,6 +1542,140 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             contentPadding: EdgeInsets.zero,
                           ),
                         ),
+                        if (role.toUpperCase() == 'DOCTOR') ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF0F9FF),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFBAE6FD)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Icon(Icons.medical_services_rounded, size: 16, color: Color(0xFF0284C7)),
+                                    SizedBox(width: 6),
+                                    Text('Doctor Clinical & Public Profile Details',
+                                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0369A1))),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docSpeciality,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Speciality (e.g. Cardiologist)',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docQualification,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Qualification (e.g. MBBS, MD)',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docFee,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        decoration: InputDecoration(
+                                          labelText: 'Consultation Fee (${CurrencyService.symbol})',
+                                          isDense: true,
+                                          border: const OutlineInputBorder(),
+                                          prefixText: '${CurrencyService.symbol} ',
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docRegNo,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Medical Reg. Number',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docExp,
+                                        keyboardType: TextInputType.number,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Experience (Years)',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: docCity,
+                                        decoration: const InputDecoration(
+                                          labelText: 'City / Location',
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: docDays,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Available Days',
+                                    hintText: 'Mon,Tue,Wed,Thu,Fri,Sat',
+                                    isDense: true,
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                TextFormField(
+                                  controller: docBio,
+                                  maxLines: 2,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Doctor Bio / Brief Summary',
+                                    isDense: true,
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                SwitchListTile(
+                                  value: docIsPublic,
+                                  onChanged: (v) => setDialogState(() => docIsPublic = v),
+                                  title: const Text('Show in Public Patient Booking App', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  subtitle: const Text('Patients can discover this doctor and book OPD appointments', style: TextStyle(fontSize: 11)),
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 16),
                         const Divider(),
                         const SizedBox(height: 8),
@@ -1424,6 +1795,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                               pinCode: pinCode.text.trim().isNotEmpty ? pinCode.text.trim() : null,
                               maxDiscountPercent: double.tryParse(maxDiscount.text.trim()) ?? u.maxDiscountPercent,
                               showInQuickLogin: showInQuickLogin,
+                              speciality: role.toUpperCase() == 'DOCTOR' ? docSpeciality.text.trim() : null,
+                              qualification: role.toUpperCase() == 'DOCTOR' ? docQualification.text.trim() : null,
+                              consultationFee: role.toUpperCase() == 'DOCTOR' ? (double.tryParse(docFee.text.trim()) ?? 0.0) : null,
+                              registrationNo: role.toUpperCase() == 'DOCTOR' ? docRegNo.text.trim() : null,
+                              experienceYears: role.toUpperCase() == 'DOCTOR' ? (int.tryParse(docExp.text.trim()) ?? 0) : null,
+                              doctorCity: role.toUpperCase() == 'DOCTOR' ? docCity.text.trim() : null,
+                              doctorBio: role.toUpperCase() == 'DOCTOR' ? docBio.text.trim() : null,
+                              availableDays: role.toUpperCase() == 'DOCTOR' ? docDays.text.trim() : null,
+                              isPublicListed: role.toUpperCase() == 'DOCTOR' ? docIsPublic : null,
                             );
                             await _loadUsers();
                             if (ctx.mounted) {

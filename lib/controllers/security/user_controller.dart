@@ -58,13 +58,23 @@ class UserController extends ChangeNotifier {
     bool showInQuickLogin = false,
     List<String>? permissions,
     required String password,
+    String? speciality,
+    String? qualification,
+    double? consultationFee,
+    String? registrationNo,
+    int? experienceYears,
+    String? whatsappNo,
+    String? doctorCity,
+    String? doctorBio,
+    String? availableDays,
+    bool? isPublicListed,
   }) async {
     loading = true;
     notifyListeners();
 
     final emailToUse = (contactEmail ?? contact_email ?? '').trim();
 
-    await ApiClient.post(ApiEndpoints.users, {
+    final payload = <String, dynamic>{
       'username': username,
       'full_name': fullName,
       'mobile': mobile,
@@ -75,7 +85,20 @@ class UserController extends ChangeNotifier {
       'show_in_quick_login': showInQuickLogin,
       'permissions': permissions ?? [],
       'password': password
-    });
+    };
+
+    if (speciality != null) payload['speciality'] = speciality;
+    if (qualification != null) payload['qualification'] = qualification;
+    if (consultationFee != null) payload['consultation_fee'] = consultationFee;
+    if (registrationNo != null) payload['registration_no'] = registrationNo;
+    if (experienceYears != null) payload['experience_years'] = experienceYears;
+    if (whatsappNo != null) payload['whatsapp_no'] = whatsappNo;
+    if (doctorCity != null) payload['doctor_city'] = doctorCity;
+    if (doctorBio != null) payload['doctor_bio'] = doctorBio;
+    if (availableDays != null) payload['available_days'] = availableDays;
+    if (isPublicListed != null) payload['is_public_listed'] = isPublicListed;
+
+    await ApiClient.post(ApiEndpoints.users, payload);
 
     await load();
   }
@@ -92,6 +115,16 @@ class UserController extends ChangeNotifier {
     double maxDiscountPercent = 100.0,
     String? pinCode,
     bool? showInQuickLogin,
+    String? speciality,
+    String? qualification,
+    double? consultationFee,
+    String? registrationNo,
+    int? experienceYears,
+    String? whatsappNo,
+    String? doctorCity,
+    String? doctorBio,
+    String? availableDays,
+    bool? isPublicListed,
   }) async {
     loading = true;
     notifyListeners();
@@ -109,6 +142,16 @@ class UserController extends ChangeNotifier {
     if (showInQuickLogin != null) {
       payload['show_in_quick_login'] = showInQuickLogin;
     }
+    if (speciality != null) payload['speciality'] = speciality;
+    if (qualification != null) payload['qualification'] = qualification;
+    if (consultationFee != null) payload['consultation_fee'] = consultationFee;
+    if (registrationNo != null) payload['registration_no'] = registrationNo;
+    if (experienceYears != null) payload['experience_years'] = experienceYears;
+    if (whatsappNo != null) payload['whatsapp_no'] = whatsappNo;
+    if (doctorCity != null) payload['doctor_city'] = doctorCity;
+    if (doctorBio != null) payload['doctor_bio'] = doctorBio;
+    if (availableDays != null) payload['available_days'] = availableDays;
+    if (isPublicListed != null) payload['is_public_listed'] = isPublicListed;
 
     await ApiClient.put(
       '${ApiEndpoints.users}/$id',

@@ -225,6 +225,7 @@ exports.login = async (req, res, next) => {
             days_remaining: daysRemaining,
             token,
             user: {
+                id: user.id,
                 username: user.username,
                 name: user.full_name,
                 role: user.role,
@@ -236,6 +237,10 @@ exports.login = async (req, res, next) => {
                 property_name: currentOutlet.outlet_name || property?.property_name || '',
                 outlet_type: currentOutlet.outlet_type || '',
                 business_module: currentOutlet.business_module || 'ALL',
+                speciality: user.speciality || '',
+                qualification: user.qualification || '',
+                consultation_fee: user.consultation_fee || 0,
+                registration_no: user.registration_no || '',
                 permissions
             }
         });
@@ -764,6 +769,7 @@ exports.pinLogin = async (req: any, res: any) => {
             days_remaining: daysRemaining,
             token,
             user: {
+                id: user.id,
                 username: user.username,
                 name: user.full_name,
                 role: user.role,
@@ -774,6 +780,9 @@ exports.pinLogin = async (req: any, res: any) => {
                 property_name: property?.property_name || currentOutlet.outlet_name,
                 outlet_type: currentOutlet.outlet_type || '',
                 business_module: currentOutlet.business_module || 'ALL',
+                speciality: user.speciality || '',
+                qualification: user.qualification || '',
+                consultation_fee: user.consultation_fee || 0,
                 permissions
             }
         });

@@ -70,6 +70,8 @@ import '../inventory/supplier_return_refund_screen.dart';
 import '../inventory/supplier_return_screen.dart';
 import '../reports/expiry_tracker_screen.dart';
 import '../clinic/clinic_dashboard_screen.dart';
+import '../clinic/public_appointment_booking_screen.dart';
+import '../clinic/clinic_doctor_management_dialog.dart';
 import '../hrms/employee_screen.dart';
 import '../hrms/attendance_screen.dart';
 import '../hrms/payroll_screen.dart';
@@ -4981,6 +4983,26 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'permission': 'STORE_ANALYSIS',
         'keywords': ['clinic analytics', 'doctor workload', 'consultation fees', 'demographics', 'clinic kpi'],
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialIndex: 1))),
+      },
+      {
+        'category': 'Clinic & Health (Beta)',
+        'icon': Icons.badge_outlined,
+        'label': 'Doctor Profiles & Public Directory Settings',
+        'subLabel': 'Clinician fees, specialities, license registration numbers & public listing options',
+        'isBeta': true,
+        'permission': 'POS_SALE',
+        'keywords': ['doctor profile', 'clinician', 'consultation fee', 'public doctor', 'license', 'registration'],
+        'onTap': () => showDialog(context: context, builder: (_) => const ClinicDoctorManagementDialog()),
+      },
+      {
+        'category': 'Clinic & Health (Beta)',
+        'icon': Icons.public_rounded,
+        'label': 'Explore Doctors & Online Patient Booking',
+        'subLabel': 'Patient-facing portal for online appointment booking, doctor search & medical history',
+        'isBeta': true,
+        'permission': 'POS_SALE',
+        'keywords': ['online booking', 'explore doctors', 'patient portal', 'public appointment', 'telehealth'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PublicAppointmentBookingScreen())),
       },
       {
         'category': 'Finance & Expenses',

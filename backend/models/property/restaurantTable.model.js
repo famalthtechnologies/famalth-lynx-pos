@@ -33,6 +33,10 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.STRING(30),
             defaultValue: 'Available'
         },
+        is_active: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: true
+        },
         current_guest_count: {
             type: DataTypes.INTEGER,
             defaultValue: 0

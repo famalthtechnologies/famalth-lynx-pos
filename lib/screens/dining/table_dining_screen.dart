@@ -205,20 +205,36 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     });
 
     try {
-      // 1. Check local customer session (auto-login if previously verified for THIS specific outlet)
+      // 1. Check local customer session (auto-login if previously verified)
       final prefs = await SharedPreferences.getInstance();
       final targetOutlet = (widget.outletId ?? '1').toString().trim();
 
-      // Clear any legacy un-scoped customer session so it doesn't leak across outlets
-      await prefs.remove('dining_customer_profile');
-      await prefs.remove('dining_auth_token');
-      await prefs.remove('dining_outlet_id');
+      // Look up outlet-scoped session first
+      String? savedCustomerStr = prefs.getString('dining_customer_profile_$targetOutlet');
 
-      final savedCustomerStr = prefs.getString('dining_customer_profile_$targetOutlet');
+      // Fallback to global customer profile
+      if (savedCustomerStr == null || savedCustomerStr.isEmpty) {
+        savedCustomerStr = prefs.getString('dining_customer_profile');
+      }
+
+      // Fallback to any saved dining customer profile on this device
+      if (savedCustomerStr == null || savedCustomerStr.isEmpty) {
+        final allKeys = prefs.getKeys();
+        for (final k in allKeys) {
+          if (k.startsWith('dining_customer_profile_')) {
+            final val = prefs.getString(k);
+            if (val != null && val.isNotEmpty) {
+              savedCustomerStr = val;
+              break;
+            }
+          }
+        }
+      }
+
       if (savedCustomerStr != null && savedCustomerStr.isNotEmpty) {
         try {
           final profile = jsonDecode(savedCustomerStr);
-          if (profile is Map && (profile['outlet_id'] == null || profile['outlet_id'].toString() == targetOutlet)) {
+          if (profile is Map && profile.isNotEmpty) {
             _customerProfile = Map<String, dynamic>.from(profile);
             _isLoggedIn = true;
           } else {
@@ -548,9 +564,9 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           final prefs = await SharedPreferences.getInstance();
           final profileWithOutlet = Map<String, dynamic>.from(profile);
           profileWithOutlet['outlet_id'] = targetOutlet;
-          await prefs.setString('dining_customer_profile_$targetOutlet', jsonEncode(profileWithOutlet));
-          // Clear legacy un-scoped key
-          await prefs.remove('dining_customer_profile');
+          final jsonStr = jsonEncode(profileWithOutlet);
+          await prefs.setString('dining_customer_profile_$targetOutlet', jsonStr);
+          await prefs.setString('dining_customer_profile', jsonStr);
           setState(() {
             _customerProfile = profileWithOutlet;
             _isLoggedIn = true;
@@ -1681,9 +1697,13 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
   }
 
   void _openBookTableDialog() {
-    final nameCtrl = TextEditingController(text: _customerProfile?['name'] ?? '');
-    final phoneCtrl = TextEditingController(text: _customerProfile?['phone'] ?? '');
-    final emailCtrl = TextEditingController(text: _customerProfile?['email'] ?? '');
+    final initialName = (_customerProfile?['customer_name'] ?? _customerProfile?['name'] ?? _customerProfile?['full_name'] ?? '').toString().trim();
+    final initialPhone = (_customerProfile?['customer_phone'] ?? _customerProfile?['phone'] ?? _customerProfile?['mobile'] ?? '').toString().trim();
+    final initialEmail = (_customerProfile?['customer_email'] ?? _customerProfile?['email'] ?? '').toString().trim();
+
+    final nameCtrl = TextEditingController(text: initialName);
+    final phoneCtrl = TextEditingController(text: initialPhone);
+    final emailCtrl = TextEditingController(text: initialEmail);
     final remarksCtrl = TextEditingController();
     DateTime resvDate = DateTime.now();
     TimeOfDay resvTime = const TimeOfDay(hour: 19, minute: 30);
@@ -1834,6 +1854,26 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                             );
 
                             if (res != null && res['success'] == true) {
+                              // Auto-update and persist customer profile with entered booking details
+                              final updatedProfile = {
+                                if (_customerProfile != null) ..._customerProfile!,
+                                'customer_name': nameCtrl.text.trim(),
+                                'customer_phone': phoneCtrl.text.trim(),
+                                'customer_email': emailCtrl.text.trim(),
+                                'name': nameCtrl.text.trim(),
+                                'phone': phoneCtrl.text.trim(),
+                                'email': emailCtrl.text.trim(),
+                              };
+                              final prefs = await SharedPreferences.getInstance();
+                              final targetOutlet = (widget.outletId ?? '1').toString().trim();
+                              final jsonStr = jsonEncode(updatedProfile);
+                              await prefs.setString('dining_customer_profile_$targetOutlet', jsonStr);
+                              await prefs.setString('dining_customer_profile', jsonStr);
+                              setState(() {
+                                _customerProfile = updatedProfile;
+                                _isLoggedIn = true;
+                              });
+
                               Navigator.pop(dialogCtx);
                               if (context.mounted) {
                                 showDialog(
@@ -5544,14 +5584,14 @@ class _CustomerAuthBottomSheetState extends State<_CustomerAuthBottomSheet> {
       final prefs = await SharedPreferences.getInstance();
       final customerWithOutlet = Map<String, dynamic>.from(customer);
       customerWithOutlet['outlet_id'] = targetOutlet;
-      await prefs.setString('dining_customer_profile_$targetOutlet', jsonEncode(customerWithOutlet));
+      final jsonStr = jsonEncode(customerWithOutlet);
+      await prefs.setString('dining_customer_profile_$targetOutlet', jsonStr);
+      await prefs.setString('dining_customer_profile', jsonStr);
       if (token != null && token.isNotEmpty) {
         await prefs.setString('dining_auth_token_$targetOutlet', token);
+        await prefs.setString('dining_auth_token', token);
       }
-      // Also clear legacy un-scoped keys
-      await prefs.remove('dining_customer_profile');
-      await prefs.remove('dining_auth_token');
-      await prefs.remove('dining_outlet_id');
+      await prefs.setString('dining_outlet_id', targetOutlet);
     } catch (e) {
       debugPrint('Error saving customer dining session: $e');
     }

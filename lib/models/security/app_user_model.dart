@@ -11,6 +11,18 @@ class AppUser {
   bool showInQuickLogin;
   Set<String> permissions;
 
+  // Clinic Doctor Profile Fields
+  String? speciality;
+  String? qualification;
+  double consultationFee;
+  String? registrationNo;
+  int experienceYears;
+  bool isPublicListed;
+  String? whatsappNo;
+  String? doctorCity;
+  String? doctorBio;
+  String? availableDays;
+
   AppUser({
     required this.id,
     required this.username,
@@ -22,6 +34,16 @@ class AppUser {
     this.maxDiscountPercent = 100.0,
     this.pinCode,
     this.showInQuickLogin = false,
+    this.speciality,
+    this.qualification,
+    this.consultationFee = 0.0,
+    this.registrationNo,
+    this.experienceYears = 0,
+    this.isPublicListed = true,
+    this.whatsappNo,
+    this.doctorCity,
+    this.doctorBio,
+    this.availableDays = 'Mon,Tue,Wed,Thu,Fri,Sat',
     Set<String>? permissions,
   }) : permissions = permissions ?? {};
 
@@ -46,6 +68,16 @@ class AppUser {
       showInQuickLogin: json['show_in_quick_login'] == true ||
           json['show_in_quick_login'] == 1 ||
           json['show_in_quick_login'] == 'true',
+      speciality: json['speciality']?.toString(),
+      qualification: json['qualification']?.toString(),
+      consultationFee: json['consultation_fee'] != null ? (double.tryParse('${json['consultation_fee']}') ?? 0.0) : 0.0,
+      registrationNo: json['registration_no']?.toString(),
+      experienceYears: json['experience_years'] != null ? (int.tryParse('${json['experience_years']}') ?? 0) : 0,
+      isPublicListed: json['is_public_listed'] != false,
+      whatsappNo: json['whatsapp_no']?.toString(),
+      doctorCity: json['doctor_city']?.toString(),
+      doctorBio: json['doctor_bio']?.toString(),
+      availableDays: json['available_days']?.toString() ?? 'Mon,Tue,Wed,Thu,Fri,Sat',
     );
   }
 }

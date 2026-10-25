@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,12 @@ import '../../core/api/endpoints.dart';
 import '../../core/currency/currency_service.dart';
 import '../inventory/salescreen.dart';
 import 'clinic_prescription_pdf.dart';
+import 'clinic_accept_pay_dialog.dart';
+import 'clinic_doctor_management_dialog.dart';
+import '../modify/sales_reprint_modify_screen.dart';
+import '../inventory/subscription_screen.dart';
+import '../../core/auth/token_storage.dart';
+import '../reports/cash_ledger_screen.dart';
 
 class ClinicDashboardScreen extends StatefulWidget {
   final int initialIndex;
@@ -24,8 +31,30 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   List<dynamic> _appointments = [];
   Map<String, dynamic> _analytics = {};
 
+  String _userRole = '';
+  String _loggedInDoctorName = '';
+  int? _loggedInDoctorId;
+
+  // Multi-status filters for Reception OPD Desk
   String _statusFilter = 'ALL';
+  String _selectedDoctorFilter = 'ALL';
+  String _attendanceFilter = 'ALL'; // ALL, UNATTENDED, ATTENDED
+  String _feeStatusFilter = 'ALL'; // ALL, PAID, UNPAID
+  String _billingStatusFilter = 'ALL'; // ALL, UNBILLED, BILLED
+
+  // Doctor Consultation Desk filter
+  String _doctorAttendanceFilter = 'ALL'; // ALL, UNATTENDED, ATTENDED
+
+  // Pharmacy Dispensing Desk filter
+  String _pharmacyBillingFilter = 'ALL'; // ALL, UNBILLED, BILLED
+
+  List<dynamic> _clinicDoctors = [];
   final TextEditingController _searchCtrl = TextEditingController();
+  // Therapy & Service Subscriptions state
+  List<dynamic> _subscriptions = [];
+  bool _isLoadingSubscriptions = false;
+  String _subscriptionFilter = 'ALL';
+  final TextEditingController _subSearchCtrl = TextEditingController();
   DateTime _selectedDate = DateTime.now();
 
   // Date range for Store-Analysis style Clinic Analytics
@@ -36,12 +65,46 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this, initialIndex: widget.initialIndex.clamp(0, 1));
+    _tabCtrl = TabController(length: 5, vsync: this, initialIndex: widget.initialIndex.clamp(0, 4));
     _tabCtrl.addListener(() {
       if (_tabCtrl.indexIsChanging && mounted) setState(() {});
     });
+    _checkUserRole();
+    _fetchClinicDoctors();
     _fetchAppointments();
     _fetchAnalytics();
+    _fetchSubscriptions();
+  }
+
+  Future<void> _checkUserRole() async {
+    try {
+      final user = await TokenStorage.getUser();
+      if (user != null && mounted) {
+        final role = (user['role'] ?? '').toString().toUpperCase();
+        final name = (user['name'] ?? user['full_name'] ?? user['username'] ?? '').toString();
+        final id = user['id'] != null ? int.tryParse('${user['id']}') : null;
+        setState(() {
+          _userRole = role;
+          _loggedInDoctorName = name;
+          _loggedInDoctorId = id;
+        });
+
+        // Auto-navigate to respective department panel based on role!
+        if (role == 'DOCTOR') {
+          _tabCtrl.animateTo(1); // Doctor Desk
+          if (name.isNotEmpty) {
+            setState(() {
+              _selectedDoctorFilter = name;
+            });
+            _fetchAppointments();
+          }
+        } else if (role == 'PHARMACIST') {
+          _tabCtrl.animateTo(2); // Pharmacy Desk
+        } else if (role == 'RECEPTIONIST') {
+          _tabCtrl.animateTo(0); // Reception Desk
+        }
+      }
+    } catch (_) {}
   }
 
   @override
@@ -49,6 +112,125 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     _tabCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _fetchClinicDoctors() async {
+    try {
+      final res = await ApiClient.get(ApiEndpoints.clinicDoctors);
+      if (res != null && res['success'] == true && mounted) {
+        final docs = res['data'] is List ? (res['data'] as List) : [];
+        setState(() {
+          _clinicDoctors = docs;
+          // If only 1 doctor in the clinic, auto-open & select that doctor directly!
+          if (docs.length == 1) {
+            _selectedDoctorFilter = (docs.first['full_name'] ?? 'Doctor').toString();
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _openDoctorManagementDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => ClinicDoctorManagementDialog(
+        onDoctorsChanged: () {
+          _fetchClinicDoctors();
+          _fetchAppointments();
+          _fetchAnalytics();
+        },
+      ),
+    );
+  }
+
+  void _openAcceptAndPayDialog(dynamic appointment) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ClinicAcceptPayDialog(
+        appointment: Map<String, dynamic>.from(appointment),
+        doctors: _clinicDoctors,
+        onAccepted: () {
+          _fetchAppointments();
+          _fetchAnalytics();
+        },
+      ),
+    );
+  }
+
+  Widget _buildPaymentBadge(dynamic a) {
+    final payStatus = (a['payment_status'] ?? 'UNPAID').toString().toUpperCase();
+    final payMode = (a['payment_mode'] ?? '').toString().toUpperCase();
+    final fee = (a['consultation_fee'] ?? 0);
+    final isPack = a['is_package_session'] == true || payStatus == 'PACKAGE_INCLUDED';
+
+    if (isPack) {
+      final sess = a['session_number'] ?? 1;
+      final total = a['total_package_sessions'] ?? 6;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFAF5FF),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFFD8B4FE)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.spa_rounded, size: 12, color: Color(0xFF7C3AED)),
+            const SizedBox(width: 4),
+            Text('Package ($sess/$total Free)', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF6B21A8))),
+          ],
+        ),
+      );
+    }
+
+    if (payStatus == 'PAID') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFECFDF5),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFF6EE7B7)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF059669)),
+            const SizedBox(width: 4),
+            Text('Paid ${CurrencyService.symbol}$fee ($payMode)', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+          ],
+        ),
+      );
+    }
+
+    if (payStatus == 'PAY_LATER') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFBEB),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFFFCD34D)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.schedule_rounded, size: 12, color: Color(0xFFD97706)),
+            const SizedBox(width: 4),
+            Text('Pay Later (${CurrencyService.symbol}$fee)', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text('Fee: ${CurrencyService.symbol}$fee', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+    );
   }
 
   Future<void> _fetchAppointments() async {
@@ -60,6 +242,18 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
       };
       if (_statusFilter != 'ALL') {
         queryParams['status'] = _statusFilter;
+      }
+      if (_selectedDoctorFilter != 'ALL') {
+        queryParams['doctor_name'] = _selectedDoctorFilter;
+      }
+      if (_attendanceFilter != 'ALL') {
+        queryParams['attendance'] = _attendanceFilter;
+      }
+      if (_feeStatusFilter != 'ALL') {
+        queryParams['fee_status'] = _feeStatusFilter;
+      }
+      if (_billingStatusFilter != 'ALL') {
+        queryParams['billing_status'] = _billingStatusFilter;
       }
       if (_searchCtrl.text.trim().isNotEmpty) {
         queryParams['search'] = _searchCtrl.text.trim();
@@ -174,17 +368,22 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           ),
         );
 
-        // Direct navigate to SaleScreen with prefilled customer and preloaded cart items
+        // Direct navigate to SaleScreen with prefilled customer, doctor reference and appointment id
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => SaleScreen(
               preloadedCustomerName: pName,
               preloadedCustomerPhone: pPhone,
+              preloadedDoctorName: (appointment['doctor_name'] ?? '').toString(),
+              preloadedAppointmentId: int.tryParse('${appointment['id']}'),
               preloadedItems: preloaded.isNotEmpty ? preloaded : null,
             ),
           ),
-        );
+        ).then((_) {
+          _fetchAppointments();
+          _fetchAnalytics();
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -193,6 +392,31 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         );
       }
     }
+  }
+
+  void _openReprintScreen(dynamic appointment) {
+    final saleId = int.tryParse('${appointment['billing_sale_id']}');
+    final saleNo = (appointment['billing_sale_no'] ?? '').toString().trim();
+    final phone = (appointment['patient_phone'] ?? '').toString().trim();
+    DateTime? apptDate;
+    try {
+      apptDate = DateTime.parse(appointment['appointment_date'].toString());
+    } catch (_) {}
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SalesReprintModifyScreen(
+          initialSaleId: saleId != null && saleId > 0 ? saleId : null,
+          initialSaleNo: saleNo.isNotEmpty ? saleNo : null,
+          initialSearch: saleNo.isNotEmpty ? saleNo : (phone.isNotEmpty ? phone : null),
+          initialDate: apptDate,
+        ),
+      ),
+    ).then((_) {
+      _fetchAppointments();
+      _fetchAnalytics();
+    });
   }
 
   void _openConsultationDialog(dynamic appointment) {
@@ -214,6 +438,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     showDialog(
       context: context,
       builder: (ctx) => _NewAppointmentDialog(
+        doctors: _clinicDoctors,
         onCreated: () {
           _fetchAppointments();
           _fetchAnalytics();
@@ -267,6 +492,18 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           ],
         ),
         actions: [
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF0F172A),
+              side: const BorderSide(color: Color(0xFFCBD5E1)),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            icon: const Icon(Icons.badge_outlined, size: 18, color: Color(0xFF0284C7)),
+            label: const Text('Doctors & Profiles', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            onPressed: _openDoctorManagementDialog,
+          ),
+          const SizedBox(width: 8),
           IconButton(
             tooltip: 'Refresh Appointments',
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0284C7)),
@@ -308,9 +545,9 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                 Tab(
                   child: Row(
                     children: [
-                      const Icon(Icons.calendar_today_rounded, size: 16),
+                      const Icon(Icons.assignment_ind_rounded, size: 16),
                       const SizedBox(width: 8),
-                      const Text('APPOINTMENTS & OPD QUEUE'),
+                      const Text('RECEPTION DESK (OPD)'),
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -321,6 +558,61 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                         child: Text(
                           '${_appointments.length}',
                           style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0284C7)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Tab(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.medical_services_rounded, size: 16),
+                      const SizedBox(width: 8),
+                      Text(
+                        _userRole == 'DOCTOR' && _loggedInDoctorName.isNotEmpty
+                            ? 'DR. ${_loggedInDoctorName.toUpperCase()} CONSULTATION'
+                            : 'DOCTOR CONSULTATION',
+                      ),
+                    ],
+                  ),
+                ),
+                Tab(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.medication_rounded, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('PHARMACY & DISPENSING'),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF059669).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${_appointments.where((a) => (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty)).length}',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Tab(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.card_membership_rounded, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('THERAPY & PACKAGES'),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${_subscriptions.length}',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED)),
                         ),
                       ),
                     ],
@@ -344,6 +636,9 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         controller: _tabCtrl,
         children: [
           _buildAppointmentsTab(),
+          _buildDoctorDeskTab(),
+          _buildPharmacyDeskTab(),
+          _buildSubscriptionsTab(),
           _buildAnalyticsTab(),
         ],
       ),
@@ -510,7 +805,65 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                 ),
               ),
 
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
+
+              // Doctor Filter Selector
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFCBD5E1)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _clinicDoctors.any((d) => (d['full_name'] ?? '').toString() == _selectedDoctorFilter) || _selectedDoctorFilter == 'ALL'
+                        ? _selectedDoctorFilter
+                        : 'ALL',
+                    icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B)),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                    items: [
+                      const DropdownMenuItem(
+                        value: 'ALL',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.people_outline_rounded, size: 16, color: Color(0xFF0284C7)),
+                            SizedBox(width: 6),
+                            Text('All Doctors'),
+                          ],
+                        ),
+                      ),
+                      ..._clinicDoctors.map((doc) {
+                        final dName = (doc['full_name'] ?? 'Doctor').toString();
+                        final spec = (doc['speciality'] ?? '').toString();
+                        return DropdownMenuItem(
+                          value: dName,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.medical_services_outlined, size: 16, color: Color(0xFF0284C7)),
+                              const SizedBox(width: 6),
+                              Text(
+                                spec.isNotEmpty ? 'Dr. $dName ($spec)' : 'Dr. $dName',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() => _selectedDoctorFilter = val);
+                        _fetchAppointments();
+                      }
+                    },
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 10),
 
               // Search Input Box
               Expanded(
@@ -556,22 +909,112 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
             ],
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
 
-          // Fast Status Pills
-          Row(
-            children: [
-              _filterChip('ALL', 'All Statuses'),
-              const SizedBox(width: 6),
-              _filterChip('SCHEDULED', 'Scheduled / Waiting'),
-              const SizedBox(width: 6),
-              _filterChip('VISITED', 'Consulted / Visited'),
-              const SizedBox(width: 6),
-              _filterChip('CANCELLED', 'Cancelled'),
-            ],
+          // Multi-status Filter Chips Row for Reception Desk
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                const Text('Attendance:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                const SizedBox(width: 6),
+                _attendanceChip('ALL', 'All Queue'),
+                const SizedBox(width: 4),
+                _attendanceChip('UNATTENDED', 'Waiting in Queue'),
+                const SizedBox(width: 4),
+                _attendanceChip('ATTENDED', 'Attended (Visited)'),
+
+                const SizedBox(width: 14),
+                const Text('Fee Status:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                const SizedBox(width: 6),
+                _feeChip('ALL', 'All Fees'),
+                const SizedBox(width: 4),
+                _feeChip('PAID', 'Fee Paid'),
+                const SizedBox(width: 4),
+                _feeChip('UNPAID', 'Fee Unpaid / Pay Later'),
+
+                const SizedBox(width: 14),
+                const Text('Dispensing:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                const SizedBox(width: 6),
+                _billingChip('ALL', 'All Dispensing'),
+                const SizedBox(width: 4),
+                _billingChip('UNBILLED', 'Unbilled (Pending)'),
+                const SizedBox(width: 4),
+                _billingChip('BILLED', 'Billed'),
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _attendanceChip(String key, String label) {
+    final sel = _attendanceFilter == key;
+    return ChoiceChip(
+      label: Text(label),
+      selected: sel,
+      labelStyle: TextStyle(
+        fontSize: 11,
+        fontWeight: sel ? FontWeight.bold : FontWeight.w500,
+        color: sel ? Colors.white : const Color(0xFF334155),
+      ),
+      selectedColor: const Color(0xFF0284C7),
+      backgroundColor: const Color(0xFFF1F5F9),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      side: BorderSide(color: sel ? const Color(0xFF0284C7) : const Color(0xFFE2E8F0)),
+      onSelected: (val) {
+        if (val) {
+          setState(() => _attendanceFilter = key);
+          _fetchAppointments();
+        }
+      },
+    );
+  }
+
+  Widget _feeChip(String key, String label) {
+    final sel = _feeStatusFilter == key;
+    return ChoiceChip(
+      label: Text(label),
+      selected: sel,
+      labelStyle: TextStyle(
+        fontSize: 11,
+        fontWeight: sel ? FontWeight.bold : FontWeight.w500,
+        color: sel ? Colors.white : const Color(0xFF334155),
+      ),
+      selectedColor: const Color(0xFF059669),
+      backgroundColor: const Color(0xFFF1F5F9),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      side: BorderSide(color: sel ? const Color(0xFF059669) : const Color(0xFFE2E8F0)),
+      onSelected: (val) {
+        if (val) {
+          setState(() => _feeStatusFilter = key);
+          _fetchAppointments();
+        }
+      },
+    );
+  }
+
+  Widget _billingChip(String key, String label) {
+    final sel = _billingStatusFilter == key;
+    return ChoiceChip(
+      label: Text(label),
+      selected: sel,
+      labelStyle: TextStyle(
+        fontSize: 11,
+        fontWeight: sel ? FontWeight.bold : FontWeight.w500,
+        color: sel ? Colors.white : const Color(0xFF334155),
+      ),
+      selectedColor: const Color(0xFF7C3AED),
+      backgroundColor: const Color(0xFFF1F5F9),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      side: BorderSide(color: sel ? const Color(0xFF7C3AED) : const Color(0xFFE2E8F0)),
+      onSelected: (val) {
+        if (val) {
+          setState(() => _billingStatusFilter = key);
+          _fetchAppointments();
+        }
+      },
     );
   }
 
@@ -601,8 +1044,11 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   Widget _buildAppointmentCard(dynamic a) {
     final status = (a['status'] ?? 'SCHEDULED').toString().toUpperCase();
     final billingStatus = (a['billing_status'] ?? 'PENDING').toString().toUpperCase();
+    final saleId = int.tryParse('${a['billing_sale_id']}');
+    final saleNo = (a['billing_sale_no'] ?? '').toString().trim();
+    final isBilled = billingStatus == 'BILLED' || (saleId != null && saleId > 0) || saleNo.isNotEmpty;
     final isVisited = status == 'VISITED';
-    final isDraftSent = billingStatus == 'DRAFT_SENT' || billingStatus == 'BILLED';
+    final isDraftSent = billingStatus == 'DRAFT_SENT';
     final hasPrescription = (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty) ||
         (a['prescription_notes'] != null && a['prescription_notes'].toString().isNotEmpty);
 
@@ -661,10 +1107,58 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                               border: Border.all(color: const Color(0xFFE2E8F0)),
                             ),
                             child: Text(
-                              'Token #${a['id'] ?? '-'}',
+                              'Token #${a['token_number'] ?? a['id'] ?? '-'}',
                               style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
                             ),
                           ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isVisited ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: isVisited ? const Color(0xFF6EE7B7) : const Color(0xFFFDE68A)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircleAvatar(radius: 3, backgroundColor: isVisited ? const Color(0xFF059669) : const Color(0xFFD97706)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  isVisited ? 'ATTENDED' : 'UNATTENDED',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: isVisited ? const Color(0xFF047857) : const Color(0xFFB45309),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildPaymentBadge(a),
+                          if (a['active_subscription'] != null) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF7C3AED).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFF7C3AED).withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.stars_rounded, size: 13, color: Color(0xFF7C3AED)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${a['active_subscription']['package_name']}: ${a['active_subscription']['services_consumed']}/${a['active_subscription']['total_sessions']} Consumed (${a['active_subscription']['remaining_sessions']} Left)',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6D28D9)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 3),
@@ -764,6 +1258,44 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                // Therapy Package quick session consume
+                if (a['active_subscription'] != null &&
+                    (a['active_subscription']['remaining_sessions'] ?? 0) > 0 &&
+                    a['is_package_session'] != true &&
+                    status != 'CANCELLED') ...[
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF7C3AED),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                    label: Text(
+                      'Consume Package Session (#${(a['active_subscription']['services_consumed'] ?? 0) + 1})',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    onPressed: () => _consumeSubscriptionSession(a['active_subscription']['id'], a['id']),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+
+                // Reception Accept & Fee Collection
+                if (status == 'SCHEDULED') ...[
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF059669),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.verified_user_rounded, size: 16),
+                    label: const Text('Accept & Collect Fee', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    onPressed: () => _openAcceptAndPayDialog(a),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+
                 // Quick status change if scheduled
                 if (!isVisited && status != 'CANCELLED')
                   TextButton.icon(
@@ -809,21 +1341,615 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
 
                 const SizedBox(width: 8),
 
-                // Send to Billing Draft
+                // If already bill made then show reprint bill on press get selected bill which made in reprint section
+                if (isBilled) ...[
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4338CA), // Professional Indigo
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      elevation: 1,
+                    ),
+                    icon: const Icon(Icons.receipt_long_rounded, size: 16),
+                    label: Text(
+                      saleNo.isNotEmpty ? 'Reprint Bill ($saleNo)' : 'Reprint Bill',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    onPressed: () => _openReprintScreen(a),
+                  ),
+                ] else ...[
+                  // Send to Billing Draft
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDraftSent ? const Color(0xFF059669) : const Color(0xFF0F172A),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: Icon(isDraftSent ? Icons.check_circle_rounded : Icons.point_of_sale_rounded, size: 16),
+                    label: Text(
+                      isDraftSent ? 'Open in POS Cart ✓' : 'Add to POS Cart',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    onPressed: () => _sendToBilling(a),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // TAB: DOCTOR CONSULTATION DESK
+  // ==========================================
+  Widget _buildDoctorDeskTab() {
+    final isDoctorUser = _userRole == 'DOCTOR' && _loggedInDoctorName.isNotEmpty;
+    final doctorQueue = _appointments.where((a) {
+      if (isDoctorUser) {
+        final dName = (a['doctor_name'] ?? '').toString().toLowerCase();
+        final dId = a['doctor_id'] != null ? int.tryParse('${a['doctor_id']}') : null;
+        if (_loggedInDoctorId != null && dId != null && dId > 0) {
+          if (dId != _loggedInDoctorId) return false;
+        } else if (!dName.contains(_loggedInDoctorName.toLowerCase())) {
+          return false;
+        }
+      } else if (_selectedDoctorFilter != 'ALL') {
+        final dName = (a['doctor_name'] ?? '').toString().toLowerCase();
+        if (!dName.contains(_selectedDoctorFilter.toLowerCase())) return false;
+      }
+      if (_doctorAttendanceFilter == 'ATTENDED') {
+        return (a['status'] ?? '').toString().toUpperCase() == 'VISITED';
+      } else if (_doctorAttendanceFilter == 'UNATTENDED') {
+        return (a['status'] ?? '').toString().toUpperCase() != 'VISITED';
+      }
+      return true;
+    }).toList();
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.1),
+                child: const Icon(Icons.medical_services_rounded, color: Color(0xFF0284C7), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isDoctorUser
+                          ? 'Dr. $_loggedInDoctorName Consultation Desk'
+                          : (_selectedDoctorFilter != 'ALL' ? 'Dr. $_selectedDoctorFilter Consultation Desk' : 'All Doctors Consultation Desk'),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+                    ),
+                    Text(
+                      'Daily Token Order • ${doctorQueue.length} Patients in Doctor Queue for ${DateFormat('dd MMM yyyy').format(_selectedDate)}',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+              Wrap(
+                spacing: 6,
+                children: [
+                  _docFilterChip('ALL', 'All Patients (${doctorQueue.length})'),
+                  _docFilterChip('UNATTENDED', 'Waiting in Queue'),
+                  _docFilterChip('ATTENDED', 'Attended / Visited'),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator(color: Color(0xFF0284C7)))
+              : doctorQueue.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.person_off_rounded, size: 54, color: Colors.blueGrey.shade300),
+                          const SizedBox(height: 12),
+                          const Text('No patients in doctor queue for this filter.', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF334155))),
+                          const SizedBox(height: 4),
+                          const Text('Patients admitted by reception will appear here with sequential daily tokens.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      itemCount: doctorQueue.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (ctx, idx) => _buildDoctorPatientCard(doctorQueue[idx]),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _docFilterChip(String key, String label) {
+    final sel = _doctorAttendanceFilter == key;
+    return ChoiceChip(
+      label: Text(label),
+      selected: sel,
+      labelStyle: TextStyle(
+        fontSize: 11,
+        fontWeight: sel ? FontWeight.bold : FontWeight.w500,
+        color: sel ? Colors.white : const Color(0xFF334155),
+      ),
+      selectedColor: const Color(0xFF0284C7),
+      backgroundColor: const Color(0xFFF1F5F9),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      side: BorderSide(color: sel ? const Color(0xFF0284C7) : const Color(0xFFE2E8F0)),
+      onSelected: (val) {
+        if (val) setState(() => _doctorAttendanceFilter = key);
+      },
+    );
+  }
+
+  Widget _buildDoctorPatientCard(dynamic a) {
+    final status = (a['status'] ?? 'SCHEDULED').toString().toUpperCase();
+    final isVisited = status == 'VISITED';
+    final tokenNo = a['token_number'] ?? a['id'] ?? '-';
+    final hasPrescription = (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty) ||
+        (a['prescription_notes'] != null && a['prescription_notes'].toString().isNotEmpty);
+    final medCount = a['prescribed_medicines'] is List ? (a['prescribed_medicines'] as List).length : 0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: isVisited ? const Color(0xFFECFDF5) : const Color(0xFF0284C7).withValues(alpha: 0.1),
+                  child: Text(
+                    '#$tokenNo',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: isVisited ? const Color(0xFF059669) : const Color(0xFF0284C7),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            a['patient_name'] ?? 'Patient',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isVisited ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: isVisited ? const Color(0xFF6EE7B7) : const Color(0xFFFDE68A)),
+                            ),
+                            child: Text(
+                              isVisited ? 'ATTENDED / VISITED' : 'WAITING IN QUEUE',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: isVisited ? const Color(0xFF047857) : const Color(0xFFB45309),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildPaymentBadge(a),
+                          if (a['active_subscription'] != null) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF7C3AED).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFF7C3AED).withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.stars_rounded, size: 13, color: Color(0xFF7C3AED)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${a['active_subscription']['package_name']}: ${a['active_subscription']['services_consumed']}/${a['active_subscription']['total_sessions']} Consumed (${a['active_subscription']['remaining_sessions']} Left)',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6D28D9)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Phone: ${a['patient_phone'] ?? '-'}  •  Age: ${a['patient_age'] ?? '-'}  •  ${(a['patient_gender'] ?? '-').toString().toUpperCase()}',
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            if (a['reason_for_visit'] != null && a['reason_for_visit'].toString().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF0284C7)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Chief Complaint: ${a['reason_for_visit']}',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF475569), fontStyle: FontStyle.italic),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 14),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (!isVisited)
+                  FilledButton.tonalIcon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFECFDF5),
+                      foregroundColor: const Color(0xFF059669),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                    label: const Text('Mark Consulted / Attended', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    onPressed: () => _updateStatus(a['id'], 'VISITED'),
+                  ),
+                const SizedBox(width: 8),
+                if (hasPrescription) ...[
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0284C7),
+                      side: const BorderSide(color: Color(0xFFBAE6FD)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.print_rounded, size: 16),
+                    label: const Text('Print PDF Rx', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    onPressed: () => _printPrescription(a),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isDraftSent ? const Color(0xFF059669) : const Color(0xFF0F172A),
+                    backgroundColor: const Color(0xFF0284C7),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  icon: Icon(isDraftSent ? Icons.check_circle_rounded : Icons.point_of_sale_rounded, size: 16),
+                  icon: const Icon(Icons.edit_note_rounded, size: 18),
                   label: Text(
-                    isDraftSent ? 'Open in POS Cart ✓' : 'Add to POS Cart',
+                    isVisited ? 'View / Edit Prescription ($medCount Meds)' : 'Consult & Prescribe Rx',
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                   ),
-                  onPressed: () => _sendToBilling(a),
+                  onPressed: () => _openConsultationDialog(a),
                 ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // TAB: PHARMACY DISPENSING DESK
+  // ==========================================
+  Widget _buildPharmacyDeskTab() {
+    final pharmacyQueue = _appointments.where((a) {
+      final hasRx = (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty) ||
+          (a['prescription_notes'] != null && a['prescription_notes'].toString().isNotEmpty);
+      if (!hasRx) return false;
+
+      final bStatus = (a['billing_status'] ?? 'PENDING').toString().toUpperCase();
+      final saleId = int.tryParse('${a['billing_sale_id']}');
+      final saleNo = (a['billing_sale_no'] ?? '').toString().trim();
+      final isBilled = bStatus == 'BILLED' || (saleId != null && saleId > 0) || saleNo.isNotEmpty;
+
+      if (_pharmacyBillingFilter == 'UNBILLED') return !isBilled;
+      if (_pharmacyBillingFilter == 'BILLED') return isBilled;
+      return true;
+    }).toList();
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: const Color(0xFF059669).withValues(alpha: 0.1),
+                child: const Icon(Icons.medication_rounded, color: Color(0xFF059669), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Pharmacy & Medical Dispensing Desk',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+                    ),
+                    Text(
+                      '${pharmacyQueue.length} Prescriptions • Real-time stock check, 1-tap POS cart dispense & reprint bill',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+              Wrap(
+                spacing: 6,
+                children: [
+                  _pharmacyFilterChip('ALL', 'All Prescriptions'),
+                  _pharmacyFilterChip('UNBILLED', 'Pending Dispense (Unbilled)'),
+                  _pharmacyFilterChip('BILLED', 'Dispensed & Billed'),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator(color: Color(0xFF059669)))
+              : pharmacyQueue.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.medication_liquid_rounded, size: 54, color: Colors.blueGrey.shade300),
+                          const SizedBox(height: 12),
+                          const Text('No prescriptions found for this dispensing filter.', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF334155))),
+                          const SizedBox(height: 4),
+                          const Text('Medicines prescribed by doctors will immediately show here for dispensing.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      itemCount: pharmacyQueue.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (ctx, idx) => _buildPharmacyCard(pharmacyQueue[idx]),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _pharmacyFilterChip(String key, String label) {
+    final sel = _pharmacyBillingFilter == key;
+    return ChoiceChip(
+      label: Text(label),
+      selected: sel,
+      labelStyle: TextStyle(
+        fontSize: 11,
+        fontWeight: sel ? FontWeight.bold : FontWeight.w500,
+        color: sel ? Colors.white : const Color(0xFF334155),
+      ),
+      selectedColor: const Color(0xFF059669),
+      backgroundColor: const Color(0xFFF1F5F9),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      side: BorderSide(color: sel ? const Color(0xFF059669) : const Color(0xFFE2E8F0)),
+      onSelected: (val) {
+        if (val) setState(() => _pharmacyBillingFilter = key);
+      },
+    );
+  }
+
+  Widget _buildPharmacyCard(dynamic a) {
+    final billingStatus = (a['billing_status'] ?? 'PENDING').toString().toUpperCase();
+    final saleId = int.tryParse('${a['billing_sale_id']}');
+    final saleNo = (a['billing_sale_no'] ?? '').toString().trim();
+    final isBilled = billingStatus == 'BILLED' || (saleId != null && saleId > 0) || saleNo.isNotEmpty;
+    final isDraftSent = billingStatus == 'DRAFT_SENT';
+    final tokenNo = a['token_number'] ?? a['id'] ?? '-';
+    final rawMeds = a['prescribed_medicines'] as List? ?? [];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: const Color(0xFF059669).withValues(alpha: 0.1),
+                  child: Text(
+                    '#$tokenNo',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF059669)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            a['patient_name'] ?? 'Patient',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+                          ),
+                          const SizedBox(width: 8),
+                          Text('•  Phone: ${a['patient_phone'] ?? '-'}', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                      Text('Prescribed by Dr. ${a['doctor_name'] ?? 'Consultant'}', style: const TextStyle(fontSize: 11, color: Color(0xFF0284C7), fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isBilled ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: isBilled ? const Color(0xFF6EE7B7) : const Color(0xFFFDE68A)),
+                  ),
+                  child: Text(
+                    isBilled ? 'BILLED & DISPENSED' : 'PENDING DISPENSE',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: isBilled ? const Color(0xFF047857) : const Color(0xFFB45309),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            const SizedBox(height: 10),
+
+            // Prescribed items list
+            const Text('Prescribed Medicines:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF334155))),
+            const SizedBox(height: 6),
+            ...rawMeds.map((med) {
+              final mName = med['medicine_name'] ?? med['item_name'] ?? 'Medicine';
+              final qty = med['qty'] ?? 1;
+              final dosage = med['dosage'] ?? '';
+              final timing = med['timing'] ?? '';
+              final duration = med['duration'] ?? '';
+              return Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.medication_rounded, size: 16, color: Color(0xFF059669)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '$mName  x $qty' + (dosage.isNotEmpty ? '  ($dosage • $timing • $duration)' : ''),
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text('In Stock', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+                    ),
+                  ],
+                ),
+              );
+            }),
+
+            const SizedBox(height: 10),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF0284C7),
+                    side: const BorderSide(color: Color(0xFFBAE6FD)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.print_rounded, size: 16),
+                  label: const Text('Print Rx', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  onPressed: () => _printPrescription(a),
+                ),
+                const SizedBox(width: 8),
+                if (isBilled)
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4338CA),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.receipt_long_rounded, size: 16),
+                    label: Text(
+                      saleNo.isNotEmpty ? 'Reprint Bill ($saleNo)' : 'Reprint Bill',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    onPressed: () => _openReprintScreen(a),
+                  )
+                else
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF059669),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: Icon(isDraftSent ? Icons.check_circle_rounded : Icons.point_of_sale_rounded, size: 16),
+                    label: Text(
+                      isDraftSent ? 'Open in POS Cart ✓' : 'Dispense & Bill at POS',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    onPressed: () => _sendToBilling(a),
+                  ),
               ],
             ),
           ],
@@ -889,6 +2015,27 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                 _rangePill('Last 30 Days', 30),
                 const SizedBox(width: 6),
                 _rangePill('Last 90 Days', 90),
+                const SizedBox(width: 12),
+
+                // Link to universal financial ledger
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.account_balance_wallet_rounded, size: 16, color: Color(0xFF38BDF8)),
+                  label: const Text('Universal Cash Ledger', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const CashLedgerScreen(),
+                      ),
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -1171,6 +2318,175 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
               ),
             ],
           ),
+
+          const SizedBox(height: 20),
+
+          // 4. CLINICIAN FINANCIAL REVENUE & PHARMACY RX REFERRALS TABLE
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF059669), size: 20),
+                        SizedBox(width: 8),
+                        Text('Clinician Financial Performance & Pharmacy Rx Referrals', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A))),
+                      ],
+                    ),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF0284C7),
+                        side: const BorderSide(color: Color(0xFFBAE6FD)),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      ),
+                      icon: const Icon(Icons.settings_outlined, size: 14),
+                      label: const Text('Manage Doctor Profiles', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: _openDoctorManagementDialog,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text('Breakdown of consultation fees collected by mode, attended patients, and attributed pharmacy sales', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                const Divider(height: 20),
+
+                if (_clinicDoctors.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    alignment: Alignment.center,
+                    child: const Text('No clinicians registered yet. Click "Manage Doctor Profiles" to configure your clinic team.', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+                  )
+                else
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: DataTable(
+                      headingRowColor: MaterialStateProperty.all(const Color(0xFFF8FAFC)),
+                      headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF334155)),
+                      dataTextStyle: const TextStyle(fontSize: 12, color: Color(0xFF0F172A)),
+                      horizontalMargin: 12,
+                      columnSpacing: 24,
+                      columns: const [
+                        DataColumn(label: Text('Clinician')),
+                        DataColumn(label: Text('Speciality & Reg No')),
+                        DataColumn(label: Text('Patients Attended')),
+                        DataColumn(label: Text('Fees Collected')),
+                        DataColumn(label: Text('Payment Modes Breakdown')),
+                        DataColumn(label: Text('Pharmacy Rx Sales')),
+                      ],
+                      rows: _clinicDoctors.map((doc) {
+                        final dName = (doc['full_name'] ?? 'Doctor').toString();
+                        final spec = (doc['speciality'] ?? 'General').toString();
+                        final regNo = (doc['registration_no'] ?? '').toString();
+                        final totalAppts = doc['total_appointments'] ?? 0;
+                        final visitedAppts = doc['visited_appointments'] ?? 0;
+                        final fees = ((doc['total_fees_collected'] ?? 0) as num).toDouble();
+                        final feesByMode = (doc['fees_by_mode'] as Map?) ?? {};
+                        final rxSales = ((doc['medicine_sales_referred'] ?? 0) as num).toDouble();
+
+                        return DataRow(
+                          cells: [
+                            DataCell(
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 13,
+                                    backgroundColor: const Color(0xFF0284C7).withOpacity(0.1),
+                                    child: const Icon(Icons.person, size: 14, color: Color(0xFF0284C7)),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text('Dr. $dName', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                            DataCell(
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(spec, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11)),
+                                  if (regNo.isNotEmpty)
+                                    Text('Reg: $regNo', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B))),
+                                ],
+                              ),
+                            ),
+                            DataCell(
+                              Text('$visitedAppts attended / $totalAppts total', style: const TextStyle(fontWeight: FontWeight.w600)),
+                            ),
+                            DataCell(
+                              Text('${CurrencyService.symbol}${fees.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+                            ),
+                            DataCell(
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if ((feesByMode['CASH'] ?? 0) > 0)
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: const Color(0xFFECFDF5), borderRadius: BorderRadius.circular(4)),
+                                      child: Text('Cash: ${CurrencyService.symbol}${feesByMode['CASH']}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+                                    ),
+                                  if ((feesByMode['UPI'] ?? 0) > 0)
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(4)),
+                                      child: Text('UPI: ${CurrencyService.symbol}${feesByMode['UPI']}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF))),
+                                    ),
+                                  if ((feesByMode['CARD'] ?? 0) > 0)
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: const Color(0xFFFAF5FF), borderRadius: BorderRadius.circular(4)),
+                                      child: Text('Card: ${CurrencyService.symbol}${feesByMode['CARD']}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF6B21A8))),
+                                    ),
+                                  if ((feesByMode['PAY_LATER'] ?? 0) > 0)
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: const Color(0xFFFFFBEB), borderRadius: BorderRadius.circular(4)),
+                                      child: Text('Pay Later: ${CurrencyService.symbol}${feesByMode['PAY_LATER']}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+                                    ),
+                                  if ((feesByMode['PACKAGE'] ?? 0) > 0)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: const Color(0xFFFDF2F8), borderRadius: BorderRadius.circular(4)),
+                                      child: Text('Package (${feesByMode['PACKAGE']} sessions)', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF9D174D))),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            DataCell(
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: rxSales > 0 ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: rxSales > 0 ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0)),
+                                ),
+                                child: Text(
+                                  '${CurrencyService.symbol}${rxSales.toStringAsFixed(2)}',
+                                  style: TextStyle(fontWeight: FontWeight.bold, color: rxSales > 0 ? const Color(0xFF166534) : const Color(0xFF64748B)),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      }).toList(),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1199,6 +2515,460 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           label,
           style: TextStyle(fontSize: 11, fontWeight: sel ? FontWeight.bold : FontWeight.w500, color: sel ? Colors.white : const Color(0xFF334155)),
         ),
+      ),
+    );
+  }
+
+
+  // ==========================================
+  // TAB 3: THERAPY & SERVICE SUBSCRIPTIONS
+  // ==========================================
+  Future<void> _fetchSubscriptions() async {
+    setState(() => _isLoadingSubscriptions = true);
+    try {
+      final queryParams = <String, dynamic>{};
+      if (_subscriptionFilter != 'ALL') {
+        queryParams['status'] = _subscriptionFilter;
+      }
+      if (_subSearchCtrl.text.trim().isNotEmpty) {
+        queryParams['search'] = _subSearchCtrl.text.trim();
+      }
+      final res = await ApiClient.get(
+        ApiEndpoints.clinicSubscriptions,
+        queryParams: queryParams,
+      );
+      if (res != null && res['success'] == true && mounted) {
+        setState(() {
+          _subscriptions = res['data'] ?? [];
+        });
+      }
+    } catch (_) {} finally {
+      if (mounted) setState(() => _isLoadingSubscriptions = false);
+    }
+  }
+
+  Future<void> _consumeSubscriptionSession(dynamic subId, dynamic appointmentId) async {
+    try {
+      final res = await ApiClient.post(
+        ApiEndpoints.clinicSubscriptionConsume(subId),
+        {
+          if (appointmentId != null) 'appointment_id': appointmentId,
+          'notes': 'Session consumed via Clinic OPD Queue',
+        },
+      );
+      if (res != null && res['success'] == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF059669),
+            content: Text(res['message'] ?? 'Therapy session successfully consumed!'),
+          ),
+        );
+        _fetchAppointments();
+        _fetchSubscriptions();
+        _fetchAnalytics();
+      } else if (res != null && res['message'] != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text(res['message'])),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildSubscriptionsTab() {
+    final inr = CurrencyService.currencyFormat;
+    final totalActive = _subscriptions.where((s) => (s['status'] ?? '').toString().toUpperCase() == 'ACTIVE').length;
+    final totalSessions = _subscriptions.fold<int>(0, (sum, s) => sum + (int.tryParse('${s['total_package_sessions']}') ?? 0));
+    final consumedSessions = _subscriptions.fold<int>(0, (sum, s) => sum + (int.tryParse('${s['services_consumed']}') ?? 0));
+    final remainingSessions = totalSessions - consumedSessions;
+    final totalRev = _subscriptions.fold<double>(0.0, (sum, s) => sum + (double.tryParse('${s['total_payment_amount']}') ?? 0.0));
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Bar
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.card_membership_rounded, color: Color(0xFF7C3AED), size: 26),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Therapy Packages & Service Subscriptions',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                      Text(
+                        'Manage monthly therapy packages (e.g. 6 paid + free bonus sessions), track session consumption & view ledger.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C3AED),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('New Therapy Subscription', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  onPressed: () => _openCreateSubscriptionDialog(),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Top KPI Cards
+          LayoutBuilder(
+            builder: (ctx, constraints) {
+              final isWide = constraints.maxWidth > 900;
+              return GridView.count(
+                crossAxisCount: isWide ? 4 : 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                shrinkWrap: true,
+                childAspectRatio: isWide ? 2.3 : 2.0,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  _metricCard(
+                    title: 'Active Packages',
+                    value: '$totalActive',
+                    subtitle: '${_subscriptions.length} total customer packages',
+                    icon: Icons.assignment_turned_in_rounded,
+                    accentColor: const Color(0xFF7C3AED),
+                  ),
+                  _metricCard(
+                    title: 'Sessions Consumed',
+                    value: '$consumedSessions / $totalSessions',
+                    subtitle: 'Total therapy sessions fulfilled',
+                    icon: Icons.check_circle_rounded,
+                    accentColor: const Color(0xFF059669),
+                  ),
+                  _metricCard(
+                    title: 'Sessions Remaining',
+                    value: '$remainingSessions',
+                    subtitle: 'Prepaid pending sessions',
+                    icon: Icons.hourglass_top_rounded,
+                    accentColor: const Color(0xFF0284C7),
+                  ),
+                  _metricCard(
+                    title: 'Subscription Revenue',
+                    value: inr.format(totalRev),
+                    subtitle: 'Linked to universal finance ledger',
+                    icon: Icons.account_balance_wallet_rounded,
+                    accentColor: const Color(0xFFD97706),
+                  ),
+                ],
+              );
+            },
+          ),
+
+          const SizedBox(height: 20),
+
+          // Filters & Search Bar
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _subSearchCtrl,
+                  decoration: InputDecoration(
+                    hintText: 'Search by patient name, phone, or therapy package...',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Color(0xFF64748B)),
+                    isDense: true,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                  ),
+                  onSubmitted: (_) => _fetchSubscriptions(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F172A),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: _fetchSubscriptions,
+                child: const Text('Search', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              ),
+              const SizedBox(width: 12),
+              Wrap(
+                spacing: 6,
+                children: [
+                  _subFilterChip('ALL', 'All'),
+                  _subFilterChip('ACTIVE', 'Active'),
+                  _subFilterChip('EXHAUSTED', 'Exhausted'),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Subscriptions List
+          if (_isLoadingSubscriptions)
+            const Center(child: Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator(color: Color(0xFF7C3AED))))
+          else if (_subscriptions.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(40),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.card_membership_outlined, size: 48, color: Colors.grey.shade400),
+                    const SizedBox(height: 12),
+                    const Text('No therapy subscriptions found', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                    const SizedBox(height: 4),
+                    const Text('Create a monthly therapy package for recurring treatments and customer sessions.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(backgroundColor: const Color(0xFF7C3AED)),
+                      icon: const Icon(Icons.add_rounded, size: 16),
+                      label: const Text('Create First Subscription'),
+                      onPressed: () => _openCreateSubscriptionDialog(),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _subscriptions.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (ctx, idx) => _buildSubscriptionCard(_subscriptions[idx]),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _subFilterChip(String key, String label) {
+    final isSelected = _subscriptionFilter == key;
+    return ChoiceChip(
+      label: Text(label, style: TextStyle(color: isSelected ? Colors.white : const Color(0xFF475569), fontWeight: FontWeight.bold, fontSize: 12)),
+      selected: isSelected,
+      selectedColor: const Color(0xFF7C3AED),
+      backgroundColor: Colors.white,
+      side: BorderSide(color: isSelected ? Colors.transparent : const Color(0xFFCBD5E1)),
+      onSelected: (val) {
+        if (val) {
+          setState(() => _subscriptionFilter = key);
+          _fetchSubscriptions();
+        }
+      },
+    );
+  }
+
+  Widget _buildSubscriptionCard(dynamic s) {
+    final inr = CurrencyService.currencyFormat;
+    final totalSessions = int.tryParse('${s['total_package_sessions']}') ?? 6;
+    final consumed = int.tryParse('${s['services_consumed']}') ?? 0;
+    final remaining = (totalSessions - consumed).clamp(0, totalSessions);
+    final progress = totalSessions > 0 ? (consumed / totalSessions).clamp(0.0, 1.0) : 0.0;
+    final status = (s['status'] ?? 'ACTIVE').toString().toUpperCase();
+    final isExhausted = remaining <= 0 || status == 'EXHAUSTED';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 6, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: const Color(0xFF7C3AED).withValues(alpha: 0.1),
+                child: const Icon(Icons.spa_rounded, color: Color(0xFF7C3AED), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          s['customer_name'] ?? 'Customer',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Text(
+                            'Package #${s['id'] ?? '-'}',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isExhausted ? Colors.grey.withValues(alpha: 0.1) : const Color(0xFF059669).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: isExhausted ? Colors.grey.shade300 : const Color(0xFF059669).withValues(alpha: 0.3)),
+                          ),
+                          child: Text(
+                            isExhausted ? 'EXHAUSTED' : 'ACTIVE',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isExhausted ? Colors.grey.shade700 : const Color(0xFF059669)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Phone: ${s['customer_phone'] ?? '-'}  •  Service: ${s['item_name'] ?? 'Therapy'}',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    inr.format(double.tryParse('${s['total_payment_amount']}') ?? 0.0),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
+                  ),
+                  Text(
+                    '${s['per_service_price'] != null ? inr.format(double.tryParse('${s['per_service_price']}') ?? 0) : ''}/session',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Progress Bar
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 8,
+                    backgroundColor: const Color(0xFFF1F5F9),
+                    valueColor: AlwaysStoppedAnimation<Color>(isExhausted ? Colors.grey : const Color(0xFF7C3AED)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '$consumed of $totalSessions Consumed ($remaining Left)',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isExhausted ? Colors.grey : const Color(0xFF7C3AED)),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          const SizedBox(height: 10),
+
+          // Bottom Actions
+          Row(
+            children: [
+              Icon(Icons.calendar_month_rounded, size: 14, color: Colors.grey.shade500),
+              const SizedBox(width: 4),
+              Text(
+                'Valid: ${s['start_date'] ?? ''} to ${s['end_date'] ?? ''}',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              const Spacer(),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF0F172A),
+                  side: const BorderSide(color: Color(0xFFCBD5E1)),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.receipt_long_rounded, size: 15, color: Color(0xFF0284C7)),
+                label: const Text('View Ledger & Statement', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                onPressed: () => _openSubscriptionLedgerDialog(s),
+              ),
+              if (!isExhausted) ...[
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C3AED),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.check_circle_outline_rounded, size: 15),
+                  label: Text('Deduct Session (#${consumed + 1})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                  onPressed: () => _consumeSubscriptionSession(s['id'], null),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // DIALOG: View Subscription Financial Ledger & Consumption History
+  void _openSubscriptionLedgerDialog(dynamic sub) {
+    showDialog(
+      context: context,
+      builder: (_) => _SubscriptionLedgerDialog(subscription: sub),
+    );
+  }
+
+  // DIALOG: Create New Therapy Subscription
+  void _openCreateSubscriptionDialog({String? initialCustomerName, String? initialCustomerPhone}) {
+    showDialog(
+      context: context,
+      builder: (_) => _CreateSubscriptionDialog(
+        initialName: initialCustomerName,
+        initialPhone: initialCustomerPhone,
+        onCreated: () {
+          _fetchSubscriptions();
+          _fetchAppointments();
+          _fetchAnalytics();
+        },
       ),
     );
   }
@@ -1343,56 +3113,20 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
     }
 
     setState(() => _isAutoFilling = true);
-    await Future.delayed(const Duration(milliseconds: 900)); // Simulate OCR parse
+    await Future.delayed(const Duration(milliseconds: 600));
 
     if (mounted) {
       setState(() {
-        if (_diagnosisCtrl.text.isEmpty) {
-          _diagnosisCtrl.text = 'Acute Respiratory Tract Infection & Seasonal Rhinitis';
-        }
         if (_notesCtrl.text.isEmpty) {
-          _notesCtrl.text = 'Take medications post meals with warm water. Revisit clinic if fever persists beyond 3 days.';
-        }
-
-        // Auto-match available inventory medicines
-        if (_availableMedicines.isNotEmpty && _prescribedMedicines.isEmpty) {
-          final firstMed = _availableMedicines.first;
-          _prescribedMedicines.add({
-            'item_id': firstMed['id'],
-            'item_code': firstMed['item_code'],
-            'item_name': firstMed['item_name'],
-            'dosage': '1-0-1',
-            'frequency': 'After Food',
-            'duration': '5 Days',
-            'qty': 10,
-            'rate': firstMed['retail_sale_price'] ?? 0,
-            'tax_percent': firstMed['tax_percent'] ?? 0,
-            'current_stock': firstMed['current_stock'] ?? 0,
-          });
-
-          if (_availableMedicines.length > 1) {
-            final secondMed = _availableMedicines[1];
-            _prescribedMedicines.add({
-              'item_id': secondMed['id'],
-              'item_code': secondMed['item_code'],
-              'item_name': secondMed['item_name'],
-              'dosage': '0-0-1',
-              'frequency': 'At Bedtime',
-              'duration': '5 Days',
-              'qty': 5,
-              'rate': secondMed['retail_sale_price'] ?? 0,
-              'tax_percent': secondMed['tax_percent'] ?? 0,
-              'current_stock': secondMed['current_stock'] ?? 0,
-            });
-          }
+          _notesCtrl.text = 'Prescription document attached: ${_uploadedFile!.name}';
         }
         _isAutoFilling = false;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Prescription successfully parsed and auto-filled from scanned document!'),
-          backgroundColor: Color(0xFF059669),
+        SnackBar(
+          content: Text('Document "${_uploadedFile!.name}" attached to prescription! Please select prescribed medicines from live stock below.'),
+          backgroundColor: const Color(0xFF059669),
         ),
       );
     }
@@ -2135,8 +3869,9 @@ class _MedicineSelectorSheetState extends State<_MedicineSelectorSheet> {
 // NEW APPOINTMENT DIALOG
 // ==========================================
 class _NewAppointmentDialog extends StatefulWidget {
+  final List<dynamic> doctors;
   final VoidCallback onCreated;
-  const _NewAppointmentDialog({required this.onCreated});
+  const _NewAppointmentDialog({required this.doctors, required this.onCreated});
 
   @override
   State<_NewAppointmentDialog> createState() => _NewAppointmentDialogState();
@@ -2148,11 +3883,149 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
   final _ageCtrl = TextEditingController();
   final _reasonCtrl = TextEditingController();
   final _feeCtrl = TextEditingController(text: '0.00');
+
+  // Therapy Package state
+  final _packageNameCtrl = TextEditingController(text: 'Therapy Care Plan');
+  final _sessionNumCtrl = TextEditingController(text: '1');
+  final _totalSessionsCtrl = TextEditingController(text: '6');
+
   String _gender = 'MALE';
-  String _doctor = 'Dr. Ajay';
+  String _doctorName = '';
+  int? _doctorId;
   DateTime _date = DateTime.now();
   TimeOfDay _time = TimeOfDay.now();
   bool _saving = false;
+
+  String _paymentOption = 'PAY_LATER'; // 'PAY_LATER', 'PAID_NOW', 'PACKAGE'
+  String _paymentMode = 'CASH';
+  List<Map<String, dynamic>> _masterPaymentMethods = [];
+  bool _loadingPaymentMethods = false;
+
+  static const Map<int, List<String>> _weekdayAliases = {
+    DateTime.monday: ['MON', 'MONDAY'],
+    DateTime.tuesday: ['TUE', 'TUESDAY'],
+    DateTime.wednesday: ['WED', 'WEDNESDAY'],
+    DateTime.thursday: ['THU', 'THURSDAY'],
+    DateTime.friday: ['FRI', 'FRIDAY'],
+    DateTime.saturday: ['SAT', 'SATURDAY'],
+    DateTime.sunday: ['SUN', 'SUNDAY'],
+  };
+
+  List<String> _getDoctorAvailableDays(dynamic doc) {
+    if (doc == null) return ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    final rawDays = doc['available_days'];
+    List<String> daysList = [];
+    if (rawDays is List) {
+      daysList = rawDays.map((x) => x.toString().trim().toUpperCase()).where((x) => x.isNotEmpty).toList();
+    } else if (rawDays is String && rawDays.trim().isNotEmpty) {
+      final str = rawDays.trim();
+      if (str.startsWith('[') && str.endsWith(']')) {
+        try {
+          final decoded = jsonDecode(str);
+          if (decoded is List) {
+            daysList = decoded.map((x) => x.toString().trim().toUpperCase()).where((x) => x.isNotEmpty).toList();
+          }
+        } catch (_) {}
+      }
+      if (daysList.isEmpty) {
+        daysList = str.split(',').map((x) => x.trim().toUpperCase()).where((x) => x.isNotEmpty).toList();
+      }
+    }
+    if (daysList.isEmpty) {
+      daysList = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    }
+    return daysList;
+  }
+
+  bool _isDoctorAvailableOn(DateTime date, dynamic doc) {
+    if (doc == null) return true;
+    final days = _getDoctorAvailableDays(doc);
+    final aliases = _weekdayAliases[date.weekday] ?? [];
+    return days.any((d) {
+      final clean = d.replaceAll(RegExp(r'[^A-Z]'), '');
+      return aliases.any((a) => clean == a || clean.startsWith(a) || a.startsWith(clean));
+    });
+  }
+
+  DateTime _findNextAvailableDate(DateTime fromDate, dynamic doc) {
+    final now = DateTime.now();
+    DateTime cursor = DateTime(fromDate.year, fromDate.month, fromDate.day);
+    final todayStart = DateTime(now.year, now.month, now.day);
+    if (cursor.isBefore(todayStart)) {
+      cursor = todayStart;
+    }
+    for (int i = 0; i < 90; i++) {
+      final candidate = cursor.add(Duration(days: i));
+      if (_isDoctorAvailableOn(candidate, doc)) {
+        return candidate;
+      }
+    }
+    return cursor;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.doctors.isNotEmpty) {
+      final doc = widget.doctors.first;
+      _doctorName = (doc['full_name'] ?? 'Doctor').toString();
+      _doctorId = doc['id'];
+      _feeCtrl.text = (((doc['consultation_fee'] ?? 0.0) as num).toDouble()).toStringAsFixed(2);
+      _date = _findNextAvailableDate(DateTime.now(), doc);
+    } else {
+      _doctorName = 'Consultant Physician';
+    }
+    _loadMasterPaymentMethods();
+  }
+
+  Future<void> _loadMasterPaymentMethods() async {
+    setState(() => _loadingPaymentMethods = true);
+    try {
+      final res = await ApiClient.get(ApiEndpoints.paymentMethods);
+      if (res != null && res['data'] is List && mounted) {
+        final list = (res['data'] as List).map((e) => Map<String, dynamic>.from(e)).toList();
+        setState(() {
+          _masterPaymentMethods = list;
+          if (_masterPaymentMethods.isNotEmpty) {
+            _paymentMode = (_masterPaymentMethods.first['name'] ?? 'CASH').toString().toUpperCase();
+          }
+        });
+      }
+    } catch (_) {} finally {
+      if (mounted) setState(() => _loadingPaymentMethods = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _ageCtrl.dispose();
+    _reasonCtrl.dispose();
+    _feeCtrl.dispose();
+    _packageNameCtrl.dispose();
+    _sessionNumCtrl.dispose();
+    _totalSessionsCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onDoctorSelected(String? name) {
+    if (name == null) return;
+    setState(() {
+      _doctorName = name;
+      final doc = widget.doctors.firstWhere(
+        (d) => (d['full_name'] ?? '').toString() == name,
+        orElse: () => null,
+      );
+      if (doc != null) {
+        _doctorId = doc['id'];
+        _feeCtrl.text = (((doc['consultation_fee'] ?? 0.0) as num).toDouble()).toStringAsFixed(2);
+        if (!_isDoctorAvailableOn(_date, doc)) {
+          _date = _findNextAvailableDate(DateTime.now(), doc);
+        }
+      }
+    });
+  }
 
   Future<void> _create() async {
     if (_nameCtrl.text.trim().isEmpty || _phoneCtrl.text.trim().isEmpty) {
@@ -2165,6 +4038,31 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
     setState(() => _saving = true);
     try {
       final timeStr = '${_time.hour.toString().padLeft(2, '0')}:${_time.minute.toString().padLeft(2, '0')}';
+      final fee = double.tryParse(_feeCtrl.text.trim()) ?? 0.0;
+
+      String payStatus = 'UNPAID';
+      String? payMode;
+      double paidAmt = 0.0;
+      bool isPack = false;
+      String? packName;
+      int? sessNum;
+      int? totSess;
+
+      if (_paymentOption == 'PAY_LATER') {
+        payStatus = 'PAY_LATER';
+        payMode = 'PAY_LATER';
+      } else if (_paymentOption == 'PAID_NOW') {
+        payStatus = 'PAID';
+        payMode = _paymentMode;
+        paidAmt = fee;
+      } else if (_paymentOption == 'PACKAGE') {
+        payStatus = 'PACKAGE_INCLUDED';
+        isPack = true;
+        packName = _packageNameCtrl.text.trim().isNotEmpty ? _packageNameCtrl.text.trim() : 'Therapy Care Plan';
+        sessNum = int.tryParse(_sessionNumCtrl.text.trim()) ?? 1;
+        totSess = int.tryParse(_totalSessionsCtrl.text.trim()) ?? 6;
+      }
+
       final res = await ApiClient.post(
         ApiEndpoints.clinicAppointments,
         {
@@ -2174,9 +4072,17 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
           'patient_gender': _gender,
           'appointment_date': DateFormat('yyyy-MM-dd').format(_date),
           'appointment_time': timeStr,
-          'doctor_name': _doctor,
-          'consultation_fee': double.tryParse(_feeCtrl.text.trim()) ?? 0.0,
+          'doctor_name': _doctorName,
+          'doctor_id': _doctorId,
+          'consultation_fee': fee,
           'reason_for_visit': _reasonCtrl.text.trim(),
+          'payment_status': payStatus,
+          'payment_mode': payMode,
+          'paid_amount': paidAmt,
+          'package_name': packName,
+          'session_number': sessNum,
+          'total_package_sessions': totSess,
+          'is_package_session': isPack,
         },
       );
 
@@ -2210,11 +4116,42 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
         ],
       ),
       content: SizedBox(
-        width: 480,
+        width: 520,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Doctor Selection
+              if (widget.doctors.isNotEmpty) ...[
+                DropdownButtonFormField<String>(
+                  value: widget.doctors.any((d) => (d['full_name'] ?? '').toString() == _doctorName)
+                      ? _doctorName
+                      : (widget.doctors.first['full_name'] ?? '').toString(),
+                  decoration: InputDecoration(
+                    labelText: 'Attending Clinician / Doctor *',
+                    isDense: true,
+                    prefixIcon: const Icon(Icons.medical_services_outlined, size: 18, color: Color(0xFF0284C7)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: widget.doctors.map<DropdownMenuItem<String>>((doc) {
+                    final dName = (doc['full_name'] ?? 'Doctor').toString();
+                    final spec = (doc['speciality'] ?? '').toString();
+                    final fee = ((doc['consultation_fee'] ?? 0) as num).toDouble();
+                    return DropdownMenuItem<String>(
+                      value: dName,
+                      child: Text(
+                        'Dr. $dName (${spec.isNotEmpty ? spec : 'General'} - ${CurrencyService.symbol}$fee)',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: _onDoctorSelected,
+                ),
+                const SizedBox(height: 10),
+              ],
+
+              // Patient Info
               TextField(
                 controller: _nameCtrl,
                 decoration: InputDecoration(
@@ -2271,6 +4208,258 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                 ],
               ),
               const SizedBox(height: 10),
+
+              // Date & Time Picker
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: const Icon(Icons.calendar_today_rounded, size: 16),
+                      label: Text(DateFormat('dd MMM yyyy').format(_date), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      onPressed: () async {
+                        final currentDoc = widget.doctors.firstWhere(
+                          (d) => (d['full_name'] ?? '').toString() == _doctorName || d['id'] == _doctorId,
+                          orElse: () => null,
+                        );
+                        final now = DateTime.now();
+                        final firstDate = DateTime(now.year, now.month, now.day);
+                        final lastDate = firstDate.add(const Duration(days: 90));
+
+                        DateTime initial = _date;
+                        if (initial.isBefore(firstDate) || (currentDoc != null && !_isDoctorAvailableOn(initial, currentDoc))) {
+                          initial = _findNextAvailableDate(firstDate, currentDoc);
+                        }
+                        if (initial.isAfter(lastDate)) initial = lastDate;
+
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: initial,
+                          firstDate: firstDate,
+                          lastDate: lastDate,
+                          selectableDayPredicate: (DateTime day) {
+                            if (currentDoc == null) return true;
+                            return _isDoctorAvailableOn(day, currentDoc);
+                          },
+                          helpText: 'Select Available OPD Date',
+                        );
+                        if (picked != null) setState(() => _date = picked);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      icon: const Icon(Icons.access_time_rounded, size: 16),
+                      label: Text(_time.format(context), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      onPressed: () async {
+                        final picked = await showTimePicker(
+                          context: context,
+                          initialTime: _time,
+                        );
+                        if (picked != null) setState(() => _time = picked);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              // Doctor Available Days & Working Schedule Check
+              Builder(
+                builder: (ctx) {
+                  final selDoc = widget.doctors.firstWhere(
+                    (d) => (d['full_name'] ?? '').toString() == _doctorName,
+                    orElse: () => null,
+                  );
+                  final availableDaysRaw = (selDoc?['available_days'] ?? selDoc?['public_display_options']?['available_days'] ?? 'Mon,Tue,Wed,Thu,Fri,Sat').toString();
+                  final availableList = availableDaysRaw.split(',').map((x) => x.trim().toUpperCase()).where((x) => x.isNotEmpty).toList();
+                  final selDayEee = DateFormat('EEE').format(_date).toUpperCase();
+                  final isDayAvailable = availableList.isEmpty || availableList.contains(selDayEee);
+
+                  final startTime = (selDoc?['public_display_options']?['start_time'] ?? '09:00 AM').toString();
+                  final endTime = (selDoc?['public_display_options']?['end_time'] ?? '06:00 PM').toString();
+
+                  if (!isDayAvailable) {
+                    return Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFFDE68A)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFD97706)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Dr. ' + _doctorName + ' is not scheduled on ' + DateFormat('EEEE').format(_date) + ' (Available: ' + availableDaysRaw + ' | ' + startTime + ' - ' + endTime + ')',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Doctor Hours: ' + availableDaysRaw + ' (' + startTime + ' - ' + endTime + ')',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF16A34A), fontWeight: FontWeight.w500),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+
+              // Fee & Payment Option Selection
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.payments_outlined, size: 16, color: Color(0xFF0284C7)),
+                        const SizedBox(width: 6),
+                        const Text('Consultation Fee & Payment Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A))),
+                        const Spacer(),
+                        SizedBox(
+                          width: 110,
+                          child: TextField(
+                            controller: _feeCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              labelText: 'Fee (${CurrencyService.symbol})',
+                              isDense: true,
+                              border: const OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Pay Later at Clinic'),
+                          selected: _paymentOption == 'PAY_LATER',
+                          onSelected: (val) => setState(() => _paymentOption = 'PAY_LATER'),
+                        ),
+                        const SizedBox(width: 6),
+                        ChoiceChip(
+                          label: const Text('Paid Now'),
+                          selected: _paymentOption == 'PAID_NOW',
+                          onSelected: (val) => setState(() => _paymentOption = 'PAID_NOW'),
+                        ),
+                        const SizedBox(width: 6),
+                        ChoiceChip(
+                          label: const Text('Therapy Package'),
+                          selected: _paymentOption == 'PACKAGE',
+                          onSelected: (val) => setState(() => _paymentOption = 'PACKAGE'),
+                        ),
+                      ],
+                    ),
+
+                    if (_paymentOption == 'PAID_NOW') ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const Text('Universal Mode: ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: (_masterPaymentMethods.isNotEmpty
+                                    ? _masterPaymentMethods.map((m) => (m['name'] ?? 'CASH').toString().toUpperCase()).toList()
+                                    : ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER']).map((m) {
+                                  final sel = _paymentMode.toUpperCase() == m.toUpperCase();
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 6),
+                                    child: ChoiceChip(
+                                      label: Text(m, style: TextStyle(fontSize: 10, fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
+                                      selected: sel,
+                                      selectedColor: const Color(0xFF0284C7).withOpacity(0.2),
+                                      onSelected: (v) => setState(() => _paymentMode = m),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    if (_paymentOption == 'PACKAGE') ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _packageNameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Package / Care Plan Name',
+                          hintText: 'e.g. Physiotherapy 6-Sessions Care Plan',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _sessionNumCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: 'Current Session #', isDense: true, border: OutlineInputBorder()),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _totalSessionsCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: 'Total Free / Covered', isDense: true, border: OutlineInputBorder()),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.card_membership_rounded, size: 16, color: Color(0xFF0284C7)),
+                          label: const Text('Open Recurring Subscription / Milk Care Plan Module', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0284C7))),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Color(0xFFBAE6FD)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const SubscriptionScreen(renewMode: false)),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 10),
               TextField(
                 controller: _reasonCtrl,
                 maxLines: 2,
@@ -2298,6 +4487,625 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
               : const Text('Confirm Booking'),
         ),
       ],
+    );
+  }
+}
+
+// ==========================================
+// THERAPY & SUBSCRIPTION FINANCIAL LEDGER DIALOG
+// ==========================================
+class _SubscriptionLedgerDialog extends StatefulWidget {
+  final dynamic subscription;
+
+  const _SubscriptionLedgerDialog({required this.subscription});
+
+  @override
+  State<_SubscriptionLedgerDialog> createState() => _SubscriptionLedgerDialogState();
+}
+
+class _SubscriptionLedgerDialogState extends State<_SubscriptionLedgerDialog> {
+  bool _isLoading = true;
+  Map<String, dynamic>? _ledgerData;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLedger();
+  }
+
+  Future<void> _fetchLedger() async {
+    setState(() => _isLoading = true);
+    try {
+      final res = await ApiClient.get(
+        ApiEndpoints.clinicSubscriptionLedger(widget.subscription['id']),
+      );
+      if (res != null && res['success'] == true && mounted) {
+        setState(() {
+          _ledgerData = Map<String, dynamic>.from(res['data'] ?? {});
+        });
+      }
+    } catch (_) {} finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _consumeQuickSession() async {
+    try {
+      final res = await ApiClient.post(
+        ApiEndpoints.clinicSubscriptionConsume(widget.subscription['id']),
+        {'notes': 'Session deducted from Ledger Statement'},
+      );
+      if (res != null && res['success'] == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF059669),
+            content: Text(res['message'] ?? 'Session consumed successfully!'),
+          ),
+        );
+        _fetchLedger();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final inr = CurrencyService.currencyFormat;
+    final sub = _ledgerData?['subscription'] ?? widget.subscription;
+    final totalSessions = int.tryParse('${_ledgerData?['total_package_sessions'] ?? sub['total_package_sessions']}') ?? 6;
+    final consumed = int.tryParse('${_ledgerData?['services_consumed'] ?? sub['services_consumed']}') ?? 0;
+    final remaining = (totalSessions - consumed).clamp(0, totalSessions);
+    final totalCollected = double.tryParse('${_ledgerData?['total_collected'] ?? sub['total_payment_amount']}') ?? 0.0;
+    final remainingVal = double.tryParse('${_ledgerData?['remaining_value']}') ?? 0.0;
+    final ledgerEntries = (_ledgerData?['ledger'] as List?) ?? [];
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      child: Container(
+        width: 820,
+        constraints: const BoxConstraints(maxHeight: 700),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF7C3AED).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.receipt_long_rounded, color: Color(0xFF7C3AED), size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            sub['customer_name'] ?? 'Customer',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A)),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Text(
+                              'Package #${sub['id']}',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Phone: ${sub['customer_phone'] ?? '-'}  •  Package: ${sub['item_name'] ?? 'Therapy'}',
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 18),
+
+            // Summary Metric Badges
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                children: [
+                  _ledgerMetric('Total Collected', inr.format(totalCollected), const Color(0xFF059669)),
+                  _verticalDivider(),
+                  _ledgerMetric('Package Sessions', '$totalSessions Total', const Color(0xFF0F172A)),
+                  _verticalDivider(),
+                  _ledgerMetric('Consumed Sessions', '$consumed Done', const Color(0xFFD97706)),
+                  _verticalDivider(),
+                  _ledgerMetric('Remaining Sessions', '$remaining Left', const Color(0xFF7C3AED)),
+                  _verticalDivider(),
+                  _ledgerMetric('Remaining Value', inr.format(remainingVal), const Color(0xFF0284C7)),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            const Text(
+              'FINANCIAL LEDGER & TRANSACTION HISTORY',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569), letterSpacing: 0.5),
+            ),
+            const SizedBox(height: 8),
+
+            // Ledger Table
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF7C3AED)))
+                  : ledgerEntries.isEmpty
+                      ? const Center(child: Text('No transactions recorded yet.', style: TextStyle(color: Colors.grey)))
+                      : Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: ListView.separated(
+                              itemCount: ledgerEntries.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                              itemBuilder: (ctx, idx) {
+                                final row = ledgerEntries[idx];
+                                final isCredit = row['type'] == 'CREDIT';
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  color: idx.isEven ? Colors.white : const Color(0xFFFAFAFA),
+                                  child: Row(
+                                    children: [
+                                      // Date
+                                      SizedBox(
+                                        width: 100,
+                                        child: Text(
+                                          (row['date'] ?? '').toString().substring(0, 10),
+                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      // Type chip
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: isCredit ? const Color(0xFF059669).withValues(alpha: 0.1) : const Color(0xFFD97706).withValues(alpha: 0.1),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          row['type'] ?? '',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: isCredit ? const Color(0xFF059669) : const Color(0xFFD97706),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      // Description
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              row['description'] ?? '',
+                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                            ),
+                                            Text(
+                                              'Ref: ${row['reference'] ?? '-'}',
+                                              style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Amount
+                                      Text(
+                                        '${isCredit ? '+' : '-'}${inr.format(double.tryParse('${row['amount']}') ?? 0.0)}',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: isCredit ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 24),
+                                      // Balance
+                                      SizedBox(
+                                        width: 120,
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              'Bal: ${inr.format(double.tryParse('${row['balance_amount']}') ?? 0.0)}',
+                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                            ),
+                                            Text(
+                                              '${row['remaining_sessions'] ?? 0} sessions left',
+                                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Footer Actions
+            Row(
+              children: [
+                if (remaining > 0)
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF7C3AED),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                    label: Text('Deduct Next Session (#${consumed + 1})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    onPressed: _consumeQuickSession,
+                  ),
+                const Spacer(),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF475569),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ledgerMetric(String title, String val, Color color) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+          const SizedBox(height: 2),
+          Text(val, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _verticalDivider() {
+    return Container(
+      width: 1,
+      height: 32,
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      color: const Color(0xFFE2E8F0),
+    );
+  }
+}
+
+// ==========================================
+// CREATE NEW THERAPY SUBSCRIPTION DIALOG
+// ==========================================
+class _CreateSubscriptionDialog extends StatefulWidget {
+  final String? initialName;
+  final String? initialPhone;
+  final VoidCallback onCreated;
+
+  const _CreateSubscriptionDialog({
+    this.initialName,
+    this.initialPhone,
+    required this.onCreated,
+  });
+
+  @override
+  State<_CreateSubscriptionDialog> createState() => _CreateSubscriptionDialogState();
+}
+
+class _CreateSubscriptionDialogState extends State<_CreateSubscriptionDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _phoneCtrl;
+  final _emailCtrl = TextEditingController();
+  final _sessionsCtrl = TextEditingController(text: '6');
+  final _bonusCtrl = TextEditingController(text: '1');
+  final _totalFeeCtrl = TextEditingController(text: '3000');
+
+  String _paymentMode = 'CASH';
+  List<dynamic> _availableItems = [];
+  dynamic _selectedItem;
+  bool _isLoadingItems = false;
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.initialName ?? '');
+    _phoneCtrl = TextEditingController(text: widget.initialPhone ?? '');
+    _loadItems();
+  }
+
+  Future<void> _loadItems() async {
+    setState(() => _isLoadingItems = true);
+    try {
+      final res = await ApiClient.get(ApiEndpoints.clinicMedicines);
+      if (res != null && res['success'] == true && mounted) {
+        setState(() {
+          _availableItems = res['data'] ?? [];
+          if (_availableItems.isNotEmpty) {
+            _selectedItem = _availableItems.first;
+            _recalculateFee();
+          }
+        });
+      }
+    } catch (_) {} finally {
+      if (mounted) setState(() => _isLoadingItems = false);
+    }
+  }
+
+  void _recalculateFee() {
+    if (_selectedItem != null) {
+      final rate = double.tryParse('${_selectedItem['retail_sale_price'] ?? _selectedItem['rate'] ?? 500}') ?? 500.0;
+      final sessions = int.tryParse(_sessionsCtrl.text) ?? 6;
+      _totalFeeCtrl.text = (rate * sessions).toStringAsFixed(2);
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSubmitting = true);
+    try {
+      final body = {
+        'customer_name': _nameCtrl.text.trim(),
+        'customer_phone': _phoneCtrl.text.trim(),
+        'customer_email': _emailCtrl.text.trim(),
+        'item_id': _selectedItem?['id'] ?? 0,
+        'item_name': _selectedItem?['item_name'] ?? 'Therapy Package',
+        'monthly_sessions': int.tryParse(_sessionsCtrl.text) ?? 6,
+        'bonus_sessions': int.tryParse(_bonusCtrl.text) ?? 0,
+        'total_fee': double.tryParse(_totalFeeCtrl.text) ?? 0.0,
+        'payment_mode': _paymentMode,
+      };
+
+      final res = await ApiClient.post(ApiEndpoints.clinicSubscriptions, body);
+      if (res != null && res['success'] == true && mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Color(0xFF059669),
+            content: Text('Therapy Package Subscription created and recorded in Finance Ledger!'),
+          ),
+        );
+        widget.onCreated();
+      } else if (res != null && res['message'] != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text(res['message'])),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text('Error creating subscription: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 580,
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7C3AED).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.card_membership_rounded, color: Color(0xFF7C3AED), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('New Therapy / Service Subscription', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                        Text('Subscribe patient for recurring sessions, track consumption & credit advance.', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 18),
+
+              // Customer Details
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _nameCtrl,
+                      decoration: const InputDecoration(labelText: 'Patient Name *', prefixIcon: Icon(Icons.person_outline, size: 18), isDense: true, border: OutlineInputBorder()),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Phone Number *', prefixIcon: Icon(Icons.phone_outlined, size: 18), isDense: true, border: OutlineInputBorder()),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              // Service Item Selection from Item Master
+              _isLoadingItems
+                  ? const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(color: Color(0xFF7C3AED))))
+                  : DropdownButtonFormField<dynamic>(
+                      initialValue: _selectedItem,
+                      decoration: const InputDecoration(
+                        labelText: 'Select Service / Therapy from Item Master *',
+                        prefixIcon: Icon(Icons.medical_services_outlined, size: 18),
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _availableItems.map((item) {
+                        return DropdownMenuItem(
+                          value: item,
+                          child: Text('${item['item_name']} (Stock: ${item['current_stock'] ?? 0}) - Rate: ₹${item['retail_sale_price'] ?? item['rate'] ?? 0}'),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setState(() {
+                          _selectedItem = val;
+                          _recalculateFee();
+                        });
+                      },
+                    ),
+
+              const SizedBox(height: 12),
+
+              // Monthly Sessions and Bonus
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _sessionsCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Monthly Sessions Needed', helperText: 'e.g. 6 sessions/month', isDense: true, border: OutlineInputBorder()),
+                      onChanged: (_) => _recalculateFee(),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _bonusCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Free Bonus Sessions', helperText: 'e.g. 1 bonus = 7 total', isDense: true, border: OutlineInputBorder()),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              // Total Package Fee & Payment Mode
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _totalFeeCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Total Package Fee (₹)', isDense: true, border: OutlineInputBorder()),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _paymentMode,
+                      decoration: const InputDecoration(labelText: 'Payment Mode', isDense: true, border: OutlineInputBorder()),
+                      items: const [
+                        DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                        DropdownMenuItem(value: 'UPI', child: Text('UPI / QR')),
+                        DropdownMenuItem(value: 'CARD', child: Text('Credit / Debit Card')),
+                        DropdownMenuItem(value: 'BANK_TRANSFER', child: Text('Bank Transfer')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => _paymentMode = v);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Action buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF7C3AED),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: _isSubmitting
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Icon(Icons.check_rounded, size: 16),
+                    label: const Text('Create & Record Ledger', style: TextStyle(fontWeight: FontWeight.bold)),
+                    onPressed: _isSubmitting ? null : _submit,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

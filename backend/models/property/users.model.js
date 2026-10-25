@@ -34,6 +34,21 @@ module.exports = (sequelize, DataTypes) => {
         doctor_city: DataTypes.STRING(100),
         doctor_bio: DataTypes.TEXT,
         available_days: { type: DataTypes.STRING(100), defaultValue: 'Mon,Tue,Wed,Thu,Fri,Sat' },
+        registration_no: DataTypes.STRING(100),
+        whatsapp_no: DataTypes.STRING(50),
+        public_display_options: {
+            type: DataTypes.JSONB,
+            allowNull: true,
+            defaultValue: {
+                show_clinic_name: true,
+                show_doctor_name: true,
+                show_address: true,
+                show_phone: true,
+                show_whatsapp: true,
+                show_email: true,
+                show_fees: true
+            }
+        },
         max_discount_percent: { type: DataTypes.DECIMAL(5, 2), defaultValue: 100.00 },
         is_active: { type: DataTypes.BOOLEAN, defaultValue: true },
         last_login: DataTypes.DATE

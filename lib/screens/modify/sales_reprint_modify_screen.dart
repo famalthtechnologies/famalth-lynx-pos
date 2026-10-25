@@ -23,7 +23,18 @@ import '../inventory/salescreen.dart';
 import '../../core/printing/pdf_preview_dialog.dart';
 
 class SalesReprintModifyScreen extends StatefulWidget {
-  const SalesReprintModifyScreen({super.key});
+  final int? initialSaleId;
+  final String? initialSaleNo;
+  final String? initialSearch;
+  final DateTime? initialDate;
+
+  const SalesReprintModifyScreen({
+    super.key,
+    this.initialSaleId,
+    this.initialSaleNo,
+    this.initialSearch,
+    this.initialDate,
+  });
 
   @override
   State<SalesReprintModifyScreen> createState() =>
@@ -87,6 +98,16 @@ class _SalesReprintModifyScreenState extends State<SalesReprintModifyScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialSearch != null && widget.initialSearch!.trim().isNotEmpty) {
+      _searchCtrl.text = widget.initialSearch!.trim();
+    }
+    if (widget.initialDate != null) {
+      _fromDate = widget.initialDate!;
+      _toDate = widget.initialDate!;
+    } else if (widget.initialSaleId != null || widget.initialSaleNo != null || (widget.initialSearch != null && widget.initialSearch!.trim().isNotEmpty)) {
+      _fromDate = DateTimeService.instance.nowInTimeZone.subtract(const Duration(days: 90));
+      _toDate = DateTimeService.instance.nowInTimeZone.add(const Duration(days: 1));
+    }
     _loadInitial();
   }
 
@@ -172,7 +193,33 @@ class _SalesReprintModifyScreenState extends State<SalesReprintModifyScreen> {
               );
           _selectedSale = refreshed;
         }
-        if (_selectedSale == null && sales.isNotEmpty) {
+        Map<String, dynamic>? match;
+        if (widget.initialSaleId != null) {
+          match = sales.cast<Map<String, dynamic>?>().firstWhere(
+                (s) => s != null && int.tryParse('${s['id']}') == widget.initialSaleId,
+                orElse: () => null,
+              );
+        }
+        if (match == null && widget.initialSaleNo != null && widget.initialSaleNo!.isNotEmpty) {
+          match = sales.cast<Map<String, dynamic>?>().firstWhere(
+                (s) => s != null && (s['sale_no'] ?? '').toString().toUpperCase() == widget.initialSaleNo!.toUpperCase(),
+                orElse: () => null,
+              );
+        }
+        if (match == null && widget.initialSearch != null && widget.initialSearch!.isNotEmpty) {
+          final q = widget.initialSearch!.toLowerCase();
+          match = sales.cast<Map<String, dynamic>?>().firstWhere(
+                (s) => s != null &&
+                    ((s['sale_no'] ?? '').toString().toLowerCase().contains(q) ||
+                     (s['customer_phone'] ?? '').toString().contains(q) ||
+                     (s['customer_name'] ?? '').toString().toLowerCase().contains(q)),
+                orElse: () => null,
+              );
+        }
+
+        if (match != null) {
+          _selectSale(match);
+        } else if (_selectedSale == null && sales.isNotEmpty) {
           _selectSale(sales.first);
         } else if (_selectedSale == null) {
           _selectedOrder = null;

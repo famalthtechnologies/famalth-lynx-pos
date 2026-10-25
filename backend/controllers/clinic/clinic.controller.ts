@@ -4,7 +4,7 @@ import { Op, Sequelize } from 'sequelize';
 export const getAppointments = async (req: Request, res: Response) => {
     try {
         const outlet_id = (req as any).user.outlet_id;
-        const { search, from_date, to_date, status, doctor_name } = req.query as any;
+        const { search, from_date, to_date, status, doctor_name, doctor_id, attendance, fee_status, billing_status, department_view } = req.query as any;
 
         const where: any = { outlet_id };
 
@@ -12,7 +12,33 @@ export const getAppointments = async (req: Request, res: Response) => {
             where.status = status;
         }
 
-        if (doctor_name && doctor_name.trim()) {
+        if (attendance && attendance !== 'ALL') {
+            if (attendance === 'ATTENDED') {
+                where.status = { [Op.in]: ['VISITED', 'COMPLETED'] };
+            } else if (attendance === 'UNATTENDED') {
+                where.status = { [Op.in]: ['SCHEDULED', 'CONFIRMED'] };
+            }
+        }
+
+        if (fee_status && fee_status !== 'ALL') {
+            if (fee_status === 'PAID') {
+                where.payment_status = { [Op.in]: ['PAID', 'PACKAGE_INCLUDED'] };
+            } else if (fee_status === 'UNPAID') {
+                where.payment_status = { [Op.in]: ['UNPAID', 'PAY_LATER'] };
+            }
+        }
+
+        if (billing_status && billing_status !== 'ALL') {
+            if (billing_status === 'BILLED') {
+                where.billing_status = 'BILLED';
+            } else if (billing_status === 'UNBILLED') {
+                where.billing_status = { [Op.ne]: 'BILLED' };
+            }
+        }
+
+        if (doctor_id) {
+            where.doctor_id = Number(doctor_id);
+        } else if (doctor_name && doctor_name.trim() && doctor_name !== 'ALL') {
             where.doctor_name = { [Op.iLike]: `%${doctor_name.trim()}%` };
         }
 
@@ -35,9 +61,67 @@ export const getAppointments = async (req: Request, res: Response) => {
             where,
             order: [
                 ['appointment_date', 'DESC'],
+                ['token_number', 'ASC'],
                 ['appointment_time', 'ASC']
             ]
         });
+
+                // Clean up any false billing link and attach active therapy package info
+        for (const appt of data) {
+            if (appt.billing_sale_id) {
+                try {
+                    const sale = await (req as any).propertyDb.models.sales_headers.findOne({
+                        where: { id: appt.billing_sale_id, outlet_id }
+                    });
+                    if (sale) {
+                        const saleTime = new Date(sale.created_at || sale.sale_date).getTime();
+                        const apptTime = new Date(appt.created_at || (appt.appointment_date + 'T' + (appt.appointment_time || '00:00:00'))).getTime();
+                        if (saleTime < apptTime - 60000) {
+                            appt.billing_status = 'PENDING';
+                            appt.billing_sale_id = null;
+                            appt.billing_sale_no = null;
+                            await appt.update({
+                                billing_status: 'PENDING',
+                                billing_sale_id: null,
+                                billing_sale_no: null
+                            }).catch(() => null);
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            const phone = (appt.patient_phone || '').toString().trim();
+            if (phone && (req as any).propertyDb.models.milk_subscriptions) {
+                try {
+                    const activeSub = await (req as any).propertyDb.models.milk_subscriptions.findOne({
+                        where: {
+                            outlet_id,
+                            customer_phone: phone,
+                            status: 'ACTIVE'
+                        },
+                        order: [['id', 'DESC']]
+                    });
+                    if (activeSub) {
+                        const totalAllowed = Number(activeSub.total_allowed_services || 0) + Number(activeSub.bonus_qty || 0);
+                        const consumed = Number(activeSub.services_consumed || 0);
+                        const remaining = Math.max(0, totalAllowed - consumed);
+                        const packageInfo = {
+                            id: activeSub.id,
+                            package_name: activeSub.item_name || 'Therapy Package',
+                            total_sessions: totalAllowed,
+                            services_consumed: consumed,
+                            remaining_sessions: remaining,
+                            is_exhausted: remaining <= 0
+                        };
+                        if (appt.setDataValue) {
+                            appt.setDataValue('active_subscription', packageInfo);
+                        } else {
+                            (appt as any).active_subscription = packageInfo;
+                        }
+                    }
+                } catch (_) {}
+            }
+        }
 
         return res.json({
             success: true,
@@ -62,8 +146,17 @@ export const createAppointment = async (req: Request, res: Response) => {
             appointment_date,
             appointment_time,
             doctor_name,
+            doctor_id,
+            consultation_fee,
             department,
             reason_for_visit,
+            payment_status = 'UNPAID',
+            payment_mode,
+            paid_amount,
+            package_name,
+            session_number,
+            total_package_sessions,
+            is_package_session = false,
             source = 'POS'
         } = req.body;
 
@@ -91,8 +184,20 @@ export const createAppointment = async (req: Request, res: Response) => {
             });
         }
 
+        // Daily sequential token number
+        const todayCount = await (req as any).propertyDb.models.clinic_appointments.count({
+            where: {
+                outlet_id,
+                appointment_date
+            }
+        });
+        const token_number = todayCount + 1;
+
+        const finalPaid = paid_amount ? Number(paid_amount) : (payment_status === 'PAID' ? Number(consultation_fee || 0) : 0.00);
+
         const appointment = await (req as any).propertyDb.models.clinic_appointments.create({
             outlet_id,
+            token_number,
             patient_id: customer.id,
             patient_name: patient_name.trim(),
             patient_phone: patient_phone.trim(),
@@ -102,11 +207,42 @@ export const createAppointment = async (req: Request, res: Response) => {
             appointment_date,
             appointment_time,
             doctor_name: doctor_name ? doctor_name.trim() : null,
+            doctor_id: doctor_id ? Number(doctor_id) : null,
+            consultation_fee: consultation_fee ? Number(consultation_fee) : 0.00,
+            payment_status: payment_status || 'UNPAID',
+            payment_mode: payment_mode || null,
+            paid_amount: finalPaid,
+            package_name: package_name || null,
+            session_number: session_number ? Number(session_number) : 0,
+            total_package_sessions: total_package_sessions ? Number(total_package_sessions) : 0,
+            is_package_session: is_package_session === true || is_package_session === 'true',
             department: department ? department.trim() : null,
             reason_for_visit: reason_for_visit || null,
             status: 'SCHEDULED',
             source
         });
+
+        // Record in Financial Ledger if paid
+        if (payment_status === 'PAID' && finalPaid > 0) {
+            try {
+                const { createLedgerEntry } = require('../../services/cashLedger.service');
+                await createLedgerEntry({
+                    db: (req as any).propertyDb,
+                    outlet_id,
+                    txn_date: appointment_date || new Date(),
+                    transaction_type: 'CONSULTATION_FEE',
+                    reference_type: 'CLINIC_APPOINTMENT',
+                    reference_id: appointment.id,
+                    reference_no: `APPT-${appointment.id}`,
+                    party_name: appointment.patient_name,
+                    payment_method: payment_mode || 'CASH',
+                    amount_in: finalPaid,
+                    notes: `OPD Consultation Fee: Token #${token_number} - ${appointment.patient_name} (${appointment.doctor_name || 'Clinic'})`
+                });
+            } catch (ledgerErr) {
+                console.error('[LEDGER RECEPTION BOOKING ERR]', ledgerErr);
+            }
+        }
 
         return res.json({
             success: true,
@@ -344,6 +480,397 @@ export const getAvailableMedicines = async (req: Request, res: Response) => {
     }
 };
 
+
+export const completeAppointmentBilling = async (req: Request, res: Response) => {
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        const { id } = req.params;
+        const { sale_id, sale_no } = req.body;
+
+        const appointment = await (req as any).propertyDb.models.clinic_appointments.findOne({
+            where: { id, outlet_id }
+        });
+
+        if (!appointment) {
+            return res.status(404).json({ success: false, message: 'Appointment not found.' });
+        }
+
+        await appointment.update({
+            billing_status: 'BILLED',
+            billing_sale_id: sale_id ? Number(sale_id) : appointment.billing_sale_id,
+            billing_sale_no: sale_no ? String(sale_no).trim() : appointment.billing_sale_no
+        });
+
+        return res.json({
+            success: true,
+            message: 'Appointment billing recorded successfully.',
+            data: appointment
+        });
+    } catch (err: any) {
+        console.error('[COMPLETE APPOINTMENT BILLING ERROR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const getClinicDoctors = async (req: Request, res: Response) => {
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        let doctors = await (req as any).propertyDb.models.users.findAll({
+            where: {
+                outlet_id,
+                [Op.or]: [
+                    { role: 'DOCTOR' },
+                    { speciality: { [Op.ne]: null } }
+                ]
+            },
+            order: [['id', 'ASC']]
+        });
+
+        // If no doctors exist yet, check if there are appointments with doctor names or seed default doctor
+        if (doctors.length === 0) {
+            const clinic = await (req as any).propertyDb.models.property_info.findOne({ where: { outlet_id } });
+            const clinicName = clinic?.property_name || 'Clinic';
+            const defaultDoc = await (req as any).propertyDb.models.users.create({
+                outlet_id,
+                username: `dr_${Date.now()}`,
+                full_name: 'Dr. Primary Consultant',
+                role: 'DOCTOR',
+                speciality: 'General Physician',
+                qualification: 'MBBS, MD',
+                registration_no: 'MCI-REG-101',
+                experience_years: 8,
+                consultation_fee: 500.00,
+                mobile: clinic?.mobile || '',
+                whatsapp_no: clinic?.mobile || '',
+                contact_email: clinic?.email || '',
+                is_public_listed: true,
+                doctor_city: clinic?.city || 'General',
+                doctor_bio: 'Senior Consultant providing comprehensive patient care and clinical consultations.',
+                available_days: 'Mon,Tue,Wed,Thu,Fri,Sat',
+                public_display_options: {
+                    show_clinic_name: true,
+                    show_doctor_name: true,
+                    show_address: true,
+                    show_phone: true,
+                    show_whatsapp: true,
+                    show_email: true,
+                    show_fees: true
+                },
+                is_active: true
+            });
+            doctors = [defaultDoc];
+        }
+
+        // Enrich with stats: patients attended, fees collected by mode, medicine referral sales
+        const results = [];
+        for (const d of doctors) {
+            const docName = (d.full_name || d.username).trim();
+            const appointments = await (req as any).propertyDb.models.clinic_appointments.findAll({
+                where: {
+                    outlet_id,
+                    [Op.or]: [
+                        { doctor_id: d.id },
+                        { doctor_name: { [Op.iLike]: `%${docName}%` } }
+                    ]
+                }
+            });
+
+            const totalPatients = appointments.length;
+            const visitedPatients = appointments.filter((a: any) => a.status === 'VISITED').length;
+            let totalFeesCollected = 0;
+            const feesByMode: Record<string, number> = { CASH: 0, CARD: 0, UPI: 0, PREPAID: 0, PAY_LATER: 0, PACKAGE: 0 };
+
+            for (const a of appointments) {
+                const fee = Number(a.paid_amount || (a.payment_status === 'PAID' ? a.consultation_fee : 0));
+                if (a.payment_status === 'PAID' || fee > 0) {
+                    totalFeesCollected += fee;
+                    const mode = (a.payment_mode || 'CASH').toUpperCase();
+                    feesByMode[mode] = (feesByMode[mode] || 0) + fee;
+                } else if (a.payment_status === 'PAY_LATER') {
+                    if (a.is_package_session) {
+                        feesByMode['PACKAGE'] = (feesByMode['PACKAGE'] || 0) + 1;
+                    } else {
+                        feesByMode['PAY_LATER'] = (feesByMode['PAY_LATER'] || 0) + Number(a.consultation_fee || 0);
+                    }
+                } else if (a.payment_status === 'PACKAGE_INCLUDED' || a.is_package_session || a.payment_mode === 'PACKAGE_SUBSCRIPTION') {
+                    feesByMode['PACKAGE'] = (feesByMode['PACKAGE'] || 0) + 1;
+                }
+            }
+
+            // Medicine sales where this doctor was referenced
+            let referredMedicineSales = 0;
+            try {
+                const sales = await (req as any).propertyDb.models.sales_headers.findAll({
+                    where: {
+                        outlet_id,
+                        doctor_name: { [Op.iLike]: `%${docName}%` }
+                    },
+                    attributes: ['net_amount', 'total_amount']
+                });
+                referredMedicineSales = sales.reduce((sum: number, s: any) => sum + Number(s.net_amount || s.total_amount || 0), 0);
+            } catch (_) {}
+
+            results.push({
+                id: d.id,
+                full_name: d.full_name || d.username,
+                speciality: d.speciality || 'General Physician',
+                qualification: d.qualification || 'MBBS',
+                registration_no: d.registration_no || '',
+                experience_years: d.experience_years || 0,
+                consultation_fee: Number(d.consultation_fee || 0),
+                mobile: d.mobile || '',
+                whatsapp_no: d.whatsapp_no || d.mobile || '',
+                contact_email: d.contact_email || '',
+                is_public_listed: d.is_public_listed !== false,
+                doctor_city: d.doctor_city || '',
+                doctor_bio: d.doctor_bio || '',
+                available_days: d.available_days || 'Mon,Tue,Wed,Thu,Fri,Sat',
+                public_display_options: d.public_display_options || {
+                    show_clinic_name: true,
+                    show_doctor_name: true,
+                    show_address: true,
+                    show_phone: true,
+                    show_whatsapp: true,
+                    show_email: true,
+                    show_fees: true
+                },
+                total_patients: totalPatients,
+                visited_patients: visitedPatients,
+                total_fees_collected: totalFeesCollected,
+                fees_by_mode: feesByMode,
+                referred_medicine_sales: referredMedicineSales
+            });
+        }
+
+        return res.json({
+            success: true,
+            count: results.length,
+            data: results
+        });
+    } catch (err: any) {
+        console.error('[GET CLINIC DOCTORS ERR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const createClinicDoctor = async (req: Request, res: Response) => {
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        const {
+            full_name,
+            speciality,
+            qualification,
+            registration_no,
+            experience_years,
+            consultation_fee,
+            mobile,
+            whatsapp_no,
+            contact_email,
+            is_public_listed,
+            doctor_city,
+            doctor_bio,
+            available_days,
+            public_display_options
+        } = req.body;
+
+        if (!full_name || !full_name.trim()) {
+            return res.status(400).json({ success: false, message: 'Doctor full name is required.' });
+        }
+
+        const cleanName = full_name.trim();
+        const baseUsername = cleanName.toLowerCase().replace(/[^a-z0-9]/g, '') || `doc_${Date.now()}`;
+        let username = baseUsername;
+        let counter = 1;
+        while (await (req as any).propertyDb.models.users.findOne({ where: { outlet_id, username } })) {
+            username = `${baseUsername}_${counter++}`;
+        }
+
+        const doctor = await (req as any).propertyDb.models.users.create({
+            outlet_id,
+            username,
+            full_name: cleanName,
+            role: 'DOCTOR',
+            speciality: speciality ? speciality.trim() : 'General Physician',
+            qualification: qualification ? qualification.trim() : 'MBBS',
+            registration_no: registration_no ? registration_no.trim() : '',
+            experience_years: experience_years ? Number(experience_years) : 5,
+            consultation_fee: consultation_fee ? Number(consultation_fee) : 500,
+            mobile: mobile ? mobile.trim() : '',
+            whatsapp_no: whatsapp_no ? whatsapp_no.trim() : (mobile ? mobile.trim() : ''),
+            contact_email: contact_email ? contact_email.trim().toLowerCase() : '',
+            is_public_listed: is_public_listed !== false,
+            doctor_city: doctor_city ? doctor_city.trim() : '',
+            doctor_bio: doctor_bio ? doctor_bio.trim() : '',
+            available_days: available_days || 'Mon,Tue,Wed,Thu,Fri,Sat',
+            public_display_options: public_display_options || {
+                show_clinic_name: true,
+                show_doctor_name: true,
+                show_address: true,
+                show_phone: true,
+                show_whatsapp: true,
+                show_email: true,
+                show_fees: true
+            },
+            is_active: true
+        });
+
+        return res.json({
+            success: true,
+            message: `Doctor ${cleanName} added successfully to clinic!`,
+            data: doctor
+        });
+    } catch (err: any) {
+        console.error('[CREATE DOCTOR ERR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const updateClinicDoctor = async (req: Request, res: Response) => {
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        const { id } = req.params;
+
+        const doctor = await (req as any).propertyDb.models.users.findOne({
+            where: { id, outlet_id }
+        });
+
+        if (!doctor) {
+            return res.status(404).json({ success: false, message: 'Doctor not found in this clinic.' });
+        }
+
+        const fields = [
+            'full_name', 'speciality', 'qualification', 'registration_no',
+            'experience_years', 'consultation_fee', 'mobile', 'whatsapp_no',
+            'contact_email', 'is_public_listed', 'doctor_city', 'doctor_bio',
+            'available_days', 'public_display_options', 'is_active'
+        ];
+
+        const payload: any = {};
+        for (const f of fields) {
+            if (req.body[f] !== undefined) {
+                payload[f] = req.body[f];
+            }
+        }
+
+        await doctor.update(payload);
+
+        return res.json({
+            success: true,
+            message: 'Doctor profile and public display settings updated successfully!',
+            data: doctor
+        });
+    } catch (err: any) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const deleteClinicDoctor = async (req: Request, res: Response) => {
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        const { id } = req.params;
+
+        const doctor = await (req as any).propertyDb.models.users.findOne({
+            where: { id, outlet_id }
+        });
+
+        if (!doctor) {
+            return res.status(404).json({ success: false, message: 'Doctor not found.' });
+        }
+
+        await doctor.update({ is_active: false });
+
+        return res.json({
+            success: true,
+            message: 'Doctor deactivated successfully.'
+        });
+    } catch (err: any) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const acceptAndPayAppointment = async (req: Request, res: Response) => {
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        const { id } = req.params;
+        const {
+            payment_status = 'PAID', // PAID, PAY_LATER
+            payment_mode = 'CASH', // CASH, CARD, UPI, PREPAID
+            paid_amount,
+            package_name,
+            session_number,
+            total_package_sessions,
+            is_package_session
+        } = req.body;
+
+        const appointment = await (req as any).propertyDb.models.clinic_appointments.findOne({
+            where: { id, outlet_id }
+        });
+
+        if (!appointment) {
+            return res.status(404).json({ success: false, message: 'Appointment not found.' });
+        }
+
+        const feeToPay = paid_amount !== undefined ? Number(paid_amount) : Number(appointment.consultation_fee || 0);
+
+        const sessNum = session_number ? Number(session_number) : 0;
+        const totalSess = total_package_sessions ? Number(total_package_sessions) : 0;
+        const isPack = is_package_session === true || (sessNum > 0 && totalSess > 0 && sessNum <= totalSess);
+
+        const updateData: any = {
+            status: 'CONFIRMED',
+            payment_status: isPack ? 'PACKAGE_INCLUDED' : payment_status,
+            payment_mode: isPack ? 'PACKAGE' : payment_mode,
+            paid_amount: isPack ? 0.00 : (payment_status === 'PAID' ? feeToPay : 0.00),
+            package_name: package_name || null,
+            session_number: sessNum,
+            total_package_sessions: totalSess,
+            is_package_session: isPack
+        };
+
+        if (req.body.doctor_name && req.body.doctor_name.trim()) {
+            updateData.doctor_name = req.body.doctor_name.trim();
+            if (req.body.doctor_id) updateData.doctor_id = Number(req.body.doctor_id);
+        }
+
+        await appointment.update(updateData);
+
+        // Record in Financial Ledger if paid
+        if (!isPack && payment_status === 'PAID' && feeToPay > 0) {
+            try {
+                const { createLedgerEntry } = require('../../services/cashLedger.service');
+                await createLedgerEntry({
+                    db: (req as any).propertyDb,
+                    outlet_id,
+                    txn_date: appointment.appointment_date || new Date(),
+                    transaction_type: 'CONSULTATION_FEE',
+                    reference_type: 'CLINIC_APPOINTMENT',
+                    reference_id: appointment.id,
+                    reference_no: `APPT-${appointment.id}`,
+                    party_name: appointment.patient_name,
+                    payment_method: payment_mode || 'CASH',
+                    amount_in: feeToPay,
+                    notes: `Reception OPD Fee Collection: Token #${appointment.token_number || appointment.id} - ${appointment.patient_name} (${updateData.doctor_name || appointment.doctor_name || 'Clinic'})`
+                });
+            } catch (ledgerErr) {
+                console.error('[LEDGER ACCEPT & PAY ERR]', ledgerErr);
+            }
+        }
+
+        return res.json({
+            success: true,
+            message: isPack
+                ? `Appointment confirmed under package ${package_name || 'Therapy'} (Session ${sessNum}/${totalSess} - Included).`
+                : (payment_status === 'PAID'
+                    ? `Appointment accepted & consultation fee of ${feeToPay} collected via ${payment_mode}.`
+                    : 'Appointment accepted with Pay Later option.'),
+            data: appointment
+        });
+    } catch (err: any) {
+        console.error('[ACCEPT & PAY APPOINTMENT ERR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 export const getClinicAnalytics = async (req: Request, res: Response) => {
     try {
         const outlet_id = (req as any).user.outlet_id;
@@ -364,9 +891,42 @@ export const getClinicAnalytics = async (req: Request, res: Response) => {
         const cancelledCount = allAppointments.filter((a: any) => a.status === 'CANCELLED' || a.status === 'NO_SHOW').length;
         const draftSentCount = allAppointments.filter((a: any) => a.billing_status === 'DRAFT_SENT' || a.billing_status === 'BILLED').length;
 
-        // Unique patients & consultation revenue
         const uniquePhones = new Set(allAppointments.map((a: any) => a.patient_phone).filter(Boolean));
-        const totalConsultationFees = allAppointments.reduce((acc: number, a: any) => acc + Number(a.consultation_fee || 0), 0);
+        // Revenue Breakdown
+        const totalConsultationFees = allAppointments
+            .filter((a: any) => a.payment_status === 'PAID')
+            .reduce((acc: number, a: any) => acc + Number(a.paid_amount || a.consultation_fee || 0), 0);
+
+        let totalSubscriptionRevenue = 0;
+        try {
+            if ((req as any).propertyDb.models.milk_subscriptions) {
+                const subWhere: any = { outlet_id };
+                if (from_date && to_date) {
+                    subWhere.created_at = { [Op.between]: [from_date + ' 00:00:00', to_date + ' 23:59:59'] };
+                }
+                const subs = await (req as any).propertyDb.models.milk_subscriptions.findAll({ where: subWhere });
+                totalSubscriptionRevenue = subs.reduce((acc: number, s: any) => acc + Number(s.total_payment_amount || 0), 0);
+            }
+        } catch (_) {}
+
+        let totalMedicineRevenue = 0;
+        try {
+            const billedSaleIds = allAppointments
+                .filter((a: any) => a.billing_sale_id)
+                .map((a: any) => a.billing_sale_id);
+            if (billedSaleIds.length > 0 && (req as any).propertyDb.models.sales_headers) {
+                const sales = await (req as any).propertyDb.models.sales_headers.findAll({
+                    where: {
+                        id: { [Op.in]: billedSaleIds },
+                        outlet_id,
+                        status: 'COMPLETED'
+                    }
+                });
+                totalMedicineRevenue = sales.reduce((acc: number, s: any) => acc + Number(s.total_amount || 0), 0);
+            }
+        } catch (_) {}
+
+        const totalClinicRevenue = Number((totalConsultationFees + totalSubscriptionRevenue + totalMedicineRevenue).toFixed(2));
 
         // Daily trend timeline (grouped by appointment_date)
         const dateMap: { [key: string]: { date: string; appointments: number; visited: number; billed: number; cancelled: number } } = {};
@@ -433,6 +993,9 @@ export const getClinicAnalytics = async (req: Request, res: Response) => {
                 draft_sent_count: draftSentCount,
                 unique_patients_count: uniquePhones.size,
                 total_consultation_fees: totalConsultationFees,
+                total_subscription_revenue: totalSubscriptionRevenue,
+                total_medicine_revenue: totalMedicineRevenue,
+                total_clinic_revenue: totalClinicRevenue,
                 attendance_rate_percent: totalAppointments > 0 ? Number(((visitedCount / totalAppointments) * 100).toFixed(1)) : 0,
                 billing_conversion_percent: visitedCount > 0 ? Number(((draftSentCount / visitedCount) * 100).toFixed(1)) : 0,
                 gender_demographics: { male: maleCount, female: femaleCount, other: otherCount },
@@ -591,12 +1154,16 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
     try {
         const { city, speciality, search } = req.query as any;
 
-        // Fetch doctors from users table
+        // Fetch doctors from users table: ONLY real clinicians who are public listed
         const userWhere: any = {
             is_active: true,
+            is_public_listed: true,
             [Op.or]: [
-                { role: 'DOCTOR' },
-                { is_public_listed: true }
+                { role: { [Op.iLike]: '%doctor%' } },
+                { role: { [Op.iLike]: '%physician%' } },
+                { role: { [Op.iLike]: '%clinician%' } },
+                { speciality: { [Op.ne]: null } },
+                { consultation_fee: { [Op.gt]: 0 } }
             ]
         };
 
@@ -614,27 +1181,90 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
             clinicByOutlet.set(c.outlet_id, c);
         }
 
+        const settingsList = await (req as any).propertyDb.models.system_settings.findAll().catch(() => []);
+        const settingsByOutlet = new Map<number, any>();
+        for (const s of settingsList) {
+            settingsByOutlet.set(s.outlet_id, s);
+        }
+
+        // Group doctors by clinic outlet to support multi-doctor clinics
+        const doctorsByOutlet = new Map<number, any[]>();
+        for (const d of doctorUsers) {
+            if (!doctorsByOutlet.has(d.outlet_id)) {
+                doctorsByOutlet.set(d.outlet_id, []);
+            }
+            doctorsByOutlet.get(d.outlet_id)!.push(d);
+        }
+
         let results: any[] = [];
         for (const d of doctorUsers) {
             const clinic = clinicByOutlet.get(d.outlet_id) || {};
-            const docCity = d.doctor_city || clinic.city || 'General';
+            const st = settingsByOutlet.get(d.outlet_id);
+            const isGatewayEnabled = Boolean(st?.enable_payment_gateway);
+
+            const docCity = d.doctor_city || clinic.city || 'Dehradun';
+
+            // Filter by city if selected
+            if (city && city.trim() && city.toUpperCase() !== 'ALL' && docCity.toLowerCase() !== city.trim().toLowerCase()) {
+                continue;
+            }
+
+            const allOutletDocs = doctorsByOutlet.get(d.outlet_id) || [];
+            const mapDoctorHelper = (docItem: any) => {
+                const itemOpts = docItem.public_display_options || {};
+                const days = (docItem.available_days || itemOpts.available_days || 'Mon,Tue,Wed,Thu,Fri,Sat')
+                    .split(',')
+                    .map((x: string) => x.trim())
+                    .filter(Boolean);
+                return {
+                    id: docItem.id,
+                    name: docItem.full_name || docItem.username,
+                    speciality: docItem.speciality || 'General Physician',
+                    qualification: docItem.qualifications || docItem.qualification || 'MBBS',
+                    registration_no: docItem.registration_no || '',
+                    consultation_fee: Number(docItem.consultation_fee || 0),
+                    phone: docItem.phone_no || docItem.mobile || '',
+                    whatsapp: docItem.whatsapp_no || '',
+                    available_days: days,
+                    start_time: itemOpts.start_time || '09:00 AM',
+                    end_time: itemOpts.end_time || '06:00 PM',
+                    slot_duration_minutes: Number(itemOpts.slot_duration_minutes || 30),
+                    is_gateway_enabled: isGatewayEnabled,
+                };
+            };
+
+            const otherDocs = allOutletDocs.filter((od: any) => od.id !== d.id).map(mapDoctorHelper);
+            const opts = d.public_display_options || {};
+            const activeDays = (d.available_days || opts.available_days || 'Mon,Tue,Wed,Thu,Fri,Sat')
+                .split(',')
+                .map((x: string) => x.trim())
+                .filter(Boolean);
 
             results.push({
                 id: d.id,
-                name: d.full_name || d.username,
+                name: (opts.show_doctor_name !== false) ? (d.full_name || d.username) : 'Consultant Clinician',
                 speciality: d.speciality || 'General Physician',
-                qualification: d.qualification || 'MBBS, MD',
-                experience_years: d.experience_years || 5,
-                consultation_fee: Number(d.consultation_fee || 500),
-                is_verified_badge: d.is_verified_badge !== false,
-                rating: 4.9,
-                doctor_bio: d.doctor_bio || `Senior Specialist with ${d.experience_years || 5}+ years clinical experience.`,
-                clinic_name: clinic.property_name || 'Famalth Lynx Healthcare Clinic',
+                qualification: d.qualifications || d.qualification || 'MBBS, MD',
+                registration_no: d.registration_no || '',
+                experience_years: d.experience_years || 8,
+                consultation_fee: Number(d.consultation_fee || 0),
+                is_verified_badge: true,
+                rating: Number(d.rating || 0), rating_count: Number(d.rating_count || 0),
+                doctor_bio: 'Specialist in ' + (d.speciality || 'general clinical medicine') + ' with dedicated patient care.',
+                clinic_name: (opts.show_clinic_name !== false) ? (clinic.property_name || 'Healthcare Clinic') : 'Healthcare Clinic',
                 city: docCity,
-                address: clinic.address || clinic.address_line1 || 'Main Medical Center',
-                phone: clinic.mobile || d.mobile || '',
+                address: (opts.show_address !== false) ? (clinic.address || clinic.address_line1 || '') : '',
+                phone: (opts.show_phone !== false) ? (clinic.mobile || d.phone_no || d.mobile || '') : '',
+                whatsapp: (opts.show_whatsapp !== false) ? (d.whatsapp_no || clinic.mobile || '') : '',
+                email: (opts.show_email !== false) ? (d.email || d.contact_email || '') : '',
                 outlet_id: d.outlet_id,
-                available_days: (d.available_days || 'Mon,Tue,Wed,Thu,Fri,Sat').split(',')
+                available_days: activeDays,
+                start_time: opts.start_time || '09:00 AM',
+                end_time: opts.end_time || '06:00 PM',
+                slot_duration_minutes: Number(opts.slot_duration_minutes || 30),
+                is_gateway_enabled: isGatewayEnabled,
+                other_doctors_count: otherDocs.length,
+                clinic_doctors: allOutletDocs.map(mapDoctorHelper)
             });
         }
 
@@ -650,7 +1280,7 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                     experience_years: 14,
                     consultation_fee: 800,
                     is_verified_badge: true,
-                    rating: 4.9,
+                    rating: Number(d.rating || 0), rating_count: Number(d.rating_count || 0),
                     doctor_bio: 'Senior Cardiologist specializing in preventive heart health and diagnostics.',
                     clinic_name: c.property_name || 'Apex Health & Heart Clinic',
                     city: docCity,
@@ -682,7 +1312,7 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                     experience_years: 16,
                     consultation_fee: 500,
                     is_verified_badge: true,
-                    rating: 4.9,
+                    rating: Number(d.rating || 0), rating_count: Number(d.rating_count || 0),
                     doctor_bio: 'Comprehensive internal medicine, family wellness, and viral fever care.',
                     clinic_name: c.property_name || 'City Care Medical Clinic',
                     city: docCity,
@@ -698,7 +1328,7 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                     experience_years: 9,
                     consultation_fee: 550,
                     is_verified_badge: true,
-                    rating: 4.9,
+                    rating: Number(d.rating || 0), rating_count: Number(d.rating_count || 0),
                     doctor_bio: 'Child healthcare, vaccinations, and pediatric nutrition guidance.',
                     clinic_name: c.property_name || 'Little Steps Child Clinic',
                     city: docCity,
@@ -778,7 +1408,14 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
             doctor_id,
             consultation_fee,
             department,
-            reason_for_visit
+            reason_for_visit,
+            payment_status = 'UNPAID',
+            payment_mode,
+            paid_amount,
+            package_name,
+            session_number,
+            total_package_sessions,
+            is_package_session = false
         } = req.body;
 
         if (!patient_name || !patient_phone || !appointment_date || !appointment_time) {
@@ -854,8 +1491,19 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
             });
         }
 
+        // Daily sequential token number
+        const todayCount = await (req as any).propertyDb.models.clinic_appointments.count({
+            where: {
+                outlet_id,
+                appointment_date
+            }
+        });
+        const token_number = todayCount + 1;
+        const finalPaid = paid_amount ? Number(paid_amount) : (payment_status === 'PAID' ? Number(consultation_fee || 0) : 0.00);
+
         const appointment = await (req as any).propertyDb.models.clinic_appointments.create({
             outlet_id,
+            token_number,
             patient_id: customer.id,
             patient_name: patient_name.trim(),
             patient_phone: phone,
@@ -867,6 +1515,13 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
             doctor_name: doctor_name ? doctor_name.trim() : null,
             doctor_id: doctor_id ? Number(doctor_id) : null,
             consultation_fee: consultation_fee ? Number(consultation_fee) : 0.00,
+            payment_status: payment_status || 'UNPAID',
+            payment_mode: payment_mode || null,
+            paid_amount: finalPaid,
+            package_name: package_name || null,
+            session_number: session_number ? Number(session_number) : 0,
+            total_package_sessions: total_package_sessions ? Number(total_package_sessions) : 0,
+            is_package_session: is_package_session === true || is_package_session === 'true',
             is_email_verified: isEmailVerified,
             email_otp_verified_at: isEmailVerified ? new Date() : null,
             department: department ? department.trim() : null,
@@ -874,6 +1529,28 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
             status: 'SCHEDULED',
             source: 'ONLINE_WEB'
         });
+
+        // Record in Financial Ledger if paid online
+        if (payment_status === 'PAID' && finalPaid > 0) {
+            try {
+                const { createLedgerEntry } = require('../../services/cashLedger.service');
+                await createLedgerEntry({
+                    db: (req as any).propertyDb,
+                    outlet_id,
+                    txn_date: appointment_date || new Date(),
+                    transaction_type: 'CONSULTATION_FEE',
+                    reference_type: 'CLINIC_APPOINTMENT',
+                    reference_id: appointment.id,
+                    reference_no: `APPT-${appointment.id}`,
+                    party_name: appointment.patient_name,
+                    payment_method: payment_mode || 'ONLINE',
+                    amount_in: finalPaid,
+                    notes: `Online Prepaid OPD Fee: Token #${token_number} - ${appointment.patient_name} (${appointment.doctor_name || 'Clinic'})`
+                });
+            } catch (ledgerErr) {
+                console.error('[LEDGER ONLINE BOOKING ERR]', ledgerErr);
+            }
+        }
 
         // Trigger real-time popup via SocketHub
         try {
@@ -979,13 +1656,444 @@ export const getPatientHistoryPublic = async (req: Request, res: Response) => {
     }
 };
 
+
+export const getClinicSubscriptions = async (req: Request, res: Response) => {
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        const { search, status, customer_phone } = req.query as any;
+
+        const where: any = { outlet_id };
+        if (status && status !== 'ALL') {
+            where.status = status;
+        }
+        if (customer_phone && customer_phone.trim()) {
+            where.customer_phone = customer_phone.trim();
+        }
+        if (search && search.trim()) {
+            const q = search.trim();
+            where[Op.or] = [
+                { customer_name: { [Op.iLike]: `%${q}%` } },
+                { customer_phone: { [Op.iLike]: `%${q}%` } },
+                { item_name: { [Op.iLike]: `%${q}%` } }
+            ];
+        }
+
+        const subscriptions = await (req as any).propertyDb.models.milk_subscriptions.findAll({
+            where,
+            order: [['created_at', 'DESC'], ['id', 'DESC']]
+        });
+
+        const results = [];
+        for (const sub of subscriptions) {
+            const subJson = sub.toJSON ? sub.toJSON() : sub;
+            const consumptions = await (req as any).propertyDb.models.milk_subscription_consumptions.findAll({
+                where: { subscription_id: sub.id, outlet_id },
+                order: [['txn_date', 'ASC'], ['id', 'ASC']]
+            }).catch(() => []);
+
+            const totalAllowed = Number(sub.total_allowed_services || 0) + Number(sub.bonus_qty || 0);
+            const consumed = Number(sub.services_consumed || consumptions.length || 0);
+            const remaining = Math.max(0, totalAllowed - consumed);
+
+            results.push({
+                ...subJson,
+                total_package_sessions: totalAllowed,
+                services_consumed: consumed,
+                remaining_sessions: remaining,
+                is_exhausted: remaining <= 0,
+                consumptions
+            });
+        }
+
+        return res.json({
+            success: true,
+            count: results.length,
+            data: results
+        });
+    } catch (err: any) {
+        console.error('[GET CLINIC SUBSCRIPTIONS ERROR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const createClinicSubscription = async (req: Request, res: Response) => {
+    const t = await (req as any).propertyDb.transaction();
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        const user_id = (req as any).user.id;
+        const {
+            customer_name,
+            customer_phone,
+            customer_email,
+            item_id,
+            monthly_sessions = 6,
+            bonus_sessions = 0,
+            total_fee,
+            start_date,
+            end_date,
+            payment_mode = 'CASH'
+        } = req.body;
+
+        if (!customer_name || !customer_phone) {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Customer name and phone number are required.' });
+        }
+
+        let serviceItem = null;
+        if (item_id) {
+            serviceItem = await (req as any).propertyDb.models.item_master.findOne({
+                where: { id: item_id, outlet_id },
+                transaction: t
+            });
+        }
+
+        const itemName = serviceItem ? serviceItem.item_name : (req.body.item_name || 'Therapy / Clinic Package');
+        const allowed = Number(monthly_sessions) || 6;
+        const bonus = Number(bonus_sessions) || 0;
+        const totalSessions = allowed + bonus;
+        const paymentAmount = Number(total_fee) || (serviceItem ? Number(serviceItem.retail_sale_price || 0) * allowed : 0);
+        const perSessionPrice = totalSessions > 0 ? Number((paymentAmount / totalSessions).toFixed(2)) : 0;
+
+        const today = new Date().toISOString().substring(0, 10);
+        const validStart = start_date || today;
+        const validEnd = end_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
+
+        let customer = await (req as any).propertyDb.models.customers.findOne({
+            where: { outlet_id, customer_phone: customer_phone.trim() },
+            transaction: t
+        });
+        if (!customer) {
+            customer = await (req as any).propertyDb.models.customers.create({
+                outlet_id,
+                customer_name: customer_name.trim(),
+                customer_phone: customer_phone.trim(),
+                customer_email: customer_email ? customer_email.trim().toLowerCase() : ''
+            }, { transaction: t });
+        }
+
+        const subscription = await (req as any).propertyDb.models.milk_subscriptions.create({
+            outlet_id,
+            customer_name: customer_name.trim(),
+            customer_phone: customer_phone.trim(),
+            item_id: serviceItem ? serviceItem.id : 0,
+            item_name: itemName,
+            start_date: validStart,
+            end_date: validEnd,
+            subscription_type: 'MONTHLY_SERVICES',
+            total_allowed_services: allowed,
+            bonus_qty: bonus,
+            services_consumed: 0,
+            service_unit_name: 'Sessions',
+            per_service_price: perSessionPrice,
+            total_payment_amount: paymentAmount,
+            delivery_type: 'STORE',
+            status: 'ACTIVE',
+            active_subscription: true,
+            created_by: user_id,
+            updated_by: user_id
+        }, { transaction: t });
+
+        if (paymentAmount > 0) {
+            if ((req as any).propertyDb.models.customer_advances) {
+                await (req as any).propertyDb.models.customer_advances.create({
+                    outlet_id,
+                    customer_name: customer_name.trim(),
+                    customer_phone: customer_phone.trim(),
+                    advance_date: today,
+                    original_amount: paymentAmount,
+                    available_amount: paymentAmount,
+                    payment_mode: String(payment_mode).toUpperCase(),
+                    reference_no: `SUB-CLINIC-${subscription.id}`,
+                    note: `Prepaid clinic package: ${itemName} (${totalSessions} sessions)`,
+                    created_by: user_id
+                }, { transaction: t }).catch(() => null);
+            }
+
+            if ((req as any).propertyDb.models.financial_ledger) {
+                await (req as any).propertyDb.models.financial_ledger.create({
+                    outlet_id,
+                    txn_date: today,
+                    transaction_type: 'CUSTOMER_ADVANCE',
+                    reference_type: 'SUBSCRIPTION',
+                    reference_id: subscription.id,
+                    reference_no: `SUB-CLINIC-${subscription.id}`,
+                    party_name: customer_name.trim(),
+                    payment_method: String(payment_mode).toUpperCase(),
+                    amount_in: paymentAmount,
+                    amount_out: 0,
+                    notes: `Clinic Therapy Package Subscription: ${itemName} (${totalSessions} sessions)`,
+                    created_by: user_id
+                }, { transaction: t }).catch(() => null);
+            }
+        }
+
+        await t.commit();
+        return res.json({
+            success: true,
+            message: 'Therapy package subscription created successfully!',
+            data: subscription
+        });
+    } catch (err: any) {
+        await t.rollback();
+        console.error('[CREATE CLINIC SUBSCRIPTION ERROR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const consumeClinicSubscriptionSession = async (req: Request, res: Response) => {
+    const t = await (req as any).propertyDb.transaction();
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        const user_id = (req as any).user.id;
+        const { id } = req.params;
+        const { appointment_id, notes, fee, payment_mode } = req.body;
+
+        const sub = await (req as any).propertyDb.models.milk_subscriptions.findOne({
+            where: { id, outlet_id },
+            transaction: t
+        });
+
+        if (!sub) {
+            await t.rollback();
+            return res.status(404).json({ success: false, message: 'Subscription not found' });
+        }
+
+        const totalAllowed = Number(sub.total_allowed_services || 0) + Number(sub.bonus_qty || 0);
+        let consumed = Number(sub.services_consumed || 0);
+
+        if (consumed >= totalAllowed) {
+            await t.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Package fully exhausted! All ${totalAllowed} sessions have been consumed.`
+            });
+        }
+
+        consumed += 1;
+        const today = new Date().toISOString().substring(0, 10);
+        const additionalFee = Number(fee || 0);
+        const activePaymentMode = additionalFee > 0 ? (payment_mode || 'CASH').toUpperCase() : 'PACKAGE_SUBSCRIPTION';
+
+        if ((req as any).propertyDb.models.milk_subscription_consumptions) {
+            await (req as any).propertyDb.models.milk_subscription_consumptions.create({
+                outlet_id,
+                subscription_id: sub.id,
+                txn_date: today,
+                item_id: sub.item_id || 0,
+                item_name: sub.item_name || 'Therapy Session',
+                cart_qty: 1,
+                covered_qty: 1,
+                excess_qty: 0,
+                rate: sub.per_service_price || 0,
+                covered_amount: sub.per_service_price || 0,
+                notes: notes || `Session #${consumed} of ${totalAllowed}${additionalFee > 0 ? ` (Co-pay Fee: ${additionalFee} via ${activePaymentMode})` : ''}`
+            }, { transaction: t }).catch(() => null);
+        }
+
+        const isExhausted = consumed >= totalAllowed;
+        await sub.update({
+            services_consumed: consumed,
+            status: isExhausted ? 'EXHAUSTED' : 'ACTIVE',
+            active_subscription: !isExhausted,
+            updated_by: user_id
+        }, { transaction: t });
+
+        if (appointment_id) {
+            const appt = await (req as any).propertyDb.models.clinic_appointments.findOne({
+                where: { id: appointment_id, outlet_id },
+                transaction: t
+            });
+            if (appt) {
+                await appt.update({
+                    package_name: sub.item_name,
+                    session_number: consumed,
+                    total_package_sessions: totalAllowed,
+                    is_package_session: true,
+                    consultation_fee: additionalFee,
+                    paid_amount: additionalFee,
+                    payment_status: 'PAID',
+                    payment_mode: activePaymentMode,
+                    status: 'VISITED'
+                }, { transaction: t });
+
+                // If an additional fee was charged at reception, record in Financial Ledger!
+                if (additionalFee > 0) {
+                    await createLedgerEntry((req as any).propertyDb, {
+                        outlet_id,
+                        entry_date: today,
+                        voucher_type: 'CLINIC_SESSION_FEE',
+                        reference_no: `CLINIC-SESS-${sub.id}-${consumed}`,
+                        description: `Therapy Session Fee: ${sub.item_name} (Session #${consumed}) for ${sub.customer_name || 'Patient'}`,
+                        payment_mode: activePaymentMode,
+                        debit_amount: 0,
+                        credit_amount: additionalFee,
+                        created_by: user_id
+                    }, t).catch(() => null);
+                }
+            }
+        }
+
+        await t.commit();
+        return res.json({
+            success: true,
+            message: `Session #${consumed} successfully consumed! ${Math.max(0, totalAllowed - consumed)} sessions remaining.`,
+            data: {
+                subscription_id: sub.id,
+                consumed_session: consumed,
+                total_sessions: totalAllowed,
+                remaining_sessions: Math.max(0, totalAllowed - consumed),
+                status: isExhausted ? 'EXHAUSTED' : 'ACTIVE'
+            }
+        });
+    } catch (err: any) {
+        await t.rollback();
+        console.error('[CONSUME SUBSCRIPTION SESSION ERROR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const getClinicSubscriptionLedger = async (req: Request, res: Response) => {
+    try {
+        const outlet_id = (req as any).user.outlet_id;
+        const { id } = req.params;
+
+        const sub = await (req as any).propertyDb.models.milk_subscriptions.findOne({
+            where: { id, outlet_id }
+        });
+
+        if (!sub) {
+            return res.status(404).json({ success: false, message: 'Subscription not found' });
+        }
+
+        const totalAllowed = Number(sub.total_allowed_services || 0) + Number(sub.bonus_qty || 0);
+        const consumed = Number(sub.services_consumed || 0);
+        const perSessionPrice = Number(sub.per_service_price || 0);
+
+        const consumptions = await (req as any).propertyDb.models.milk_subscription_consumptions.findAll({
+            where: { subscription_id: sub.id, outlet_id },
+            order: [['txn_date', 'ASC'], ['id', 'ASC']]
+        }).catch(() => []);
+
+        const ledger = [
+            {
+                date: sub.start_date || sub.created_at,
+                description: `Package Purchase: ${sub.item_name} (${totalAllowed} Sessions)`,
+                type: 'CREDIT',
+                amount: Number(sub.total_payment_amount || 0),
+                sessions: totalAllowed,
+                balance_amount: Number(sub.total_payment_amount || 0),
+                remaining_sessions: totalAllowed,
+                reference: `SUB-CLINIC-${sub.id}`
+            }
+        ];
+
+        let runningBalance = Number(sub.total_payment_amount || 0);
+        let remainingSessions = totalAllowed;
+
+        consumptions.forEach((c: any, idx: number) => {
+            const cost = Number(c.covered_amount || perSessionPrice);
+            runningBalance -= cost;
+            remainingSessions -= 1;
+            ledger.push({
+                date: c.txn_date || c.created_at,
+                description: `Therapy Session #${idx + 1} Consumed`,
+                type: 'DEBIT',
+                amount: cost,
+                sessions: 1,
+                balance_amount: Math.max(0, runningBalance),
+                remaining_sessions: Math.max(0, remainingSessions),
+                reference: c.sale_no || `SES-${c.id}`
+            });
+        });
+
+        return res.json({
+            success: true,
+            data: {
+                subscription: sub,
+                total_package_sessions: totalAllowed,
+                services_consumed: consumed,
+                remaining_sessions: Math.max(0, totalAllowed - consumed),
+                total_collected: Number(sub.total_payment_amount || 0),
+                remaining_value: Math.max(0, runningBalance),
+                ledger
+            }
+        });
+    } catch (err: any) {
+        console.error('[GET SUBSCRIPTION LEDGER ERROR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const getPublicPatientSubscriptions = async (req: Request, res: Response) => {
+    try {
+        const { phone, email } = req.query as any;
+        if (!phone && !email) {
+            return res.status(400).json({ success: false, message: 'Patient phone or email is required' });
+        }
+
+        const where: any = {};
+        if (phone) where.customer_phone = phone.trim();
+        else if (email) where.customer_email = email.trim().toLowerCase();
+
+        const subs = await (req as any).propertyDb.models.milk_subscriptions.findAll({
+            where,
+            order: [['created_at', 'DESC']]
+        });
+
+        const data = [];
+        for (const s of subs) {
+            const consumptions = await (req as any).propertyDb.models.milk_subscription_consumptions.findAll({
+                where: { subscription_id: s.id },
+                order: [['txn_date', 'ASC']]
+            }).catch(() => []);
+
+            const totalAllowed = Number(s.total_allowed_services || 0) + Number(s.bonus_qty || 0);
+            const consumed = Number(s.services_consumed || consumptions.length || 0);
+            data.push({
+                id: s.id,
+                package_name: s.item_name || 'Therapy Package',
+                total_sessions: totalAllowed,
+                services_consumed: consumed,
+                remaining_sessions: Math.max(0, totalAllowed - consumed),
+                start_date: s.start_date,
+                end_date: s.end_date,
+                status: s.status,
+                consumptions: consumptions.map((c: any) => ({
+                    date: c.txn_date,
+                    notes: c.notes
+                }))
+            });
+        }
+
+        return res.json({
+            success: true,
+            count: data.length,
+            data
+        });
+    } catch (err: any) {
+        console.error('[GET PUBLIC PATIENT SUBSCRIPTIONS ERROR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 module.exports = {
+    getClinicSubscriptions,
+    createClinicSubscription,
+    consumeClinicSubscriptionSession,
+    getClinicSubscriptionLedger,
+    getPublicPatientSubscriptions,
     getAppointments,
     createAppointment,
     updateAppointmentStatus,
     savePrescription,
     sendToBillingDraft,
     getAvailableMedicines,
+    getClinicDoctors,
+    createClinicDoctor,
+    updateClinicDoctor,
+    deleteClinicDoctor,
+    acceptAndPayAppointment,
+    completeAppointmentBilling,
     getClinicAnalytics,
     requestPatientEmailOtp,
     verifyPatientEmailOtp,
@@ -997,12 +2105,23 @@ module.exports = {
 };
 
 export default {
+    getClinicSubscriptions,
+    createClinicSubscription,
+    consumeClinicSubscriptionSession,
+    getClinicSubscriptionLedger,
+    getPublicPatientSubscriptions,
     getAppointments,
     createAppointment,
     updateAppointmentStatus,
     savePrescription,
     sendToBillingDraft,
     getAvailableMedicines,
+    getClinicDoctors,
+    createClinicDoctor,
+    updateClinicDoctor,
+    deleteClinicDoctor,
+    acceptAndPayAppointment,
+    completeAppointmentBilling,
     getClinicAnalytics,
     requestPatientEmailOtp,
     verifyPatientEmailOtp,

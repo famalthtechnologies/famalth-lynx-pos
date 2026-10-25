@@ -106,6 +106,10 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.INTEGER,
             allowNull: true
         },
+        billing_sale_no: {
+            type: DataTypes.STRING(50),
+            allowNull: true
+        },
         billing_status: {
             type: DataTypes.STRING(30),
             allowNull: false,
@@ -115,6 +119,45 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.STRING(30),
             allowNull: false,
             defaultValue: 'POS' // POS, WEB, APP, WALK_IN
+        },
+        payment_status: {
+            type: DataTypes.STRING(30),
+            allowNull: false,
+            defaultValue: 'UNPAID' // UNPAID, PAID, PAY_LATER, PACKAGE_INCLUDED
+        },
+        payment_mode: {
+            type: DataTypes.STRING(50),
+            allowNull: true,
+            defaultValue: null // CASH, CARD, UPI, PREPAID, PACKAGE
+        },
+        paid_amount: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: false,
+            defaultValue: 0.00
+        },
+        package_name: {
+            type: DataTypes.STRING(150),
+            allowNull: true
+        },
+        session_number: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: 0
+        },
+        total_package_sessions: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: 0
+        },
+        token_number: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: 1
+        },
+        is_package_session: {
+            type: DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: false
         }
     }, {
         tableName: 'clinic_appointments',

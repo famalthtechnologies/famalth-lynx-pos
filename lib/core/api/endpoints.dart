@@ -250,6 +250,14 @@ class ApiEndpoints {
   static String clinicAppointmentStatus(dynamic id) => '/api/clinic/appointments/$id/status';
   static String clinicAppointmentPrescription(dynamic id) => '/api/clinic/appointments/$id/prescription';
   static String clinicAppointmentSendToBilling(dynamic id) => '/api/clinic/appointments/$id/send-to-billing';
+  static String clinicAppointmentAcceptAndPay(dynamic id) => '/api/clinic/appointments/$id/accept-and-pay';
+  static String clinicAppointmentBillingComplete(dynamic id) => '/api/clinic/appointments/$id/billing-complete';
+  static const String clinicDoctors = '/api/clinic/doctors';
+  static String clinicDoctor(dynamic id) => '/api/clinic/doctors/$id';
+  static const String clinicSubscriptions = '/api/clinic/subscriptions';
+  static String clinicSubscriptionConsume(dynamic id) => '/api/clinic/subscriptions/$id/consume';
+  static String clinicSubscriptionLedger(dynamic id) => '/api/clinic/subscriptions/$id/ledger';
+  static const String publicPatientSubscriptions = '/api/public/clinic/my-subscriptions';
 
   // EXPIRY TRACKER & COMPARISON
   static const String expiryTracker = '/api/inventory/expiry-tracker';

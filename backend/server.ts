@@ -298,7 +298,8 @@ if (!fs.existsSync(licensePath)) {
 
                 ALTER TABLE restaurant_tables 
                 ADD COLUMN IF NOT EXISTS assigned_user_id INTEGER,
-                ADD COLUMN IF NOT EXISTS assigned_user_name VARCHAR(150);
+                ADD COLUMN IF NOT EXISTS assigned_user_name VARCHAR(150),
+                ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
 
                 ALTER TABLE kot_headers
                 ADD COLUMN IF NOT EXISTS client_tag VARCHAR(100) DEFAULT 'Bill 1',
@@ -403,6 +404,21 @@ if (!fs.existsSync(licensePath)) {
 
                 ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS remarks TEXT;
                 ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS biometric_device_id INTEGER;
+
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'UNPAID';
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(50);
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(10, 2) DEFAULT 0.00;
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS package_name VARCHAR(150);
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS session_number INTEGER DEFAULT 0;
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS total_package_sessions INTEGER DEFAULT 0;
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS is_package_session BOOLEAN DEFAULT FALSE;
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS token_number INTEGER DEFAULT 1;
+
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS registration_no VARCHAR(100);
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_no VARCHAR(50);
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS billing_sale_id INTEGER;
+                ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS billing_sale_no VARCHAR(50);
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS public_display_options JSONB DEFAULT '{"show_clinic_name":true,"show_doctor_name":true,"show_address":true,"show_phone":true,"show_whatsapp":true,"show_email":true,"show_fees":true}'::jsonb;
             `);
             console.log('✅ Verified/added custom columns in property_info, restaurant_tables, kot_headers, sales_headers, item_master, clinic_appointments, and hr_biometric_devices');
         } catch (colErr: any) {

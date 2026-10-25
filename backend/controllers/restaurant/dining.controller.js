@@ -1123,7 +1123,7 @@ exports.resolveWaiterCall = async (req, res) => {
 exports.getPublicDiningTables = async (req, res) => {
     try {
         const outlet_id = await resolveOutletId(req);
-        const whereClause = { is_active: true };
+        const whereClause = {};
         if (outlet_id) whereClause.outlet_id = outlet_id;
 
         const tables = await req.propertyDb.models.restaurant_tables.findAll({
@@ -1232,12 +1232,14 @@ exports.bookTablePublic = async (req, res) => {
 
         let assignedTableId = table_id ? Number(table_id) : null;
         if (!assignedTableId) {
-            const availableTable = await req.propertyDb.models.restaurant_tables.findOne({
-                where: { outlet_id, is_active: true }
-            });
-            if (availableTable) {
-                assignedTableId = availableTable.id;
-            }
+            try {
+                const availableTable = await req.propertyDb.models.restaurant_tables.findOne({
+                    where: { outlet_id }
+                });
+                if (availableTable) {
+                    assignedTableId = availableTable.id;
+                }
+            } catch (_) {}
         }
 
         const phone = customer_phone.trim();
@@ -1268,7 +1270,7 @@ exports.bookTablePublic = async (req, res) => {
             reservation_time,
             guest_count: Number(guest_count) || 1,
             status: 'Pending',
-            remarks: remarks || 'Online reservation from home',
+            remarks: remarks || (req.body && req.body.special_requests) || 'Online reservation from home',
             address: address || null,
             gstin: gstin || null,
             source: 'ONLINE_HOME'

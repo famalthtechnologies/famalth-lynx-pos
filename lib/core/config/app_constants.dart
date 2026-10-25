@@ -20,6 +20,10 @@ class AppConstants {
   static const roleKds = 'KDS';
   static const roleMarketing = 'MARKETING';
 
+  static const roleDoctor = 'DOCTOR';
+  static const roleReceptionist = 'RECEPTIONIST';
+  static const rolePharmacist = 'PHARMACIST';
+
   static const List<String> availableRoles = [
     'ADMIN',
     'MANAGER',
@@ -32,10 +36,16 @@ class AppConstants {
     'CAPTAIN',
     'KDS',
     'MARKETING',
+    'DOCTOR',
+    'RECEPTIONIST',
+    'PHARMACIST',
   ];
 
   static List<String> getRolesForModule(String? module) {
     final mod = (module ?? 'ALL').toUpperCase().trim();
+    if (mod == 'CLINIC') {
+      return ['ADMIN', 'MANAGER', 'DOCTOR', 'RECEPTIONIST', 'PHARMACIST', 'ACCOUNTS'];
+    }
     if (mod == 'INVENTORY') {
       return ['ADMIN', 'MANAGER', 'STORE', 'ACCOUNTS', 'HR', 'MARKETING'];
     }
