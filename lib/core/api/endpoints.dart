@@ -258,6 +258,8 @@ class ApiEndpoints {
   static String clinicSubscriptionConsume(dynamic id) => '/api/clinic/subscriptions/$id/consume';
   static String clinicSubscriptionLedger(dynamic id) => '/api/clinic/subscriptions/$id/ledger';
   static const String publicPatientSubscriptions = '/api/public/clinic/my-subscriptions';
+  static const String clinicPatientHistory = '/api/clinic/patient-history';
+  static const String clinicTestsMaster = '/api/clinic/clinical-tests';
 
   // EXPIRY TRACKER & COMPARISON
   static const String expiryTracker = '/api/inventory/expiry-tracker';

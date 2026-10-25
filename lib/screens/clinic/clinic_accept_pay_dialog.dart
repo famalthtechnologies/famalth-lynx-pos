@@ -22,8 +22,12 @@ class ClinicAcceptPayDialog extends StatefulWidget {
 
 class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
   String _paymentOption = 'PAID_NOW'; // 'PAID_NOW', 'PAY_LATER', 'PACKAGE', 'ALREADY_PAID'
-  String _paymentMode = 'CASH'; // 'CASH', 'CARD', 'UPI', 'BANK_TRANSFER'
+  String _paymentMode = 'CASH'; // Dynamically synced with universal methods
   late TextEditingController _amountCtrl;
+
+  // Universal Payment Methods
+  List<Map<String, dynamic>> _masterPaymentMethods = [];
+  bool _isLoadingPaymentMethods = false;
 
   // Doctor assignment
   List<dynamic> _doctors = [];
@@ -38,6 +42,32 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
 
   bool _isSubmitting = false;
   bool get _isPrepaid => (widget.appointment['payment_status'] ?? '').toString().toUpperCase() == 'PAID';
+
+  void _syncFeeWithDoctor(dynamic doc) {
+    if (doc != null && doc['consultation_fee'] != null) {
+      final docFee = double.tryParse('${doc['consultation_fee']}') ?? 0.0;
+      if (docFee > 0) {
+        _amountCtrl.text = NumberFormat('#,##0.00').format(docFee);
+      }
+    }
+  }
+
+  dynamic _findMatchedDoctor(List<dynamic> list, String? name, int? id) {
+    if (list.isEmpty) return null;
+    if (id != null) {
+      final byId = list.firstWhere((d) => d['id'] == id, orElse: () => null);
+      if (byId != null) return byId;
+    }
+    if (name != null && name.trim().isNotEmpty) {
+      final clean = name.replaceAll(RegExp(r'^Dr\.?\s+', caseSensitive: false), '').trim().toLowerCase();
+      final byName = list.firstWhere((d) {
+        final dName = (d['full_name'] ?? d['username'] ?? '').toString().replaceAll(RegExp(r'^Dr\.?\s+', caseSensitive: false), '').trim().toLowerCase();
+        return dName == clean;
+      }, orElse: () => null);
+      if (byName != null) return byName;
+    }
+    return list.first;
+  }
 
   @override
   void initState() {
@@ -54,19 +84,60 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
         ? int.tryParse('${widget.appointment['doctor_id']}')
         : null;
 
+    final isPackageSession = widget.appointment['is_package_session'] == true ||
+        (widget.appointment['payment_status'] ?? '').toString().toUpperCase() == 'PACKAGE_INCLUDED' ||
+        (widget.appointment['payment_mode'] ?? '').toString().toUpperCase() == 'PACKAGE_SUBSCRIPTION';
+
     if (_isPrepaid) {
       _paymentOption = 'ALREADY_PAID';
+    } else if (isPackageSession) {
+      _paymentOption = 'PACKAGE';
+    } else {
+      _paymentOption = 'PAID_NOW'; // Default is always Pay Now (Direct)
+    }
+
+    if (widget.appointment['active_subscription'] != null) {
+      final sub = widget.appointment['active_subscription'];
+      _packageNameCtrl.text = (sub['package_name'] ?? 'Therapy Package').toString();
+      _sessionNumber = (int.tryParse('${sub['services_consumed']}') ?? 0) + 1;
+      _totalSessions = int.tryParse('${sub['total_sessions']}') ?? 6;
     } else if (widget.appointment['package_name'] != null) {
       _packageNameCtrl.text = widget.appointment['package_name'];
       _sessionNumber = (widget.appointment['session_number'] ?? 0) + 1;
       _totalSessions = widget.appointment['total_package_sessions'] ?? 6;
-      _paymentOption = 'PACKAGE';
     }
 
     if (widget.doctors != null && widget.doctors!.isNotEmpty) {
       _doctors = List.from(widget.doctors!);
+      final matched = _findMatchedDoctor(_doctors, _selectedDoctorName, _selectedDoctorId);
+      if (matched != null) {
+        _selectedDoctorName = (matched['full_name'] ?? matched['username'] ?? _selectedDoctorName).toString();
+        _selectedDoctorId = matched['id'] != null ? int.tryParse('${matched['id']}') : _selectedDoctorId;
+        _syncFeeWithDoctor(matched);
+      }
     } else {
       _fetchDoctors();
+    }
+
+    _loadMasterPaymentMethods();
+  }
+
+  Future<void> _loadMasterPaymentMethods() async {
+    setState(() => _isLoadingPaymentMethods = true);
+    try {
+      final res = await ApiClient.get(ApiEndpoints.paymentMethods);
+      if (res != null && res['data'] is List && mounted) {
+        final list = (res['data'] as List).map((e) => Map<String, dynamic>.from(e)).toList();
+        setState(() {
+          _masterPaymentMethods = list;
+          if (_masterPaymentMethods.isNotEmpty && !_masterPaymentMethods.any((m) => (m['name'] ?? '').toString().toUpperCase() == _paymentMode)) {
+            _paymentMode = (_masterPaymentMethods.first['name'] ?? 'CASH').toString().toUpperCase();
+          }
+        });
+      }
+    } catch (_) {}
+    finally {
+      if (mounted) setState(() => _isLoadingPaymentMethods = false);
     }
   }
 
@@ -77,6 +148,12 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
       if (res != null && res['success'] == true && mounted) {
         setState(() {
           _doctors = res['data'] is List ? (res['data'] as List) : [];
+          final matched = _findMatchedDoctor(_doctors, _selectedDoctorName, _selectedDoctorId);
+          if (matched != null) {
+            _selectedDoctorName = (matched['full_name'] ?? matched['username'] ?? _selectedDoctorName).toString();
+            _selectedDoctorId = matched['id'] != null ? int.tryParse('${matched['id']}') : _selectedDoctorId;
+            _syncFeeWithDoctor(matched);
+          }
         });
       }
     } catch (_) {}
@@ -184,9 +261,11 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
                 children: [
                   Row(
                     children: [
-                      const Text(
-                        'Reception Acceptance & Admission',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      Text(
+                        widget.appointment['status'] == 'VISITED'
+                            ? 'Reception Fee Collection & Details'
+                            : 'Reception Acceptance & Admission',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                       const SizedBox(width: 8),
                       Container(
@@ -267,14 +346,12 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
                             }).toList(),
                             onChanged: (val) {
                               if (val != null) {
-                                final matched = _doctors.firstWhere((d) => (d['full_name'] ?? '') == val, orElse: () => null);
+                                final matched = _findMatchedDoctor(_doctors, val, null);
                                 setState(() {
                                   _selectedDoctorName = val;
                                   _selectedDoctorId = matched != null ? int.tryParse('${matched['id']}') : null;
-                                  if (!_isPrepaid && _paymentOption == 'PAID_NOW' && matched != null && matched['consultation_fee'] != null) {
-                                    _amountCtrl.text = NumberFormat('#,##0.00').format(
-                                      double.tryParse('${matched['consultation_fee']}') ?? 50.0,
-                                    );
+                                  if (matched != null) {
+                                    _syncFeeWithDoctor(matched);
                                   }
                                 });
                               }
@@ -387,15 +464,27 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
                         const SizedBox(height: 12),
                         const Text('Universal Payment Method (Recorded in Cash Ledger):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF166534))),
                         const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            _payChip('CASH', 'Cash', Icons.money_rounded),
-                            _payChip('CARD', 'Debit / Credit Card', Icons.credit_card_rounded),
-                            _payChip('UPI', 'UPI / QR Code', Icons.qr_code_2_rounded),
-                            _payChip('BANK_TRANSFER', 'Bank Transfer', Icons.account_balance_rounded),
-                          ],
-                        ),
+                        _isLoadingPaymentMethods
+                            ? const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8),
+                                child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+                              )
+                            : Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: (_masterPaymentMethods.isNotEmpty
+                                    ? _masterPaymentMethods.map((m) {
+                                        final code = (m['name'] ?? 'CASH').toString().toUpperCase();
+                                        final label = (m['name'] ?? 'Cash').toString();
+                                        return _payChip(code, label, _getPaymentIcon(code));
+                                      }).toList()
+                                    : [
+                                        _payChip('CASH', 'Cash', Icons.money_rounded),
+                                        _payChip('CARD', 'Debit / Credit Card', Icons.credit_card_rounded),
+                                        _payChip('UPI', 'UPI / QR Code', Icons.qr_code_2_rounded),
+                                        _payChip('BANK_TRANSFER', 'Bank Transfer', Icons.account_balance_rounded),
+                                      ]),
+                              ),
                       ],
                     ),
                   ),
@@ -557,12 +646,16 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
             _isSubmitting
                 ? 'Processing...'
                 : (_isPrepaid
-                    ? 'Confirm & Admit to Queue (Token #$tokenNo)'
+                    ? (widget.appointment['status'] == 'VISITED' ? 'Update & Confirm (Token #$tokenNo)' : 'Confirm & Admit to Queue (Token #$tokenNo)')
                     : (_paymentOption == 'PAID_NOW'
-                        ? 'Collect ${CurrencyService.symbol}${_amountCtrl.text} & Admit (Token #$tokenNo)'
+                        ? (widget.appointment['status'] == 'VISITED'
+                            ? 'Collect ${CurrencyService.symbol}${_amountCtrl.text} & Update Receipt'
+                            : 'Collect ${CurrencyService.symbol}${_amountCtrl.text} & Admit (Token #$tokenNo)')
                         : (_paymentOption == 'PACKAGE'
                             ? 'Confirm Package Session (Token #$tokenNo)'
-                            : 'Accept (Pay Later) (Token #$tokenNo)'))),
+                            : (widget.appointment['status'] == 'VISITED'
+                                ? 'Save Payment Details'
+                                : 'Accept (Pay Later) (Token #$tokenNo)')))),
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           onPressed: _isSubmitting ? null : _submit,
@@ -617,6 +710,16 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
         ),
       ),
     );
+  }
+
+  IconData _getPaymentIcon(String method) {
+    final m = method.toUpperCase();
+    if (m.contains('UPI') || m.contains('QR') || m.contains('SCAN')) return Icons.qr_code_2_rounded;
+    if (m.contains('CARD') || m.contains('DEBIT') || m.contains('CREDIT')) return Icons.credit_card_rounded;
+    if (m.contains('BANK') || m.contains('TRANSFER') || m.contains('NEFT') || m.contains('RTGS')) return Icons.account_balance_rounded;
+    if (m.contains('CHEQUE') || m.contains('CHECK')) return Icons.receipt_long_rounded;
+    if (m.contains('WALLET')) return Icons.account_balance_wallet_rounded;
+    return Icons.money_rounded;
   }
 
   Widget _payChip(String code, String label, IconData icon) {

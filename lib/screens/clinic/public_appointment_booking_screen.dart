@@ -551,7 +551,7 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    pw.Text('Consultation Fee: ${CurrencyService.format(fee)}',
+                    pw.Text('Consultation Fee: ${CurrencyService.code} ${fee.toStringAsFixed(2)}',
                         style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
                     pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.end,
@@ -1073,98 +1073,114 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
               ),
               const SizedBox(height: 14),
 
-              // Active Therapy Packages & Subscriptions
-              if (_patientSubscriptions.isNotEmpty) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFAF5FF), Color(0xFFF3E8FF)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE9D5FF)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.stars_rounded, color: Color(0xFF7C3AED), size: 20),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'My Active Therapy & Treatment Packages',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF581C87)),
-                          ),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF7C3AED),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${_patientSubscriptions.length} Active',
-                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
+              // Active Therapy Packages & Subscriptions (filtered strictly for clinic therapy packages)
+              (() {
+                final clinicPackages = _patientSubscriptions.where((sub) {
+                  final nameLower = (sub['package_name'] ?? '').toString().toLowerCase();
+                  return !(nameLower.contains('milk') ||
+                      nameLower.contains('rice') ||
+                      nameLower.contains('backpack') ||
+                      nameLower.contains('oil') ||
+                      nameLower.contains('ghee') ||
+                      nameLower.contains('dairy'));
+                }).toList();
+
+                if (clinicPackages.isEmpty) return const SizedBox.shrink();
+
+                return Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFAF5FF), Color(0xFFF3E8FF)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE9D5FF)),
                       ),
-                      const SizedBox(height: 10),
-                      ..._patientSubscriptions.map((sub) {
-                        final total = int.tryParse('${sub['total_sessions']}') ?? 6;
-                        final done = int.tryParse('${sub['services_consumed']}') ?? 0;
-                        final left = int.tryParse('${sub['remaining_sessions']}') ?? (total - done);
-                        final prog = total > 0 ? (done / total).clamp(0.0, 1.0) : 0.0;
-                        return Container(
-                          margin: const EdgeInsets.only(top: 8),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
                             children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    sub['package_name'] ?? 'Therapy Package',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    '$done of $total Consumed ($left Left)',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF7C3AED)),
-                                  ),
-                                ],
+                              const Icon(Icons.stars_rounded, color: Color(0xFF7C3AED), size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'My Active Therapy & Treatment Packages',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF581C87)),
                               ),
-                              const SizedBox(height: 8),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: LinearProgressIndicator(
-                                  value: prog,
-                                  minHeight: 6,
-                                  backgroundColor: const Color(0xFFF1F5F9),
-                                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7C3AED)),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF7C3AED),
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Validity: ${sub['start_date'] ?? ''} to ${sub['end_date'] ?? 'End of Month'}',
-                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                child: Text(
+                                  '${clinicPackages.length} Active',
+                                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
                               ),
                             ],
                           ),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-              ],
+                          const SizedBox(height: 10),
+                          ...clinicPackages.map((sub) {
+                            final total = int.tryParse('${sub['total_sessions']}') ?? 6;
+                            final done = int.tryParse('${sub['services_consumed']}') ?? 0;
+                            final left = int.tryParse('${sub['remaining_sessions']}') ?? (total - done);
+                            final prog = total > 0 ? (done / total).clamp(0.0, 1.0) : 0.0;
+                            return Container(
+                              margin: const EdgeInsets.only(top: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        sub['package_name'] ?? 'Therapy Package',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        '$done of $total Consumed ($left Left)',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF7C3AED)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: LinearProgressIndicator(
+                                      value: prog,
+                                      minHeight: 6,
+                                      backgroundColor: const Color(0xFFF1F5F9),
+                                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7C3AED)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Validity: ${sub['start_date'] ?? ''} to ${sub['end_date'] ?? 'End of Month'}',
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                );
+              })(),
 
               if (_isLoadingHistory)
                 const Padding(
@@ -2266,6 +2282,50 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
   final _sessionNumCtrl = TextEditingController(text: '1');
   final _totalSessionsCtrl = TextEditingController(text: '6');
 
+  // OTP Verification for guest bookings
+  bool _otpSent = false;
+  final _otpCtrl = TextEditingController();
+  bool _isSendingOtp = false;
+
+  Future<void> _sendOtp() async {
+    final email = _emailCtrl.text.trim().toLowerCase();
+    if (email.isEmpty || !email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid email address first')),
+      );
+      return;
+    }
+    setState(() => _isSendingOtp = true);
+    try {
+      final res = await ApiClient.post('/api/public/clinic/request-email-otp', {'email': email});
+      if (res != null && res['success'] == true) {
+        setState(() => _otpSent = true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res['message'] ?? 'Verification code sent to $email'),
+              backgroundColor: const Color(0xFF16A34A),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(res?['message'] ?? 'Failed to send verification code')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error sending code: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSendingOtp = false);
+    }
+  }
+
   List<String> _generateSlotsForDoctor() {
     final startTimeStr = (_selectedDoctor['start_time'] ?? '09:00 AM').toString();
     final endTimeStr = (_selectedDoctor['end_time'] ?? '06:00 PM').toString();
@@ -2407,25 +2467,13 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
         final done = int.tryParse('${p['services_consumed']}') ?? 0;
         return (total - done) > 0;
       }).toList();
-      _autoSelectFirstActivePackage();
     } else {
       _fetchActiveSubscriptions();
     }
   }
 
   void _autoSelectFirstActivePackage() {
-    if (_activePackages.isNotEmpty && _selectedPackage == null) {
-      final first = _activePackages.first;
-      setState(() {
-        _selectedPackage = first;
-        _paymentOption = 'PACKAGE';
-        _packageNameCtrl.text = first['package_name'] ?? 'Therapy Package';
-        final done = int.tryParse('${first['services_consumed']}') ?? 0;
-        final total = int.tryParse('${first['total_sessions']}') ?? 6;
-        _sessionNumCtrl.text = '${done + 1}';
-        _totalSessionsCtrl.text = '$total';
-      });
-    }
+    // Left available as a manual helper if needed
   }
 
   Future<void> _fetchActiveSubscriptions() async {
@@ -2440,7 +2488,6 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
             final done = int.tryParse('${p['services_consumed']}') ?? 0;
             return (total - done) > 0;
           }).toList();
-          _autoSelectFirstActivePackage();
         });
       }
     } catch (_) {}
@@ -2456,6 +2503,7 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
     _packageNameCtrl.dispose();
     _sessionNumCtrl.dispose();
     _totalSessionsCtrl.dispose();
+    _otpCtrl.dispose();
     super.dispose();
   }
 
@@ -2499,11 +2547,17 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
         paidAmt = 0.0;
       }
 
+      final isVerifiedUser = widget.patientProfile != null || (widget.patientProfile?['is_verified'] == true);
+      final otpVal = _otpCtrl.text.trim();
+
       final res = await ApiClient.post('/api/public/clinic/appointment', {
         'outlet_id': _selectedDoctor['outlet_id'] ?? widget.doctor['outlet_id'],
         'patient_name': name,
         'patient_phone': phone,
         'patient_email': email,
+        'is_verified': isVerifiedUser,
+        'is_email_verified': isVerifiedUser,
+        'email_otp': otpVal.isNotEmpty ? otpVal : null,
         'patient_age': int.tryParse(_ageCtrl.text.trim()),
         'patient_gender': _gender,
         'appointment_date': formattedDate,
@@ -2539,8 +2593,36 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
                   Text('Booking Confirmed!'),
                 ],
               ),
-              content: Text(
-                'Your consultation with ${_selectedDoctor['name']} at ${widget.doctor['clinic_name']} on $formattedDate at $_selectedSlot has been booked successfully!\n\nReference Ref: #${res['data']?['id'] ?? ''}\nPayment: $payStatus (${CurrencyService.format(fee)})',
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Your appointment with ${_selectedDoctor['name']} has been confirmed!',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFBBF7D0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('📅 Scheduled Date: $formattedDate at $_selectedSlot', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF166534))),
+                        const SizedBox(height: 4),
+                        Text('🏥 Clinic / OPD: ${widget.doctor['clinic_name'] ?? 'Main Clinic'}', style: const TextStyle(fontSize: 12, color: Color(0xFF166534))),
+                        const SizedBox(height: 4),
+                        Text(isPack ? '🎟️ Covered by Package: $packName' : '💳 Consultation Fee: ${CurrencyService.format(fee)} ($payStatus)', style: const TextStyle(fontSize: 12, color: Color(0xFF166534))),
+                        const SizedBox(height: 4),
+                        Text('🔖 Token / Ref No: #${res['data']?['id'] ?? ''}', style: const TextStyle(fontSize: 11, color: Color(0xFF166534))),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               actions: [
                 ElevatedButton(
@@ -2555,15 +2637,31 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
             ),
           );
         }
+      } else if (res != null && res['requires_email_verification'] == true) {
+        if (!_otpSent) {
+          _sendOtp();
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res['message'] ?? 'Verification code sent to your email. Please enter the OTP to confirm.'),
+              backgroundColor: const Color(0xFFD97706),
+            ),
+          );
+        }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(res?['message'] ?? 'Failed to book appointment')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(res?['message'] ?? 'Failed to book appointment')),
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Booking error: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Booking error: $e')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -2753,6 +2851,44 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
                   ),
                 ],
               ),
+              if (_otpSent) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _otpCtrl,
+                          keyboardType: TextInputType.number,
+                          maxLength: 6,
+                          decoration: const InputDecoration(
+                            labelText: '6-Digit Email Verification Code',
+                            hintText: 'Enter OTP sent to email',
+                            counterText: '',
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.mark_email_read_outlined, size: 20),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        onPressed: _isSendingOtp ? null : _sendOtp,
+                        icon: _isSendingOtp
+                            ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.refresh, size: 16),
+                        label: const Text('Resend Code', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 14),
 
               // 2. Appointment Date & Time Slot

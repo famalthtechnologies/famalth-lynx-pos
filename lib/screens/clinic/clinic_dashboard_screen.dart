@@ -12,8 +12,8 @@ import '../inventory/salescreen.dart';
 import 'clinic_prescription_pdf.dart';
 import 'clinic_accept_pay_dialog.dart';
 import 'clinic_doctor_management_dialog.dart';
+import 'clinic_opd_report_pdf.dart';
 import '../modify/sales_reprint_modify_screen.dart';
-import '../inventory/subscription_screen.dart';
 import '../../core/auth/token_storage.dart';
 import '../reports/cash_ledger_screen.dart';
 
@@ -55,7 +55,12 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   bool _isLoadingSubscriptions = false;
   String _subscriptionFilter = 'ALL';
   final TextEditingController _subSearchCtrl = TextEditingController();
-  DateTime _selectedDate = DateTime.now();
+  DateTime _fromDate = DateTime.now();
+  DateTime _toDate = DateTime.now();
+  String _datePresetLabel = 'Today';
+  DateTime get _selectedDate => _fromDate;
+  int _upcomingScheduledCount = 0;
+  String? _nextUpcomingDate;
 
   // Date range for Store-Analysis style Clinic Analytics
   DateTime _analyticsFromDate = DateTime.now().subtract(const Duration(days: 30));
@@ -161,12 +166,13 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   Widget _buildPaymentBadge(dynamic a) {
     final payStatus = (a['payment_status'] ?? 'UNPAID').toString().toUpperCase();
     final payMode = (a['payment_mode'] ?? '').toString().toUpperCase();
-    final fee = (a['consultation_fee'] ?? 0);
-    final isPack = a['is_package_session'] == true || payStatus == 'PACKAGE_INCLUDED';
+    final fee = double.tryParse('${a['consultation_fee'] ?? 0}') ?? 0.0;
+    final isPack = a['is_package_session'] == true || payStatus == 'PACKAGE_INCLUDED' || payMode == 'PACKAGE_SUBSCRIPTION';
 
     if (isPack) {
       final sess = a['session_number'] ?? 1;
       final total = a['total_package_sessions'] ?? 6;
+      final hasExtraFee = fee > 0;
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
@@ -179,7 +185,12 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           children: [
             const Icon(Icons.spa_rounded, size: 12, color: Color(0xFF7C3AED)),
             const SizedBox(width: 4),
-            Text('Package ($sess/$total Free)', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF6B21A8))),
+            Text(
+              hasExtraFee
+                  ? 'Package (#$sess/$total) • Fee: ${CurrencyService.symbol}${fee.toStringAsFixed(2)} ($payMode)'
+                  : 'Package Covered (#$sess/$total) • ${CurrencyService.symbol}0.00',
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF6B21A8)),
+            ),
           ],
         ),
       );
@@ -198,13 +209,13 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           children: [
             const Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF059669)),
             const SizedBox(width: 4),
-            Text('Paid ${CurrencyService.symbol}$fee ($payMode)', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+            Text('Paid ${CurrencyService.symbol}${fee.toStringAsFixed(2)} ($payMode)', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
           ],
         ),
       );
     }
 
-    if (payStatus == 'PAY_LATER') {
+    if (payStatus == 'PAY_LATER' && !isPack) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
@@ -217,7 +228,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           children: [
             const Icon(Icons.schedule_rounded, size: 12, color: Color(0xFFD97706)),
             const SizedBox(width: 4),
-            Text('Pay Later (${CurrencyService.symbol}$fee)', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+            Text('Pay Later (${CurrencyService.symbol}${fee.toStringAsFixed(2)})', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
           ],
         ),
       );
@@ -237,8 +248,8 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     setState(() => _isLoading = true);
     try {
       final queryParams = <String, dynamic>{
-        'from_date': DateFormat('yyyy-MM-dd').format(_selectedDate),
-        'to_date': DateFormat('yyyy-MM-dd').format(_selectedDate),
+        'from_date': DateFormat('yyyy-MM-dd').format(_fromDate),
+        'to_date': DateFormat('yyyy-MM-dd').format(_toDate),
       };
       if (_statusFilter != 'ALL') {
         queryParams['status'] = _statusFilter;
@@ -267,6 +278,8 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
       if (res != null && res['success'] == true && mounted) {
         setState(() {
           _appointments = res['data'] ?? [];
+          _upcomingScheduledCount = int.tryParse('${res['upcoming_scheduled_count']}') ?? 0;
+          _nextUpcomingDate = res['next_upcoming_date'] != null ? '${res['next_upcoming_date']}' : null;
         });
       }
     } catch (e) {
@@ -653,6 +666,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
       children: [
         _buildStatsBar(),
         _buildFilterBar(),
+        _buildUpcomingAppointmentsBanner(),
         Expanded(
           child: _isLoading
               ? const Center(child: CircularProgressIndicator(color: Color(0xFF0284C7)))
@@ -704,6 +718,87 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                     ),
         ),
       ],
+    );
+  }
+
+  Widget _buildUpcomingAppointmentsBanner() {
+    if (_upcomingScheduledCount <= 0) return const SizedBox.shrink();
+    String formattedNextDate = _nextUpcomingDate ?? 'Tomorrow';
+    try {
+      if (_nextUpcomingDate != null) {
+        formattedNextDate = DateFormat('EEE, dd MMM yyyy').format(DateTime.parse(_nextUpcomingDate!));
+      }
+    } catch (_) {}
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF93C5FD)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.notifications_active_rounded, color: Color(0xFF1D4ED8), size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 13, color: Color(0xFF1E3A8A)),
+                children: [
+                  TextSpan(
+                    text: '$_upcomingScheduledCount Upcoming Online Booking${_upcomingScheduledCount > 1 ? 's' : ''} ',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  TextSpan(text: '(Next appointment on $formattedNextDate)'),
+                ],
+              ),
+            ),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            icon: const Icon(Icons.calendar_month_rounded, size: 14),
+            label: const Text('View Tomorrow', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            onPressed: () {
+              final now = DateTime.now();
+              final tom = DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
+              setState(() {
+                _fromDate = tom;
+                _toDate = tom;
+                _datePresetLabel = 'Tomorrow';
+              });
+              _fetchAppointments();
+            },
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF1D4ED8),
+              side: const BorderSide(color: Color(0xFF93C5FD)),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            icon: const Icon(Icons.date_range_rounded, size: 14),
+            label: const Text('Next 7 Days', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            onPressed: () {
+              final now = DateTime.now();
+              final today = DateTime(now.year, now.month, now.day);
+              setState(() {
+                _fromDate = today;
+                _toDate = today.add(const Duration(days: 7));
+                _datePresetLabel = 'Next 7 Days';
+              });
+              _fetchAppointments();
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -760,7 +855,6 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   }
 
   Widget _buildFilterBar() {
-    final dateStr = DateFormat('dd MMM yyyy').format(_selectedDate);
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
       decoration: const BoxDecoration(
@@ -771,21 +865,101 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         children: [
           Row(
             children: [
-              // Date Selector Button
-              InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: _selectedDate,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime(2035),
-                  );
-                  if (picked != null) {
-                    setState(() => _selectedDate = picked);
+              // Intelligent Date Range Selector
+              PopupMenuButton<String>(
+                tooltip: 'Select Date Range Presets',
+                onSelected: (preset) async {
+                  final now = DateTime.now();
+                  final today = DateTime(now.year, now.month, now.day);
+                  if (preset == 'TODAY') {
+                    setState(() {
+                      _fromDate = today;
+                      _toDate = today;
+                      _datePresetLabel = 'Today';
+                    });
                     _fetchAppointments();
+                  } else if (preset == 'TOMORROW') {
+                    final tom = today.add(const Duration(days: 1));
+                    setState(() {
+                      _fromDate = tom;
+                      _toDate = tom;
+                      _datePresetLabel = 'Tomorrow';
+                    });
+                    _fetchAppointments();
+                  } else if (preset == 'NEXT_7_DAYS') {
+                    setState(() {
+                      _fromDate = today;
+                      _toDate = today.add(const Duration(days: 7));
+                      _datePresetLabel = 'Next 7 Days';
+                    });
+                    _fetchAppointments();
+                  } else if (preset == 'ALL_UPCOMING') {
+                    setState(() {
+                      _fromDate = today;
+                      _toDate = today.add(const Duration(days: 60));
+                      _datePresetLabel = 'All Upcoming';
+                    });
+                    _fetchAppointments();
+                  } else if (preset == 'YESTERDAY') {
+                    final yest = today.subtract(const Duration(days: 1));
+                    setState(() {
+                      _fromDate = yest;
+                      _toDate = yest;
+                      _datePresetLabel = 'Yesterday';
+                    });
+                    _fetchAppointments();
+                  } else if (preset == 'THIS_WEEK') {
+                    setState(() {
+                      _fromDate = today.subtract(Duration(days: today.weekday - 1));
+                      _toDate = today;
+                      _datePresetLabel = 'This Week';
+                    });
+                    _fetchAppointments();
+                  } else if (preset == 'THIS_MONTH') {
+                    setState(() {
+                      _fromDate = DateTime(now.year, now.month, 1);
+                      _toDate = today;
+                      _datePresetLabel = 'This Month';
+                    });
+                    _fetchAppointments();
+                  } else if (preset == 'ALL_DATES') {
+                    setState(() {
+                      _fromDate = DateTime(2020, 1, 1);
+                      _toDate = DateTime(2035, 12, 31);
+                      _datePresetLabel = 'All Dates';
+                    });
+                    _fetchAppointments();
+                  } else if (preset == 'CUSTOM') {
+                    final picked = await showDateRangePicker(
+                      context: context,
+                      initialDateRange: DateTimeRange(start: _fromDate, end: _toDate),
+                      firstDate: DateTime(2022),
+                      lastDate: DateTime(2035),
+                      helpText: 'Select Custom OPD Date Range',
+                    );
+                    if (picked != null) {
+                      setState(() {
+                        _fromDate = picked.start;
+                        _toDate = picked.end;
+                        _datePresetLabel = 'Custom';
+                      });
+                      _fetchAppointments();
+                    }
                   }
                 },
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(value: 'TODAY', child: Text('Today (Single Day - Default)')),
+                  PopupMenuItem(value: 'TOMORROW', child: Text('Tomorrow (${DateFormat('EEE, dd MMM').format(DateTime.now().add(const Duration(days: 1)))})')),
+                  const PopupMenuItem(value: 'NEXT_7_DAYS', child: Text('Next 7 Days (Upcoming)')),
+                  const PopupMenuItem(value: 'ALL_UPCOMING', child: Text('All Upcoming Appointments')),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(value: 'YESTERDAY', child: Text('Yesterday')),
+                  const PopupMenuItem(value: 'THIS_WEEK', child: Text('This Week (Last 7 Days)')),
+                  const PopupMenuItem(value: 'THIS_MONTH', child: Text('This Month')),
+                  const PopupMenuItem(value: 'ALL_DATES', child: Text('All Dates (No Date Filter)')),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(value: 'CUSTOM', child: Row(children: [Icon(Icons.date_range, size: 16), SizedBox(width: 8), Text('Custom Date Range...')])),
+                ],
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
@@ -797,7 +971,12 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                     children: [
                       const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF0284C7)),
                       const SizedBox(width: 8),
-                      Text(dateStr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A))),
+                      Text(
+                        _fromDate.year == _toDate.year && _fromDate.month == _toDate.month && _fromDate.day == _toDate.day
+                            ? '${_datePresetLabel != 'Custom' ? '$_datePresetLabel: ' : ''}${DateFormat('dd MMM yyyy').format(_fromDate)}'
+                            : '${_datePresetLabel != 'Custom' ? '$_datePresetLabel: ' : ''}${DateFormat('dd MMM').format(_fromDate)} - ${DateFormat('dd MMM yyyy').format(_toDate)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                      ),
                       const SizedBox(width: 6),
                       const Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF64748B)),
                     ],
@@ -898,13 +1077,27 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
 
               FilledButton.tonal(
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFF1F5F9),
-                  foregroundColor: const Color(0xFF0F172A),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  backgroundColor: const Color(0xFF0284C7).withOpacity(0.12),
+                  foregroundColor: const Color(0xFF0284C7),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
                 onPressed: _fetchAppointments,
                 child: const Text('Search', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              ),
+              const SizedBox(width: 8),
+
+              // Print OPD Report Button
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF0F766E),
+                  side: const BorderSide(color: Color(0xFF0F766E)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.print_rounded, size: 16),
+                label: const Text('Print OPD Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                onPressed: _printOpdReport,
               ),
             ],
           ),
@@ -1018,28 +1211,6 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     );
   }
 
-  Widget _filterChip(String key, String label) {
-    final sel = _statusFilter == key;
-    return ChoiceChip(
-      label: Text(label),
-      selected: sel,
-      labelStyle: TextStyle(
-        fontSize: 11,
-        fontWeight: sel ? FontWeight.bold : FontWeight.w500,
-        color: sel ? Colors.white : const Color(0xFF334155),
-      ),
-      selectedColor: const Color(0xFF0284C7),
-      backgroundColor: const Color(0xFFF1F5F9),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-      side: BorderSide(color: sel ? const Color(0xFF0284C7) : const Color(0xFFE2E8F0)),
-      onSelected: (val) {
-        if (val) {
-          setState(() => _statusFilter = key);
-          _fetchAppointments();
-        }
-      },
-    );
-  }
 
   Widget _buildAppointmentCard(dynamic a) {
     final status = (a['status'] ?? 'SCHEDULED').toString().toUpperCase();
@@ -1058,6 +1229,15 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
 
     final rawMeds = a['prescribed_medicines'];
     final medCount = rawMeds is List ? rawMeds.length : 0;
+
+    final isPackageVisit = a['is_package_session'] == true ||
+        a['payment_mode'] == 'PACKAGE_SUBSCRIPTION' ||
+        a['payment_status'] == 'PACKAGE_INCLUDED';
+    final hasActiveSub = a['active_subscription'] != null &&
+        (int.tryParse('${a['active_subscription']['remaining_sessions']}') ?? 0) > 0;
+    final payStatus = (a['payment_status'] ?? 'UNPAID').toString().toUpperCase();
+    final fee = double.tryParse('${a['consultation_fee'] ?? 0}') ?? 0.0;
+    final isFeePaid = payStatus == 'PAID' || (payStatus == 'PACKAGE_INCLUDED' && fee == 0.0);
 
     return Container(
       decoration: BoxDecoration(
@@ -1102,42 +1282,44 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                            ),
-                            child: Text(
-                              'Token #${a['token_number'] ?? a['id'] ?? '-'}',
-                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
                               color: isVisited ? const Color(0xFFECFDF5) : const Color(0xFFFFFBEB),
                               borderRadius: BorderRadius.circular(4),
                               border: Border.all(color: isVisited ? const Color(0xFF6EE7B7) : const Color(0xFFFDE68A)),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                CircleAvatar(radius: 3, backgroundColor: isVisited ? const Color(0xFF059669) : const Color(0xFFD97706)),
-                                const SizedBox(width: 4),
-                                Text(
-                                  isVisited ? 'ATTENDED' : 'UNATTENDED',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: isVisited ? const Color(0xFF047857) : const Color(0xFFB45309),
-                                  ),
-                                ),
-                              ],
+                            child: Text(
+                              isVisited ? 'ATTENDED / VISITED' : 'WAITING IN QUEUE',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: isVisited ? const Color(0xFF047857) : const Color(0xFFB45309),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
                           _buildPaymentBadge(a),
-                          if (a['active_subscription'] != null) ...[
+                          if (a['is_repeat_patient'] == true || (a['total_prior_visits'] != null && (int.tryParse('${a['total_prior_visits']}') ?? 0) > 0)) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFAF5FF),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFFD8B4FE)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.repeat_rounded, size: 12, color: Color(0xFF7C3AED)),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    'REPEAT PATIENT (${a['total_prior_visits'] ?? 1} Prior)',
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (isPackageVisit && a['active_subscription'] != null) ...[
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1162,9 +1344,52 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                         ],
                       ),
                       const SizedBox(height: 3),
-                      Text(
-                        'Phone: ${a['patient_phone'] ?? '-'}  •  Age: ${a['patient_age'] ?? '-'}  •  ${(a['patient_gender'] ?? '-').toString().toUpperCase()}',
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      Row(
+                        children: [
+                          Text(
+                            'Phone: ${a['patient_phone'] ?? '-'}  •  Age: ${a['patient_age'] ?? '-'}  •  ${(a['patient_gender'] ?? '-').toString().toUpperCase()}',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                          ),
+                          const SizedBox(width: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.badge_outlined, size: 12, color: Color(0xFF0284C7)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Assigned: Dr. ${a['doctor_name'] ?? 'General'}',
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                                ),
+                                if (isVisited && a['attended_by_doctor_name'] != null) ...[
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '• Attended by: Dr. ${a['attended_by_doctor_name']}',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (_loggedInDoctorName.isNotEmpty && (a['doctor_name'] ?? '').toString().toLowerCase().contains(_loggedInDoctorName.toLowerCase())) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFECFDF5),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFFA7F3D0)),
+                              ),
+                              child: const Text('⭐ My Patient', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+                            ),
+                          ],
+                        ],
                       ),
                     ],
                   ),
@@ -1258,11 +1483,8 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                // Therapy Package quick session consume
-                if (a['active_subscription'] != null &&
-                    (a['active_subscription']['remaining_sessions'] ?? 0) > 0 &&
-                    a['is_package_session'] != true &&
-                    status != 'CANCELLED') ...[
+                // 1. Therapy / Service Package session admission (Available ONLY when this appointment is booked as a package session)
+                if (isPackageVisit && hasActiveSub && status != 'CANCELLED' && !isVisited) ...[
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF7C3AED),
@@ -1270,17 +1492,17 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    icon: const Icon(Icons.check_circle_outline_rounded, size: 16),
+                    icon: const Icon(Icons.spa_rounded, size: 16),
                     label: Text(
-                      'Consume Package Session (#${(a['active_subscription']['services_consumed'] ?? 0) + 1})',
+                      'Admit Therapy Session (#${(int.tryParse('${a['active_subscription']['services_consumed']}') ?? 0) + 1})',
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                     ),
-                    onPressed: () => _consumeSubscriptionSession(a['active_subscription']['id'], a['id']),
+                    onPressed: () => _openConsumePackageDialog(a, a['active_subscription']),
                   ),
                   const SizedBox(width: 8),
                 ],
 
-                // Reception Accept & Fee Collection
+                // 2. Reception Accept & Fee Collection (for newly scheduled appointments)
                 if (status == 'SCHEDULED') ...[
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
@@ -1291,6 +1513,25 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                     ),
                     icon: const Icon(Icons.verified_user_rounded, size: 16),
                     label: const Text('Accept & Collect Fee', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    onPressed: () => _openAcceptAndPayDialog(a),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+
+                // 3. Fee Collection for standard consultations, repeat patients or pay-later visits where fee is pending
+                if (status != 'SCHEDULED' && status != 'CANCELLED' && !isFeePaid) ...[
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFD97706),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.payments_rounded, size: 16),
+                    label: Text(
+                      fee > 0 ? 'Collect Fee (${CurrencyService.symbol}${fee.toStringAsFixed(2)})' : 'Collect Fee',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
                     onPressed: () => _openAcceptAndPayDialog(a),
                   ),
                   const SizedBox(width: 8),
@@ -1389,15 +1630,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   Widget _buildDoctorDeskTab() {
     final isDoctorUser = _userRole == 'DOCTOR' && _loggedInDoctorName.isNotEmpty;
     final doctorQueue = _appointments.where((a) {
-      if (isDoctorUser) {
-        final dName = (a['doctor_name'] ?? '').toString().toLowerCase();
-        final dId = a['doctor_id'] != null ? int.tryParse('${a['doctor_id']}') : null;
-        if (_loggedInDoctorId != null && dId != null && dId > 0) {
-          if (dId != _loggedInDoctorId) return false;
-        } else if (!dName.contains(_loggedInDoctorName.toLowerCase())) {
-          return false;
-        }
-      } else if (_selectedDoctorFilter != 'ALL') {
+      if (_selectedDoctorFilter != 'ALL') {
         final dName = (a['doctor_name'] ?? '').toString().toLowerCase();
         if (!dName.contains(_selectedDoctorFilter.toLowerCase())) return false;
       }
@@ -1417,36 +1650,96 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
             color: Colors.white,
             border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
-                backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.1),
-                child: const Icon(Icons.medical_services_rounded, color: Color(0xFF0284C7), size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isDoctorUser
-                          ? 'Dr. $_loggedInDoctorName Consultation Desk'
-                          : (_selectedDoctorFilter != 'ALL' ? 'Dr. $_selectedDoctorFilter Consultation Desk' : 'All Doctors Consultation Desk'),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.1),
+                    child: const Icon(Icons.medical_services_rounded, color: Color(0xFF0284C7), size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _selectedDoctorFilter != 'ALL'
+                              ? 'Dr. $_selectedDoctorFilter Consultation Desk'
+                              : 'All Doctors Consultation Desk',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+                        ),
+                        Text(
+                          'Daily Token Order • ${doctorQueue.length} Patients in Doctor Queue for ${DateFormat('dd MMM yyyy').format(_selectedDate)}',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                        ),
+                      ],
                     ),
-                    Text(
-                      'Daily Token Order • ${doctorQueue.length} Patients in Doctor Queue for ${DateFormat('dd MMM yyyy').format(_selectedDate)}',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                  ),
+
+                  // Doctor Filter Dropdown
+                  Container(
+                    height: 36,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFCBD5E1)),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _clinicDoctors.any((d) => (d['full_name'] ?? '').toString() == _selectedDoctorFilter) || _selectedDoctorFilter == 'ALL'
+                            ? _selectedDoctorFilter
+                            : 'ALL',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                        icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0284C7)),
+                        items: [
+                          const DropdownMenuItem(value: 'ALL', child: Text('👨‍⚕️ All Doctors')),
+                          ..._clinicDoctors.map((d) {
+                            final docName = (d['full_name'] ?? 'Doctor').toString();
+                            return DropdownMenuItem(
+                              value: docName,
+                              child: Text('Dr. $docName'),
+                            );
+                          }),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setState(() => _selectedDoctorFilter = val);
+                        },
+                      ),
+                    ),
+                  ),
+
+                  if (isDoctorUser || _loggedInDoctorName.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      selected: _selectedDoctorFilter == _loggedInDoctorName,
+                      avatar: const Icon(Icons.person_pin_rounded, size: 14),
+                      label: const Text('My Patients Only', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      selectedColor: const Color(0xFF059669),
+                      backgroundColor: const Color(0xFFECFDF5),
+                      labelStyle: TextStyle(
+                        color: _selectedDoctorFilter == _loggedInDoctorName ? Colors.white : const Color(0xFF065F46),
+                      ),
+                      onSelected: (val) {
+                        setState(() {
+                          _selectedDoctorFilter = val ? _loggedInDoctorName : 'ALL';
+                        });
+                      },
                     ),
                   ],
-                ),
-              ),
-              Wrap(
-                spacing: 6,
-                children: [
-                  _docFilterChip('ALL', 'All Patients (${doctorQueue.length})'),
-                  _docFilterChip('UNATTENDED', 'Waiting in Queue'),
-                  _docFilterChip('ATTENDED', 'Attended / Visited'),
+
+                  const SizedBox(width: 12),
+
+                  Wrap(
+                    spacing: 6,
+                    children: [
+                      _docFilterChip('ALL', 'All Patients (${doctorQueue.length})'),
+                      _docFilterChip('UNATTENDED', 'Waiting in Queue'),
+                      _docFilterChip('ATTENDED', 'Attended / Visited'),
+                    ],
+                  ),
                 ],
               ),
             ],
@@ -1507,6 +1800,9 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     final hasPrescription = (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty) ||
         (a['prescription_notes'] != null && a['prescription_notes'].toString().isNotEmpty);
     final medCount = a['prescribed_medicines'] is List ? (a['prescribed_medicines'] as List).length : 0;
+    final isPackageVisit = a['is_package_session'] == true ||
+        a['payment_mode'] == 'PACKAGE_SUBSCRIPTION' ||
+        a['payment_status'] == 'PACKAGE_INCLUDED';
 
     return Container(
       decoration: BoxDecoration(
@@ -1568,7 +1864,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                           ),
                           const SizedBox(width: 8),
                           _buildPaymentBadge(a),
-                          if (a['active_subscription'] != null) ...[
+                          if (isPackageVisit && a['active_subscription'] != null) ...[
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -2384,13 +2680,14 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                       ],
                       rows: _clinicDoctors.map((doc) {
                         final dName = (doc['full_name'] ?? 'Doctor').toString();
+                        final displayName = dName.startsWith('Dr.') || dName.startsWith('Dr ') ? dName : 'Dr. $dName';
                         final spec = (doc['speciality'] ?? 'General').toString();
                         final regNo = (doc['registration_no'] ?? '').toString();
-                        final totalAppts = doc['total_appointments'] ?? 0;
-                        final visitedAppts = doc['visited_appointments'] ?? 0;
+                        final totalAppts = doc['total_appointments'] ?? doc['total_patients'] ?? 0;
+                        final visitedAppts = doc['visited_appointments'] ?? doc['visited_patients'] ?? 0;
                         final fees = ((doc['total_fees_collected'] ?? 0) as num).toDouble();
                         final feesByMode = (doc['fees_by_mode'] as Map?) ?? {};
-                        final rxSales = ((doc['medicine_sales_referred'] ?? 0) as num).toDouble();
+                        final rxSales = ((doc['medicine_sales_referred'] ?? doc['referred_medicine_sales'] ?? 0) as num).toDouble();
 
                         return DataRow(
                           cells: [
@@ -2403,7 +2700,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                                     child: const Icon(Icons.person, size: 14, color: Color(0xFF0284C7)),
                                   ),
                                   const SizedBox(width: 8),
-                                  Text('Dr. $dName', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
                                 ],
                               ),
                             ),
@@ -2544,6 +2841,202 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
       }
     } catch (_) {} finally {
       if (mounted) setState(() => _isLoadingSubscriptions = false);
+    }
+  }
+
+  Future<void> _printOpdReport() async {
+    final propertyCtrl = Provider.of<PropertyInfoController>(context, listen: false);
+    await ClinicOpdReportPdf.printReport(
+      context: context,
+      appointments: _appointments,
+      fromDate: _fromDate,
+      toDate: _toDate,
+      doctorFilter: _selectedDoctorFilter,
+      property: propertyCtrl.propertyInfo,
+    );
+  }
+
+  void _openConsumePackageDialog(dynamic appt, dynamic sub) {
+    final subId = sub['id'];
+    final apptId = appt['id'];
+    final patientName = (appt['patient_name'] ?? 'Patient').toString();
+    final packageName = (sub['package_name'] ?? 'Therapy Package').toString();
+    final consumed = int.tryParse('${sub['services_consumed']}') ?? 0;
+    final total = int.tryParse('${sub['total_sessions']}') ?? 6;
+    final nextSession = consumed + 1;
+
+    String feeOption = 'FREE';
+    final feeCtrl = TextEditingController(text: '0.00');
+    String selectedMode = 'CASH';
+
+    showDialog(
+      context: context,
+      builder: (dCtx) => StatefulBuilder(
+        builder: (ctx, setDState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: Color(0xFFFAF5FF),
+                child: Icon(Icons.spa_rounded, color: Color(0xFF7C3AED), size: 20),
+              ),
+              SizedBox(width: 10),
+              Text('Admit Therapy Package Session', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFAF5FF),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFD8B4FE)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline_rounded, color: Color(0xFF7C3AED), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Patient: $patientName\nService: $packageName (Session #$nextSession of $total)\nStatus: Admitting to Doctor queue (Doctor will attend patient)',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF581C87)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text('Billing & Consultation Fee Action:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
+                const SizedBox(height: 8),
+
+                // Case 2: Free / Covered by Package (Default)
+                RadioListTile<String>(
+                  value: 'FREE',
+                  groupValue: feeOption,
+                  title: const Text('Covered by Package (Free • €0.00 Co-pay Fee)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Admit session to doctor queue. Rate is debited from customer advance in Universal Cash Ledger.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  activeColor: const Color(0xFF7C3AED),
+                  contentPadding: EdgeInsets.zero,
+                  onChanged: (v) => setDState(() => feeOption = v ?? 'FREE'),
+                ),
+
+                // Case 1: Charge Consultation / Co-pay Fee
+                RadioListTile<String>(
+                  value: 'CHARGE',
+                  groupValue: feeOption,
+                  title: const Text('Charge Consultation / Co-pay Fee', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Admit session AND collects co-pay fee into Universal Financial Ledger.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  activeColor: const Color(0xFF7C3AED),
+                  contentPadding: EdgeInsets.zero,
+                  onChanged: (v) => setDState(() => feeOption = v ?? 'CHARGE'),
+                ),
+
+                if (feeOption == 'CHARGE') ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: feeCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Fee Amount to Charge (${CurrencyService.symbol})',
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: selectedMode,
+                    decoration: InputDecoration(
+                      labelText: 'Payment Mode',
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                      DropdownMenuItem(value: 'UPI', child: Text('UPI / QR')),
+                      DropdownMenuItem(value: 'CARD', child: Text('Debit / Credit Card')),
+                      DropdownMenuItem(value: 'BANK', child: Text('Bank Transfer')),
+                    ],
+                    onChanged: (m) {
+                      if (m != null) setDState(() => selectedMode = m);
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dCtx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7C3AED),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(dCtx);
+                final double finalFee = feeOption == 'CHARGE' ? (double.tryParse(feeCtrl.text.trim()) ?? 0.0) : 0.0;
+                _consumeSubscriptionSessionWithFee(
+                  subId: subId,
+                  appointmentId: apptId,
+                  fee: finalFee,
+                  paymentMode: feeOption == 'CHARGE' ? selectedMode : 'PACKAGE_SUBSCRIPTION',
+                );
+              },
+              child: const Text('CONFIRM & ADMIT SESSION TO QUEUE'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _consumeSubscriptionSessionWithFee({
+    required dynamic subId,
+    required dynamic appointmentId,
+    required double fee,
+    required String paymentMode,
+  }) async {
+    try {
+      final res = await ApiClient.post(
+        ApiEndpoints.clinicSubscriptionConsume(subId),
+        {
+          if (appointmentId != null) 'appointment_id': appointmentId,
+          'fee': fee,
+          'payment_mode': paymentMode,
+          'notes': fee > 0
+              ? 'Package session consumed with fee: ${CurrencyService.symbol}$fee via $paymentMode'
+              : 'Package session consumed (Covered • 0.00)',
+        },
+      );
+      if (res != null && res['success'] == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFF059669),
+            content: Text(res['message'] ?? 'Therapy session successfully consumed!'),
+          ),
+        );
+        _fetchAppointments();
+        _fetchSubscriptions();
+        _fetchAnalytics();
+      } else if (res != null && res['message'] != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text(res['message'])),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(backgroundColor: Colors.red, content: Text('Error: $e')),
+        );
+      }
     }
   }
 
@@ -3042,10 +3535,32 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
   final TextEditingController _notesCtrl = TextEditingController();
   final TextEditingController _doctorCtrl = TextEditingController();
   final TextEditingController _diagnosisCtrl = TextEditingController();
+  final TextEditingController _dietAdviceCtrl = TextEditingController();
+
+  // Clinical Vitals Controllers
+  final TextEditingController _bpCtrl = TextEditingController();
+  final TextEditingController _pulseCtrl = TextEditingController();
+  final TextEditingController _tempCtrl = TextEditingController();
+  final TextEditingController _sugarCtrl = TextEditingController();
+  final TextEditingController _spo2Ctrl = TextEditingController();
+  final TextEditingController _weightCtrl = TextEditingController();
+
+  // Custom Test Inputs
+  final TextEditingController _customTestNameCtrl = TextEditingController();
+  final TextEditingController _customTestValueCtrl = TextEditingController();
+  final TextEditingController _customTestUnitCtrl = TextEditingController();
 
   List<Map<String, dynamic>> _prescribedMedicines = [];
   List<dynamic> _availableMedicines = [];
+  List<Map<String, dynamic>> _labTests = [];
+  List<String> _patientAllergies = [];
+  List<Map<String, dynamic>> _standardTestsMaster = [];
+  List<Map<String, dynamic>> _customTestsMaster = [];
+  List<dynamic> _pastConsultations = [];
+
   bool _saving = false;
+  bool _loadingHistory = false;
+  bool _isRepeatPatient = false;
 
   // Prescription scan / upload state
   PlatformFile? _uploadedFile;
@@ -3058,12 +3573,37 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
     _doctorCtrl.text = widget.appointment['doctor_name'] ?? 'Dr. Specialist';
     _diagnosisCtrl.text = widget.appointment['diagnosis'] ?? widget.appointment['reason_for_visit'] ?? '';
 
+    // Unpack existing vital signs if available
+    final rawVitals = widget.appointment['vital_signs'];
+    if (rawVitals is Map) {
+      _bpCtrl.text = (rawVitals['blood_pressure'] ?? rawVitals['bp'] ?? '').toString();
+      _pulseCtrl.text = (rawVitals['pulse'] ?? rawVitals['pulse_rate'] ?? '').toString();
+      _tempCtrl.text = (rawVitals['temperature'] ?? rawVitals['temp'] ?? '').toString();
+      _sugarCtrl.text = (rawVitals['sugar_level'] ?? rawVitals['sugar'] ?? '').toString();
+      _spo2Ctrl.text = (rawVitals['spo2'] ?? '').toString();
+      _weightCtrl.text = (rawVitals['weight'] ?? '').toString();
+      _dietAdviceCtrl.text = (rawVitals['diet_advice'] ?? '').toString();
+
+      if (rawVitals['allergies'] is List) {
+        _patientAllergies = (rawVitals['allergies'] as List).map((e) => e.toString()).toList();
+      } else if (rawVitals['allergies'] != null && rawVitals['allergies'].toString().isNotEmpty) {
+        _patientAllergies = [rawVitals['allergies'].toString()];
+      }
+
+      final tests = rawVitals['lab_tests'] ?? rawVitals['tests'];
+      if (tests is List) {
+        _labTests = tests.map((t) => Map<String, dynamic>.from(t)).toList();
+      }
+    }
+
     final meds = widget.appointment['prescribed_medicines'];
     if (meds is List) {
       _prescribedMedicines = meds.map((m) => Map<String, dynamic>.from(m)).toList();
     }
 
     _loadAvailableMedicines();
+    _loadClinicalTestsMaster();
+    _fetchPatientHistory();
   }
 
   Future<void> _loadAvailableMedicines() async {
@@ -3075,6 +3615,89 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
         });
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadClinicalTestsMaster() async {
+    try {
+      final res = await ApiClient.get(ApiEndpoints.clinicTestsMaster);
+      if (res != null && res['success'] == true && mounted) {
+        final d = res['data'];
+        setState(() {
+          if (d != null) {
+            _standardTestsMaster = (d['standard_tests'] as List? ?? []).map((t) => Map<String, dynamic>.from(t)).toList();
+            _customTestsMaster = (d['custom_tests'] as List? ?? []).map((t) => Map<String, dynamic>.from(t)).toList();
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _fetchPatientHistory() async {
+    final phone = (widget.appointment['patient_phone'] ?? '').toString().trim();
+    if (phone.isEmpty) return;
+
+    setState(() => _loadingHistory = true);
+    try {
+      final res = await ApiClient.get('${ApiEndpoints.clinicPatientHistory}?phone=$phone');
+      if (res != null && res['success'] == true && mounted) {
+        final List allHistory = res['data'] ?? [];
+        // Filter out current appointment so only prior visits show
+        final currentId = widget.appointment['id'];
+        final prior = allHistory.where((h) => h['id'] != currentId).toList();
+        setState(() {
+          _pastConsultations = prior;
+          _isRepeatPatient = prior.isNotEmpty || widget.appointment['is_repeat_patient'] == true;
+
+          // Auto fill allergies from previous records if current is empty
+          if (_patientAllergies.isEmpty && prior.isNotEmpty) {
+            for (final p in prior) {
+              final v = p['vital_signs'];
+              if (v is Map && v['allergies'] is List) {
+                final al = (v['allergies'] as List).map((e) => e.toString()).toList();
+                if (al.isNotEmpty) {
+                  _patientAllergies = al;
+                  break;
+                }
+              }
+            }
+          }
+        });
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingHistory = false);
+    }
+  }
+
+  void _repeatPreviousRx(dynamic pastAppt) {
+    final rawMeds = pastAppt['prescribed_medicines'];
+    if (rawMeds is List && rawMeds.isNotEmpty) {
+      setState(() {
+        _prescribedMedicines = rawMeds.map((m) => Map<String, dynamic>.from(m)).toList();
+        if (_notesCtrl.text.isEmpty && pastAppt['prescription_notes'] != null) {
+          _notesCtrl.text = pastAppt['prescription_notes'].toString();
+        }
+        final pastVitals = pastAppt['vital_signs'];
+        if (pastVitals is Map) {
+          if (_dietAdviceCtrl.text.isEmpty && pastVitals['diet_advice'] != null) {
+            _dietAdviceCtrl.text = pastVitals['diet_advice'].toString();
+          }
+          if (_patientAllergies.isEmpty && pastVitals['allergies'] is List) {
+            _patientAllergies = (pastVitals['allergies'] as List).map((e) => e.toString()).toList();
+          }
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Copied ${rawMeds.length} medications and advice from visit on ${pastAppt['appointment_date']}!'),
+          backgroundColor: const Color(0xFF059669),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No prescribed medicines found in this previous record.'), backgroundColor: Colors.orange),
+      );
+    }
   }
 
   Future<void> _pickPrescriptionFile() async {
@@ -3103,7 +3726,6 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
     }
   }
 
-  // Auto-fill from scanned prescription document
   Future<void> _autoFillFromScannedPrescription() async {
     if (_uploadedFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3118,14 +3740,14 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
     if (mounted) {
       setState(() {
         if (_notesCtrl.text.isEmpty) {
-          _notesCtrl.text = 'Prescription document attached: ${_uploadedFile!.name}';
+          _notesCtrl.text = 'Scanned paper prescription document attached: ${_uploadedFile!.name}';
         }
         _isAutoFilling = false;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Document "${_uploadedFile!.name}" attached to prescription! Please select prescribed medicines from live stock below.'),
+          content: Text('Document "${_uploadedFile!.name}" attached to Rx! You can now review vitals and medicines.'),
           backgroundColor: const Color(0xFF059669),
         ),
       );
@@ -3135,21 +3757,37 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
   Future<void> _savePrescription() async {
     setState(() => _saving = true);
     try {
+      final vitalSigns = {
+        'blood_pressure': _bpCtrl.text.trim(),
+        'pulse': _pulseCtrl.text.trim(),
+        'temperature': _tempCtrl.text.trim(),
+        'sugar_level': _sugarCtrl.text.trim(),
+        'spo2': _spo2Ctrl.text.trim(),
+        'weight': _weightCtrl.text.trim(),
+        'allergies': _patientAllergies,
+        'diet_advice': _dietAdviceCtrl.text.trim(),
+        'lab_tests': _labTests,
+        'custom_tests': _labTests.where((t) => t['is_custom'] == true).toList(),
+        'attended_by_doctor_name': _doctorCtrl.text.trim(),
+      };
+
       final res = await ApiClient.post(
         ApiEndpoints.clinicAppointmentPrescription(widget.appointment['id']),
         {
           'prescription_notes': _notesCtrl.text.trim(),
           'diagnosis': _diagnosisCtrl.text.trim(),
           'doctor_name': _doctorCtrl.text.trim(),
+          'attended_by_doctor_name': _doctorCtrl.text.trim(),
           'prescribed_medicines': _prescribedMedicines,
           'prescription_file_url': _uploadedFile != null ? _uploadedFile!.name : null,
+          'vital_signs': vitalSigns,
         },
       );
 
       if (res != null && res['success'] == true && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Prescription saved and patient visit marked as completed!'),
+            content: Text('Prescription & clinical observations saved successfully!'),
             backgroundColor: Color(0xFF059669),
           ),
         );
@@ -3186,13 +3824,393 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
     );
   }
 
+  void _openAddLabTestDialog() {
+    String selectedTestName = _standardTestsMaster.isNotEmpty
+        ? (_standardTestsMaster.first['test_name'] ?? 'Blood Test (CBC)')
+        : 'Blood Test (CBC)';
+    final readingCtrl = TextEditingController();
+    final unitCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (dCtx) => StatefulBuilder(
+        builder: (ctx, setDState) {
+          final allAvailableTests = [
+            ..._standardTestsMaster.map((t) => (t['test_name'] ?? '').toString()),
+            ..._customTestsMaster.map((t) => (t['test_name'] ?? '').toString()),
+          ].where((t) => t.isNotEmpty).toSet().toList();
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            title: const Row(
+              children: [
+                Icon(Icons.biotech_rounded, color: Color(0xFF0284C7)),
+                SizedBox(width: 8),
+                Text('Add Diagnostic / Lab Test', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Select Test from Master:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    value: allAvailableTests.contains(selectedTestName) ? selectedTestName : (allAvailableTests.isNotEmpty ? allAvailableTests.first : null),
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    items: allAvailableTests.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 13)))).toList(),
+                    onChanged: (val) {
+                      if (val != null) setDState(() => selectedTestName = val);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: readingCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'Doctor Finding / Reading / Result',
+                      hintText: 'e.g. 110 mg/dL, Hb 14.2, Normal, Clear...',
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: unitCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'Unit / Reference Range (Optional)',
+                      hintText: 'e.g. mg/dL, 70-100, /cu.mm',
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('Cancel')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0284C7), foregroundColor: Colors.white),
+                onPressed: () {
+                  if (selectedTestName.isNotEmpty) {
+                    setState(() {
+                      _labTests.add({
+                        'test_name': selectedTestName,
+                        'value': readingCtrl.text.trim(),
+                        'unit': unitCtrl.text.trim(),
+                        'is_custom': false,
+                      });
+                    });
+                    Navigator.pop(dCtx);
+                  }
+                },
+                child: const Text('Add Test'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _openAddCustomTestDialog() {
+    _customTestNameCtrl.clear();
+    _customTestValueCtrl.clear();
+    _customTestUnitCtrl.clear();
+
+    showDialog(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Row(
+          children: [
+            Icon(Icons.add_circle_outline_rounded, color: Color(0xFF7C3AED)),
+            SizedBox(width: 8),
+            Text('Add Custom Test to Master', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _customTestNameCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Custom Test Name *',
+                  hintText: 'e.g. Serum Creatinine, D-Dimer, KFT, LFT...',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _customTestValueCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Observed Reading / Result',
+                  hintText: 'e.g. 0.9 mg/dL, Normal, Elevated...',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _customTestUnitCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Default Unit / Normal Range (Optional)',
+                  hintText: 'e.g. 0.7-1.3 mg/dL',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7C3AED), foregroundColor: Colors.white),
+            onPressed: () async {
+              final testName = _customTestNameCtrl.text.trim();
+              if (testName.isEmpty) return;
+
+              // Save to master via backend
+              try {
+                await ApiClient.post(ApiEndpoints.clinicTestsMaster, {
+                  'test_name': testName,
+                  'category': 'CUSTOM',
+                  'default_unit': _customTestUnitCtrl.text.trim(),
+                });
+              } catch (_) {}
+
+              setState(() {
+                _labTests.add({
+                  'test_name': testName,
+                  'value': _customTestValueCtrl.text.trim(),
+                  'unit': _customTestUnitCtrl.text.trim(),
+                  'is_custom': true,
+                });
+                _customTestsMaster.add({'test_name': testName, 'category': 'CUSTOM'});
+              });
+
+              Navigator.pop(dCtx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Custom test "$testName" added to prescription and saved in Master!'),
+                  backgroundColor: const Color(0xFF059669),
+                ),
+              );
+            },
+            child: const Text('Save & Add to Rx'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openAddAllergyDialog() {
+    final allergyCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Add Patient Allergy / Contraindication', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SizedBox(
+          width: 380,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: allergyCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Allergy / Drug Name',
+                  hintText: 'e.g. Penicillin, Sulfa, Paracetamol, Dust, NSAIDs...',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: ['Penicillin', 'Sulfa Drugs', 'Aspirin', 'Paracetamol', 'Dust / Pollen', 'Latex'].map((s) {
+                  return ActionChip(
+                    label: Text(s, style: const TextStyle(fontSize: 11)),
+                    onPressed: () {
+                      allergyCtrl.text = s;
+                    },
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () {
+              final a = allergyCtrl.text.trim();
+              if (a.isNotEmpty && !_patientAllergies.contains(a)) {
+                setState(() => _patientAllergies.add(a));
+                Navigator.pop(dCtx);
+              }
+            },
+            child: const Text('Add Allergy'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPastHistoryDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.history_edu_rounded, color: Color(0xFF7C3AED)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Past Consultations: ${widget.appointment['patient_name']} (${_pastConsultations.length} Visits)',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+          ],
+        ),
+        content: SizedBox(
+          width: 680,
+          height: 480,
+          child: _pastConsultations.isEmpty
+              ? const Center(
+                  child: Text('No previous visited consultations on file for this patient.', style: TextStyle(color: Color(0xFF64748B))),
+                )
+              : ListView.separated(
+                  itemCount: _pastConsultations.length,
+                  separatorBuilder: (_, __) => const Divider(height: 20),
+                  itemBuilder: (c, idx) {
+                    final h = _pastConsultations[idx];
+                    final date = h['appointment_date'] ?? '-';
+                    final doc = h['doctor_name'] ?? 'Doctor';
+                    final diag = h['diagnosis'] ?? h['prescription_notes'] ?? 'General Checkup';
+                    final meds = h['prescribed_medicines'] as List? ?? [];
+                    final vitals = h['vital_signs'] is Map ? (h['vital_signs'] as Map) : {};
+
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0284C7).withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text('Visit Date: $date', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0284C7))),
+                              ),
+                              const SizedBox(width: 8),
+                              Text('Consultant: Dr. $doc', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+                              const Spacer(),
+                              FilledButton.tonalIcon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFEDE9FE),
+                                  foregroundColor: const Color(0xFF7C3AED),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                ),
+                                icon: const Icon(Icons.copy_rounded, size: 14),
+                                label: const Text('Repeat This Rx', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  _repeatPreviousRx(h);
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text('Diagnosis: $diag', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                          if (vitals.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Vitals: BP: ${vitals['blood_pressure'] ?? '-'} • Pulse: ${vitals['pulse'] ?? '-'} • Temp: ${vitals['temperature'] ?? '-'} • Sugar: ${vitals['sugar_level'] ?? '-'}',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                            ),
+                          ],
+                          if (meds.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            const Text('Medicines Prescribed:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                            const SizedBox(height: 2),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: meds.map((m) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: const Color(0xFFCBD5E1)),
+                                  ),
+                                  child: Text(
+                                    '${m['item_name']} (${m['dosage'] ?? '1-0-1'}, ${m['duration'] ?? '5 Days'})',
+                                    style: const TextStyle(fontSize: 10.5, color: Color(0xFF1E293B)),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+
   void _printPrescription() {
     final property = Provider.of<PropertyInfoController>(context, listen: false).propertyInfo;
     final tempAppt = Map<String, dynamic>.from(widget.appointment);
     tempAppt['doctor_name'] = _doctorCtrl.text.trim();
+    tempAppt['attended_by_doctor_name'] = _doctorCtrl.text.trim();
     tempAppt['diagnosis'] = _diagnosisCtrl.text.trim();
     tempAppt['prescription_notes'] = _notesCtrl.text.trim();
     tempAppt['prescribed_medicines'] = _prescribedMedicines;
+    tempAppt['vital_signs'] = {
+      'blood_pressure': _bpCtrl.text.trim(),
+      'pulse': _pulseCtrl.text.trim(),
+      'temperature': _tempCtrl.text.trim(),
+      'sugar_level': _sugarCtrl.text.trim(),
+      'spo2': _spo2Ctrl.text.trim(),
+      'weight': _weightCtrl.text.trim(),
+      'allergies': _patientAllergies,
+      'diet_advice': _dietAdviceCtrl.text.trim(),
+      'lab_tests': _labTests,
+      'attended_by_doctor_name': _doctorCtrl.text.trim(),
+    };
 
     ClinicPrescriptionPdf.printOrDownloadPrescription(
       context: context,
@@ -3206,8 +4224,8 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 820,
-        height: 640,
+        width: 880,
+        height: 690,
         padding: const EdgeInsets.all(22),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3218,7 +4236,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0284C7).withOpacity(0.1),
+                    color: const Color(0xFF0284C7).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.assignment_rounded, color: Color(0xFF0284C7), size: 22),
@@ -3228,9 +4246,35 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Doctor Consultation & Rx: ${widget.appointment['patient_name']}',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      Row(
+                        children: [
+                          Text(
+                            'Doctor Consultation & Rx: ${widget.appointment['patient_name']}',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          ),
+                          if (_isRepeatPatient) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFAF5FF),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFFD8B4FE)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.repeat_rounded, size: 12, color: Color(0xFF7C3AED)),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    'REPEAT PATIENT (${_pastConsultations.length} Prior Visits)',
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       Text(
                         'Phone: ${widget.appointment['patient_phone'] ?? '-'}  •  Age: ${widget.appointment['patient_age'] ?? '-'}  •  Token #${widget.appointment['id']}',
@@ -3239,6 +4283,34 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                     ],
                   ),
                 ),
+
+                if (_pastConsultations.isNotEmpty) ...[
+                  FilledButton.tonalIcon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFFAF5FF),
+                      foregroundColor: const Color(0xFF7C3AED),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.history_edu_rounded, size: 16),
+                    label: Text('Past Rx (${_pastConsultations.length})', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    onPressed: _showPastHistoryDialog,
+                  ),
+                  const SizedBox(width: 6),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF7C3AED),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.replay_rounded, size: 16),
+                    label: const Text('Refill Last Rx', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    onPressed: () => _repeatPreviousRx(_pastConsultations.first),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+
                 IconButton(
                   icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
                   onPressed: () => Navigator.pop(context),
@@ -3246,7 +4318,76 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
               ],
             ),
 
-            const Divider(height: 20),
+            const Divider(height: 16),
+
+            // ALLERGIES ALERT BANNER
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: _patientAllergies.isNotEmpty ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _patientAllergies.isNotEmpty ? const Color(0xFFFECACA) : const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _patientAllergies.isNotEmpty ? Icons.warning_rounded : Icons.shield_outlined,
+                    color: _patientAllergies.isNotEmpty ? Colors.red : const Color(0xFF64748B),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Known Allergies: ',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: _patientAllergies.isNotEmpty ? Colors.red.shade900 : const Color(0xFF475569),
+                    ),
+                  ),
+                  Expanded(
+                    child: _patientAllergies.isEmpty
+                        ? const Text('None recorded', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic))
+                        : Wrap(
+                            spacing: 6,
+                            children: _patientAllergies.map((a) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade100,
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: Colors.red.shade300),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(a, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red.shade900)),
+                                    const SizedBox(width: 2),
+                                    InkWell(
+                                      onTap: () => setState(() => _patientAllergies.remove(a)),
+                                      child: Icon(Icons.close, size: 12, color: Colors.red.shade900),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                  ),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0284C7),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      side: const BorderSide(color: Color(0xFFBAE6FD)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    ),
+                    icon: const Icon(Icons.add, size: 14),
+                    label: const Text('Add Allergy', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    onPressed: _openAddAllergyDialog,
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
 
             // FORM BODY
             Expanded(
@@ -3282,6 +4423,253 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                           ),
                         ),
                       ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // VITALS & MEASUREMENTS CARD
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F9FF),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFBAE6FD)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.monitor_heart_rounded, size: 16, color: Color(0xFF0284C7)),
+                              SizedBox(width: 6),
+                              Text('Patient Vital Signs & Physical Readings', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0369A1))),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _bpCtrl,
+                                  decoration: InputDecoration(
+                                    labelText: 'Blood Pressure',
+                                    hintText: '120/80',
+                                    suffixText: 'mmHg',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _pulseCtrl,
+                                  decoration: InputDecoration(
+                                    labelText: 'Pulse Rate',
+                                    hintText: '72',
+                                    suffixText: 'bpm',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _tempCtrl,
+                                  decoration: InputDecoration(
+                                    labelText: 'Temperature',
+                                    hintText: '98.6',
+                                    suffixText: '°F',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _sugarCtrl,
+                                  decoration: InputDecoration(
+                                    labelText: 'Blood Sugar',
+                                    hintText: '110',
+                                    suffixText: 'mg/dL',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _weightCtrl,
+                                  decoration: InputDecoration(
+                                    labelText: 'Weight',
+                                    hintText: '65',
+                                    suffixText: 'kg',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  controller: _spo2Ctrl,
+                                  decoration: InputDecoration(
+                                    labelText: 'SpO2',
+                                    hintText: '98',
+                                    suffixText: '%',
+                                    isDense: true,
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // CLINICAL LAB INVESTIGATIONS & TESTS
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.biotech_rounded, size: 18, color: Color(0xFF7C3AED)),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'Diagnostic Lab Investigations & Tests (Blood, Urine, Sugar, X-Ray, USG)',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                              ),
+                              const Spacer(),
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF0284C7),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                ),
+                                icon: const Icon(Icons.playlist_add_rounded, size: 16),
+                                label: const Text('Add Test', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                onPressed: _openAddLabTestDialog,
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton.tonalIcon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFAF5FF),
+                                  foregroundColor: const Color(0xFF7C3AED),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                ),
+                                icon: const Icon(Icons.add_circle_outline_rounded, size: 16),
+                                label: const Text('+ Custom Test', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                onPressed: _openAddCustomTestDialog,
+                              ),
+                            ],
+                          ),
+
+                          if (_labTests.isEmpty) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.info_outline, size: 16, color: Color(0xFF94A3B8)),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'No diagnostic tests or imaging ordered yet. Click "Add Test" or "+ Custom Test" to record readings.',
+                                    style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ] else ...[
+                            const SizedBox(height: 8),
+                            ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: _labTests.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 6),
+                              itemBuilder: (ctx, idx) {
+                                final t = _labTests[idx];
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: t['is_custom'] == true ? const Color(0xFFFAF5FF) : const Color(0xFFF0F9FF),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: t['is_custom'] == true ? const Color(0xFFD8B4FE) : const Color(0xFFBAE6FD)),
+                                        ),
+                                        child: Text(
+                                          t['is_custom'] == true ? 'CUSTOM' : 'LAB',
+                                          style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: t['is_custom'] == true ? const Color(0xFF7C3AED) : const Color(0xFF0284C7)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        flex: 4,
+                                        child: Text(
+                                          t['test_name'] ?? 'Test',
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 5,
+                                        child: Text(
+                                          'Reading / Result: ${t['value'] != null && t['value'].toString().isNotEmpty ? t['value'] : 'Pending / Advised'}',
+                                          style: const TextStyle(fontSize: 11.5, color: Color(0xFF334155), fontWeight: FontWeight.w500),
+                                        ),
+                                      ),
+                                      if (t['unit'] != null && t['unit'].toString().isNotEmpty) ...[
+                                        Text('(${t['unit']})', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                        const SizedBox(width: 8),
+                                      ],
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                                        onPressed: () => setState(() => _labTests.removeAt(idx)),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
 
                     const SizedBox(height: 12),
@@ -3438,7 +4826,7 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
                                           Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                                             decoration: BoxDecoration(
-                                              color: inStock ? const Color(0xFF059669).withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                                              color: inStock ? const Color(0xFF059669).withValues(alpha: 0.1) : Colors.red.withValues(alpha: 0.1),
                                               borderRadius: BorderRadius.circular(4),
                                             ),
                                             child: Text(
@@ -3499,13 +4887,26 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
 
                     const SizedBox(height: 14),
 
-                    // NOTES & ADVICE
+                    // DIET & LIFESTYLE ADVICE
+                    TextField(
+                      controller: _dietAdviceCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Dietary & Lifestyle Recommendations',
+                        hintText: 'e.g. Low sodium intake, drink 2-3L water daily, avoid oily/fried foods, regular light exercise...',
+                        isDense: true,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    // NOTES & PRECAUTIONS
                     TextField(
                       controller: _notesCtrl,
                       maxLines: 2,
                       decoration: InputDecoration(
                         labelText: 'Physician Notes, Advice & Special Precautions',
-                        hintText: 'e.g. Complete antibiotic course, drink plenty of fluids, avoid cold water...',
+                        hintText: 'e.g. Complete antibiotic course, drink plenty of fluids, report if fever recurs...',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
@@ -3561,7 +4962,6 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
   }
 }
 
-// ==========================================
 // MEDICINE SELECTOR BOTTOM SHEET
 // Features: Live item_master search, live stock balance badges,
 // dosage builder (1-0-1 etc.), frequency, and duration auto-qty calculation.
@@ -4436,24 +5836,6 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.card_membership_rounded, size: 16, color: Color(0xFF0284C7)),
-                          label: const Text('Open Recurring Subscription / Milk Care Plan Module', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0284C7))),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFFBAE6FD)),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (_) => const SubscriptionScreen(renewMode: false)),
-                            );
-                          },
-                        ),
-                      ),
                     ],
                   ],
                 ),
@@ -4852,6 +6234,8 @@ class _CreateSubscriptionDialogState extends State<_CreateSubscriptionDialog> {
   dynamic _selectedItem;
   bool _isLoadingItems = false;
   bool _isSubmitting = false;
+  List<Map<String, dynamic>> _masterPaymentMethods = [];
+  bool _isLoadingPaymentMethods = false;
 
   @override
   void initState() {
@@ -4859,6 +6243,25 @@ class _CreateSubscriptionDialogState extends State<_CreateSubscriptionDialog> {
     _nameCtrl = TextEditingController(text: widget.initialName ?? '');
     _phoneCtrl = TextEditingController(text: widget.initialPhone ?? '');
     _loadItems();
+    _loadPaymentMethods();
+  }
+
+  Future<void> _loadPaymentMethods() async {
+    setState(() => _isLoadingPaymentMethods = true);
+    try {
+      final res = await ApiClient.get(ApiEndpoints.paymentMethods);
+      if (res != null && res['data'] is List && mounted) {
+        final list = (res['data'] as List).map((e) => Map<String, dynamic>.from(e)).toList();
+        setState(() {
+          _masterPaymentMethods = list;
+          if (_masterPaymentMethods.isNotEmpty && !_masterPaymentMethods.any((m) => (m['name'] ?? '').toString().toUpperCase() == _paymentMode)) {
+            _paymentMode = (_masterPaymentMethods.first['name'] ?? 'CASH').toString().toUpperCase();
+          }
+        });
+      }
+    } catch (_) {} finally {
+      if (mounted) setState(() => _isLoadingPaymentMethods = false);
+    }
   }
 
   Future<void> _loadItems() async {
@@ -5000,7 +6403,8 @@ class _CreateSubscriptionDialogState extends State<_CreateSubscriptionDialog> {
               _isLoadingItems
                   ? const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(color: Color(0xFF7C3AED))))
                   : DropdownButtonFormField<dynamic>(
-                      initialValue: _selectedItem,
+                      value: _selectedItem,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Select Service / Therapy from Item Master *',
                         prefixIcon: Icon(Icons.medical_services_outlined, size: 18),
@@ -5010,7 +6414,10 @@ class _CreateSubscriptionDialogState extends State<_CreateSubscriptionDialog> {
                       items: _availableItems.map((item) {
                         return DropdownMenuItem(
                           value: item,
-                          child: Text('${item['item_name']} (Stock: ${item['current_stock'] ?? 0}) - Rate: ₹${item['retail_sale_price'] ?? item['rate'] ?? 0}'),
+                          child: Text(
+                            '${item['item_name']} (Stock: ${item['current_stock'] ?? 0}) - Rate: ₹${item['retail_sale_price'] ?? item['rate'] ?? 0}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -5060,13 +6467,22 @@ class _CreateSubscriptionDialogState extends State<_CreateSubscriptionDialog> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      initialValue: _paymentMode,
+                      value: _paymentMode,
+                      isExpanded: true,
                       decoration: const InputDecoration(labelText: 'Payment Mode', isDense: true, border: OutlineInputBorder()),
-                      items: const [
-                        DropdownMenuItem(value: 'CASH', child: Text('Cash')),
-                        DropdownMenuItem(value: 'UPI', child: Text('UPI / QR')),
-                        DropdownMenuItem(value: 'CARD', child: Text('Credit / Debit Card')),
-                        DropdownMenuItem(value: 'BANK_TRANSFER', child: Text('Bank Transfer')),
+                      items: [
+                        ..._masterPaymentMethods.map((m) {
+                          final code = (m['name'] ?? 'CASH').toString().toUpperCase();
+                          final label = (m['name'] ?? 'Cash').toString();
+                          return DropdownMenuItem(value: code, child: Text(label, overflow: TextOverflow.ellipsis));
+                        }),
+                        if (_masterPaymentMethods.isEmpty) ...const [
+                          DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                          DropdownMenuItem(value: 'UPI', child: Text('UPI / QR')),
+                          DropdownMenuItem(value: 'CARD', child: Text('Credit / Debit Card')),
+                          DropdownMenuItem(value: 'BANK_TRANSFER', child: Text('Bank Transfer')),
+                        ],
+                        const DropdownMenuItem(value: 'PAY_LATER', child: Text('Pay Later (Customer Credit)', style: TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold))),
                       ],
                       onChanged: (v) {
                         if (v != null) setState(() => _paymentMode = v);

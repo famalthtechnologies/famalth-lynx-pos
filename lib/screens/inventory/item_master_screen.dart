@@ -29,13 +29,15 @@ import 'bom_setup_dialog.dart';
 import '../../core/currency/currency_service.dart';
 
 class ItemMasterScreen extends StatefulWidget {
-  const ItemMasterScreen({super.key});
+  final bool isClinicMode;
+  const ItemMasterScreen({super.key, this.isClinicMode = false});
 
   @override
   State<ItemMasterScreen> createState() => _ItemMasterScreenState();
 }
 
 class _ItemMasterScreenState extends State<ItemMasterScreen> {
+  late bool _isClinicMode;
   final _formKey = GlobalKey<FormState>();
   final ScrollController _tableVerticalController = ScrollController();
   final ScrollController _tableHorizontalController = ScrollController();
@@ -223,6 +225,11 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
   @override
   void initState() {
     super.initState();
+    _isClinicMode = widget.isClinicMode;
+    if (_isClinicMode) {
+      _foodType = "OTHER";
+      _isModifier = false;
+    }
     _init();
 
     // NEW: Auto-focus the first editable field (Item Name) when screen loads
@@ -553,6 +560,26 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
             ),
             content: Text(msg),
             actions: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: FilterChip(
+                selected: _isClinicMode,
+                avatar: Icon(_isClinicMode ? Icons.local_hospital_rounded : Icons.storefront_rounded, size: 14),
+                label: Text(_isClinicMode ? '🏥 Clinic & Rx Mode' : '🛒 Retail / Dining Mode', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                selectedColor: const Color(0xFF0284C7),
+                backgroundColor: const Color(0xFFF1F5F9),
+                labelStyle: TextStyle(color: _isClinicMode ? Colors.white : const Color(0xFF334155)),
+                onSelected: (val) {
+                  setState(() {
+                    _isClinicMode = val;
+                    if (val) {
+                      _isModifier = false;
+                      if (_foodType == 'VEG' || _foodType.isEmpty) _foodType = 'OTHER';
+                    }
+                  });
+                },
+              ),
+            ),
               FilledButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('OK, I will fix it'),
@@ -1469,7 +1496,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF4F6FA),
         appBar: AppBar(
-          title: const Text('Item Master / Retail Catalog'),
+          title: Text(_isClinicMode ? '🏥 Clinic Master: Medicines, Lab Tests & Services' : 'Item Master / Retail Catalog'),
           actions: [
             if (_canResetAndImport)
               Padding(
@@ -1592,14 +1619,14 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
               children: [
                 SizedBox(
                   width: 120,
-                  child: _text(_code, 'Item Code', readOnly: true),
+                  child: _text(_code, _isClinicMode ? 'Medicine Code' : 'Item Code', readOnly: true),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   flex: 3,
                   child: _text(
                     _name,
-                    'Item Name',
+                    _isClinicMode ? 'Medicine / Test / Service Name' : 'Item Name',
                     focusNode: _nameFocus,
                     onSubmit: () => _hsnSacFocus.requestFocus(),
                   ),
@@ -1754,7 +1781,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                       popupProps: const PopupProps.menu(showSearchBox: true),
                       decoratorProps: DropDownDecoratorProps(
                         decoration: _compactDecoration(
-                          "Group",
+                          _isClinicMode ? "Therapeutic Dept" : "Group",
                           prefixIcon: _selectedGroup == null
                               ? null
                               : IconButton(
@@ -1819,7 +1846,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                       popupProps: const PopupProps.menu(showSearchBox: true),
                       decoratorProps: DropDownDecoratorProps(
                         decoration: _compactDecoration(
-                          "Sub Category",
+                          _isClinicMode ? "Dosage Form / Category" : "Sub Category",
                           prefixIcon: _selectedSubCategory == null
                               ? null
                               : IconButton(
@@ -1877,7 +1904,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                       popupProps: const PopupProps.menu(showSearchBox: true),
                       decoratorProps: DropDownDecoratorProps(
                         decoration: _compactDecoration(
-                          "Brand",
+                          _isClinicMode ? "Pharma Brand / Lab" : "Brand",
                           prefixIcon: _selectedBrand == null
                               ? null
                               : IconButton(
@@ -1936,7 +1963,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                         ),
                       ),
                       decoratorProps: DropDownDecoratorProps(
-                        decoration: _compactDecoration("Unit"),
+                        decoration: _compactDecoration(_isClinicMode ? "Unit (Strip/Bottle/Test)" : "Unit"),
                       ),
                       onChanged: (value) {
                         setState(() {
@@ -1968,7 +1995,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                               (_inclusiveRateScope == 'BOTH' ||
                                   _inclusiveRateScope == 'BUY_ONLY')
                           ? 'Buy Rate (Inc)'
-                          : 'Buy Rate',
+                          : (_isClinicMode ? 'Purchase Cost' : 'Buy Rate'),
                       isDouble: true,
                       focusNode: _rateFocus,
                       prevNode: _unitFocus,
@@ -1984,7 +2011,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                               (_inclusiveRateScope == 'BOTH' ||
                                   _inclusiveRateScope == 'SALE_ONLY')
                           ? 'Sale Rate (Inc)'
-                          : 'Sale Rate',
+                          : (_isClinicMode ? 'Patient MRP / Fee' : 'Sale Rate'),
                       isDouble: true,
                       focusNode: _saleRateFocus,
                       prevNode: _rateFocus,
@@ -2163,6 +2190,77 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
     );
   }
 
+  Widget _buildClinicalBadge(Item it, {double size = 14}) {
+    final nameLower = it.itemName.toLowerCase();
+    final groupLower = it.itemGroup.toLowerCase();
+    final subLower = it.subCategory.toLowerCase();
+
+    final isLab = nameLower.contains('test') ||
+        nameLower.contains('blood') ||
+        nameLower.contains('urine') ||
+        nameLower.contains('x-ray') ||
+        nameLower.contains('xray') ||
+        nameLower.contains('ecg') ||
+        nameLower.contains('scan') ||
+        nameLower.contains('ultrasound') ||
+        nameLower.contains('lft') ||
+        nameLower.contains('kft') ||
+        nameLower.contains('cbc') ||
+        nameLower.contains('sugar') ||
+        groupLower.contains('lab') ||
+        groupLower.contains('diagnostic') ||
+        subLower.contains('lab');
+
+    final isService = nameLower.contains('fee') ||
+        nameLower.contains('consultation') ||
+        nameLower.contains('session') ||
+        nameLower.contains('therapy') ||
+        nameLower.contains('dressing') ||
+        nameLower.contains('admission') ||
+        groupLower.contains('service');
+
+    if (isLab) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3E8FF),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFFC084FC), width: 0.8),
+        ),
+        child: const Text(
+          'LAB',
+          style: TextStyle(color: Color(0xFF7E22CE), fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+        ),
+      );
+    } else if (isService) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEF3C7),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFFFCD34D), width: 0.8),
+        ),
+        child: const Text(
+          'SRV',
+          style: TextStyle(color: Color(0xFFB45309), fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+        ),
+      );
+    } else {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE0F2FE),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFF38BDF8), width: 0.8),
+        ),
+        child: const Text(
+          'Rx',
+          style: TextStyle(color: Color(0xFF0369A1), fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.5),
+        ),
+      );
+    }
+  }
+
   Widget _buildDietaryBadge(String? type, {double size = 14}) {
     final t = (type ?? 'VEG').toUpperCase();
     if (t == 'OTHER' || t == 'NONE' || t.isEmpty) return const SizedBox.shrink();
@@ -2280,7 +2378,26 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 // Dietary / Food Type Selector
-                Container(
+                if (_isClinicMode)
+                  Container(
+                    height: 32,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFF86EFAC)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.medication_rounded, size: 14, color: Color(0xFF16A34A)),
+                        SizedBox(width: 6),
+                        Text('Clinical Formulation / Rx', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF15803D))),
+                      ],
+                    ),
+                  )
+                else
+                  Container(
                   height: 32,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   decoration: BoxDecoration(
@@ -2326,8 +2443,9 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                       _generateVariantList();
                     },
                   ),
-                _buildToggleChip(
-                  title: 'Is Modifier / Add-on',
+                if (!_isClinicMode)
+                  _buildToggleChip(
+                    title: 'Is Modifier / Add-on',
                   value: _isModifier,
                   onChanged: (v) {
                     setState(() {
@@ -3537,7 +3655,9 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  _buildDietaryBadge(it.foodType, size: 13),
+                                  _isClinicMode
+                                      ? _buildClinicalBadge(it, size: 13)
+                                      : _buildDietaryBadge(it.foodType, size: 13),
                                   const SizedBox(width: 6),
                                   Text(it.itemName, style: const TextStyle(fontWeight: FontWeight.w600)),
                                 ],

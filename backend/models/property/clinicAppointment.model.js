@@ -1,5 +1,16 @@
 module.exports = (sequelize, DataTypes) => {
+    if (sequelize && typeof sequelize.query === 'function') {
+        sequelize.query(`
+            ALTER TABLE clinic_appointments
+            ADD COLUMN IF NOT EXISTS attended_by_doctor_name VARCHAR(150);
+        `).catch(() => {});
+    }
+
     const ClinicAppointment = sequelize.define('clinic_appointments', {
+        attended_by_doctor_name: {
+            type: DataTypes.STRING(150),
+            allowNull: true
+        },
         id: {
             type: DataTypes.INTEGER,
             primaryKey: true,

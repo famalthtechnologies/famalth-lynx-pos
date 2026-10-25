@@ -50,6 +50,26 @@ class ClinicPrescriptionPdf {
     final docReg = (appointment['doctor_reg_no'] ?? appointment['registration_no'] ?? '').toString();
     final diagnosis = appointment['diagnosis'] ?? appointment['prescription_notes'] ?? 'General Health Consultation';
     final notes = appointment['prescription_notes'] ?? '';
+    final Map<String, dynamic> vitals = appointment['vital_signs'] is Map
+        ? Map<String, dynamic>.from(appointment['vital_signs'])
+        : {};
+    final bp = (vitals['blood_pressure'] ?? vitals['bp'] ?? '').toString().trim();
+    final pulse = (vitals['pulse'] ?? vitals['pulse_rate'] ?? '').toString().trim();
+    final temp = (vitals['temperature'] ?? vitals['temp'] ?? '').toString().trim();
+    final sugar = (vitals['sugar_level'] ?? vitals['sugar'] ?? '').toString().trim();
+    final spo2 = (vitals['spo2'] ?? '').toString().trim();
+    final weight = (vitals['weight'] ?? '').toString().trim();
+    final allergies = (vitals['allergies'] is List)
+        ? (vitals['allergies'] as List).map((e) => e.toString()).where((e) => e.isNotEmpty).toList()
+        : (vitals['allergies'] != null && vitals['allergies'].toString().isNotEmpty
+            ? [vitals['allergies'].toString()]
+            : <String>[]);
+    final dietAdvice = (vitals['diet_advice'] ?? '').toString().trim();
+    final rawTests = vitals['lab_tests'] ?? vitals['tests'];
+    final List<Map<String, dynamic>> labTests = rawTests is List
+        ? rawTests.map((t) => Map<String, dynamic>.from(t)).toList()
+        : [];
+    final attendedDoctor = (appointment['attended_by_doctor_name'] ?? vitals['attended_by_doctor_name'] ?? doctorName).toString();
     final token = appointment['id']?.toString() ?? '1';
 
     final rawMeds = appointment['prescribed_medicines'];
@@ -193,7 +213,7 @@ class ClinicPrescriptionPdf {
                           ),
                           pw.SizedBox(height: 4),
                           pw.Text(
-                            doctorName.startsWith('Dr') ? doctorName : 'Dr. $doctorName',
+                            attendedDoctor.startsWith('Dr') ? attendedDoctor : 'Dr. $attendedDoctor',
                             style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900),
                           ),
                           if (docQual.isNotEmpty)
@@ -258,12 +278,151 @@ class ClinicPrescriptionPdf {
 
               pw.SizedBox(height: 12),
 
+              // 3.1 VITALS & CLINICAL READINGS
+              if (bp.isNotEmpty || pulse.isNotEmpty || temp.isNotEmpty || sugar.isNotEmpty || spo2.isNotEmpty || weight.isNotEmpty) ...[
+                pw.Container(
+                  width: double.infinity,
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.blue50,
+                    borderRadius: pw.BorderRadius.circular(4),
+                    border: pw.Border.all(color: PdfColors.blue200),
+                  ),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+                    children: [
+                      if (bp.isNotEmpty)
+                        pw.Column(
+                          children: [
+                            pw.Text('BLOOD PRESSURE', style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.blue800)),
+                            pw.Text(bp.contains('mmHg') ? bp : '$bp mmHg', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                          ],
+                        ),
+                      if (pulse.isNotEmpty)
+                        pw.Column(
+                          children: [
+                            pw.Text('PULSE RATE', style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.blue800)),
+                            pw.Text(pulse.contains('bpm') ? pulse : '$pulse bpm', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                          ],
+                        ),
+                      if (temp.isNotEmpty)
+                        pw.Column(
+                          children: [
+                            pw.Text('TEMPERATURE', style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.blue800)),
+                            pw.Text(temp.contains('F') || temp.contains('C') ? temp : '$temp °F', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                          ],
+                        ),
+                      if (sugar.isNotEmpty)
+                        pw.Column(
+                          children: [
+                            pw.Text('BLOOD SUGAR', style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.blue800)),
+                            pw.Text(sugar, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                          ],
+                        ),
+                      if (spo2.isNotEmpty)
+                        pw.Column(
+                          children: [
+                            pw.Text('SpO2', style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.blue800)),
+                            pw.Text(spo2.contains('%') ? spo2 : '$spo2%', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                          ],
+                        ),
+                      if (weight.isNotEmpty)
+                        pw.Column(
+                          children: [
+                            pw.Text('WEIGHT', style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.blue800)),
+                            pw.Text(weight.contains('kg') ? weight : '$weight kg', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(height: 8),
+              ],
+
+              // 3.2 KNOWN ALLERGIES WARNING
+              if (allergies.isNotEmpty) ...[
+                pw.Container(
+                  width: double.infinity,
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.red50,
+                    borderRadius: pw.BorderRadius.circular(4),
+                    border: pw.Border.all(color: PdfColors.red300),
+                  ),
+                  child: pw.Row(
+                    children: [
+                      pw.Container(
+                        padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: pw.BoxDecoration(
+                          color: PdfColors.red700,
+                          borderRadius: pw.BorderRadius.circular(2),
+                        ),
+                        child: pw.Text('ALLERGY ALERT', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.white)),
+                      ),
+                      pw.SizedBox(width: 6),
+                      pw.Expanded(
+                        child: pw.Text(
+                          allergies.join(', '),
+                          style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.red900),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(height: 8),
+              ],
+
+              // 3.3 CLINICAL LAB INVESTIGATIONS / TESTS
+              if (labTests.isNotEmpty) ...[
+                pw.Row(
+                  children: [
+                    pw.Container(
+                      width: 3,
+                      height: 11,
+                      color: PdfColors.blue800,
+                    ),
+                    pw.SizedBox(width: 5),
+                    pw.Text(
+                      'DIAGNOSTIC & CLINICAL LAB INVESTIGATIONS',
+                      style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 4),
+                pw.TableHelper.fromTextArray(
+                  border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+                  headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+                  headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
+                  headerHeight: 18,
+                  cellHeight: 18,
+                  cellStyle: const pw.TextStyle(fontSize: 8),
+                  columnWidths: {
+                    0: const pw.FixedColumnWidth(24),
+                    1: const pw.FlexColumnWidth(4),
+                    2: const pw.FlexColumnWidth(3),
+                    3: const pw.FlexColumnWidth(3),
+                  },
+                  headers: ['#', 'Test / Investigation', 'Reading / Finding / Result', 'Normal / Remarks'],
+                  data: labTests.asMap().entries.map((e) {
+                    final idx = e.key + 1;
+                    final t = e.value;
+                    return [
+                      '$idx',
+                      (t['test_name'] ?? t['name'] ?? 'Test').toString(),
+                      (t['value'] ?? t['reading'] ?? t['result'] ?? '-').toString(),
+                      (t['normal_range'] ?? t['remarks'] ?? t['unit'] ?? '').toString(),
+                    ];
+                  }).toList(),
+                ),
+                pw.SizedBox(height: 10),
+              ],
+
               // 4. Rx SYMBOL & MEDICINES TABLE
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.center,
                 children: [
                   pw.Text(
-                    '℞',
+                    'Rx',
                     style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900),
                   ),
                   pw.SizedBox(width: 8),
@@ -322,6 +481,27 @@ class ClinicPrescriptionPdf {
               pw.SizedBox(height: 14),
 
               // 5. SPECIAL INSTRUCTIONS / ADVICE
+              if (dietAdvice.isNotEmpty) ...[
+                pw.Container(
+                  width: double.infinity,
+                  padding: const pw.EdgeInsets.all(6),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.green50,
+                    borderRadius: pw.BorderRadius.circular(4),
+                    border: pw.Border.all(color: PdfColors.green300),
+                  ),
+                  child: pw.Row(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('DIETARY & LIFESTYLE RECOMMENDATIONS: ', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.green900)),
+                      pw.Expanded(
+                        child: pw.Text(dietAdvice, style: const pw.TextStyle(fontSize: 8, color: PdfColors.black)),
+                      ),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(height: 6),
+              ],
               if (notes.toString().isNotEmpty)
                 pw.Container(
                   width: double.infinity,

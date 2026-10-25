@@ -332,11 +332,19 @@ function buildLedgerWhere(outlet_id, query) {
         if (type === 'SUBSCRIPTION') {
             conditions.push({
                 [Op.or]: [
-                    { transaction_type: { [Op.in]: ['SUBSCRIPTION_SETTLEMENT', 'SUBSCRIPTION_SETTLEMENT_PARTIAL', 'SUBSCRIPTION_SETTLEMENT_CREDIT', 'SUBSCRIPTION_SETTLEMENT_REFUND'] } },
+                    { transaction_type: { [Op.in]: ['SUBSCRIPTION_SETTLEMENT', 'SUBSCRIPTION_SETTLEMENT_PARTIAL', 'SUBSCRIPTION_SETTLEMENT_CREDIT', 'SUBSCRIPTION_SETTLEMENT_REFUND', 'CLINIC_SUBSCRIPTION', 'CLINIC_SESSION_FEE'] } },
                     {
                         transaction_type: 'CUSTOMER_ADVANCE',
-                        reference_type: 'SUBSCRIPTION'
+                        reference_type: { [Op.in]: ['SUBSCRIPTION', 'CLINIC_SUBSCRIPTION'] }
                     }
+                ]
+            });
+        }
+        else if (type === 'CLINIC' || type === 'CONSULTATION') {
+            conditions.push({
+                [Op.or]: [
+                    { transaction_type: { [Op.in]: ['CONSULTATION_FEE', 'CLINIC_SUBSCRIPTION', 'CLINIC_SESSION_FEE', 'SUBSCRIPTION_SETTLEMENT'] } },
+                    { reference_type: { [Op.in]: ['CLINIC_APPOINTMENT', 'CLINIC_SUBSCRIPTION'] } }
                 ]
             });
         }

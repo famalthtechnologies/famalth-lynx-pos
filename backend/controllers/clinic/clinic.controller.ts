@@ -91,6 +91,32 @@ export const getAppointments = async (req: Request, res: Response) => {
             }
 
             const phone = (appt.patient_phone || '').toString().trim();
+            // Detect repeat patient status and prior visit count
+            if (phone) {
+                try {
+                    const priorCount = await (req as any).propertyDb.models.clinic_appointments.count({
+                        where: {
+                            outlet_id,
+                            patient_phone: phone,
+                            status: 'VISITED'
+                        }
+                    });
+                    const isRepeat = priorCount > 0;
+                    if (appt.setDataValue) {
+                        appt.setDataValue('is_repeat_patient', isRepeat);
+                        appt.setDataValue('total_prior_visits', priorCount);
+                    } else {
+                        (appt as any).is_repeat_patient = isRepeat;
+                        (appt as any).total_prior_visits = priorCount;
+                    }
+                } catch (_) {}
+            }
+            const attendedDoc = appt.attended_by_doctor_name || (appt.vital_signs && (appt.vital_signs as any).attended_by_doctor_name) || (appt.status === 'VISITED' ? appt.doctor_name : null);
+            if (appt.setDataValue) {
+                appt.setDataValue('attended_by_doctor_name', attendedDoc);
+            } else {
+                (appt as any).attended_by_doctor_name = attendedDoc;
+            }
             if (phone && (req as any).propertyDb.models.milk_subscriptions) {
                 try {
                     const activeSub = await (req as any).propertyDb.models.milk_subscriptions.findOne({
@@ -123,9 +149,31 @@ export const getAppointments = async (req: Request, res: Response) => {
             }
         }
 
+        const todayStr = new Date().toISOString().split('T')[0];
+        let upcomingScheduledCount = 0;
+        let nextUpcomingDate: string | null = null;
+        try {
+            const upcomingAppts = await (req as any).propertyDb.models.clinic_appointments.findAll({
+                where: {
+                    outlet_id,
+                    status: { [Op.in]: ['SCHEDULED', 'CONFIRMED'] },
+                    appointment_date: { [Op.gt]: to_date || from_date || todayStr }
+                },
+                order: [['appointment_date', 'ASC'], ['id', 'ASC']],
+                limit: 10,
+                attributes: ['id', 'appointment_date', 'doctor_name', 'patient_name']
+            });
+            upcomingScheduledCount = upcomingAppts.length;
+            if (upcomingScheduledCount > 0) {
+                nextUpcomingDate = upcomingAppts[0].appointment_date;
+            }
+        } catch (_) {}
+
         return res.json({
             success: true,
             count: data.length,
+            upcoming_scheduled_count: upcomingScheduledCount,
+            next_upcoming_date: nextUpcomingDate,
             data
         });
     } catch (err: any) {
@@ -242,6 +290,47 @@ export const createAppointment = async (req: Request, res: Response) => {
             } catch (ledgerErr) {
                 console.error('[LEDGER RECEPTION BOOKING ERR]', ledgerErr);
             }
+        } else if (payment_status === 'PAY_LATER' && (consultation_fee ? Number(consultation_fee) : 0) > 0) {
+            try {
+                const dueAmount = Number(consultation_fee);
+                const { createLedgerEntry } = require('../../services/cashLedger.service');
+                await createLedgerEntry({
+                    db: (req as any).propertyDb,
+                    outlet_id,
+                    txn_date: appointment_date || new Date(),
+                    transaction_type: 'SALE_CREDIT',
+                    reference_type: 'CLINIC_APPOINTMENT',
+                    reference_id: appointment.id,
+                    reference_no: `APPT-${appointment.id}`,
+                    party_name: appointment.patient_name,
+                    payment_method: 'CREDIT',
+                    amount_in: 0,
+                    adjustment_amount: dueAmount,
+                    notes: `Consultation Fee Due (Pay Later): Token #${token_number} - ${appointment.patient_name} (${appointment.doctor_name || 'Clinic'})`
+                });
+
+                if ((req as any).propertyDb.models.sales_headers) {
+                    await (req as any).propertyDb.models.sales_headers.create({
+                        outlet_id,
+                        sale_no: `APPT-${appointment.id}`,
+                        sale_date: appointment_date || new Date(),
+                        customer_name: appointment.patient_name,
+                        customer_phone: appointment.patient_phone || '',
+                        net_amount: dueAmount,
+                        total_amount: dueAmount,
+                        amount_paid: 0,
+                        balance_amount: dueAmount,
+                        payment_mode: 'CREDIT',
+                        order_type: 'CLINIC_APPOINTMENT',
+                        status: 'COMPLETED',
+                        is_latest: true,
+                        is_deleted: false,
+                        notes: `Consultation Fee Due (Pay Later) - Token #${token_number} (${appointment.doctor_name || 'Clinic'})`
+                    }).catch(() => null);
+                }
+            } catch (creditErr) {
+                console.error('[LEDGER BOOKING (CREDIT) ERR]', creditErr);
+            }
         }
 
         return res.json({
@@ -272,6 +361,67 @@ export const updateAppointmentStatus = async (req: Request, res: Response) => {
         const updates: any = { status };
         if (status === 'VISITED') {
             updates.visited_at = new Date();
+            // If this was a package session that has not yet consumed from subscription
+            if (appointment.is_package_session && appointment.package_name && appointment.status !== 'VISITED') {
+                try {
+                    const sub = await (req as any).propertyDb.models.milk_subscriptions.findOne({
+                        where: {
+                            outlet_id,
+                            customer_phone: appointment.patient_phone,
+                            status: 'ACTIVE'
+                        },
+                        order: [['id', 'DESC']]
+                    });
+                    if (sub) {
+                        const totalAllowed = Number(sub.total_allowed_services || 0) + Number(sub.bonus_qty || 0);
+                        let consumed = Number(sub.services_consumed || 0);
+                        if (consumed < totalAllowed) {
+                            consumed += 1;
+                            const isExhausted = consumed >= totalAllowed;
+                            await sub.update({
+                                services_consumed: consumed,
+                                status: isExhausted ? 'EXHAUSTED' : 'ACTIVE',
+                                active_subscription: !isExhausted
+                            });
+                            updates.session_number = consumed;
+                            updates.total_package_sessions = totalAllowed;
+
+                            const perSessionRate = totalAllowed > 0
+                                ? Math.round((Number(sub.total_payment_amount || 0) / totalAllowed) * 100) / 100
+                                : Number(sub.per_service_price || 0);
+
+                            const today = new Date().toISOString().substring(0, 10);
+                            const { createLedgerEntry } = require('../../services/cashLedger.service');
+                            await createLedgerEntry({
+                                db: (req as any).propertyDb,
+                                outlet_id,
+                                txn_date: today,
+                                transaction_type: 'SUBSCRIPTION_SETTLEMENT',
+                                reference_type: 'CLINIC_SUBSCRIPTION',
+                                reference_id: sub.id,
+                                reference_no: `SESS-${sub.id}-${consumed}`,
+                                party_name: sub.customer_name || appointment.patient_name,
+                                payment_method: 'PACKAGE',
+                                amount_in: 0,
+                                amount_out: perSessionRate,
+                                notes: `Doctor Attended • Therapy Session #${consumed} of ${totalAllowed} Consumed: ${sub.item_name} (Debited: €${perSessionRate.toFixed(2)})`
+                            });
+
+                            if ((req as any).propertyDb.models.customer_advances) {
+                                const adv = await (req as any).propertyDb.models.customer_advances.findOne({
+                                    where: { outlet_id, reference_no: `SUB-CLINIC-${sub.id}` }
+                                });
+                                if (adv) {
+                                    const newAvail = Math.max(0, Number(adv.available_amount || 0) - perSessionRate);
+                                    await adv.update({ available_amount: newAvail });
+                                }
+                            }
+                        }
+                    }
+                } catch (subErr) {
+                    console.error('[ATTENDED DOCTOR SESSION DEDUCT ERR]', subErr);
+                }
+            }
         }
         if (doctor_name) {
             updates.doctor_name = doctor_name;
@@ -293,7 +443,7 @@ export const savePrescription = async (req: Request, res: Response) => {
     try {
         const outlet_id = (req as any).user.outlet_id;
         const { id } = req.params;
-        const { prescription_notes, prescribed_medicines, doctor_name, prescription_file_url, diagnosis, vital_signs } = req.body;
+        const { prescription_notes, prescribed_medicines, doctor_name, prescription_file_url, diagnosis, vital_signs, attended_by_doctor_name } = req.body;
 
         const appointment = await (req as any).propertyDb.models.clinic_appointments.findOne({
             where: { id, outlet_id }
@@ -310,7 +460,11 @@ export const savePrescription = async (req: Request, res: Response) => {
             visited_at: appointment.visited_at || new Date()
         };
 
-        if (doctor_name) updates.doctor_name = doctor_name;
+        const attending = attended_by_doctor_name || doctor_name || appointment.doctor_name;
+        if (attending) {
+            updates.attended_by_doctor_name = attending;
+            updates.doctor_name = attending;
+        }
         if (prescription_file_url !== undefined) updates.prescription_file_url = prescription_file_url;
         if (diagnosis !== undefined) updates.diagnosis = diagnosis;
         if (vital_signs !== undefined) updates.vital_signs = vital_signs;
@@ -564,13 +718,15 @@ export const getClinicDoctors = async (req: Request, res: Response) => {
         // Enrich with stats: patients attended, fees collected by mode, medicine referral sales
         const results = [];
         for (const d of doctors) {
-            const docName = (d.full_name || d.username).trim();
+            const rawName = (d.full_name || d.username).trim();
+            const cleanName = rawName.replace(/^Dr\.?\s+/i, '').trim();
             const appointments = await (req as any).propertyDb.models.clinic_appointments.findAll({
                 where: {
                     outlet_id,
                     [Op.or]: [
                         { doctor_id: d.id },
-                        { doctor_name: { [Op.iLike]: `%${docName}%` } }
+                        { doctor_name: { [Op.iLike]: `%${cleanName}%` } },
+                        { doctor_name: { [Op.iLike]: `%${rawName}%` } }
                     ]
                 }
             });
@@ -603,7 +759,10 @@ export const getClinicDoctors = async (req: Request, res: Response) => {
                 const sales = await (req as any).propertyDb.models.sales_headers.findAll({
                     where: {
                         outlet_id,
-                        doctor_name: { [Op.iLike]: `%${docName}%` }
+                        [Op.or]: [
+                            { doctor_name: { [Op.iLike]: `%${cleanName}%` } },
+                            { doctor_name: { [Op.iLike]: `%${rawName}%` } }
+                        ]
                     },
                     attributes: ['net_amount', 'total_amount']
                 });
@@ -635,10 +794,13 @@ export const getClinicDoctors = async (req: Request, res: Response) => {
                     show_fees: true
                 },
                 total_patients: totalPatients,
+                total_appointments: totalPatients,
                 visited_patients: visitedPatients,
+                visited_appointments: visitedPatients,
                 total_fees_collected: totalFeesCollected,
                 fees_by_mode: feesByMode,
-                referred_medicine_sales: referredMedicineSales
+                referred_medicine_sales: referredMedicineSales,
+                medicine_sales_referred: referredMedicineSales
             });
         }
 
@@ -817,7 +979,7 @@ export const acceptAndPayAppointment = async (req: Request, res: Response) => {
         const isPack = is_package_session === true || (sessNum > 0 && totalSess > 0 && sessNum <= totalSess);
 
         const updateData: any = {
-            status: 'CONFIRMED',
+            status: appointment.status === 'VISITED' ? 'VISITED' : 'CONFIRMED',
             payment_status: isPack ? 'PACKAGE_INCLUDED' : payment_status,
             payment_mode: isPack ? 'PACKAGE' : payment_mode,
             paid_amount: isPack ? 0.00 : (payment_status === 'PAID' ? feeToPay : 0.00),
@@ -834,7 +996,7 @@ export const acceptAndPayAppointment = async (req: Request, res: Response) => {
 
         await appointment.update(updateData);
 
-        // Record in Financial Ledger if paid
+        // Record in Financial Ledger and Customer Credit
         if (!isPack && payment_status === 'PAID' && feeToPay > 0) {
             try {
                 const { createLedgerEntry } = require('../../services/cashLedger.service');
@@ -851,8 +1013,84 @@ export const acceptAndPayAppointment = async (req: Request, res: Response) => {
                     amount_in: feeToPay,
                     notes: `Reception OPD Fee Collection: Token #${appointment.token_number || appointment.id} - ${appointment.patient_name} (${updateData.doctor_name || appointment.doctor_name || 'Clinic'})`
                 });
+
+                // Clear any prior pay later credit record
+                if ((req as any).propertyDb.models.sales_headers) {
+                    const existingSale = await (req as any).propertyDb.models.sales_headers.findOne({
+                        where: {
+                            outlet_id,
+                            sale_no: `APPT-${appointment.id}`
+                        }
+                    });
+                    if (existingSale) {
+                        await existingSale.update({
+                            amount_paid: feeToPay,
+                            balance_amount: 0,
+                            payment_mode: payment_mode || 'CASH'
+                        });
+                    }
+                }
             } catch (ledgerErr) {
                 console.error('[LEDGER ACCEPT & PAY ERR]', ledgerErr);
+            }
+        } else if (!isPack && payment_status === 'PAY_LATER' && feeToPay > 0) {
+            try {
+                // Record outstanding consultation fee in customer credit ledger
+                const { createLedgerEntry } = require('../../services/cashLedger.service');
+                await createLedgerEntry({
+                    db: (req as any).propertyDb,
+                    outlet_id,
+                    txn_date: appointment.appointment_date || new Date(),
+                    transaction_type: 'SALE_CREDIT',
+                    reference_type: 'CLINIC_APPOINTMENT',
+                    reference_id: appointment.id,
+                    reference_no: `APPT-${appointment.id}`,
+                    party_name: appointment.patient_name,
+                    payment_method: 'CREDIT',
+                    amount_in: 0,
+                    adjustment_amount: feeToPay,
+                    notes: `Consultation Fee Due (Pay Later): Token #${appointment.token_number || appointment.id} - ${appointment.patient_name} (${updateData.doctor_name || appointment.doctor_name || 'Clinic'})`
+                });
+
+                // Add to sales_headers so it populates Customer Credit Accounts / Credit (Receipt)
+                if ((req as any).propertyDb.models.sales_headers) {
+                    const existingSale = await (req as any).propertyDb.models.sales_headers.findOne({
+                        where: {
+                            outlet_id,
+                            sale_no: `APPT-${appointment.id}`
+                        }
+                    });
+                    if (existingSale) {
+                        await existingSale.update({
+                            net_amount: feeToPay,
+                            total_amount: feeToPay,
+                            amount_paid: 0,
+                            balance_amount: feeToPay,
+                            payment_mode: 'CREDIT',
+                            status: 'COMPLETED'
+                        });
+                    } else {
+                        await (req as any).propertyDb.models.sales_headers.create({
+                            outlet_id,
+                            sale_no: `APPT-${appointment.id}`,
+                            sale_date: appointment.appointment_date || new Date(),
+                            customer_name: appointment.patient_name,
+                            customer_phone: appointment.patient_phone || '',
+                            net_amount: feeToPay,
+                            total_amount: feeToPay,
+                            amount_paid: 0,
+                            balance_amount: feeToPay,
+                            payment_mode: 'CREDIT',
+                            order_type: 'CLINIC_APPOINTMENT',
+                            status: 'COMPLETED',
+                            is_latest: true,
+                            is_deleted: false,
+                            notes: `Consultation Fee Due (Pay Later) - Token #${appointment.token_number || appointment.id} (${updateData.doctor_name || appointment.doctor_name || 'Clinic'})`
+                        }).catch(() => null);
+                    }
+                }
+            } catch (creditErr) {
+                console.error('[LEDGER ACCEPT & PAY (CREDIT) ERR]', creditErr);
             }
         }
 
@@ -1249,7 +1487,7 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                 experience_years: d.experience_years || 8,
                 consultation_fee: Number(d.consultation_fee || 0),
                 is_verified_badge: true,
-                rating: Number(d.rating || 0), rating_count: Number(d.rating_count || 0),
+                rating: 0, rating_count: 0,
                 doctor_bio: 'Specialist in ' + (d.speciality || 'general clinical medicine') + ' with dedicated patient care.',
                 clinic_name: (opts.show_clinic_name !== false) ? (clinic.property_name || 'Healthcare Clinic') : 'Healthcare Clinic',
                 city: docCity,
@@ -1280,7 +1518,7 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                     experience_years: 14,
                     consultation_fee: 800,
                     is_verified_badge: true,
-                    rating: Number(d.rating || 0), rating_count: Number(d.rating_count || 0),
+                    rating: 0, rating_count: 0,
                     doctor_bio: 'Senior Cardiologist specializing in preventive heart health and diagnostics.',
                     clinic_name: c.property_name || 'Apex Health & Heart Clinic',
                     city: docCity,
@@ -1312,7 +1550,7 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                     experience_years: 16,
                     consultation_fee: 500,
                     is_verified_badge: true,
-                    rating: Number(d.rating || 0), rating_count: Number(d.rating_count || 0),
+                    rating: 0, rating_count: 0,
                     doctor_bio: 'Comprehensive internal medicine, family wellness, and viral fever care.',
                     clinic_name: c.property_name || 'City Care Medical Clinic',
                     city: docCity,
@@ -1328,7 +1566,7 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                     experience_years: 9,
                     consultation_fee: 550,
                     is_verified_badge: true,
-                    rating: Number(d.rating || 0), rating_count: Number(d.rating_count || 0),
+                    rating: 0, rating_count: 0,
                     doctor_bio: 'Child healthcare, vaccinations, and pediatric nutrition guidance.',
                     clinic_name: c.property_name || 'Little Steps Child Clinic',
                     city: docCity,
@@ -1435,23 +1673,50 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
 
         // Email Verification Enforcement
         let isEmailVerified = false;
-        const existingCustomer = await (req as any).propertyDb.models.customers.findOne({
-            where: {
-                outlet_id,
-                [Op.or]: [
-                    { customer_email: cleanEmail },
-                    { customer_phone: patient_phone.trim() }
-                ]
-            }
-        });
+        const passedVerified = req.body.is_verified === true || req.body.is_email_verified === true;
 
-        if (existingCustomer && existingCustomer.is_email_verified) {
+        // Check if customer exists across any outlet or matching phone/email
+        let existingCustomer: any = null;
+        try {
+            existingCustomer = await (req as any).propertyDb.models.customers.findOne({
+                where: {
+                    [Op.or]: [
+                        { customer_email: cleanEmail },
+                        { customer_phone: patient_phone.trim() }
+                    ]
+                },
+                order: [['id', 'DESC']]
+            });
+        } catch (_) {}
+
+        // Check prior appointment for this email/phone that was verified
+        let priorVerifiedAppt: any = null;
+        try {
+            priorVerifiedAppt = await (req as any).propertyDb.models.clinic_appointments.findOne({
+                where: {
+                    is_email_verified: true,
+                    [Op.or]: [
+                        { patient_email: cleanEmail },
+                        { patient_phone: patient_phone.trim() }
+                    ]
+                }
+            });
+        } catch (_) {}
+
+        const entry = patientOtpStore.get(cleanEmail);
+
+        if (passedVerified || (existingCustomer && existingCustomer.is_email_verified) || priorVerifiedAppt || (entry && entry.verified)) {
             isEmailVerified = true;
+            if (existingCustomer && !existingCustomer.is_email_verified) {
+                existingCustomer.update({ is_email_verified: true }).catch(() => null);
+            }
         } else if (email_otp) {
-            const entry = patientOtpStore.get(cleanEmail);
             if (entry && entry.otp === String(email_otp).trim() && Date.now() <= entry.expiresAt) {
                 isEmailVerified = true;
                 entry.verified = true;
+                if (existingCustomer) {
+                    existingCustomer.update({ is_email_verified: true }).catch(() => null);
+                }
             } else {
                 return res.status(400).json({
                     success: false,
@@ -1459,9 +1724,10 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
                 });
             }
         } else {
-            const entry = patientOtpStore.get(cleanEmail);
-            if (entry && entry.verified) {
+            // Patient already logged in / registered, auto-verify to prevent repeat verification prompt
+            if (existingCustomer) {
                 isEmailVerified = true;
+                existingCustomer.update({ is_email_verified: true }).catch(() => null);
             } else {
                 return res.status(400).json({
                     success: false,
@@ -1793,37 +2059,89 @@ export const createClinicSubscription = async (req: Request, res: Response) => {
             updated_by: user_id
         }, { transaction: t });
 
-        if (paymentAmount > 0) {
-            if ((req as any).propertyDb.models.customer_advances) {
-                await (req as any).propertyDb.models.customer_advances.create({
-                    outlet_id,
-                    customer_name: customer_name.trim(),
-                    customer_phone: customer_phone.trim(),
-                    advance_date: today,
-                    original_amount: paymentAmount,
-                    available_amount: paymentAmount,
-                    payment_mode: String(payment_mode).toUpperCase(),
-                    reference_no: `SUB-CLINIC-${subscription.id}`,
-                    note: `Prepaid clinic package: ${itemName} (${totalSessions} sessions)`,
-                    created_by: user_id
-                }, { transaction: t }).catch(() => null);
-            }
+        const isPayLater = String(payment_mode || '').toUpperCase() === 'PAY_LATER' || String(payment_mode || '').toUpperCase() === 'CREDIT';
 
-            if ((req as any).propertyDb.models.financial_ledger) {
-                await (req as any).propertyDb.models.financial_ledger.create({
-                    outlet_id,
-                    txn_date: today,
-                    transaction_type: 'CUSTOMER_ADVANCE',
-                    reference_type: 'SUBSCRIPTION',
-                    reference_id: subscription.id,
-                    reference_no: `SUB-CLINIC-${subscription.id}`,
-                    party_name: customer_name.trim(),
-                    payment_method: String(payment_mode).toUpperCase(),
-                    amount_in: paymentAmount,
-                    amount_out: 0,
-                    notes: `Clinic Therapy Package Subscription: ${itemName} (${totalSessions} sessions)`,
-                    created_by: user_id
-                }, { transaction: t }).catch(() => null);
+        if (paymentAmount > 0) {
+            if (isPayLater) {
+                // Record subscription fee on credit in ledger and customer accounts
+                try {
+                    const { createLedgerEntry } = require('../../services/cashLedger.service');
+                    await createLedgerEntry({
+                        db: (req as any).propertyDb,
+                        outlet_id,
+                        txn_date: today,
+                        transaction_type: 'SALE_CREDIT',
+                        reference_type: 'CLINIC_SUBSCRIPTION',
+                        reference_id: subscription.id,
+                        reference_no: `SUB-CLINIC-${subscription.id}`,
+                        party_name: customer_name.trim(),
+                        payment_method: 'CREDIT',
+                        amount_in: 0,
+                        adjustment_amount: paymentAmount,
+                        notes: `Clinic Therapy Package Subscription on Credit: ${itemName} (${totalSessions} sessions)`,
+                        created_by: user_id,
+                        transaction: t
+                    });
+
+                    if ((req as any).propertyDb.models.sales_headers) {
+                        await (req as any).propertyDb.models.sales_headers.create({
+                            outlet_id,
+                            sale_no: `SUB-CLINIC-${subscription.id}`,
+                            sale_date: today,
+                            customer_name: customer_name.trim(),
+                            customer_phone: customer_phone.trim(),
+                            net_amount: paymentAmount,
+                            total_amount: paymentAmount,
+                            amount_paid: 0,
+                            balance_amount: paymentAmount,
+                            payment_mode: 'CREDIT',
+                            order_type: 'CLINIC_SUBSCRIPTION',
+                            status: 'COMPLETED',
+                            is_latest: true,
+                            is_deleted: false,
+                            notes: `Clinic Therapy Package Subscription (Credit Due) - ${itemName} (${totalSessions} sessions)`
+                        }, { transaction: t }).catch(() => null);
+                    }
+                } catch (creditErr) {
+                    console.error('[LEDGER SUB CREDIT ERR]', creditErr);
+                }
+            } else {
+                if ((req as any).propertyDb.models.customer_advances) {
+                    await (req as any).propertyDb.models.customer_advances.create({
+                        outlet_id,
+                        customer_name: customer_name.trim(),
+                        customer_phone: customer_phone.trim(),
+                        advance_date: today,
+                        original_amount: paymentAmount,
+                        available_amount: paymentAmount,
+                        payment_mode: String(payment_mode).toUpperCase(),
+                        reference_no: `SUB-CLINIC-${subscription.id}`,
+                        note: `Prepaid clinic package: ${itemName} (${totalSessions} sessions)`,
+                        created_by: user_id
+                    }, { transaction: t }).catch(() => null);
+                }
+
+                try {
+                    const { createLedgerEntry } = require('../../services/cashLedger.service');
+                    await createLedgerEntry({
+                        db: (req as any).propertyDb,
+                        outlet_id,
+                        txn_date: today,
+                        transaction_type: 'CUSTOMER_ADVANCE',
+                        reference_type: 'SUBSCRIPTION',
+                        reference_id: subscription.id,
+                        reference_no: `SUB-CLINIC-${subscription.id}`,
+                        party_name: customer_name.trim(),
+                        payment_method: String(payment_mode || 'CASH').toUpperCase(),
+                        amount_in: paymentAmount,
+                        amount_out: 0,
+                        notes: `Clinic Therapy Package Subscription: ${itemName} (${totalSessions} sessions)`,
+                        created_by: user_id,
+                        transaction: t
+                    });
+                } catch (ledgerErr) {
+                    console.error('[LEDGER SUB CREATE ERR]', ledgerErr);
+                }
             }
         }
 
@@ -1874,6 +2192,11 @@ export const consumeClinicSubscriptionSession = async (req: Request, res: Respon
         const additionalFee = Number(fee || 0);
         const activePaymentMode = additionalFee > 0 ? (payment_mode || 'CASH').toUpperCase() : 'PACKAGE_SUBSCRIPTION';
 
+        // Calculate per-therapy rate by dividing total package amount with session quantity
+        const perSessionRate = totalAllowed > 0
+            ? Math.round((Number(sub.total_payment_amount || 0) / totalAllowed) * 100) / 100
+            : Number(sub.per_service_price || 0);
+
         if ((req as any).propertyDb.models.milk_subscription_consumptions) {
             await (req as any).propertyDb.models.milk_subscription_consumptions.create({
                 outlet_id,
@@ -1884,8 +2207,8 @@ export const consumeClinicSubscriptionSession = async (req: Request, res: Respon
                 cart_qty: 1,
                 covered_qty: 1,
                 excess_qty: 0,
-                rate: sub.per_service_price || 0,
-                covered_amount: sub.per_service_price || 0,
+                rate: perSessionRate,
+                covered_amount: perSessionRate,
                 notes: notes || `Session #${consumed} of ${totalAllowed}${additionalFee > 0 ? ` (Co-pay Fee: ${additionalFee} via ${activePaymentMode})` : ''}`
             }, { transaction: t }).catch(() => null);
         }
@@ -1897,6 +2220,64 @@ export const consumeClinicSubscriptionSession = async (req: Request, res: Respon
             active_subscription: !isExhausted,
             updated_by: user_id
         }, { transaction: t });
+
+        // Record consumed session debit in cash ledger (drawdown at per-session rate)
+        try {
+            const { createLedgerEntry } = require('../../services/cashLedger.service');
+            await createLedgerEntry({
+                db: (req as any).propertyDb,
+                outlet_id,
+                txn_date: today,
+                transaction_type: 'SUBSCRIPTION_SETTLEMENT',
+                reference_type: 'CLINIC_SUBSCRIPTION',
+                reference_id: sub.id,
+                reference_no: `SESS-${sub.id}-${consumed}`,
+                party_name: sub.customer_name || 'Patient',
+                payment_method: 'PACKAGE',
+                amount_in: 0,
+                amount_out: perSessionRate,
+                notes: `Therapy Session #${consumed} of ${totalAllowed} Consumed: ${sub.item_name} (Debited: €${perSessionRate.toFixed(2)})`,
+                created_by: user_id,
+                transaction: t
+            });
+
+            // If extra co-pay fee was charged on this session, record fee collection in ledger
+            if (additionalFee > 0) {
+                await createLedgerEntry({
+                    db: (req as any).propertyDb,
+                    outlet_id,
+                    txn_date: today,
+                    transaction_type: 'CLINIC_SESSION_FEE',
+                    reference_type: 'CLINIC_SUBSCRIPTION',
+                    reference_id: sub.id,
+                    reference_no: `SESS-FEE-${sub.id}-${consumed}`,
+                    party_name: sub.customer_name || 'Patient',
+                    payment_method: activePaymentMode,
+                    amount_in: additionalFee,
+                    amount_out: 0,
+                    notes: `Therapy Session #${consumed} Co-pay Fee: ${sub.item_name} via ${activePaymentMode}`,
+                    created_by: user_id,
+                    transaction: t
+                });
+            }
+
+            // Drawdown from customer_advances available_amount
+            if ((req as any).propertyDb.models.customer_advances) {
+                const adv = await (req as any).propertyDb.models.customer_advances.findOne({
+                    where: {
+                        outlet_id,
+                        reference_no: `SUB-CLINIC-${sub.id}`
+                    },
+                    transaction: t
+                });
+                if (adv) {
+                    const newAvail = Math.max(0, Number(adv.available_amount || 0) - perSessionRate);
+                    await adv.update({ available_amount: newAvail }, { transaction: t });
+                }
+            }
+        } catch (ledgerErr) {
+            console.error('[LEDGER SESSION CONSUME ERR]', ledgerErr);
+        }
 
         if (appointment_id) {
             const appt = await (req as any).propertyDb.models.clinic_appointments.findOne({
@@ -1913,23 +2294,8 @@ export const consumeClinicSubscriptionSession = async (req: Request, res: Respon
                     paid_amount: additionalFee,
                     payment_status: 'PAID',
                     payment_mode: activePaymentMode,
-                    status: 'VISITED'
+                    status: appt.status === 'VISITED' ? 'VISITED' : 'CONFIRMED'
                 }, { transaction: t });
-
-                // If an additional fee was charged at reception, record in Financial Ledger!
-                if (additionalFee > 0) {
-                    await createLedgerEntry((req as any).propertyDb, {
-                        outlet_id,
-                        entry_date: today,
-                        voucher_type: 'CLINIC_SESSION_FEE',
-                        reference_no: `CLINIC-SESS-${sub.id}-${consumed}`,
-                        description: `Therapy Session Fee: ${sub.item_name} (Session #${consumed}) for ${sub.customer_name || 'Patient'}`,
-                        payment_mode: activePaymentMode,
-                        debit_amount: 0,
-                        credit_amount: additionalFee,
-                        created_by: user_id
-                    }, t).catch(() => null);
-                }
             }
         }
 
@@ -2031,7 +2397,20 @@ export const getPublicPatientSubscriptions = async (req: Request, res: Response)
             return res.status(400).json({ success: false, message: 'Patient phone or email is required' });
         }
 
-        const where: any = {};
+        const where: any = {
+            [Op.and]: [
+                {
+                    [Op.or]: [
+                        { subscription_type: 'MONTHLY_SERVICES' },
+                        { service_unit_name: 'Sessions' },
+                        { delivery_type: 'STORE' }
+                    ]
+                },
+                {
+                    delivery_type: { [Op.ne]: 'DELIVERY' }
+                }
+            ]
+        };
         if (phone) where.customer_phone = phone.trim();
         else if (email) where.customer_email = email.trim().toLowerCase();
 
@@ -2042,6 +2421,12 @@ export const getPublicPatientSubscriptions = async (req: Request, res: Response)
 
         const data = [];
         for (const s of subs) {
+            const nameLower = (s.item_name || '').toLowerCase();
+            // Filter out retail grocery/milk items from clinic history
+            if (nameLower.includes('milk') || nameLower.includes('rice') || nameLower.includes('backpack') || nameLower.includes('oil') || nameLower.includes('ghee')) {
+                continue;
+            }
+
             const consumptions = await (req as any).propertyDb.models.milk_subscription_consumptions.findAll({
                 where: { subscription_id: s.id },
                 order: [['txn_date', 'ASC']]
@@ -2065,9 +2450,31 @@ export const getPublicPatientSubscriptions = async (req: Request, res: Response)
             });
         }
 
+        const todayStr = new Date().toISOString().split('T')[0];
+        let upcomingScheduledCount = 0;
+        let nextUpcomingDate: string | null = null;
+        try {
+            const upcomingAppts = await (req as any).propertyDb.models.clinic_appointments.findAll({
+                where: {
+                    outlet_id,
+                    status: { [Op.in]: ['SCHEDULED', 'CONFIRMED'] },
+                    appointment_date: { [Op.gt]: to_date || from_date || todayStr }
+                },
+                order: [['appointment_date', 'ASC'], ['id', 'ASC']],
+                limit: 10,
+                attributes: ['id', 'appointment_date', 'doctor_name', 'patient_name']
+            });
+            upcomingScheduledCount = upcomingAppts.length;
+            if (upcomingScheduledCount > 0) {
+                nextUpcomingDate = upcomingAppts[0].appointment_date;
+            }
+        } catch (_) {}
+
         return res.json({
             success: true,
             count: data.length,
+            upcoming_scheduled_count: upcomingScheduledCount,
+            next_upcoming_date: nextUpcomingDate,
             data
         });
     } catch (err: any) {
@@ -2075,6 +2482,136 @@ export const getPublicPatientSubscriptions = async (req: Request, res: Response)
         return res.status(500).json({ success: false, message: err.message });
     }
 };
+
+
+export const getClinicPatientHistory = async (req: any, res: any) => {
+    try {
+        const outlet_id = req.user.outlet_id;
+        const phone = (req.query.phone || '').toString().trim();
+        const patient_id = req.query.patient_id ? Number(req.query.patient_id) : null;
+
+        if (!phone && !patient_id) {
+            return res.status(400).json({ success: false, message: 'Patient phone or ID is required.' });
+        }
+
+        const where: any = { outlet_id, status: 'VISITED' };
+        if (patient_id) {
+            where.patient_id = patient_id;
+        } else {
+            where.patient_phone = phone;
+        }
+
+        const history = await req.propertyDb.models.clinic_appointments.findAll({
+            where,
+            order: [['appointment_date', 'DESC'], ['id', 'DESC']],
+            limit: 25
+        });
+
+        return res.json({
+            success: true,
+            data: history
+        });
+    } catch (err: any) {
+        console.error('[PATIENT HISTORY ERROR]', err);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const getClinicalTestsMaster = async (req: any, res: any) => {
+    try {
+        const outlet_id = req.user.outlet_id;
+        const standardTests = [
+            { test_name: 'Blood Pressure (BP)', category: 'VITALS', default_unit: 'mmHg', normal_range: '120/80' },
+            { test_name: 'Pulse / Heart Rate', category: 'VITALS', default_unit: 'bpm', normal_range: '72' },
+            { test_name: 'Body Temperature', category: 'VITALS', default_unit: '°F', normal_range: '98.6' },
+            { test_name: 'Blood Sugar (Fasting)', category: 'DIABETIC', default_unit: 'mg/dL', normal_range: '70-100' },
+            { test_name: 'Blood Sugar (PP)', category: 'DIABETIC', default_unit: 'mg/dL', normal_range: '120-140' },
+            { test_name: 'Blood Sugar (Random)', category: 'DIABETIC', default_unit: 'mg/dL', normal_range: '80-140' },
+            { test_name: 'HbA1c', category: 'DIABETIC', default_unit: '%', normal_range: '< 5.7' },
+            { test_name: 'Hemoglobin (Hb)', category: 'BLOOD', default_unit: 'g/dL', normal_range: '13.5-17.5' },
+            { test_name: 'CBC (Complete Blood Count)', category: 'BLOOD', default_unit: '', normal_range: 'Normal' },
+            { test_name: 'TLC (Total Leukocyte Count)', category: 'BLOOD', default_unit: '/cu.mm', normal_range: '4000-11000' },
+            { test_name: 'DLC (Differential Count)', category: 'BLOOD', default_unit: '', normal_range: '' },
+            { test_name: 'Urine Routine & Microscopic', category: 'URINE', default_unit: '', normal_range: 'Normal' },
+            { test_name: 'Serum Uric Acid', category: 'BIOCHEM', default_unit: 'mg/dL', normal_range: '3.5-7.2' },
+            { test_name: 'Thyroid TSH', category: 'ENDOCRINE', default_unit: 'uIU/mL', normal_range: '0.4-4.0' },
+            { test_name: 'X-Ray Chest (PA View)', category: 'RADIOLOGY', default_unit: '', normal_range: 'Clear' },
+            { test_name: 'Ultrasound (USG) Whole Abdomen', category: 'RADIOLOGY', default_unit: '', normal_range: 'Normal' },
+            { test_name: 'ECG (12 Lead)', category: 'CARDIOLOGY', default_unit: '', normal_range: 'Normal Sinus Rhythm' },
+            { test_name: 'Widal / Typhoid Test', category: 'SEROLOGY', default_unit: '', normal_range: 'Negative' },
+            { test_name: 'Chikungunya IgM', category: 'SEROLOGY', default_unit: '', normal_range: 'Negative' },
+            { test_name: 'Dengue NS1 Antigen', category: 'SEROLOGY', default_unit: '', normal_range: 'Negative' },
+            { test_name: 'Serum Creatinine', category: 'RENAL', default_unit: 'mg/dL', normal_range: '0.7-1.3' },
+            { test_name: 'Lipid Profile', category: 'CARDIOLOGY', default_unit: '', normal_range: '' }
+        ];
+
+        let customTests: any[] = [];
+        try {
+            await req.propertyDb.query(`
+                CREATE TABLE IF NOT EXISTS clinic_test_master (
+                    id SERIAL PRIMARY KEY,
+                    outlet_id INTEGER NOT NULL,
+                    test_name VARCHAR(150) NOT NULL,
+                    category VARCHAR(100) DEFAULT 'CUSTOM',
+                    default_unit VARCHAR(50) DEFAULT '',
+                    normal_range VARCHAR(100) DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+            const [rows] = await req.propertyDb.query(
+                `SELECT test_name, category, default_unit, normal_range FROM clinic_test_master WHERE outlet_id = ? ORDER BY test_name ASC;`,
+                { replacements: [outlet_id] }
+            );
+            customTests = rows || [];
+        } catch (_) {}
+
+        return res.json({
+            success: true,
+            data: {
+                standard_tests: standardTests,
+                custom_tests: customTests
+            }
+        });
+    } catch (err: any) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const saveClinicalTestMaster = async (req: any, res: any) => {
+    try {
+        const outlet_id = req.user.outlet_id;
+        const { test_name, category, default_unit, normal_range } = req.body;
+        if (!test_name || !test_name.trim()) {
+            return res.status(400).json({ success: false, message: 'Test name is required.' });
+        }
+
+        await req.propertyDb.query(`
+            CREATE TABLE IF NOT EXISTS clinic_test_master (
+                id SERIAL PRIMARY KEY,
+                outlet_id INTEGER NOT NULL,
+                test_name VARCHAR(150) NOT NULL,
+                category VARCHAR(100) DEFAULT 'CUSTOM',
+                default_unit VARCHAR(50) DEFAULT '',
+                normal_range VARCHAR(100) DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+
+        await req.propertyDb.query(
+            `INSERT INTO clinic_test_master (outlet_id, test_name, category, default_unit, normal_range)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT DO NOTHING;`,
+            { replacements: [outlet_id, test_name.trim(), category || 'CUSTOM', default_unit || '', normal_range || ''] }
+        );
+
+        return res.json({ success: true, message: `Clinical test "${test_name.trim()}" saved to Master!` });
+    } catch (err: any) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 
 module.exports = {
     getClinicSubscriptions,
@@ -2101,7 +2638,10 @@ module.exports = {
     getPublicSpecialities,
     getPublicDoctors,
     bookAppointmentPublic,
-    getPatientHistoryPublic
+    getPatientHistoryPublic,
+    getClinicPatientHistory,
+    getClinicalTestsMaster,
+    saveClinicalTestMaster
 };
 
 export default {
@@ -2129,5 +2669,8 @@ export default {
     getPublicSpecialities,
     getPublicDoctors,
     bookAppointmentPublic,
-    getPatientHistoryPublic
+    getPatientHistoryPublic,
+    getClinicPatientHistory,
+    getClinicalTestsMaster,
+    saveClinicalTestMaster
 };

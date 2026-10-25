@@ -4966,6 +4966,16 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       },
       {
         'category': 'Clinic & Health (Beta)',
+        'icon': Icons.medication_liquid_rounded,
+        'label': 'Medicines, Lab Tests & Services Master',
+        'subLabel': 'Manage pharmaceutical formulations, lab investigation pricing & therapy catalog',
+        'isBeta': true,
+        'permission': 'INVENTORY_MANAGEMENT',
+        'keywords': ['medicine master', 'drug master', 'lab test master', 'clinical services', 'pharmacy items'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemMasterScreen(isClinicMode: true))),
+      },
+      {
+        'category': 'Clinic & Health (Beta)',
         'icon': Icons.hourglass_bottom_rounded,
         'label': 'Receiving Expiry & Batch Tracker',
         'subLabel': 'Medicine expiry watch, batch-wise shelf life & supplier receiving ledger',

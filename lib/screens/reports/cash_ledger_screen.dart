@@ -4600,6 +4600,8 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
       return ref.isNotEmpty ? 'RV-$ref' : 'RV-0001';
     } else if (type.contains('SUBSCRIPTION') || type.contains('ADVANCE') || refType.contains('ADVANCE')) {
       return ref.isNotEmpty ? (ref.startsWith('RV-') ? ref : 'RV-$ref') : 'RV-0001';
+    } else if (type.contains('CONSULTATION') || type.contains('CLINIC') || refType.contains('CLINIC')) {
+      return ref.isNotEmpty ? (ref.startsWith('RV-') ? ref : 'RV-$ref') : 'RV-CLINIC';
     } else if (type.contains('SUPPLIER') || type.contains('VENDOR') || type.contains('REFUND') || refType.contains('SUPPLIER')) {
       return ref.isNotEmpty ? (ref.startsWith('PV-') ? ref : 'PV-$ref') : 'PV-0001';
     } else if (type == 'EXPENSE' || refType == 'EXPENSE') {
@@ -6074,6 +6076,14 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         return 'Sales';
       case 'SALE_CREDIT':
         return 'Sales Credit';
+      case 'CONSULTATION_FEE':
+        return 'Consultation Fee';
+      case 'CLINIC_SUBSCRIPTION':
+        return 'Clinic Package';
+      case 'CLINIC_SESSION_FEE':
+        return 'Session Co-Pay';
+      case 'SUBSCRIPTION_SETTLEMENT':
+        return 'Session Consumed';
       case 'REPAYMENT':
         return 'Credit Payment';
       case 'WAIVE_OFF':
