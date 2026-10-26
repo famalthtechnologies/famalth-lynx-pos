@@ -620,8 +620,27 @@ export const savePrescription = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, message: 'Appointment not found' });
         }
 
-        // 1. Only DOCTOR role can create or edit medical prescriptions
-        if (!userRole.includes('DOCTOR') && !userRole.includes('CLINICIAN') && !userRole.includes('PHYSICIAN')) {
+        // 1. Doctor & Admin Role Authorization:
+        // Allows registered doctors as well as clinic administrators/managers (matching Flutter _canEdit rules)
+        let isAuthorizedToPrescribe = 
+            userRole.includes('DOCTOR') || 
+            userRole.includes('CLINICIAN') || 
+            userRole.includes('PHYSICIAN') ||
+            userRole.includes('ADMIN') ||
+            userRole.includes('SUPERADMIN') ||
+            userRole.includes('OWNER') ||
+            userRole.includes('CLINIC_ADMIN') ||
+            userRole.includes('MANAGER');
+
+        // Check if user has a doctor profile in users or doctor_master
+        if (!isAuthorizedToPrescribe && user?.id) {
+            const u = await (req as any).propertyDb.models.users.findByPk(user.id);
+            if (u && (u.speciality || (u.role || '').toUpperCase().includes('DOCTOR'))) {
+                isAuthorizedToPrescribe = true;
+            }
+        }
+
+        if (!isAuthorizedToPrescribe) {
             return res.status(403).json({
                 success: false,
                 message: 'Unauthorized: Only registered doctors are authorized to create or edit medical prescriptions. Other personnel can view and print only.'
@@ -635,18 +654,31 @@ export const savePrescription = async (req: Request, res: Response) => {
             if (u) loggedInDocName = (u.full_name || u.username || '').trim().toLowerCase();
         }
 
-        const currentUserId = user?.id ? Number(user.id) : null;
+        const currentUserId = user?.id ? Number(user.id) : (user?.user_id ? Number(user.user_id) : null);
         const existingAttendedDocId = appointment.attended_by_doctor_id;
         const existingDocId = appointment.doctor_id;
 
         // Strict Doctor ID Permission Match in Backend
-        if (!userRole.includes('ADMIN') && !userRole.includes('SUPERADMIN') && !userRole.includes('OWNER') && !userRole.includes('CLINIC_ADMIN') && !userRole.includes('MANAGER')) {
+        const isClinicAdmin = userRole.includes('ADMIN') || userRole.includes('SUPERADMIN') || userRole.includes('OWNER') || userRole.includes('CLINIC_ADMIN') || userRole.includes('MANAGER');
+        if (!isClinicAdmin) {
             const targetDocId = existingAttendedDocId || existingDocId;
-            if (targetDocId && currentUserId && Number(targetDocId) !== currentUserId) {
-                return res.status(403).json({
-                    success: false,
-                    message: `Unauthorized: This prescription was created by ${appointment.attended_by_doctor_name || appointment.doctor_name || 'another doctor'}. Only the prescribing doctor can edit it. You can view and print only.`
-                });
+            const apptDocName = (appointment.attended_by_doctor_name || appointment.doctor_name || '').trim().toLowerCase();
+            const isSameName = Boolean(loggedInDocName && apptDocName && (loggedInDocName.includes(apptDocName) || apptDocName.includes(loggedInDocName)));
+
+            if (targetDocId && currentUserId && Number(targetDocId) !== currentUserId && !isSameName) {
+                let isLinkedDoctorUser = false;
+                if ((req as any).propertyDb.models.doctor_master) {
+                    const docMaster = await (req as any).propertyDb.models.doctor_master.findByPk(targetDocId);
+                    if (docMaster && docMaster.user_id && Number(docMaster.user_id) === currentUserId) {
+                        isLinkedDoctorUser = true;
+                    }
+                }
+                if (!isLinkedDoctorUser) {
+                    return res.status(403).json({
+                        success: false,
+                        message: `Unauthorized: This prescription was created by ${appointment.attended_by_doctor_name || appointment.doctor_name || 'another doctor'}. Only the prescribing doctor can edit it. You can view and print only.`
+                    });
+                }
             }
         }
 

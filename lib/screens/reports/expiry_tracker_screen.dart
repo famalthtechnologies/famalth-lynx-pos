@@ -1028,7 +1028,8 @@ class _ReceivingBatchLedgerDialogState extends State<_ReceivingBatchLedgerDialog
       final res = await ApiClient.get(ApiEndpoints.expiryLedger(widget.itemId));
       if (res != null && res['success'] == true) {
         setState(() {
-          _ledger = res['ledger'] ?? [];
+          final dynamic rawList = res['ledger'] ?? res['data'] ?? [];
+          _ledger = rawList is List ? rawList : [];
         });
       }
     } catch (e) {

@@ -217,7 +217,12 @@ export const getExpiryTracker = async (req: Request, res: Response) => {
                 critical: criticalCount,
                 warning: warningCount,
                 healthy: healthyCount,
-                new_shorter_than_old: newShorterAlerts
+                new_shorter_than_old: newShorterAlerts,
+                total_tracked_items: allEntries.length,
+                expired_count: expiredCount,
+                critical_count: criticalCount,
+                warning_count: warningCount,
+                new_shorter_alerts: newShorterAlerts
             },
             data: filteredList
         });
@@ -232,11 +237,37 @@ export const getExpiryLedgerByItem = async (req: Request, res: Response) => {
         const outlet_id = (req as any).user.outlet_id;
         const itemId = req.params.itemId;
 
+        let targetItemId: number | null = Number(itemId) || null;
+        let targetItemCode: string | null = !Number(itemId) ? String(itemId) : null;
+
+        // Fetch corresponding item from item_master to get both item_id and item_code
+        if (targetItemId) {
+            const im = await (req as any).propertyDb.models.item_master.findByPk(targetItemId, {
+                attributes: ['id', 'item_code']
+            });
+            if (im?.item_code) {
+                targetItemCode = im.item_code;
+            }
+        } else if (targetItemCode) {
+            const im = await (req as any).propertyDb.models.item_master.findOne({
+                where: { item_code: targetItemCode },
+                attributes: ['id', 'item_code']
+            });
+            if (im?.id) {
+                targetItemId = im.id;
+            }
+        }
+
         const whereItem: any = {};
-        if (Number(itemId)) {
-            whereItem.item_id = Number(itemId);
-        } else {
-            whereItem.item_code = itemId;
+        if (targetItemId && targetItemCode) {
+            whereItem[Op.or] = [
+                { item_id: targetItemId },
+                { item_code: targetItemCode }
+            ];
+        } else if (targetItemId) {
+            whereItem.item_id = targetItemId;
+        } else if (targetItemCode) {
+            whereItem.item_code = targetItemCode;
         }
 
         const items = await (req as any).propertyDb.models.goods_receipt_items.findAll({
