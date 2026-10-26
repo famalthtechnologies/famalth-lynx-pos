@@ -22,7 +22,7 @@ const getExpiryTracker = async (req, res) => {
             ],
             order: [
                 ['expiry_date', 'ASC'],
-                ['created_at', 'DESC']
+                ['id', 'DESC']
             ]
         });
 
@@ -202,7 +202,7 @@ const getExpiryLedgerByItem = async (req, res) => {
                     attributes: ['id', 'grn_no', 'receipt_date', 'supplier_id', 'supplier_bill_no']
                 }
             ],
-            order: [['created_at', 'DESC']]
+            order: [['expiry_date', 'ASC'], ['id', 'ASC']]
         });
 
         const supplierIds = [...new Set(items.map(i => i.grn?.supplier_id).filter(Boolean))];

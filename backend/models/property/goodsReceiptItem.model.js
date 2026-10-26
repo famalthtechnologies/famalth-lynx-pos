@@ -16,7 +16,9 @@ module.exports = (sequelize, DataTypes) => {
         department: DataTypes.STRING,
         sale_rate: DataTypes.DECIMAL(12, 2),
         expiry_date: DataTypes.DATEONLY,
-        remarks: DataTypes.TEXT
+        remarks: DataTypes.TEXT,
+        created_at: DataTypes.DATE,
+        updated_at: DataTypes.DATE
     }, {
         tableName: 'goods_receipt_items',
         timestamps: false
@@ -26,6 +28,10 @@ module.exports = (sequelize, DataTypes) => {
         sequelize.query(`
             ALTER TABLE goods_receipt_items 
             ADD COLUMN IF NOT EXISTS sale_rate DECIMAL(12, 2);
+            ALTER TABLE goods_receipt_items 
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+            ALTER TABLE goods_receipt_items 
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
         `).catch(() => {});
     }
     goods_receipt_items.associate = (models) => {

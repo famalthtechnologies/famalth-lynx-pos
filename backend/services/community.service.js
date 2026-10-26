@@ -34,6 +34,14 @@ async function ensureCommunityColumns(db) {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(channel_id, user_id)
       );
+
+      CREATE TABLE IF NOT EXISTS community_joined_channels (
+        id SERIAL PRIMARY KEY,
+        channel_id VARCHAR(100) NOT NULL,
+        user_id VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(channel_id, user_id)
+      );
     `);
     hasEnsuredColumns = true;
   } catch (err) {
@@ -627,6 +635,10 @@ exports.exitChannel = async (propertyDb, { channelId, userId }) => {
   const db = getDb(propertyDb);
   await ensureCommunityColumns(db);
   await db.query(
+    `DELETE FROM community_joined_channels WHERE channel_id = :channelId AND user_id = :userId`,
+    { replacements: { channelId, userId } }
+  );
+  await db.query(
     `
     INSERT INTO community_channel_exited_users (channel_id, user_id)
     VALUES (:channelId, :userId)
@@ -634,5 +646,143 @@ exports.exitChannel = async (propertyDb, { channelId, userId }) => {
   `,
     { replacements: { channelId, userId } }
   );
+  return true;
+};
+
+exports.editMessage = async (propertyDb, { messageId, senderId, content }) => {
+  const db = getDb(propertyDb);
+  const [rows] = await db.query(
+    `SELECT * FROM community_messages WHERE id = :messageId`,
+    { replacements: { messageId } }
+  );
+
+  if (!rows || rows.length === 0) {
+    throw new Error('Message not found');
+  }
+
+  const message = rows[0];
+  if (message.sender_id !== senderId) {
+    throw new Error('You can only edit your own messages');
+  }
+
+  if (message.is_deleted_for_everyone) {
+    throw new Error('Cannot edit a deleted message');
+  }
+
+  const diffHours = (Date.now() - new Date(message.created_at).getTime()) / (1000 * 60 * 60);
+  if (diffHours >= 1) {
+    throw new Error('Edit message has expired (restricted to 1 hour)');
+  }
+
+  await db.query(
+    `
+    UPDATE community_messages 
+    SET content = :content, 
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = :messageId
+  `,
+    { replacements: { messageId, content } }
+  );
+
+  return { ...message, content };
+};
+
+exports.joinChannel = async (propertyDb, { channelId, userId }) => {
+  const db = getDb(propertyDb);
+  await ensureCommunityColumns(db);
+  await db.query(
+    `DELETE FROM community_channel_exited_users WHERE channel_id = :channelId AND user_id = :userId`,
+    { replacements: { channelId, userId } }
+  );
+  await db.query(
+    `
+    INSERT INTO community_joined_channels (channel_id, user_id)
+    VALUES (:channelId, :userId)
+    ON CONFLICT (channel_id, user_id) DO NOTHING
+  `,
+    { replacements: { channelId, userId } }
+  );
+  return true;
+};
+
+exports.getJoinedChannels = async (propertyDb, { userId }) => {
+  const db = getDb(propertyDb);
+  await ensureCommunityColumns(db);
+  const [rows] = await db.query(
+    `SELECT channel_id FROM community_joined_channels WHERE user_id = :userId`,
+    { replacements: { userId } }
+  );
+  return (rows || []).map(r => r.channel_id);
+};
+
+exports.clearConversation = async (propertyDb, { conversationId, userId }) => {
+  const db = getDb(propertyDb);
+  await ensureCommunityColumns(db);
+  let convIds = [conversationId];
+
+  if (conversationId.startsWith('direct_')) {
+    try {
+      const [cRows] = await db.query(
+        `SELECT id, creator_merchant_id, direct_recipient_id FROM community_conversations WHERE id = :conversationId LIMIT 1`,
+        { replacements: { conversationId } }
+      );
+
+      let p1 = '';
+      let p2 = '';
+      if (cRows && cRows.length > 0) {
+        p1 = cRows[0].creator_merchant_id || '';
+        p2 = cRows[0].direct_recipient_id || '';
+      }
+
+      if (!p1 || !p2) {
+        const parts = conversationId.replace(/^direct_/, '').split('_');
+        if (parts.length >= 2) {
+          p1 = parts[0];
+          p2 = parts[1];
+        }
+      }
+
+      if (p1 && p2) {
+        const [aliasRows] = await db.query(
+          `SELECT DISTINCT id FROM community_conversations 
+           WHERE is_direct = TRUE AND (
+             (creator_merchant_id = :p1 AND direct_recipient_id = :p2)
+             OR (creator_merchant_id = :p2 AND direct_recipient_id = :p1)
+             OR (id = :convId)
+             OR (id LIKE :like1 AND id LIKE :like2)
+           )`,
+          {
+            replacements: {
+              p1,
+              p2,
+              convId: conversationId,
+              like1: `%${p1}%`,
+              like2: `%${p2}%`,
+            },
+          }
+        );
+        if (aliasRows && aliasRows.length > 0) {
+          convIds = Array.from(new Set(aliasRows.map(r => r.id)));
+        }
+      }
+    } catch (_) {}
+  }
+
+  await db.query(
+    `
+    INSERT INTO community_message_deleted_users (message_id, user_id)
+    SELECT m.id, :userId 
+    FROM community_messages m
+    WHERE m.conversation_id IN (:convIds)
+    ON CONFLICT (message_id, user_id) DO NOTHING
+  `,
+    {
+      replacements: {
+        convIds,
+        userId,
+      },
+    }
+  );
+
   return true;
 };

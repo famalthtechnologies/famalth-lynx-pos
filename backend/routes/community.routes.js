@@ -11,6 +11,8 @@ router.get('/merchants', communityController.getMerchants);
 // Message retrieval & sending
 router.get('/messages', communityController.getMessages);
 router.post('/messages', communityController.sendMessage);
+router.post('/messages/edit', communityController.editMessage);
+router.put('/messages/:id', communityController.editMessage);
 
 // Message deletions
 router.post('/messages/delete-for-everyone', communityController.deleteForEveryone);
@@ -21,6 +23,8 @@ router.post('/merchants/block', communityController.blockUser);
 router.post('/merchants/unblock', communityController.unblockUser);
 router.get('/merchants/blocked', communityController.getBlockedUsers);
 router.post('/channels/exit', communityController.exitChannel);
+router.post('/channels/join', communityController.joinChannel);
+router.post('/conversations/clear', communityController.clearConversation);
 
 module.exports = router;
 

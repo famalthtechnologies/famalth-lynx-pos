@@ -211,3 +211,72 @@ exports.exitChannel = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+exports.editMessage = async (req, res) => {
+  try {
+    const { message_id, content, sender_id } = req.body;
+    const msgId = req.params.id || message_id;
+    if (!msgId || !content) {
+      return res.status(400).json({ success: false, message: 'message_id and content are required' });
+    }
+
+    const updated = await communityService.editMessage(req.propertyDb, {
+      messageId: msgId,
+      senderId: sender_id || req.user?.outlet_code || req.user?.id,
+      content,
+    });
+
+    const socketService = req.app.get('socketService');
+    if (socketService) {
+      socketService.emitToCommunity(updated.conversation_id, 'community:message_edited', {
+        message_id: msgId,
+        conversation_id: updated.conversation_id,
+        content,
+      });
+    }
+
+    return res.json({ success: true, message: 'Message edited successfully', data: updated });
+  } catch (error) {
+    console.error('[COMMUNITY EDIT MESSAGE ERROR]:', error.message);
+    const status = error.message.includes('expired') ? 400 : error.message.includes('own') ? 403 : 500;
+    return res.status(status).json({ success: false, message: error.message });
+  }
+};
+
+exports.joinChannel = async (req, res) => {
+  try {
+    const { channel_id, user_id } = req.body;
+    if (!channel_id || !user_id) {
+      return res.status(400).json({ success: false, message: 'channel_id and user_id are required' });
+    }
+
+    await communityService.joinChannel(req.propertyDb, {
+      channelId: channel_id,
+      userId: user_id,
+    });
+
+    return res.json({ success: true, message: 'Joined community channel successfully' });
+  } catch (error) {
+    console.error('[COMMUNITY JOIN CHANNEL ERROR]:', error.message);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.clearConversation = async (req, res) => {
+  try {
+    const { conversation_id, user_id } = req.body;
+    if (!conversation_id || !user_id) {
+      return res.status(400).json({ success: false, message: 'conversation_id and user_id are required' });
+    }
+
+    await communityService.clearConversation(req.propertyDb, {
+      conversationId: conversation_id,
+      userId: user_id,
+    });
+
+    return res.json({ success: true, message: 'Chat cleared successfully' });
+  } catch (error) {
+    console.error('[COMMUNITY CLEAR CONVERSATION ERROR]:', error.message);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

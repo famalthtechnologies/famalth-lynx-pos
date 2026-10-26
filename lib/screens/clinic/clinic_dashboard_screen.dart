@@ -38,6 +38,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   // Multi-status filters for Reception OPD Desk
   String _statusFilter = 'ALL';
   String _selectedDoctorFilter = 'ALL';
+  int? _selectedDoctorFilterId; // Unique Doctor ID backing the filter in backend
   String _attendanceFilter = 'ALL'; // ALL, UNATTENDED, ATTENDED
   String _feeStatusFilter = 'ALL'; // ALL, PAID, UNPAID
   String _billingStatusFilter = 'ALL'; // ALL, UNBILLED, BILLED
@@ -204,12 +205,11 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         // Auto-navigate to respective department panel based on role!
         if (role == 'DOCTOR') {
           _tabCtrl.animateTo(1); // Doctor Desk
-          if (name.isNotEmpty) {
-            setState(() {
-              _selectedDoctorFilter = name;
-            });
-            _fetchAppointments();
-          }
+          setState(() {
+            _selectedDoctorFilterId = id;
+            _selectedDoctorFilter = name.isNotEmpty ? name : 'Doctor';
+          });
+          _fetchAppointments();
         } else if (role == 'PHARMACIST') {
           _tabCtrl.animateTo(2); // Pharmacy Desk
         } else if (role == 'RECEPTIONIST') {
@@ -235,6 +235,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           _clinicDoctors = docs;
           // If only 1 doctor in the clinic, auto-open & select that doctor directly!
           if (docs.length == 1) {
+            _selectedDoctorFilterId = docs.first['id'] as int?;
             _selectedDoctorFilter = (docs.first['full_name'] ?? 'Doctor').toString();
           }
         });
@@ -398,7 +399,9 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
       if (_statusFilter != 'ALL') {
         queryParams['status'] = _statusFilter;
       }
-      if (_selectedDoctorFilter != 'ALL') {
+      if (_selectedDoctorFilterId != null) {
+        queryParams['doctor_id'] = _selectedDoctorFilterId;
+      } else if (_selectedDoctorFilter != 'ALL' && _selectedDoctorFilter.isNotEmpty) {
         queryParams['doctor_name'] = _selectedDoctorFilter;
       }
       if (_attendanceFilter != 'ALL') {
@@ -871,35 +874,64 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
       return true;
     }
 
-    String cleanDoc(String s) => s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
-    final apptDocName = cleanDoc((a['attended_by_doctor_name'] ?? a['doctor_name'] ?? '').toString());
-    final myDocName = cleanDoc(_loggedInDoctorName);
-    final selectedDesk = cleanDoc(_selectedDoctorFilter);
+    // Must be in DOCTOR role to edit prescriptions (reception/staff can view and print only)
+    if (!role.contains('DOCTOR') && !role.contains('CLINICIAN') && !role.contains('PHYSICIAN')) {
+      return false;
+    }
 
-    if (myDocName.isNotEmpty && (apptDocName.contains(myDocName) || myDocName.contains(apptDocName))) {
-      return true;
-    }
-    if (selectedDesk.isNotEmpty && selectedDesk != 'all' && (apptDocName.contains(selectedDesk) || selectedDesk.contains(apptDocName))) {
-      return true;
-    }
+    // Active doctor ID (operating desk ID or logged-in doctor ID)
+    final currentDocId = _loggedInDoctorId ?? _selectedDoctorFilterId;
+
+    final apptAttendedId = a['attended_by_doctor_id'] != null ? int.tryParse('${a['attended_by_doctor_id']}') : null;
+    final apptDocId = a['doctor_id'] != null ? int.tryParse('${a['doctor_id']}') : null;
 
     final status = (a['status'] ?? '').toString().toUpperCase();
     final isVisited = status == 'VISITED' || status == 'COMPLETED';
-    final hasRx = a['attended_by_doctor_name'] != null || 
+    final hasRx = a['attended_by_doctor_id'] != null || 
                   (a['prescription_notes'] != null && a['prescription_notes'].toString().isNotEmpty) ||
                   (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty);
-    if (!isVisited && !hasRx && (role == 'DOCTOR' || role.contains('DOCTOR') || selectedDesk.isNotEmpty)) {
-      return true;
+
+    // If prescription has already been created or attended, ONLY prescribing doctor can edit
+    if (isVisited || hasRx) {
+      final owningDocId = apptAttendedId ?? apptDocId;
+      if (currentDocId != null && owningDocId != null) {
+        return currentDocId == owningDocId;
+      }
+      String cleanDoc(String s) => s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+      final apptDocName = cleanDoc((a['attended_by_doctor_name'] ?? a['doctor_name'] ?? '').toString());
+      final myDocName = cleanDoc(_loggedInDoctorName);
+      final selectedDesk = cleanDoc(_selectedDoctorFilter);
+      if (myDocName.isNotEmpty && (apptDocName.contains(myDocName) || myDocName.contains(apptDocName))) {
+        return true;
+      }
+      if (selectedDesk.isNotEmpty && selectedDesk != 'all' && (apptDocName.contains(selectedDesk) || selectedDesk.contains(apptDocName))) {
+        return true;
+      }
+      return false;
     }
 
-    return false;
+    // New patient waiting in queue
+    if (currentDocId != null && apptDocId != null) {
+      return currentDocId == apptDocId;
+    }
+
+    return true;
   }
 
   void _openConsultationDialog(dynamic appointment) {
     String effectiveDoctorName = _loggedInDoctorName;
     int? effectiveDoctorId = _loggedInDoctorId;
 
-    if (_selectedDoctorFilter != 'ALL' && _selectedDoctorFilter.isNotEmpty) {
+    if (_selectedDoctorFilterId != null) {
+      effectiveDoctorId = _selectedDoctorFilterId;
+      final matched = _clinicDoctors.firstWhere(
+        (d) => d['id'] == _selectedDoctorFilterId,
+        orElse: () => null,
+      );
+      if (matched != null && matched['full_name'] != null) {
+        effectiveDoctorName = matched['full_name'].toString();
+      }
+    } else if (_selectedDoctorFilter != 'ALL' && _selectedDoctorFilter.isNotEmpty) {
       effectiveDoctorName = _selectedDoctorFilter;
       final matched = _clinicDoctors.firstWhere(
         (d) {
@@ -909,11 +941,14 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           final cleanSel = sel.replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
           return cleanFn == cleanSel || fn == sel;
         },
-        orElse: () => {},
+        orElse: () => null,
       );
-      if (matched.isNotEmpty && matched['id'] != null) {
+      if (matched != null && matched['id'] != null) {
         effectiveDoctorId = int.tryParse('${matched['id']}') ?? effectiveDoctorId;
       }
+    } else if (appointment['doctor_id'] != null && _userRole.toUpperCase().contains('DOCTOR')) {
+      effectiveDoctorId ??= int.tryParse('${appointment['doctor_id']}');
+      effectiveDoctorName = (appointment['doctor_name'] ?? effectiveDoctorName).toString();
     }
 
     showDialog(
@@ -1506,15 +1541,13 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                   border: Border.all(color: const Color(0xFFCBD5E1)),
                 ),
                 child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _clinicDoctors.any((d) => (d['full_name'] ?? '').toString() == _selectedDoctorFilter) || _selectedDoctorFilter == 'ALL'
-                        ? _selectedDoctorFilter
-                        : 'ALL',
+                  child: DropdownButton<int?>(
+                    value: _clinicDoctors.any((d) => d['id'] == _selectedDoctorFilterId) ? _selectedDoctorFilterId : null,
                     icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B)),
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
                     items: [
-                      const DropdownMenuItem(
-                        value: 'ALL',
+                      const DropdownMenuItem<int?>(
+                        value: null,
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -1525,17 +1558,18 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                         ),
                       ),
                       ..._clinicDoctors.map((doc) {
+                        final docId = doc['id'] as int?;
                         final dName = (doc['full_name'] ?? 'Doctor').toString();
                         final spec = (doc['speciality'] ?? '').toString();
-                        return DropdownMenuItem(
-                          value: dName,
+                        return DropdownMenuItem<int?>(
+                          value: docId,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               const Icon(Icons.medical_services_outlined, size: 16, color: Color(0xFF0284C7)),
                               const SizedBox(width: 6),
                               Text(
-                                spec.isNotEmpty ? 'Dr. $dName ($spec)' : 'Dr. $dName',
+                                spec.isNotEmpty ? '${_formatDoctorTitle(dName)} ($spec)' : _formatDoctorTitle(dName),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ],
@@ -1544,10 +1578,16 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                       }),
                     ],
                     onChanged: (val) {
-                      if (val != null) {
-                        setState(() => _selectedDoctorFilter = val);
-                        _fetchAppointments();
-                      }
+                      setState(() {
+                        _selectedDoctorFilterId = val;
+                        if (val == null) {
+                          _selectedDoctorFilter = 'ALL';
+                        } else {
+                          final match = _clinicDoctors.firstWhere((d) => d['id'] == val, orElse: () => null);
+                          _selectedDoctorFilter = match != null ? (match['full_name'] ?? '').toString() : 'ALL';
+                        }
+                      });
+                      _fetchAppointments();
                     },
                   ),
                 ),
@@ -1907,13 +1947,13 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                                 const Icon(Icons.badge_outlined, size: 12, color: Color(0xFF0284C7)),
                                 const SizedBox(width: 4),
                                 Text(
-                                  'Assigned: Dr. ${a['doctor_name'] ?? 'General'}',
+                                  'Assigned: ${_formatDoctorTitle(a['doctor_name'] ?? 'General')}',
                                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
                                 ),
                                 if (isVisited && a['attended_by_doctor_name'] != null) ...[
                                   const SizedBox(width: 6),
                                   Text(
-                                    '• Attended by: Dr. ${a['attended_by_doctor_name']}',
+                                    '• Attended by: ${_formatDoctorTitle(a['attended_by_doctor_name'])}',
                                     style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
                                   ),
                                 ],
@@ -2216,7 +2256,14 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
       // Cancelled visits are never sent or shown to doctor
       if (status == 'CANCELLED') return false;
 
-      if (_selectedDoctorFilter != 'ALL') {
+      // Filter backed by unique Doctor ID
+      if (_selectedDoctorFilterId != null) {
+        final aDocId = a['doctor_id'] != null ? int.tryParse('${a['doctor_id']}') : null;
+        final aAttendedId = a['attended_by_doctor_id'] != null ? int.tryParse('${a['attended_by_doctor_id']}') : null;
+        if (aDocId != _selectedDoctorFilterId && aAttendedId != _selectedDoctorFilterId) {
+          return false;
+        }
+      } else if (_selectedDoctorFilter != 'ALL' && _selectedDoctorFilter.isNotEmpty) {
         final dName = (a['doctor_name'] ?? '').toString().toLowerCase();
         if (!dName.contains(_selectedDoctorFilter.toLowerCase())) return false;
       }
@@ -2264,7 +2311,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                     ),
                   ),
 
-                  // Doctor Filter Dropdown
+                  // Doctor Filter Dropdown (backed by Doctor ID)
                   Container(
                     height: 36,
                     padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -2274,24 +2321,31 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                       border: Border.all(color: const Color(0xFFCBD5E1)),
                     ),
                     child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _clinicDoctors.any((d) => (d['full_name'] ?? '').toString() == _selectedDoctorFilter) || _selectedDoctorFilter == 'ALL'
-                            ? _selectedDoctorFilter
-                            : 'ALL',
+                      child: DropdownButton<int?>(
+                        value: _clinicDoctors.any((d) => d['id'] == _selectedDoctorFilterId) ? _selectedDoctorFilterId : null,
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                         icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0284C7)),
                         items: [
-                          const DropdownMenuItem(value: 'ALL', child: Text('👨‍⚕️ All Doctors')),
+                          const DropdownMenuItem<int?>(value: null, child: Text('👨‍⚕️ All Doctors')),
                           ..._clinicDoctors.map((d) {
+                            final docId = d['id'] as int?;
                             final docName = (d['full_name'] ?? 'Doctor').toString();
-                            return DropdownMenuItem(
-                              value: docName,
+                            return DropdownMenuItem<int?>(
+                              value: docId,
                               child: Text(_formatDoctorTitle(docName)),
                             );
                           }),
                         ],
                         onChanged: (val) {
-                          if (val != null) setState(() => _selectedDoctorFilter = val);
+                          setState(() {
+                            _selectedDoctorFilterId = val;
+                            if (val == null) {
+                              _selectedDoctorFilter = 'ALL';
+                            } else {
+                              final match = _clinicDoctors.firstWhere((d) => d['id'] == val, orElse: () => null);
+                              _selectedDoctorFilter = match != null ? (match['full_name'] ?? '').toString() : 'ALL';
+                            }
+                          });
                         },
                       ),
                     ),
@@ -2300,17 +2354,23 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                   if (isDoctorUser || _loggedInDoctorName.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     FilterChip(
-                      selected: _selectedDoctorFilter == _loggedInDoctorName,
+                      selected: _selectedDoctorFilterId != null && _selectedDoctorFilterId == _loggedInDoctorId,
                       avatar: const Icon(Icons.person_pin_rounded, size: 14),
                       label: const Text('My Patients Only', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                       selectedColor: const Color(0xFF059669),
                       backgroundColor: const Color(0xFFECFDF5),
                       labelStyle: TextStyle(
-                        color: _selectedDoctorFilter == _loggedInDoctorName ? Colors.white : const Color(0xFF065F46),
+                        color: (_selectedDoctorFilterId != null && _selectedDoctorFilterId == _loggedInDoctorId) ? Colors.white : const Color(0xFF065F46),
                       ),
                       onSelected: (val) {
                         setState(() {
-                          _selectedDoctorFilter = val ? _loggedInDoctorName : 'ALL';
+                          if (val && _loggedInDoctorId != null) {
+                            _selectedDoctorFilterId = _loggedInDoctorId;
+                            _selectedDoctorFilter = _loggedInDoctorName;
+                          } else {
+                            _selectedDoctorFilterId = null;
+                            _selectedDoctorFilter = 'ALL';
+                          }
                         });
                       },
                     ),
@@ -2488,6 +2548,59 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                       Text(
                         'Phone: ${a['patient_phone'] ?? '-'}  •  Age: ${a['patient_age'] ?? '-'}  •  ${(a['patient_gender'] ?? '-').toString().toUpperCase()}',
                         style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFF6FF),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: const Color(0xFFBFDBFE)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.medical_services_rounded, size: 12, color: Color(0xFF0284C7)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  isVisited && a['attended_by_doctor_name'] != null
+                                      ? 'Doctor: ${_formatDoctorTitle(a['attended_by_doctor_name'])}'
+                                      : 'Doctor: ${_formatDoctorTitle(a['doctor_name'] ?? 'Doctor')}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0369A1),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isVisited && a['attended_by_doctor_name'] != null && a['doctor_name'] != null &&
+                              a['doctor_name'].toString().trim().toLowerCase() != a['attended_by_doctor_name'].toString().trim().toLowerCase()) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              '(Assigned: ${_formatDoctorTitle(a['doctor_name'])})',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
+                            ),
+                          ],
+                          if (a['department'] != null && a['department'].toString().isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Text(
+                                a['department'].toString(),
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ],
                   ),
@@ -4194,51 +4307,62 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
       return true;
     }
 
-    String clean(String s) =>
-        s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
-
-    final apptDocName = clean((widget.appointment['attended_by_doctor_name'] ??
-            widget.appointment['doctor_name'] ??
-            '')
-        .toString());
-    final myName = clean(widget.loggedInDoctorName);
-    final deskName = clean(widget.selectedDeskDoctor ?? '');
-
-    // 2. Matching doctor ID
-    final apptDocId = widget.appointment['doctor_id'];
-    if (widget.loggedInDoctorId != null &&
-        apptDocId != null &&
-        widget.loggedInDoctorId == apptDocId) {
-      return true;
+    // Must be in DOCTOR role to edit prescriptions (reception/staff can view and print only)
+    if (!role.contains('DOCTOR') && !role.contains('CLINICIAN') && !role.contains('PHYSICIAN')) {
+      return false;
     }
 
-    // 3. Matching logged-in doctor name or selected consultation desk doctor name
-    if (myName.isNotEmpty && (apptDocName.contains(myName) || myName.contains(apptDocName))) {
-      return true;
-    }
-    if (deskName.isNotEmpty &&
-        deskName != 'all' &&
-        (apptDocName.contains(deskName) || deskName.contains(apptDocName))) {
-      return true;
-    }
+    final currentDocId = widget.loggedInDoctorId;
+    final apptAttendedId = widget.appointment['attended_by_doctor_id'] != null
+        ? int.tryParse('${widget.appointment['attended_by_doctor_id']}')
+        : null;
+    final apptDocId = widget.appointment['doctor_id'] != null
+        ? int.tryParse('${widget.appointment['doctor_id']}')
+        : null;
 
-    // 4. If new consultation / patient waiting in queue and no prescription exists yet
     final status = (widget.appointment['status'] ?? '').toString().toUpperCase();
     final isVisited = status == 'VISITED' || status == 'COMPLETED';
-    final hasPrescription = widget.appointment['attended_by_doctor_name'] != null ||
+    final hasPrescription = widget.appointment['attended_by_doctor_id'] != null ||
         (widget.appointment['prescription_notes'] != null &&
             widget.appointment['prescription_notes'].toString().isNotEmpty) ||
         (widget.appointment['prescribed_medicines'] is List &&
             (widget.appointment['prescribed_medicines'] as List).isNotEmpty);
 
-    if (!isVisited && !hasPrescription) {
-      final isDoctor = role == 'DOCTOR' || role.contains('DOCTOR');
-      if (isDoctor || deskName.isNotEmpty) {
+    // 2. If prescription has already been created or patient attended:
+    // Strictly verify doctor by unique doctor ID (backend backed)
+    if (isVisited || hasPrescription) {
+      final owningDocId = apptAttendedId ?? apptDocId;
+      if (currentDocId != null && owningDocId != null) {
+        return currentDocId == owningDocId;
+      }
+
+      String clean(String s) =>
+          s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+
+      final apptDocName = clean((widget.appointment['attended_by_doctor_name'] ??
+              widget.appointment['doctor_name'] ??
+              '')
+          .toString());
+      final myName = clean(widget.loggedInDoctorName);
+      final deskName = clean(widget.selectedDeskDoctor ?? '');
+
+      if (myName.isNotEmpty && (apptDocName.contains(myName) || myName.contains(apptDocName))) {
         return true;
       }
+      if (deskName.isNotEmpty &&
+          deskName != 'all' &&
+          (apptDocName.contains(deskName) || deskName.contains(apptDocName))) {
+        return true;
+      }
+      return false;
     }
 
-    return false;
+    // 3. New patient consultation / waiting in queue
+    if (currentDocId != null && apptDocId != null) {
+      return currentDocId == apptDocId;
+    }
+
+    return true;
   }
 
   final TextEditingController _notesCtrl = TextEditingController();
@@ -6181,22 +6305,41 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
     super.dispose();
   }
 
-  void _onDoctorSelected(String? name) {
-    if (name == null) return;
+  static String _formatDoctorTitle(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'Doctor';
+    final clean = trimmed.replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+    return 'Dr. $clean';
+  }
+
+  void _onDoctorIdSelected(int id) {
     setState(() {
-      _doctorName = name;
+      _doctorId = id;
       final doc = widget.doctors.firstWhere(
-        (d) => (d['full_name'] ?? '').toString() == name,
+        (d) => d['id'] == id,
         orElse: () => null,
       );
       if (doc != null) {
-        _doctorId = doc['id'];
+        _doctorName = (doc['full_name'] ?? 'Doctor').toString();
         _feeCtrl.text = (((doc['consultation_fee'] ?? 0.0) as num).toDouble()).toStringAsFixed(2);
         if (!_isDoctorAvailableOn(_date, doc)) {
           _date = _findNextAvailableDate(DateTime.now(), doc);
         }
       }
     });
+  }
+
+  void _onDoctorSelected(String? name) {
+    if (name == null) return;
+    final doc = widget.doctors.firstWhere(
+      (d) => (d['full_name'] ?? '').toString() == name,
+      orElse: () => null,
+    );
+    if (doc != null && doc['id'] != null) {
+      _onDoctorIdSelected(doc['id'] as int);
+    } else {
+      setState(() => _doctorName = name);
+    }
   }
 
   Future<void> _create() async {
@@ -6294,31 +6437,36 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Doctor Selection
+              // Doctor Selection (backed by unique Doctor ID)
               if (widget.doctors.isNotEmpty) ...[
-                DropdownButtonFormField<String>(
-                  value: widget.doctors.any((d) => (d['full_name'] ?? '').toString() == _doctorName)
-                      ? _doctorName
-                      : (widget.doctors.first['full_name'] ?? '').toString(),
+                DropdownButtonFormField<int>(
+                  value: widget.doctors.any((d) => d['id'] == _doctorId)
+                      ? _doctorId
+                      : (widget.doctors.first['id'] as int?),
                   decoration: InputDecoration(
                     labelText: 'Attending Clinician / Doctor *',
                     isDense: true,
                     prefixIcon: const Icon(Icons.medical_services_outlined, size: 18, color: Color(0xFF0284C7)),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  items: widget.doctors.map<DropdownMenuItem<String>>((doc) {
+                  items: widget.doctors.map<DropdownMenuItem<int>>((doc) {
+                    final dId = doc['id'] as int;
                     final dName = (doc['full_name'] ?? 'Doctor').toString();
                     final spec = (doc['speciality'] ?? '').toString();
                     final fee = ((doc['consultation_fee'] ?? 0) as num).toDouble();
-                    return DropdownMenuItem<String>(
-                      value: dName,
+                    return DropdownMenuItem<int>(
+                      value: dId,
                       child: Text(
-                        'Dr. $dName (${spec.isNotEmpty ? spec : 'General'} - ${CurrencyService.symbol}$fee)',
+                        '${_formatDoctorTitle(dName)} (${spec.isNotEmpty ? spec : 'General'} - ${CurrencyService.symbol}$fee)',
                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                       ),
                     );
                   }).toList(),
-                  onChanged: _onDoctorSelected,
+                  onChanged: (int? newId) {
+                    if (newId != null) {
+                      _onDoctorIdSelected(newId);
+                    }
+                  },
                 ),
                 const SizedBox(height: 10),
               ],

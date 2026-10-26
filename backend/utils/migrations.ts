@@ -4907,6 +4907,8 @@ COMMIT;
         ALTER TABLE goods_receipt_items ADD COLUMN IF NOT EXISTS total_after_tax NUMERIC(12, 2) DEFAULT 0.00;
         ALTER TABLE goods_receipt_items ADD COLUMN IF NOT EXISTS department VARCHAR(100);
         ALTER TABLE goods_receipt_items ADD COLUMN IF NOT EXISTS sale_rate NUMERIC(12, 2) DEFAULT 0.00;
+        ALTER TABLE goods_receipt_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE goods_receipt_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
         -- purchase_order_items
         ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS tax_amount NUMERIC(12, 2) DEFAULT 0.00;
@@ -5228,6 +5230,138 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_stock_taking_outlet_id ON stock_taking(outlet_id);
         CREATE INDEX IF NOT EXISTS idx_supplier_master_outlet_id ON supplier_master(outlet_id);
         CREATE INDEX IF NOT EXISTS idx_milk_subscriptions_outlet_id ON milk_subscriptions(outlet_id);
+      `);
+    }
+  },
+  {
+    version: 127,
+    description: "Parity synchronization: add missing clinic OPD session & payment columns, restaurant table active flag, doctor public profiles, lab master, developer keys, and third-party orders schema",
+    up: async (db: any) => {
+      await db.query(`
+        -- 1. Table: clinic_appointments (Ensure all OPD clinical, billing, package, session & vital sign columns exist)
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS attended_by_doctor_id INTEGER;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS attended_by_doctor_name VARCHAR(150);
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS prescription_file_url TEXT;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS diagnosis TEXT;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS vital_signs JSONB DEFAULT '{}'::jsonb;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS billing_sale_no VARCHAR(50);
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) DEFAULT 'UNPAID';
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(50);
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(10, 2) DEFAULT 0.00;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS package_name VARCHAR(150);
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS session_number INTEGER DEFAULT 0;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS total_package_sessions INTEGER DEFAULT 0;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS token_number INTEGER DEFAULT 1;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS is_package_session BOOLEAN DEFAULT FALSE;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(10, 2) DEFAULT 0.00;
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS refund_mode VARCHAR(50);
+        ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;
+
+        -- 2. Table: restaurant_tables (Ensure table active status flag exists)
+        ALTER TABLE restaurant_tables ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+
+        -- 3. Table: users (Doctor registration, WhatsApp & clinic public listing preferences)
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS registration_no VARCHAR(100);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_no VARCHAR(50);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS public_display_options JSONB DEFAULT '{"show_clinic_name": true, "show_doctor_name": true, "show_address": true, "show_phone": true, "show_whatsapp": true, "show_email": true, "show_fees": true}'::jsonb;
+
+        -- 4. Table: clinic_test_master (Lab & diagnostic test catalog)
+        CREATE TABLE IF NOT EXISTS clinic_test_master (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL,
+          test_name VARCHAR(150) NOT NULL,
+          category VARCHAR(100) DEFAULT 'CUSTOM',
+          default_unit VARCHAR(50) DEFAULT '',
+          normal_range VARCHAR(100) DEFAULT '',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_clinic_test_master_outlet ON clinic_test_master(outlet_id);
+
+        -- 5. Tables: Community Blocked, Channel Exited & Joined Channel Relations
+        CREATE TABLE IF NOT EXISTS community_blocked_users (
+          id SERIAL PRIMARY KEY,
+          user_id VARCHAR(100) NOT NULL,
+          blocked_user_id VARCHAR(100) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, blocked_user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_comm_blocked_user ON community_blocked_users(user_id);
+
+        CREATE TABLE IF NOT EXISTS community_channel_exited_users (
+          id SERIAL PRIMARY KEY,
+          channel_id VARCHAR(100) NOT NULL,
+          user_id VARCHAR(100) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(channel_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_comm_channel_exited ON community_channel_exited_users(channel_id, user_id);
+
+        CREATE TABLE IF NOT EXISTS community_joined_channels (
+          id SERIAL PRIMARY KEY,
+          channel_id VARCHAR(100) NOT NULL,
+          user_id VARCHAR(100) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(channel_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_comm_joined_channels ON community_joined_channels(channel_id, user_id);
+
+        -- 6. Tables: Developer Ecosystem (OpenAPI API Keys & Webhooks)
+        CREATE TABLE IF NOT EXISTS developer_api_keys (
+          id VARCHAR(100) PRIMARY KEY,
+          outlet_id INT NOT NULL DEFAULT 0,
+          key_name VARCHAR(150) NOT NULL,
+          api_key VARCHAR(100) UNIQUE NOT NULL,
+          client_id VARCHAR(100) UNIQUE NOT NULL,
+          client_secret VARCHAR(100) NOT NULL,
+          scopes JSONB DEFAULT '["orders:read", "billing:read", "reports:read"]'::jsonb,
+          is_active BOOLEAN DEFAULT TRUE,
+          last_used_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_dev_api_keys_outlet ON developer_api_keys(outlet_id);
+        CREATE INDEX IF NOT EXISTS idx_dev_api_keys_api_key ON developer_api_keys(api_key);
+        CREATE INDEX IF NOT EXISTS idx_dev_api_keys_client_id ON developer_api_keys(client_id);
+
+        CREATE TABLE IF NOT EXISTS developer_webhooks (
+          id VARCHAR(100) PRIMARY KEY,
+          outlet_id INT NOT NULL DEFAULT 0,
+          topic VARCHAR(100) NOT NULL,
+          target_url TEXT NOT NULL,
+          secret VARCHAR(100) NOT NULL,
+          is_active BOOLEAN DEFAULT TRUE,
+          failure_count INT DEFAULT 0,
+          last_triggered_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_dev_webhooks_outlet ON developer_webhooks(outlet_id);
+
+        -- 7. Table: third_party_orders (Isolated Multi-Channel Aggregator Orders)
+        CREATE TABLE IF NOT EXISTS third_party_orders (
+          id VARCHAR(64) PRIMARY KEY,
+          outlet_id INTEGER NOT NULL DEFAULT 0,
+          plugin_id VARCHAR(64) NOT NULL,
+          source_tag VARCHAR(64) NOT NULL DEFAULT 'EXTERNAL',
+          external_order_id VARCHAR(128) NOT NULL,
+          order_number VARCHAR(128),
+          customer_name VARCHAR(255),
+          customer_phone VARCHAR(64),
+          customer_email VARCHAR(255),
+          financial_status VARCHAR(64) DEFAULT 'PAID',
+          fulfillment_status VARCHAR(64) DEFAULT 'UNFULFILLED',
+          total_amount NUMERIC(12, 2) DEFAULT 0.00,
+          currency VARCHAR(16) DEFAULT 'INR',
+          line_items JSONB,
+          raw_payload JSONB,
+          is_billed BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT uq_outlet_source_order UNIQUE (outlet_id, source_tag, external_order_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_third_party_orders_outlet ON third_party_orders (outlet_id, source_tag);
+        CREATE INDEX IF NOT EXISTS idx_third_party_orders_created ON third_party_orders (created_at DESC);
       `);
     }
   }

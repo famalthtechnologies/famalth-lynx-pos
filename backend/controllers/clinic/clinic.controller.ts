@@ -37,7 +37,11 @@ export const getAppointments = async (req: Request, res: Response) => {
         }
 
         if (doctor_id) {
-            where.doctor_id = Number(doctor_id);
+            const docIdNum = Number(doctor_id);
+            where[Op.or] = [
+                { doctor_id: docIdNum },
+                { attended_by_doctor_id: docIdNum }
+            ];
         } else if (doctor_name && doctor_name.trim() && doctor_name !== 'ALL') {
             where.doctor_name = { [Op.iLike]: `%${doctor_name.trim()}%` };
         }
@@ -112,6 +116,12 @@ export const getAppointments = async (req: Request, res: Response) => {
                 } catch (_) {}
             }
             const attendedDoc = appt.attended_by_doctor_name || (appt.vital_signs && (appt.vital_signs as any).attended_by_doctor_name) || (appt.status === 'VISITED' ? appt.doctor_name : null);
+        const attendedDocId = appt.attended_by_doctor_id || (appt.status === "VISITED" ? appt.doctor_id : null);
+        if (appt.setDataValue) {
+            appt.setDataValue("attended_by_doctor_id", attendedDocId);
+        } else {
+            appt.attended_by_doctor_id = attendedDocId;
+        }
             if (appt.setDataValue) {
                 appt.setDataValue('attended_by_doctor_name', attendedDoc);
             } else {
@@ -276,6 +286,7 @@ export const createAppointment = async (req: Request, res: Response) => {
             appointment_time,
             doctor_name: doctor_name ? doctor_name.trim() : null,
             doctor_id: doctor_id ? Number(doctor_id) : null,
+            attended_by_doctor_id: doctor_id ? Number(doctor_id) : null,
             consultation_fee: consultation_fee ? Number(consultation_fee) : 0.00,
             payment_status: payment_status || 'UNPAID',
             payment_mode: payment_mode || null,
@@ -561,8 +572,22 @@ export const updateAppointmentStatus = async (req: Request, res: Response) => {
                 }
             }
         }
+        if (status === "VISITED") {
+            const uRole = ((req as any).user?.role || "").toString().toUpperCase();
+            if (uRole.includes("DOCTOR") || uRole.includes("CLINICIAN") || uRole.includes("PHYSICIAN")) {
+                updates.attended_by_doctor_id = (req as any).user?.id || appointment.doctor_id;
+                updates.attended_by_doctor_name = (req as any).user?.full_name || (req as any).user?.name || (req as any).user?.username || appointment.doctor_name;
+            } else {
+                updates.attended_by_doctor_id = appointment.doctor_id;
+                updates.attended_by_doctor_name = appointment.doctor_name;
+            }
+        }
         if (doctor_name) {
             updates.doctor_name = doctor_name;
+        }
+        if (req.body.doctor_id) {
+            updates.doctor_id = Number(req.body.doctor_id);
+            updates.attended_by_doctor_id = Number(req.body.doctor_id);
         }
 
         await appointment.update(updates);
@@ -610,19 +635,17 @@ export const savePrescription = async (req: Request, res: Response) => {
             if (u) loggedInDocName = (u.full_name || u.username || '').trim().toLowerCase();
         }
 
-        const existingDocName = (appointment.attended_by_doctor_name || appointment.doctor_name || '').trim().toLowerCase();
+        const currentUserId = user?.id ? Number(user.id) : null;
+        const existingAttendedDocId = appointment.attended_by_doctor_id;
         const existingDocId = appointment.doctor_id;
 
-        // Clean prefix "Dr." or "Dr "
-        const cleanExisting = existingDocName.replace(/^dr\.?\s+/i, '').trim();
-        const cleanCurrent = loggedInDocName.replace(/^dr\.?\s+/i, '').trim();
-
-        // If prescription has already been created/attended, only the prescribing doctor can edit it!
-        if (existingDocId && user.id && Number(existingDocId) !== Number(user.id)) {
-            if (cleanExisting && cleanCurrent && !cleanExisting.includes(cleanCurrent) && !cleanCurrent.includes(cleanExisting)) {
+        // Strict Doctor ID Permission Match in Backend
+        if (!userRole.includes('ADMIN') && !userRole.includes('SUPERADMIN') && !userRole.includes('OWNER') && !userRole.includes('CLINIC_ADMIN') && !userRole.includes('MANAGER')) {
+            const targetDocId = existingAttendedDocId || existingDocId;
+            if (targetDocId && currentUserId && Number(targetDocId) !== currentUserId) {
                 return res.status(403).json({
                     success: false,
-                    message: `Unauthorized: This prescription was created by ${appointment.attended_by_doctor_name || appointment.doctor_name}. Only the prescribing doctor can edit it. You can view and print only.`
+                    message: `Unauthorized: This prescription was created by ${appointment.attended_by_doctor_name || appointment.doctor_name || 'another doctor'}. Only the prescribing doctor can edit it. You can view and print only.`
                 });
             }
         }
@@ -631,7 +654,8 @@ export const savePrescription = async (req: Request, res: Response) => {
             prescription_notes: prescription_notes || '',
             prescribed_medicines: Array.isArray(prescribed_medicines) ? prescribed_medicines : [],
             status: 'VISITED',
-            visited_at: appointment.visited_at || new Date()
+            visited_at: appointment.visited_at || new Date(),
+            attended_by_doctor_id: (user?.id ? Number(user.id) : null) || appointment.doctor_id
         };
 
         const attending = attended_by_doctor_name || doctor_name || appointment.doctor_name || (user?.full_name || user?.name);
@@ -2091,6 +2115,7 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
             appointment_time,
             doctor_name: doctor_name ? doctor_name.trim() : null,
             doctor_id: doctor_id ? Number(doctor_id) : null,
+            attended_by_doctor_id: doctor_id ? Number(doctor_id) : null,
             consultation_fee: consultation_fee ? Number(consultation_fee) : 0.00,
             payment_status: payment_status || 'UNPAID',
             payment_mode: payment_mode || null,
@@ -2991,12 +3016,19 @@ export const getPublicPatientSubscriptions = async (req: Request, res: Response)
         let upcomingScheduledCount = 0;
         let nextUpcomingDate: string | null = null;
         try {
+            const targetOutletId = (req as any).user?.outlet_id || (req.query as any)?.outlet_id;
+            const fromDateVal = (req.query as any)?.from_date;
+            const toDateVal = (req.query as any)?.to_date;
+            const whereAppt: any = {
+                status: { [Op.in]: ['SCHEDULED', 'CONFIRMED'] },
+                appointment_date: { [Op.gt]: toDateVal || fromDateVal || todayStr }
+            };
+            if (targetOutletId) whereAppt.outlet_id = targetOutletId;
+            if (phone) whereAppt.patient_phone = phone.trim();
+            else if (email) whereAppt.patient_email = email.trim().toLowerCase();
+
             const upcomingAppts = await (req as any).propertyDb.models.clinic_appointments.findAll({
-                where: {
-                    outlet_id,
-                    status: { [Op.in]: ['SCHEDULED', 'CONFIRMED'] },
-                    appointment_date: { [Op.gt]: to_date || from_date || todayStr }
-                },
+                where: whereAppt,
                 order: [['appointment_date', 'ASC'], ['id', 'ASC']],
                 limit: 10,
                 attributes: ['id', 'appointment_date', 'doctor_name', 'patient_name']

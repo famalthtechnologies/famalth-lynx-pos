@@ -213,6 +213,9 @@ router.post('/stock-transfers/:id/receive', stockTransferCtrl.receiveTransfer);
 router.get('/stock-transfers/overall-progress', stockTransferCtrl.getOverallProgress);
 router.get('/stock-transfers/outlet-progress', stockTransferCtrl.getIndividualOutletProgress);
 router.get('/stock-transfers/outlet-progress/:outlet_id', stockTransferCtrl.getIndividualOutletProgress);
+router.get('/stock-transfers', stockTransferCtrl.listTransfers);
+router.get('/stock-transfers/:id', stockTransferCtrl.getTransferDetails);
+
 // STOCK TAKING (PHYSICAL INVENTORY AUDIT)
 router.get('/stock-taking/items', stockTakingCtrl.getStockTakingItems);
 router.post('/stock-taking/save', stockTakingCtrl.saveStockTakingAudit);
