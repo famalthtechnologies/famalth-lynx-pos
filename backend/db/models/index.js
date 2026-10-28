@@ -335,6 +335,10 @@ propertyDb.models.business_loans =
     require('../../models/property/businessLoan.model')(propertyDb, DataTypes);
 propertyDb.models.capital_assets =
     require('../../models/property/capitalAsset.model')(propertyDb, DataTypes);
+propertyDb.models.transport_vehicles =
+    require('../../models/property/transportVehicle.model')(propertyDb, DataTypes);
+propertyDb.models.transport_drivers =
+    require('../../models/property/transportDriver.model')(propertyDb, DataTypes);
 
 Object.values(propertyDb.models).forEach(model => {
     if (typeof model.associate === 'function') {

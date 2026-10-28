@@ -1652,7 +1652,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                       runSpacing: 8,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       alignment: WrapAlignment.spaceBetween,
-                      children: [
+                      children: [ 
                         Wrap(
                           spacing: 8,
                           crossAxisAlignment: WrapCrossAlignment.center,

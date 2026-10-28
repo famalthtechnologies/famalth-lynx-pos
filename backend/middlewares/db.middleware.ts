@@ -61,8 +61,11 @@ export const dbMiddleware = async (req: Request, res: Response, next: NextFuncti
         `);
         console.log('✅ Self-healed: Checked and added missing columns to tables');
 
-        const runMigrations = require('../utils/migrationRunner');
-        await runMigrations(propertyDb);
+        const rawMigrationRunner = require('../utils/migrationRunner');
+        const runMigrations = typeof rawMigrationRunner === 'function' ? rawMigrationRunner : (rawMigrationRunner.default || rawMigrationRunner.runMigrations);
+        if (typeof runMigrations === 'function') {
+          await runMigrations(propertyDb);
+        }
         console.log('✅ Self-healed: Checked and ran database schema migrations');
       } catch (healErr: any) {
         console.warn('⚠️ Self-healing column check warning:', healErr.message);

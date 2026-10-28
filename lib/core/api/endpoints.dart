@@ -192,6 +192,12 @@ class ApiEndpoints {
   static const String restaurantKitchenStations = '/api/restaurant/kitchen-stations';
   static const String restaurantKots = '/api/restaurant/kots';
   static const String restaurantChallans = '/api/restaurant/challans';
+  static const String transportVehicles = '/api/transport/vehicles';
+  static const String transportDrivers = '/api/transport/drivers';
+  static const String transportAssignTrip = '/api/transport/assign-trip';
+  static const String transportVerifyDelivery = '/api/transport/verify-delivery';
+  static const String transportReleaseTrip = '/api/transport/release-trip';
+  static const String transportActiveTrips = '/api/transport/active-trips';
   static const String emailConfigurations = '/api/restaurant/email-configurations';
   static const String emailTemplates = '/api/restaurant/email-templates';
   static const String recurringExpenses = '/api/finance/recurring-expenses';

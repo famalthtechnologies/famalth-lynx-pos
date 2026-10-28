@@ -616,30 +616,25 @@ const savePrescription = async (req, res) => {
     if (!appointment) {
       return res.status(404).json({ success: false, message: "Appointment not found" });
     }
-    // 1. Doctor & Admin Role Authorization:
-    // Allows registered doctors as well as clinic administrators/managers (matching Flutter _canEdit rules)
-    let isAuthorizedToPrescribe = 
+    // 1. Doctor Authorization: Only doctors can create or edit prescriptions
+    let isDoctorRole = 
         userRole.includes('DOCTOR') || 
         userRole.includes('CLINICIAN') || 
-        userRole.includes('PHYSICIAN') ||
-        userRole.includes('ADMIN') ||
-        userRole.includes('SUPERADMIN') ||
-        userRole.includes('OWNER') ||
-        userRole.includes('CLINIC_ADMIN') ||
-        userRole.includes('MANAGER');
+        userRole.includes('PHYSICIAN');
 
     // Check if user has a doctor profile in users or doctor_master
-    if (!isAuthorizedToPrescribe && user?.id) {
+    if (!isDoctorRole && user?.id) {
         const u = await req.propertyDb.models.users.findByPk(user.id);
         if (u && (u.speciality || (u.role || '').toUpperCase().includes('DOCTOR'))) {
-            isAuthorizedToPrescribe = true;
+            isDoctorRole = true;
         }
     }
 
-    if (!isAuthorizedToPrescribe) {
+    if (!isDoctorRole) {
       return res.status(403).json({
         success: false,
-        message: "Unauthorized: Only registered doctors are authorized to create or edit medical prescriptions. Other personnel can view and print only."
+        unauthorized: true,
+        message: "Unauthorized: Only the assigned registered doctor is authorized to create or edit medical prescriptions. Reception, nursing, and other staff can view and print only."
       });
     }
     let loggedInDocName = (user?.name || user?.full_name || user?.username || "").trim().toLowerCase();
@@ -651,28 +646,33 @@ const savePrescription = async (req, res) => {
     const existingAttendedDocId = appointment.attended_by_doctor_id;
     const existingDocId = appointment.doctor_id;
 
-    // Strict Doctor ID Permission Match in Backend
-    const isClinicAdmin = userRole.includes('ADMIN') || userRole.includes('SUPERADMIN') || userRole.includes('OWNER') || userRole.includes('CLINIC_ADMIN') || userRole.includes('MANAGER');
-    if (!isClinicAdmin) {
-        const targetDocId = existingAttendedDocId || existingDocId;
-        const apptDocName = (appointment.attended_by_doctor_name || appointment.doctor_name || '').trim().toLowerCase();
-        const isSameName = Boolean(loggedInDocName && apptDocName && (loggedInDocName.includes(apptDocName) || apptDocName.includes(loggedInDocName)));
+    // Strict Doctor ID Permission Match: Only the assigned doctor can edit this prescription
+    const targetDocId = existingAttendedDocId || existingDocId;
+    const apptDocName = (appointment.attended_by_doctor_name || appointment.doctor_name || '').trim();
+    const cleanTargetDocName = apptDocName.replace(/^Dr\.?\s*/i, '').trim().toLowerCase();
+    const cleanLoggedInDocName = loggedInDocName.replace(/^Dr\.?\s*/i, '').trim().toLowerCase();
+    const isSameName = Boolean(cleanLoggedInDocName && cleanTargetDocName && (cleanLoggedInDocName.includes(cleanTargetDocName) || cleanTargetDocName.includes(cleanLoggedInDocName)));
 
-        if (targetDocId && currentUserId && Number(targetDocId) !== currentUserId && !isSameName) {
-            let isLinkedDoctorUser = false;
-            if (req.propertyDb.models.doctor_master) {
-                const docMaster = await req.propertyDb.models.doctor_master.findByPk(targetDocId);
-                if (docMaster && docMaster.user_id && Number(docMaster.user_id) === currentUserId) {
-                    isLinkedDoctorUser = true;
-                }
-            }
-            if (!isLinkedDoctorUser) {
-                return res.status(403).json({
-                    success: false,
-                    message: `Unauthorized: This prescription was created by ${appointment.attended_by_doctor_name || appointment.doctor_name || 'another doctor'}. Only the prescribing doctor can edit it. You can view and print only.`
-                });
-            }
+    let isAssignedDoctor = false;
+    if (!targetDocId && !apptDocName) {
+        isAssignedDoctor = true;
+    } else if (targetDocId && currentUserId && Number(targetDocId) === currentUserId) {
+        isAssignedDoctor = true;
+    } else if (isSameName) {
+        isAssignedDoctor = true;
+    } else if (targetDocId && currentUserId && req.propertyDb.models.doctor_master) {
+        const docMaster = await req.propertyDb.models.doctor_master.findByPk(targetDocId);
+        if (docMaster && docMaster.user_id && Number(docMaster.user_id) === currentUserId) {
+            isAssignedDoctor = true;
         }
+    }
+
+    if (!isAssignedDoctor) {
+        return res.status(403).json({
+            success: false,
+            unauthorized: true,
+            message: `Unauthorized: This prescription is assigned to Dr. ${cleanTargetDocName || 'the assigned doctor'}. Only the assigned doctor can edit or save it. You can view and print only.`
+        });
     }
     const updates = {
       prescription_notes: prescription_notes || "",
@@ -846,6 +846,16 @@ const completeAppointmentBilling = async (req, res) => {
       billing_sale_id: sale_id ? Number(sale_id) : appointment.billing_sale_id,
       billing_sale_no: sale_no ? String(sale_no).trim() : appointment.billing_sale_no
     });
+    // Ensure linked sale header has doctor name attached
+    if (sale_id && req.propertyDb.models.sales_headers) {
+      const docName = appointment.attended_by_doctor_name || appointment.doctor_name;
+      if (docName) {
+        await req.propertyDb.models.sales_headers.update(
+          { doctor_name: docName },
+          { where: { id: Number(sale_id), outlet_id: outlet_id2 } }
+        ).catch(() => null);
+      }
+    }
     return res.json({
       success: true,
       message: "Appointment billing recorded successfully.",
@@ -936,20 +946,32 @@ const getClinicDoctors = async (req, res) => {
           feesByMode["PACKAGE"] = (feesByMode["PACKAGE"] || 0) + 1;
         }
       }
+      // Medicine sales where this doctor was referenced (by doctor_name or by billed appointment sales)
       let referredMedicineSales = 0;
       try {
-        const sales = await req.propertyDb.models.sales_headers.findAll({
-          where: {
-            outlet_id: outlet_id2,
-            [import_sequelize.Op.or]: [
-              { doctor_name: { [import_sequelize.Op.iLike]: `%${cleanName}%` } },
-              { doctor_name: { [import_sequelize.Op.iLike]: `%${rawName}%` } }
-            ]
-          },
-          attributes: ["net_amount", "total_amount"]
-        });
-        referredMedicineSales = sales.reduce((sum, s) => sum + Number(s.net_amount || s.total_amount || 0), 0);
-      } catch (_) {
+        const doctorSaleIds = appointments
+          .filter((a) => a.billing_sale_id)
+          .map((a) => Number(a.billing_sale_id))
+          .filter((id) => !isNaN(id) && id > 0);
+
+        const orConditions = [];
+        if (cleanName) orConditions.push({ doctor_name: { [import_sequelize.Op.iLike]: `%${cleanName}%` } });
+        if (rawName && rawName !== cleanName) orConditions.push({ doctor_name: { [import_sequelize.Op.iLike]: `%${rawName}%` } });
+        if (doctorSaleIds.length > 0) orConditions.push({ id: { [import_sequelize.Op.in]: doctorSaleIds } });
+
+        if (orConditions.length > 0) {
+          const sales = await req.propertyDb.models.sales_headers.findAll({
+            where: {
+              outlet_id: outlet_id2,
+              [import_sequelize.Op.or]: orConditions,
+              status: { [import_sequelize.Op.ne]: 'CANCELLED' }
+            },
+            attributes: ["id", "net_amount"]
+          });
+          referredMedicineSales = sales.reduce((sum, s) => sum + Number(s.net_amount || 0), 0);
+        }
+      } catch (err) {
+        console.error('[DOCTOR MEDICINE SALES ERROR]', err);
       }
       results.push({
         id: d.id,
@@ -1418,12 +1440,14 @@ const getClinicAnalytics = async (req, res) => {
           where: {
             id: { [import_sequelize.Op.in]: billedSaleIds },
             outlet_id: outlet_id2,
-            status: "COMPLETED"
-          }
+            status: { [import_sequelize.Op.ne]: 'CANCELLED' }
+          },
+          attributes: ['id', 'net_amount']
         });
-        totalMedicineRevenue = sales.reduce((acc, s) => acc + Number(s.total_amount || 0), 0);
+        totalMedicineRevenue = sales.reduce((acc, s) => acc + Number(s.net_amount || 0), 0);
       }
-    } catch (_) {
+    } catch (err) {
+      console.error('[CLINIC ANALYTICS MEDICINE REVENUE ERROR]', err);
     }
     const totalClinicRevenue = Number((totalConsultationFees + totalSubscriptionRevenue + totalMedicineRevenue).toFixed(2));
     const dateMap = {};

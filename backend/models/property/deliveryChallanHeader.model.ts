@@ -1,4 +1,4 @@
-module.exports = (sequelize, DataTypes) => {
+module.exports = (sequelize: any, DataTypes: any) => {
     const DeliveryChallanHeader = sequelize.define('delivery_challan_headers', {
         id: {
             type: DataTypes.INTEGER,
@@ -36,6 +36,63 @@ module.exports = (sequelize, DataTypes) => {
         created_by: {
             type: DataTypes.INTEGER,
             allowNull: true
+        },
+        // Fleet & Transportation Fields
+        vehicle_id: {
+            type: DataTypes.INTEGER,
+            allowNull: true
+        },
+        vehicle_number: {
+            type: DataTypes.STRING(50),
+            allowNull: true
+        },
+        vehicle_type: {
+            type: DataTypes.STRING(50),
+            allowNull: true
+        },
+        driver_id: {
+            type: DataTypes.INTEGER,
+            allowNull: true
+        },
+        driver_name: {
+            type: DataTypes.STRING(100),
+            allowNull: true
+        },
+        driver_phone: {
+            type: DataTypes.STRING(30),
+            allowNull: true
+        },
+        trip_id: {
+            type: DataTypes.STRING(50),
+            allowNull: true
+        },
+        delivery_status: {
+            type: DataTypes.STRING(30),
+            defaultValue: 'PENDING' // 'PENDING', 'DISPATCHED', 'IN_TRANSIT', 'DELIVERED', 'RETURNED'
+        },
+        delivery_otp: {
+            type: DataTypes.STRING(10),
+            allowNull: true
+        },
+        delivered_at: {
+            type: DataTypes.DATE,
+            allowNull: true
+        },
+        delivered_by_remark: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
+        delivery_proof: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
+        e_way_bill_no: {
+            type: DataTypes.STRING(50),
+            allowNull: true
+        },
+        destination_address: {
+            type: DataTypes.TEXT,
+            allowNull: true
         }
     }, {
         tableName: 'delivery_challan_headers',
@@ -44,19 +101,34 @@ module.exports = (sequelize, DataTypes) => {
         updatedAt: 'updated_at'
     });
 
-    DeliveryChallanHeader.associate = (models) => {
-        DeliveryChallanHeader.belongsTo(models.users, {
-            foreignKey: 'created_by',
-            as: 'creator'
-        });
-        DeliveryChallanHeader.hasMany(models.delivery_challan_items, {
-            foreignKey: 'challan_id',
-            as: 'items'
-        });
+    DeliveryChallanHeader.associate = (models: any) => {
+        if (models.users) {
+            DeliveryChallanHeader.belongsTo(models.users, {
+                foreignKey: 'created_by',
+                as: 'creator'
+            });
+        }
+        if (models.delivery_challan_items) {
+            DeliveryChallanHeader.hasMany(models.delivery_challan_items, {
+                foreignKey: 'challan_id',
+                as: 'items'
+            });
+        }
+        if (models.transport_vehicles) {
+            DeliveryChallanHeader.belongsTo(models.transport_vehicles, {
+                foreignKey: 'vehicle_id',
+                as: 'vehicle'
+            });
+        }
+        if (models.transport_drivers) {
+            DeliveryChallanHeader.belongsTo(models.transport_drivers, {
+                foreignKey: 'driver_id',
+                as: 'driver'
+            });
+        }
     };
 
     return DeliveryChallanHeader;
 };
-
 
 export default module.exports;

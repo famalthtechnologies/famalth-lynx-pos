@@ -25,6 +25,14 @@ class ClinicDashboardScreen extends StatefulWidget {
   State<ClinicDashboardScreen> createState() => _ClinicDashboardScreenState();
 }
 
+enum ClinicTab {
+  reception,
+  doctor,
+  pharmacy,
+  therapy,
+  analytics,
+}
+
 class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
   bool _isLoading = false;
@@ -34,6 +42,13 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   String _userRole = '';
   String _loggedInDoctorName = '';
   int? _loggedInDoctorId;
+  List<ClinicTab> _availableTabs = [
+    ClinicTab.reception,
+    ClinicTab.doctor,
+    ClinicTab.pharmacy,
+    ClinicTab.therapy,
+    ClinicTab.analytics,
+  ];
 
   // Multi-status filters for Reception OPD Desk
   String _statusFilter = 'ALL';
@@ -76,7 +91,12 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 5, vsync: this, initialIndex: widget.initialIndex.clamp(0, 4));
+    _availableTabs = _computeAllowedTabs(_userRole);
+    _tabCtrl = TabController(
+      length: _availableTabs.length,
+      vsync: this,
+      initialIndex: widget.initialIndex.clamp(0, _availableTabs.length - 1),
+    );
     _tabCtrl.addListener(() {
       if (_tabCtrl.indexIsChanging && mounted) setState(() {});
     });
@@ -86,6 +106,46 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     _fetchAnalytics();
     _fetchSubscriptions();
     _fetchOperatingStatus();
+  }
+
+  List<ClinicTab> _computeAllowedTabs(String role) {
+    final r = role.trim().toUpperCase();
+    if (r == 'ADMIN' ||
+        r == 'SUPERADMIN' ||
+        r == 'OWNER' ||
+        r == 'CLINIC_ADMIN' ||
+        r == 'MANAGER' ||
+        r == 'DOCTOR_ADMIN') {
+      return [
+        ClinicTab.reception,
+        ClinicTab.doctor,
+        ClinicTab.pharmacy,
+        ClinicTab.therapy,
+        ClinicTab.analytics,
+      ];
+    }
+    if (r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN')) {
+      return [ClinicTab.doctor];
+    }
+    if (r.contains('RECEPTION') || r.contains('FRONTDESK')) {
+      return [ClinicTab.reception];
+    }
+    if (r.contains('PHARMAC')) {
+      return [ClinicTab.pharmacy];
+    }
+    if (r.contains('THERAP')) {
+      return [ClinicTab.therapy];
+    }
+    if (r.isEmpty) {
+      return [
+        ClinicTab.reception,
+        ClinicTab.doctor,
+        ClinicTab.pharmacy,
+        ClinicTab.therapy,
+        ClinicTab.analytics,
+      ];
+    }
+    return [ClinicTab.reception];
   }
 
   Future<void> _fetchOperatingStatus() async {
@@ -202,18 +262,27 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
           _loggedInDoctorId = id;
         });
 
-        // Auto-navigate to respective department panel based on role!
+        final allowed = _computeAllowedTabs(role);
+        final bool tabsChanged = _availableTabs.length != allowed.length ||
+            !_availableTabs.asMap().entries.every((e) => allowed[e.key] == e.value);
+        if (tabsChanged) {
+          _tabCtrl.dispose();
+          _availableTabs = allowed;
+          _tabCtrl = TabController(
+            length: _availableTabs.length,
+            vsync: this,
+            initialIndex: 0,
+          );
+          _tabCtrl.addListener(() {
+            if (_tabCtrl.indexIsChanging && mounted) setState(() {});
+          });
+        }
         if (role == 'DOCTOR') {
-          _tabCtrl.animateTo(1); // Doctor Desk
           setState(() {
             _selectedDoctorFilterId = id;
             _selectedDoctorFilter = name.isNotEmpty ? name : 'Doctor';
           });
           _fetchAppointments();
-        } else if (role == 'PHARMACIST') {
-          _tabCtrl.animateTo(2); // Pharmacy Desk
-        } else if (role == 'RECEPTIONIST') {
-          _tabCtrl.animateTo(0); // Reception Desk
         }
       }
     } catch (_) {}
@@ -865,100 +934,44 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
 
   bool _canDoctorEditAppointment(dynamic a) {
     final role = _userRole.trim().toUpperCase();
-    if (role == 'ADMIN' ||
-        role == 'SUPERADMIN' ||
-        role == 'OWNER' ||
-        role == 'CLINIC_ADMIN' ||
-        role == 'MANAGER' ||
-        role == 'DOCTOR_ADMIN') {
-      return true;
-    }
 
     // Must be in DOCTOR role to edit prescriptions (reception/staff can view and print only)
     if (!role.contains('DOCTOR') && !role.contains('CLINICIAN') && !role.contains('PHYSICIAN')) {
       return false;
     }
 
-    // Active doctor ID (operating desk ID or logged-in doctor ID)
-    final currentDocId = _loggedInDoctorId ?? _selectedDoctorFilterId;
-
+    final currentDocId = _loggedInDoctorId;
     final apptAttendedId = a['attended_by_doctor_id'] != null ? int.tryParse('${a['attended_by_doctor_id']}') : null;
     final apptDocId = a['doctor_id'] != null ? int.tryParse('${a['doctor_id']}') : null;
+    final assignedDocId = apptAttendedId ?? apptDocId;
 
-    final status = (a['status'] ?? '').toString().toUpperCase();
-    final isVisited = status == 'VISITED' || status == 'COMPLETED';
-    final hasRx = a['attended_by_doctor_id'] != null || 
-                  (a['prescription_notes'] != null && a['prescription_notes'].toString().isNotEmpty) ||
-                  (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty);
-
-    // If prescription has already been created or attended, ONLY prescribing doctor can edit
-    if (isVisited || hasRx) {
-      final owningDocId = apptAttendedId ?? apptDocId;
-      if (currentDocId != null && owningDocId != null) {
-        return currentDocId == owningDocId;
-      }
-      String cleanDoc(String s) => s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
-      final apptDocName = cleanDoc((a['attended_by_doctor_name'] ?? a['doctor_name'] ?? '').toString());
-      final myDocName = cleanDoc(_loggedInDoctorName);
-      final selectedDesk = cleanDoc(_selectedDoctorFilter);
-      if (myDocName.isNotEmpty && (apptDocName.contains(myDocName) || myDocName.contains(apptDocName))) {
-        return true;
-      }
-      if (selectedDesk.isNotEmpty && selectedDesk != 'all' && (apptDocName.contains(selectedDesk) || selectedDesk.contains(apptDocName))) {
-        return true;
-      }
-      return false;
+    if (currentDocId != null && assignedDocId != null) {
+      return currentDocId == assignedDocId;
     }
 
-    // New patient waiting in queue
-    if (currentDocId != null && apptDocId != null) {
-      return currentDocId == apptDocId;
+    String cleanDoc(String s) => s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+    final apptDocName = cleanDoc((a['attended_by_doctor_name'] ?? a['doctor_name'] ?? '').toString());
+    final myDocName = cleanDoc(_loggedInDoctorName);
+    if (apptDocName.isNotEmpty && myDocName.isNotEmpty) {
+      return apptDocName == myDocName || apptDocName.contains(myDocName) || myDocName.contains(apptDocName);
     }
 
-    return true;
+    if (assignedDocId == null && apptDocName.isEmpty) {
+      return true;
+    }
+
+    return false;
   }
 
   void _openConsultationDialog(dynamic appointment) {
-    String effectiveDoctorName = _loggedInDoctorName;
-    int? effectiveDoctorId = _loggedInDoctorId;
-
-    if (_selectedDoctorFilterId != null) {
-      effectiveDoctorId = _selectedDoctorFilterId;
-      final matched = _clinicDoctors.firstWhere(
-        (d) => d['id'] == _selectedDoctorFilterId,
-        orElse: () => null,
-      );
-      if (matched != null && matched['full_name'] != null) {
-        effectiveDoctorName = matched['full_name'].toString();
-      }
-    } else if (_selectedDoctorFilter != 'ALL' && _selectedDoctorFilter.isNotEmpty) {
-      effectiveDoctorName = _selectedDoctorFilter;
-      final matched = _clinicDoctors.firstWhere(
-        (d) {
-          final fn = (d['full_name'] ?? '').toString().trim().toLowerCase();
-          final sel = _selectedDoctorFilter.trim().toLowerCase();
-          final cleanFn = fn.replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
-          final cleanSel = sel.replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
-          return cleanFn == cleanSel || fn == sel;
-        },
-        orElse: () => null,
-      );
-      if (matched != null && matched['id'] != null) {
-        effectiveDoctorId = int.tryParse('${matched['id']}') ?? effectiveDoctorId;
-      }
-    } else if (appointment['doctor_id'] != null && _userRole.toUpperCase().contains('DOCTOR')) {
-      effectiveDoctorId ??= int.tryParse('${appointment['doctor_id']}');
-      effectiveDoctorName = (appointment['doctor_name'] ?? effectiveDoctorName).toString();
-    }
-
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => _DoctorPrescriptionDialog(
         appointment: appointment,
         userRole: _userRole,
-        loggedInDoctorName: effectiveDoctorName,
-        loggedInDoctorId: effectiveDoctorId,
+        loggedInDoctorName: _loggedInDoctorName,
+        loggedInDoctorId: _loggedInDoctorId,
         selectedDeskDoctor: _selectedDoctorFilter,
         onSaved: () {
           _fetchAppointments();
@@ -1100,108 +1113,126 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
               indicatorWeight: 3,
               labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
-              tabs: [
-                Tab(
-                  child: Row(
-                    children: [
-                      const Icon(Icons.assignment_ind_rounded, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('RECEPTION DESK (OPD)'),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0284C7).withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${_appointments.length}',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0284C7)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Tab(
-                  child: Row(
-                    children: [
-                      const Icon(Icons.medical_services_rounded, size: 16),
-                      const SizedBox(width: 8),
-                      Text(
-                        _userRole == 'DOCTOR' && _loggedInDoctorName.isNotEmpty
-                            ? 'DR. ${_loggedInDoctorName.toUpperCase()} CONSULTATION'
-                            : 'DOCTOR CONSULTATION',
-                      ),
-                    ],
-                  ),
-                ),
-                Tab(
-                  child: Row(
-                    children: [
-                      const Icon(Icons.medication_rounded, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('PHARMACY & DISPENSING'),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF059669).withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${_appointments.where((a) => (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty)).length}',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Tab(
-                  child: Row(
-                    children: [
-                      const Icon(Icons.card_membership_rounded, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('THERAPY & PACKAGES'),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${_subscriptions.length}',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Tab(
-                  child: Row(
-                    children: [
-                      Icon(Icons.analytics_rounded, size: 16),
-                      SizedBox(width: 8),
-                      Text('STORE & CLINIC ANALYTICS'),
-                    ],
-                  ),
-                ),
-              ],
+              tabs: _availableTabs.map((t) => _buildTabItem(t)).toList(),
             ),
           ),
         ),
       ),
       body: TabBarView(
         controller: _tabCtrl,
-        children: [
-          _buildAppointmentsTab(),
-          _buildDoctorDeskTab(),
-          _buildPharmacyDeskTab(),
-          _buildSubscriptionsTab(),
-          _buildAnalyticsTab(),
-        ],
+        children: _availableTabs.map((t) => _buildTabView(t)).toList(),
       ),
     );
+  }
+
+  Widget _buildTabItem(ClinicTab tab) {
+    switch (tab) {
+      case ClinicTab.reception:
+        return Tab(
+          child: Row(
+            children: [
+              const Icon(Icons.assignment_ind_rounded, size: 16),
+              const SizedBox(width: 8),
+              const Text('RECEPTION DESK (OPD)'),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${_appointments.length}',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0284C7)),
+                ),
+              ),
+            ],
+          ),
+        );
+      case ClinicTab.doctor:
+        return Tab(
+          child: Row(
+            children: [
+              const Icon(Icons.medical_services_rounded, size: 16),
+              const SizedBox(width: 8),
+              Text(
+                _userRole == 'DOCTOR' && _loggedInDoctorName.isNotEmpty
+                    ? 'DR. ${_loggedInDoctorName.toUpperCase()} CONSULTATION'
+                    : 'DOCTOR CONSULTATION',
+              ),
+            ],
+          ),
+        );
+      case ClinicTab.pharmacy:
+        return Tab(
+          child: Row(
+            children: [
+              const Icon(Icons.medication_rounded, size: 16),
+              const SizedBox(width: 8),
+              const Text('PHARMACY & DISPENSING'),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF059669).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${_appointments.where((a) => (a['prescribed_medicines'] is List && (a['prescribed_medicines'] as List).isNotEmpty)).length}',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                ),
+              ),
+            ],
+          ),
+        );
+      case ClinicTab.therapy:
+        return Tab(
+          child: Row(
+            children: [
+              const Icon(Icons.card_membership_rounded, size: 16),
+              const SizedBox(width: 8),
+              const Text('THERAPY & PACKAGES'),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${_subscriptions.length}',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED)),
+                ),
+              ),
+            ],
+          ),
+        );
+      case ClinicTab.analytics:
+        return const Tab(
+          child: Row(
+            children: [
+              Icon(Icons.analytics_rounded, size: 16),
+              SizedBox(width: 8),
+              Text('STORE & CLINIC ANALYTICS'),
+            ],
+          ),
+        );
+    }
+  }
+
+  Widget _buildTabView(ClinicTab tab) {
+    switch (tab) {
+      case ClinicTab.reception:
+        return _buildAppointmentsTab();
+      case ClinicTab.doctor:
+        return _buildDoctorDeskTab();
+      case ClinicTab.pharmacy:
+        return _buildPharmacyDeskTab();
+      case ClinicTab.therapy:
+        return _buildSubscriptionsTab();
+      case ClinicTab.analytics:
+        return _buildAnalyticsTab();
+    }
   }
 
   // ==========================================
@@ -4297,16 +4328,6 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
   bool get _canEdit {
     final role = widget.userRole.trim().toUpperCase();
 
-    // 1. Full admin / owner / clinic manager override
-    if (role == 'ADMIN' ||
-        role == 'SUPERADMIN' ||
-        role == 'OWNER' ||
-        role == 'CLINIC_ADMIN' ||
-        role == 'MANAGER' ||
-        role == 'DOCTOR_ADMIN') {
-      return true;
-    }
-
     // Must be in DOCTOR role to edit prescriptions (reception/staff can view and print only)
     if (!role.contains('DOCTOR') && !role.contains('CLINICIAN') && !role.contains('PHYSICIAN')) {
       return false;
@@ -4319,50 +4340,30 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
     final apptDocId = widget.appointment['doctor_id'] != null
         ? int.tryParse('${widget.appointment['doctor_id']}')
         : null;
+    final assignedDocId = apptAttendedId ?? apptDocId;
 
-    final status = (widget.appointment['status'] ?? '').toString().toUpperCase();
-    final isVisited = status == 'VISITED' || status == 'COMPLETED';
-    final hasPrescription = widget.appointment['attended_by_doctor_id'] != null ||
-        (widget.appointment['prescription_notes'] != null &&
-            widget.appointment['prescription_notes'].toString().isNotEmpty) ||
-        (widget.appointment['prescribed_medicines'] is List &&
-            (widget.appointment['prescribed_medicines'] as List).isNotEmpty);
-
-    // 2. If prescription has already been created or patient attended:
-    // Strictly verify doctor by unique doctor ID (backend backed)
-    if (isVisited || hasPrescription) {
-      final owningDocId = apptAttendedId ?? apptDocId;
-      if (currentDocId != null && owningDocId != null) {
-        return currentDocId == owningDocId;
-      }
-
-      String clean(String s) =>
-          s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
-
-      final apptDocName = clean((widget.appointment['attended_by_doctor_name'] ??
-              widget.appointment['doctor_name'] ??
-              '')
-          .toString());
-      final myName = clean(widget.loggedInDoctorName);
-      final deskName = clean(widget.selectedDeskDoctor ?? '');
-
-      if (myName.isNotEmpty && (apptDocName.contains(myName) || myName.contains(apptDocName))) {
-        return true;
-      }
-      if (deskName.isNotEmpty &&
-          deskName != 'all' &&
-          (apptDocName.contains(deskName) || deskName.contains(apptDocName))) {
-        return true;
-      }
-      return false;
+    if (currentDocId != null && assignedDocId != null) {
+      return currentDocId == assignedDocId;
     }
 
-    // 3. New patient consultation / waiting in queue
-    if (currentDocId != null && apptDocId != null) {
-      return currentDocId == apptDocId;
+    String clean(String s) =>
+        s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+
+    final apptDocName = clean((widget.appointment['attended_by_doctor_name'] ??
+            widget.appointment['doctor_name'] ??
+            '')
+        .toString());
+    final myName = clean(widget.loggedInDoctorName);
+
+    if (apptDocName.isNotEmpty && myName.isNotEmpty) {
+      return apptDocName == myName || apptDocName.contains(myName) || myName.contains(apptDocName);
     }
 
-    return true;
+    if (assignedDocId == null && apptDocName.isEmpty) {
+      return true;
+    }
+
+    return false;
   }
 
   final TextEditingController _notesCtrl = TextEditingController();
@@ -4591,7 +4592,84 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
     }
   }
 
+  void _showUnauthorizedDialog(BuildContext context, String docName) {
+    final cleanDoc = docName.replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.gpp_bad_rounded, color: Colors.red.shade700, size: 28),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Unauthorized Action',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This medical prescription can only be edited or saved by the assigned doctor: Dr. ${cleanDoc.isNotEmpty ? cleanDoc : 'Assigned Doctor'}.',
+              style: const TextStyle(fontSize: 14, color: Color(0xFF334155), height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: Color(0xFF0284C7), size: 20),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Other medical staff, receptionists, or non-assigned doctors are authorized to View and Print only.',
+                      style: TextStyle(fontSize: 12.5, color: Color(0xFF475569)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF0284C7),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK, Understood'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _savePrescription() async {
+    if (!_canEdit) {
+      final docName = widget.appointment['attended_by_doctor_name'] ??
+          widget.appointment['doctor_name'] ??
+          'the assigned doctor';
+      _showUnauthorizedDialog(context, docName.toString());
+      return;
+    }
     setState(() => _saving = true);
     try {
       final vitalSigns = {
@@ -4633,9 +4711,16 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save prescription: $e'), backgroundColor: Colors.red),
-        );
+        if (e.toString().toLowerCase().contains('unauthorized') || e.toString().contains('403')) {
+          final docName = widget.appointment['attended_by_doctor_name'] ??
+              widget.appointment['doctor_name'] ??
+              'the assigned doctor';
+          _showUnauthorizedDialog(context, docName.toString());
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to save prescription: $e'), backgroundColor: Colors.red),
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => _saving = false);

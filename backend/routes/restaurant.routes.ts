@@ -83,6 +83,20 @@ router.get('/challans/:id', challanCtrl.getChallanDetails);
 router.post('/challans', challanCtrl.createChallan);
 router.put('/challans/:id/status', challanCtrl.updateChallanStatus);
 
+const { TransportController } = require('../controllers/inventory/transport.controller');
+router.post('/challans/assign-trip', TransportController.assignTrip);
+router.post('/challans/verify-delivery', TransportController.verifyDelivery);
+router.post('/challans/release-trip', TransportController.releaseTrip);
+router.get('/challans/active-trips', TransportController.getActiveTrips);
+router.get('/transport/vehicles', TransportController.listVehicles);
+router.post('/transport/vehicles', TransportController.createVehicle);
+router.put('/transport/vehicles/:id', TransportController.updateVehicle);
+router.delete('/transport/vehicles/:id', TransportController.deleteVehicle);
+router.get('/transport/drivers', TransportController.listDrivers);
+router.post('/transport/drivers', TransportController.createDriver);
+router.put('/transport/drivers/:id', TransportController.updateDriver);
+router.delete('/transport/drivers/:id', TransportController.deleteDriver);
+
 // Waiter Assistance Notifications
 const diningCtrl = require('../controllers/restaurant/dining.controller');
 router.get('/dining/waiter-calls', diningCtrl.getActiveWaiterCalls);

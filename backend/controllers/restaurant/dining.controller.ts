@@ -208,6 +208,7 @@ export const getTableDiningInfo = async (req: Request, res: Response) => {
             return {
                 ...plain,
                 selling_price: sellingPrice,
+                price: sellingPrice,
                 rate: Number(plain.rate) || sellingPrice,
                 retail_sale_price: Number(plain.retail_sale_price) || sellingPrice,
                 stock: availableStock,

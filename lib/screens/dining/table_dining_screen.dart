@@ -297,7 +297,16 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
               _restaurantData = data['restaurant'];
               _tableData = data['table'];
               _categories = data['categories'] ?? [];
-              _allItems = data['items'] ?? [];
+              final rawItems = data['items'] is List ? (data['items'] as List) : [];
+              _allItems = rawItems.map((it) {
+                final m = Map<String, dynamic>.from(it is Map ? it : {});
+                final double effectiveRate = double.tryParse((m['selling_price'] ?? m['retail_sale_price'] ?? m['price'] ?? m['rate'] ?? m['mrp'] ?? 0).toString()) ?? 0.0;
+                m['selling_price'] = effectiveRate;
+                m['retail_sale_price'] = effectiveRate;
+                m['price'] = effectiveRate;
+                m['rate'] = effectiveRate;
+                return m;
+              }).toList();
               _activeOrders = _isLoggedIn ? (data['active_orders'] ?? []) : [];
               _tableBills = data['table_bills'] ?? [];
               _loading = false;
@@ -643,7 +652,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
       return;
     }
 
-    final basePrice = double.tryParse(item['selling_price']?.toString() ?? '0') ?? 0.0;
+    final basePrice = double.tryParse((item['selling_price'] ?? item['retail_sale_price'] ?? item['price'] ?? item['rate'] ?? item['mrp'] ?? 0).toString()) ?? 0.0;
     setState(() {
       if (_cart.containsKey(itemId)) {
         _cart[itemId]!['qty'] = (_cart[itemId]!['qty'] as int) + 1;
@@ -695,7 +704,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     if (cartItem == null) return;
     
     final item = cartItem['item'];
-    final basePrice = (cartItem['base_price'] as double?) ?? (double.tryParse(item['selling_price']?.toString() ?? '0') ?? 0.0);
+    final basePrice = (cartItem['base_price'] as double?) ?? (double.tryParse((item['selling_price'] ?? item['retail_sale_price'] ?? item['price'] ?? item['rate'] ?? item['mrp'] ?? 0).toString()) ?? 0.0);
     final remarkCtrl = TextEditingController(text: cartItem['note']?.toString() ?? '');
     
     // Existing selected modifiers map: modifier_name -> qty (int)
@@ -3956,7 +3965,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     final itemId = item['id'] as int;
     final name = item['item_name'] ?? '';
     final desc = (item['description'] ?? '').toString().trim();
-    final price = double.tryParse(item['selling_price']?.toString() ?? '0') ?? 0.0;
+    final price = double.tryParse((item['selling_price'] ?? item['retail_sale_price'] ?? item['price'] ?? item['rate'] ?? item['mrp'] ?? 0).toString()) ?? 0.0;
     final rawFoodType = (item['food_type'] ?? item['dietary_type'] ?? (item['is_veg'] == false ? 'NON_VEG' : 'VEG')).toString().toUpperCase();
     final isVeg = item['is_veg'] == true || rawFoodType == 'VEG' || rawFoodType == 'VEGAN';
     final isEgg = rawFoodType == 'EGG';

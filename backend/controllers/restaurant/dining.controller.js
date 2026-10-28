@@ -166,8 +166,13 @@ exports.getTableDiningInfo = async (req, res) => {
             const availableStock = Math.max(0, currentStock - heldQty);
 
             const isOutOfStock = isStockable && availableStock <= 0 && !allowNegativeStock;
+            const sellingPrice = Number(plain.retail_sale_price) || Number(plain.rate) || Number(plain.mrp) || 0;
             return {
                 ...plain,
+                selling_price: sellingPrice,
+                price: sellingPrice,
+                rate: Number(plain.rate) || sellingPrice,
+                retail_sale_price: Number(plain.retail_sale_price) || sellingPrice,
                 stock: availableStock,
                 opening_balance: availableStock,
                 stockable: isStockable,

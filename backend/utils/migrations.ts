@@ -5365,8 +5365,76 @@ COMMIT;
       `);
     }
   }
+,
+  {
+    version: 128,
+    description: "Support Console and Fleet Transportation ecosystem: add support ticket read status columns, transport vehicles & drivers tables, and delivery challan logistics columns",
+    up: async (db: any) => {
+      await db.query(`
+        -- 1. Support Console / Owner Console (Resolves missing is_read_by_support from image error)
+        ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_read_by_support BOOLEAN DEFAULT FALSE;
+        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS last_read_by_support_at TIMESTAMP WITH TIME ZONE;
+        CREATE INDEX IF NOT EXISTS idx_ticket_messages_read_support ON ticket_messages(ticket_id, is_read_by_support);
+
+        -- 2. Transportation & Fleet Management Tables
+        CREATE TABLE IF NOT EXISTS transport_vehicles (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL,
+          vehicle_number VARCHAR(50) NOT NULL,
+          vehicle_type VARCHAR(50) NOT NULL DEFAULT 'Truck',
+          capacity_tonnage NUMERIC(10,2) DEFAULT 0.00,
+          capacity_unit VARCHAR(20) DEFAULT 'Tons',
+          model VARCHAR(100),
+          status VARCHAR(30) DEFAULT 'AVAILABLE',
+          current_trip_id VARCHAR(50),
+          current_driver_id INTEGER,
+          is_active BOOLEAN DEFAULT TRUE,
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_transport_vehicles_outlet ON transport_vehicles(outlet_id, is_active);
+        CREATE INDEX IF NOT EXISTS idx_transport_vehicles_status ON transport_vehicles(status);
+
+        CREATE TABLE IF NOT EXISTS transport_drivers (
+          id SERIAL PRIMARY KEY,
+          outlet_id INTEGER NOT NULL,
+          driver_name VARCHAR(100) NOT NULL,
+          phone VARCHAR(30) NOT NULL,
+          license_number VARCHAR(50),
+          address TEXT,
+          status VARCHAR(30) DEFAULT 'AVAILABLE',
+          current_vehicle_id INTEGER,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_transport_drivers_outlet ON transport_drivers(outlet_id, is_active);
+        CREATE INDEX IF NOT EXISTS idx_transport_drivers_status ON transport_drivers(status);
+
+        -- 3. Delivery Challan Logistics & Trip Columns
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS vehicle_id INTEGER;
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS vehicle_number VARCHAR(50);
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS vehicle_type VARCHAR(50);
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS driver_id INTEGER;
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS driver_name VARCHAR(100);
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS driver_phone VARCHAR(30);
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS trip_id VARCHAR(50);
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(30) DEFAULT 'PENDING';
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivery_otp VARCHAR(10);
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP;
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivered_by_remark TEXT;
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivery_proof TEXT;
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS e_way_bill_no VARCHAR(50);
+        ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS destination_address TEXT;
+
+        CREATE INDEX IF NOT EXISTS idx_delivery_challan_trip_id ON delivery_challan_headers(trip_id);
+        CREATE INDEX IF NOT EXISTS idx_delivery_challan_delivery_status ON delivery_challan_headers(delivery_status);
+        CREATE INDEX IF NOT EXISTS idx_delivery_challan_vehicle ON delivery_challan_headers(vehicle_id);
+        CREATE INDEX IF NOT EXISTS idx_delivery_challan_driver ON delivery_challan_headers(driver_id);
+      `);
+    }
+  }
 ];
 
 export default migrations;
-
-

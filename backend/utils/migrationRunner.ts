@@ -37,4 +37,7 @@ export async function runMigrations(db: any): Promise<void> {
     }
 }
 
+(runMigrations as any).default = runMigrations;
+(runMigrations as any).runMigrations = runMigrations;
+module.exports = runMigrations;
 export default runMigrations;

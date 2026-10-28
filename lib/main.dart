@@ -37,6 +37,7 @@ import 'screens/reports/closing_report_screen.dart';
 import 'controllers/community/community_controller.dart';
 import 'controllers/inventory/marketplace_controller.dart';
 import 'controllers/inventory/supplier_controller.dart';
+import 'controllers/transport/transport_controller.dart';
 import 'screens/dining/table_dining_screen.dart';
 import 'screens/control_plane/control_plane_login_screen.dart';
 import 'screens/clinic/public_appointment_booking_screen.dart';
@@ -74,6 +75,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => MarketplaceController()),
         ChangeNotifierProvider(create: (_) => SupplierController()..load()),
         ChangeNotifierProvider(create: (_) => CommunityController()),
+        ChangeNotifierProvider(create: (_) => TransportController()),
       ],
       child: const MyApp(),
     ),

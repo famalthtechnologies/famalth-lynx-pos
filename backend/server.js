@@ -1,40 +1,3 @@
-// Patch TextDecoder to support 'ascii' encoding under packaged Node environments (like pkg target node18)
-try {
-  new TextDecoder("ascii");
-} catch (e) {
-  const OriginalTextDecoder = typeof globalThis !== "undefined" ? globalThis.TextDecoder : (typeof global !== "undefined" ? global.TextDecoder : null);
-  if (OriginalTextDecoder) {
-    const PatchedTextDecoder = class TextDecoder extends OriginalTextDecoder {
-      constructor(encoding, options) {
-        if (typeof encoding === "string" && (encoding.toLowerCase() === "ascii" || encoding.toLowerCase() === "us-ascii")) {
-          super("utf-8", options);
-        } else {
-          super(encoding, options);
-        }
-      }
-    };
-    if (typeof globalThis !== "undefined") {
-      globalThis.TextDecoder = PatchedTextDecoder;
-    }
-    if (typeof global !== "undefined") {
-      global.TextDecoder = PatchedTextDecoder;
-    }
-    try {
-      const util = require("util");
-      if (util && util.TextDecoder) {
-        util.TextDecoder = PatchedTextDecoder;
-      }
-    } catch (utilErr) {
-    }
-  }
-}
-process.on("uncaughtException", (err) => {
-  console.error("⚠️ [PROCESS] Uncaught Exception caught safely:", err?.message || err);
-});
-process.on("unhandledRejection", (reason) => {
-  console.error("⚠️ [PROCESS] Unhandled Rejection caught safely:", reason?.message || reason);
-});
-
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -97,6 +60,41 @@ var import_notesReminderJob = require("./jobs/notesReminderJob");
 var import_licenseExpiryNotificationJob = require("./jobs/licenseExpiryNotificationJob");
 var import_masterSync = require("./utils/masterSync");
 var import_socketHub = require("./services/socketHub.service");
+try {
+  new TextDecoder("ascii");
+} catch (e) {
+  const OriginalTextDecoder = globalThis.TextDecoder || (typeof global !== "undefined" ? global.TextDecoder : null);
+  if (OriginalTextDecoder) {
+    const PatchedTextDecoder = class TextDecoder extends OriginalTextDecoder {
+      constructor(encoding, options) {
+        if (typeof encoding === "string" && (encoding.toLowerCase() === "ascii" || encoding.toLowerCase() === "us-ascii")) {
+          super("utf-8", options);
+        } else {
+          super(encoding, options);
+        }
+      }
+    };
+    if (typeof globalThis !== "undefined") {
+      globalThis.TextDecoder = PatchedTextDecoder;
+    }
+    if (typeof global !== "undefined") {
+      global.TextDecoder = PatchedTextDecoder;
+    }
+    try {
+      const util = require("util");
+      if (util && util.TextDecoder) {
+        util.TextDecoder = PatchedTextDecoder;
+      }
+    } catch (utilErr) {
+    }
+  }
+}
+process.on("uncaughtException", (err) => {
+  console.error("\u26A0\uFE0F [PROCESS] Uncaught Exception caught safely:", err?.message || err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("\u26A0\uFE0F [PROCESS] Unhandled Rejection caught safely:", reason?.message || reason);
+});
 const rootDir = process.pkg ? import_path.default.dirname(process.execPath) : process.cwd();
 import_dotenv.default.config({
   path: import_path.default.join(rootDir, ".env")
@@ -420,9 +418,9 @@ if (!import_fs.default.existsSync(licensePath)) {
                 ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS clinic_closed_today BOOLEAN DEFAULT FALSE;
                 ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS clinic_closed_date VARCHAR(20) DEFAULT '';
                 ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS clinic_closed_reason TEXT DEFAULT '';
-                ALTER TABLE users ADD COLUMN IF NOT EXISTS public_display_options JSONB DEFAULT '{"show_clinic_name":true,"show_doctor_name":true,"show_address":true,"show_phone":true,"show_whatsapp":true,"show_email":true,"show_fees":true}'::jsonb;
                 ALTER TABLE goods_receipt_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
                 ALTER TABLE goods_receipt_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS public_display_options JSONB DEFAULT '{"show_clinic_name":true,"show_doctor_name":true,"show_address":true,"show_phone":true,"show_whatsapp":true,"show_email":true,"show_fees":true}'::jsonb;
             `);
       console.log("\u2705 Verified/added custom columns in property_info, restaurant_tables, kot_headers, sales_headers, item_master, clinic_appointments, and hr_biometric_devices");
     } catch (colErr) {
@@ -564,7 +562,54 @@ if (!import_fs.default.existsSync(licensePath)) {
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
-            `);
+            
+
+                -- Transport Fleet Ecosystem (Vehicles, Drivers, and Delivery Logistics)
+                CREATE TABLE IF NOT EXISTS transport_vehicles (
+                    id SERIAL PRIMARY KEY,
+                    outlet_id INTEGER NOT NULL,
+                    vehicle_number VARCHAR(50) NOT NULL,
+                    vehicle_type VARCHAR(50) NOT NULL,
+                    capacity_tonnage NUMERIC(10,2) DEFAULT 0.00,
+                    capacity_unit VARCHAR(20) DEFAULT 'Tons',
+                    model VARCHAR(100),
+                    status VARCHAR(30) DEFAULT 'AVAILABLE',
+                    current_trip_id VARCHAR(50),
+                    current_driver_id INTEGER,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS transport_drivers (
+                    id SERIAL PRIMARY KEY,
+                    outlet_id INTEGER NOT NULL,
+                    driver_name VARCHAR(100) NOT NULL,
+                    phone VARCHAR(30) NOT NULL,
+                    license_number VARCHAR(50),
+                    address TEXT,
+                    status VARCHAR(30) DEFAULT 'AVAILABLE',
+                    current_vehicle_id INTEGER,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS vehicle_id INTEGER;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS vehicle_number VARCHAR(50);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS vehicle_type VARCHAR(50);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS driver_id INTEGER;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS driver_name VARCHAR(100);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS driver_phone VARCHAR(30);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS trip_id VARCHAR(50);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(30) DEFAULT 'PENDING';
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivery_otp VARCHAR(10);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivered_by_remark TEXT;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivery_proof TEXT;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS e_way_bill_no VARCHAR(50);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS destination_address TEXT;`);
       console.log("\u2705 Verified/created accounting database tables (bank_accounts, chart_of_accounts, accounting_vouchers, voucher_lines)");
     } catch (accErr) {
       console.warn("\u26A0\uFE0F Failed to verify accounting tables:", accErr.message);
@@ -635,6 +680,7 @@ app.use("/api/marketplace", require("./routes/marketplace.routes"));
 app.use("/api/v1/control-plane", require("./routes/control_plane.routes"));
 app.use("/api/clinic", require("./routes/clinic.routes"));
 app.use("/api/backup", require("./routes/backup.routes"));
+app.use("/api/transport", require("./routes/transport.routes"));
 const { renderUnsubscribePage } = require("./controllers/public/unsubscribe.controller");
 app.get(["/unsubscribe", "/api/v1/unsubscribe", "/api/unsubscribe"], renderUnsubscribePage);
 const webBuildPath = import_path.default.join(rootDir, "public");

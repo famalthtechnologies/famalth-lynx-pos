@@ -10747,7 +10747,8 @@ class _SaleScreenState extends State<SaleScreen> {
   }
 
   Widget _buildDietaryBadge(String? type, {double size = 12}) {
-    if (type == null || type.isEmpty || type == 'OTHER') return const SizedBox.shrink();
+    final bool isClinicSale = _preloadedAppointmentId != null || (widget.preloadedDoctorName != null && widget.preloadedDoctorName!.trim().isNotEmpty);
+    if (!_isRestaurantActive || isClinicSale || type == null || type.isEmpty || type == 'OTHER') return const SizedBox.shrink();
     Color borderColor;
     Color dotColor;
     bool isVegan = false;
@@ -11165,7 +11166,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                     child: Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        if (item.foodType.isNotEmpty && item.foodType != 'OTHER')
+                                        if (_isRestaurantActive && _preloadedAppointmentId == null && (widget.preloadedDoctorName == null || widget.preloadedDoctorName!.trim().isEmpty) && item.foodType.isNotEmpty && item.foodType != 'OTHER')
                                           Padding(
                                             padding: const EdgeInsets.only(top: 2.5, right: 5),
                                             child: _buildDietaryBadge(item.foodType, size: 12),

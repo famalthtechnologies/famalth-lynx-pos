@@ -39,7 +39,19 @@ export const createChallan = async (req: Request, res: Response): Promise<any> =
   try {
     const outlet_id = req.user.outlet_id;
     const user_id = req.user.user_id || req.user.id;
-    const { customer_name, customer_phone, items } = req.body;
+    const {
+      customer_name,
+      customer_phone,
+      items,
+      vehicle_id,
+      vehicle_number,
+      vehicle_type,
+      driver_id,
+      driver_name,
+      driver_phone,
+      e_way_bill_no,
+      destination_address
+    } = req.body;
 
     if (!items || items.length === 0) throw new Error('Cannot create Challan without items');
 
@@ -57,6 +69,29 @@ export const createChallan = async (req: Request, res: Response): Promise<any> =
     });
     const seq = String(count + 1).padStart(4, '0');
     const challan_no = `DC-${dateStr}-${seq}`;
+
+    // Generate Delivery OTP if vehicle or driver assigned
+    let delivery_otp = null;
+    let delivery_status = 'PENDING';
+    let trip_id = null;
+    if (vehicle_id || driver_id) {
+      delivery_otp = String(Math.floor(100000 + Math.random() * 900000));
+      delivery_status = 'IN_TRANSIT';
+      trip_id = `TRIP-${dateStr}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+      if (vehicle_id && req.propertyDb.models.transport_vehicles) {
+        await req.propertyDb.models.transport_vehicles.update(
+          { status: 'BOOKED', current_trip_id: trip_id, current_driver_id: driver_id || null },
+          { where: { id: vehicle_id, outlet_id }, transaction: t }
+        );
+      }
+      if (driver_id && req.propertyDb.models.transport_drivers) {
+        await req.propertyDb.models.transport_drivers.update(
+          { status: 'BOOKED', current_vehicle_id: vehicle_id || null },
+          { where: { id: driver_id, outlet_id }, transaction: t }
+        );
+      }
+    }
 
     let totalQty = 0;
     const itemsToCreate: any[] = [];
@@ -89,8 +124,19 @@ export const createChallan = async (req: Request, res: Response): Promise<any> =
         customer_name,
         customer_phone,
         total_qty: totalQty,
-        status: 'Issued',
-        created_by: user_id
+        status: delivery_status === 'IN_TRANSIT' ? 'In-Transit' : 'Issued',
+        created_by: user_id,
+        vehicle_id: vehicle_id || null,
+        vehicle_number: vehicle_number || null,
+        vehicle_type: vehicle_type || null,
+        driver_id: driver_id || null,
+        driver_name: driver_name || null,
+        driver_phone: driver_phone || null,
+        trip_id: trip_id || null,
+        delivery_status,
+        delivery_otp,
+        e_way_bill_no: e_way_bill_no || null,
+        destination_address: destination_address || null
       },
       { transaction: t }
     );
@@ -160,7 +206,41 @@ export const updateChallanStatus = async (req: Request, res: Response): Promise<
       return res.status(404).json({ success: false, message: 'Challan not found' });
     }
 
-    await challan.update({ status }, { transaction: t });
+    const updateData: any = { status };
+    if (status === 'Delivered') {
+      updateData.delivery_status = 'DELIVERED';
+      updateData.delivered_at = new Date();
+      if (!updateData.delivered_by_remark) {
+        updateData.delivered_by_remark = 'Marked as Delivered';
+      }
+    }
+    await challan.update(updateData, { transaction: t });
+
+    // If marked Delivered or Converted_To_Sale, check if vehicle and driver can be liberated
+    if (status === 'Delivered' || status === 'Converted_To_Sale') {
+      if (challan.vehicle_id && req.propertyDb.models.transport_vehicles) {
+        const remainingOnVehicle = await req.propertyDb.models.delivery_challan_headers.count({
+          where: {
+            outlet_id,
+            vehicle_id: challan.vehicle_id,
+            delivery_status: { [Op.ne]: 'DELIVERED' }
+          },
+          transaction: t
+        });
+        if (remainingOnVehicle === 0) {
+          await req.propertyDb.models.transport_vehicles.update(
+            { status: 'AVAILABLE', current_trip_id: null, current_driver_id: null },
+            { where: { id: challan.vehicle_id, outlet_id }, transaction: t }
+          );
+          if (challan.driver_id && req.propertyDb.models.transport_drivers) {
+            await req.propertyDb.models.transport_drivers.update(
+              { status: 'AVAILABLE', current_vehicle_id: null },
+              { where: { id: challan.driver_id, outlet_id }, transaction: t }
+            );
+          }
+        }
+      }
+    }
 
     // If status is Converted_To_Sale, create Sales Record and Cash Ledger revenue entry (NO stock re-deduction)
     if (status === 'Converted_To_Sale') {

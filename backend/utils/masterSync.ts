@@ -17,6 +17,13 @@ export async function syncClientsJsonToMaster(db: any) {
   const foundClientFile = candidateClientPaths.find(p => fs.existsSync(p));
 
   try {
+    try {
+      await db.query(`
+        ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_read_by_support BOOLEAN DEFAULT FALSE;
+        ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS last_read_by_support_at TIMESTAMP WITH TIME ZONE;
+      `);
+    } catch (_) {}
+
     const { MasterTenant, MasterOutlet, MasterLicense, MasterRelationshipManager } = initMasterModels(db);
     let defaultRm: any = null;
     try {

@@ -573,7 +573,54 @@ if (!fs.existsSync(licensePath)) {
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
-            `);
+            
+
+                -- Transport Fleet Ecosystem (Vehicles, Drivers, and Delivery Logistics)
+                CREATE TABLE IF NOT EXISTS transport_vehicles (
+                    id SERIAL PRIMARY KEY,
+                    outlet_id INTEGER NOT NULL,
+                    vehicle_number VARCHAR(50) NOT NULL,
+                    vehicle_type VARCHAR(50) NOT NULL,
+                    capacity_tonnage NUMERIC(10,2) DEFAULT 0.00,
+                    capacity_unit VARCHAR(20) DEFAULT 'Tons',
+                    model VARCHAR(100),
+                    status VARCHAR(30) DEFAULT 'AVAILABLE',
+                    current_trip_id VARCHAR(50),
+                    current_driver_id INTEGER,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS transport_drivers (
+                    id SERIAL PRIMARY KEY,
+                    outlet_id INTEGER NOT NULL,
+                    driver_name VARCHAR(100) NOT NULL,
+                    phone VARCHAR(30) NOT NULL,
+                    license_number VARCHAR(50),
+                    address TEXT,
+                    status VARCHAR(30) DEFAULT 'AVAILABLE',
+                    current_vehicle_id INTEGER,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS vehicle_id INTEGER;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS vehicle_number VARCHAR(50);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS vehicle_type VARCHAR(50);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS driver_id INTEGER;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS driver_name VARCHAR(100);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS driver_phone VARCHAR(30);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS trip_id VARCHAR(50);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(30) DEFAULT 'PENDING';
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivery_otp VARCHAR(10);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivered_by_remark TEXT;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS delivery_proof TEXT;
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS e_way_bill_no VARCHAR(50);
+                ALTER TABLE delivery_challan_headers ADD COLUMN IF NOT EXISTS destination_address TEXT;`);
             console.log('✅ Verified/created accounting database tables (bank_accounts, chart_of_accounts, accounting_vouchers, voucher_lines)');
         } catch (accErr: any) {
             console.warn('⚠️ Failed to verify accounting tables:', accErr.message);
@@ -669,6 +716,7 @@ app.use('/api/marketplace', require('./routes/marketplace.routes'));
 app.use('/api/v1/control-plane', require('./routes/control_plane.routes'));
 app.use('/api/clinic', require('./routes/clinic.routes'));
 app.use('/api/backup', require('./routes/backup.routes'));
+app.use('/api/transport', require('./routes/transport.routes'));
 
 // Google-style Unsubscribe Landing Route
 const { renderUnsubscribePage } = require('./controllers/public/unsubscribe.controller');
