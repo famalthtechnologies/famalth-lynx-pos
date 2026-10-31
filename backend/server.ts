@@ -632,6 +632,35 @@ if (!fs.existsSync(licensePath)) {
         // Note: Model sync disabled to prevent duplicate PostgreSQL constraint index generation. Database migrations manage table schema.
         // await propertyDb.sync({ alter: false });
 
+        function initializeAllBackups() {
+    console.log("🔄 Initializing background backups for all registered outlets...");
+    if (!fs.existsSync(CLIENT_FILE)) {
+        console.log("⚠️ Client file not found. Bypassing backup initialization.");
+        return;
+    }
+    const config = loadConfig();
+    try {
+        const fileData = fs.readFileSync(CLIENT_FILE, "utf8");
+        let clients = JSON.parse(fileData);
+        if (!Array.isArray(clients)) {
+            clients = [clients];
+        }
+        if (clients.length === 0) {
+            console.log("⚠️ No outlets found in client file. Bypassing backups.");
+            return;
+        }
+        clients.forEach((client: any) => {
+            if (client && client.outlet_code) {
+                const status = getBackupStatus(client.outlet_code);
+                console.log(`▶️ Scheduling backups for outlet: [${client.outlet_code}] | Cloud Sync: ${status.isCloudEnabled ? 'ON' : 'OFF'}`);
+                startBackupJob(client, config);
+            }
+        });
+    } catch (error: any) {
+        console.error(`❌ Failed to initialize backups: ${error.message}`);
+    }
+}
+
         initializeAllBackups();
         startLoyaltyExpiryJob(propertyDb);
         startAnalyticsRefreshJob(propertyDb);
@@ -722,17 +751,45 @@ app.use('/api/transport', require('./routes/transport.routes'));
 const { renderUnsubscribePage } = require('./controllers/public/unsubscribe.controller');
 app.get(['/unsubscribe', '/api/v1/unsubscribe', '/api/unsubscribe'], renderUnsubscribePage);
 
+// Customer Self-Ordering Dining Portal & Mobile Web App
+const { renderDiningWebPortal } = require('./controllers/restaurant/diningWeb.controller');
+app.get(['/dining', '/table', '/dining.html', '/table.html', '/menu', '/menu.html'], renderDiningWebPortal);
+
 // Web SPA static file serving (Only active if public/ directory exists)
-const webBuildPath = path.join(rootDir, 'public');
+const candidatePaths = [
+    path.join(rootDir, 'public'),
+    path.join(rootDir, 'backend', 'public'),
+    path.join(__dirname, 'public'),
+    path.join(__dirname, '..', 'public'),
+    path.join(process.cwd(), 'backend', 'public'),
+    path.join(process.cwd(), 'public'),
+    'C:\\Retailpos\\public'
+];
+let webBuildPath = candidatePaths[0];
+for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+        webBuildPath = p;
+        break;
+    }
+}
 if (fs.existsSync(webBuildPath)) {
     app.use(express.static(webBuildPath));
     app.use((req: Request, res: Response, next: NextFunction) => {
-        if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/health') && !req.path.startsWith('/uploads') && !req.path.startsWith('/webhooks')) {
+        if (req.method === 'GET' && 
+            !req.path.startsWith('/api') && 
+            !req.path.startsWith('/health') && 
+            !req.path.startsWith('/uploads') && 
+            !req.path.startsWith('/webhooks') &&
+            !req.path.startsWith('/dining') &&
+            !req.path.startsWith('/table') &&
+            !req.path.startsWith('/menu') &&
+            !req.path.startsWith('/unsubscribe')) {
             return res.sendFile(path.join(webBuildPath, 'index.html'));
         }
         next();
     });
 }
+
 
 // not found
 app.use((req: Request, res: Response) => {
@@ -762,7 +819,7 @@ server.headersTimeout = 66000;
 server.requestTimeout = 30000;
 
 // Production Graceful Shutdown Handlers (Zero downtime deployment / PM2 / Docker)
-function gracefulShutdown(signal: string): void {
+function gracefulShutdown(signal: string) {
     console.log(`\n🛑 [SYSTEM] Received ${signal}. Starting graceful shutdown...`);
     server.close(async () => {
         console.log('🔒 [SYSTEM] HTTP server stopped accepting connections.');
@@ -786,42 +843,5 @@ function gracefulShutdown(signal: string): void {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-function initializeAllBackups(): void {
-    console.log("🔄 Initializing background backups for all registered outlets...");
-
-    if (!fs.existsSync(CLIENT_FILE)) {
-        console.log("⚠️ Client file not found. Bypassing backup initialization.");
-        return;
-    }
-
-    const config = loadConfig();
-
-    try {
-        const fileData = fs.readFileSync(CLIENT_FILE, "utf8");
-        let clients = JSON.parse(fileData);
-
-        if (!Array.isArray(clients)) {
-            clients = [clients];
-        }
-
-        if (clients.length === 0) {
-            console.log("⚠️ No outlets found in client file. Bypassing backups.");
-            return;
-        }
-
-        clients.forEach((client: any) => {
-            if (client && client.outlet_code) {
-                const status = getBackupStatus(client.outlet_code);
-                console.log(`▶️ Scheduling backups for outlet: [${client.outlet_code}] | Cloud Sync: ${status.isCloudEnabled ? 'ON' : 'OFF'}`);
-
-                startBackupJob(client, config);
-            }
-        });
-
-    } catch (error: any) {
-        console.error(`❌ Failed to initialize backups: ${error.message}`);
-    }
-}
 
 export default app;

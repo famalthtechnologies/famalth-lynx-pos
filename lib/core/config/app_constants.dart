@@ -42,19 +42,87 @@ class AppConstants {
   ];
 
   static List<String> getRolesForModule(String? module) {
-    final mod = (module ?? 'ALL').toUpperCase().trim();
-    if (mod == 'CLINIC') {
-      return ['ADMIN', 'MANAGER', 'DOCTOR', 'RECEPTIONIST', 'PHARMACIST', 'ACCOUNTS'];
+    if (module == null || module.trim().isEmpty) return availableRoles;
+    final normalized = ModuleCapability.normalize(module);
+    final mod = module.toUpperCase().trim();
+
+    // 1. Clinic & OPD Healthcare (Doctors, Receptionists, Pharmacists, Cashier, Admin/Managers)
+    // Strictly exclude restaurant dining roles (WAITER, CAPTAIN, KDS) and retail store roles (STORE, RETAIL)
+    if (normalized == ModuleCapability.clinic ||
+        mod == 'CLINIC' ||
+        mod.contains('CLINIC') ||
+        mod.contains('DOCTOR') ||
+        mod.contains('HEALTH')) {
+      return [
+        'ADMIN',
+        'MANAGER',
+        'DOCTOR',
+        'RECEPTIONIST',
+        'PHARMACIST',
+        'CASHIER',
+        'ACCOUNTS',
+        'HR',
+        'MARKETING',
+      ];
     }
-    if (mod == 'INVENTORY') {
+
+    // 2. Restaurant & Dining / Hospitality (Waiters, Captains, KDS, Cashier, Admin/Managers)
+    // Strictly exclude clinic roles (DOCTOR, RECEPTIONIST, PHARMACIST)
+    if (normalized == ModuleCapability.restaurant ||
+        mod == 'RESTAURANT' ||
+        mod.contains('RESTAURANT') ||
+        mod.contains('HOTEL') ||
+        mod.contains('CAPTAIN') ||
+        mod.contains('KDS') ||
+        mod.contains('CAFE') ||
+        mod.contains('DINE')) {
+      return [
+        'ADMIN',
+        'MANAGER',
+        'WAITER',
+        'CAPTAIN',
+        'KDS',
+        'CASHIER',
+        'STORE',
+        'ACCOUNTS',
+        'HR',
+        'MARKETING',
+      ];
+    }
+
+    // 3. Retail POS & Supermarket
+    // Strictly exclude restaurant dining roles and clinic roles
+    if (normalized == ModuleCapability.retail ||
+        mod == 'RETAIL' ||
+        mod.contains('RETAIL') ||
+        mod.contains('POS') ||
+        mod.contains('MART') ||
+        mod.contains('STORE')) {
+      return [
+        'ADMIN',
+        'MANAGER',
+        'STORE',
+        'RETAIL',
+        'CASHIER',
+        'ACCOUNTS',
+        'HR',
+        'MARKETING',
+      ];
+    }
+
+    // 4. Inventory & Warehouse only
+    if (normalized == ModuleCapability.inventory ||
+        mod == 'INVENTORY' ||
+        mod.contains('INVENTORY') ||
+        mod.contains('WAREHOUSE')) {
       return ['ADMIN', 'MANAGER', 'STORE', 'ACCOUNTS', 'HR', 'MARKETING'];
     }
-    if (mod == 'RETAIL') {
-      return ['ADMIN', 'MANAGER', 'STORE', 'RETAIL', 'CASHIER', 'ACCOUNTS', 'HR', 'MARKETING'];
+
+    // 5. HRMS only
+    if (normalized == ModuleCapability.hrms || mod == 'HRMS' || mod.contains('HRMS')) {
+      return ['ADMIN', 'MANAGER', 'HR', 'ACCOUNTS', 'MARKETING'];
     }
-    if (mod == 'RESTAURANT' || mod == 'HOTEL' || mod == 'CAPTAIN' || mod == 'KDS') {
-      return ['ADMIN', 'MANAGER', 'STORE', 'CASHIER', 'ACCOUNTS', 'HR', 'WAITER', 'CAPTAIN', 'KDS', 'MARKETING'];
-    }
+
     return availableRoles;
   }
 

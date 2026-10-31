@@ -8,6 +8,7 @@ import '../../core/api/endpoints.dart';
 import '../../controllers/public/outlet_controller.dart' show OutletController;
 import '../../models/security/app_user_model.dart';
 import '../../core/permissions/module_capability.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/auth/token_storage.dart';
 import '../../core/config/app_constants.dart';
 import '../../core/currency/currency_service.dart';
@@ -209,11 +210,22 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   Future<void> _loadActiveModule() async {
     final userMap = await TokenStorage.getUser();
-    final mod = userMap?['business_module'] ?? userMap?['outlet_module'] ?? 'ALL';
+    var mod = (userMap?['business_module'] ?? userMap?['outlet_module'])?.toString();
+    if (mod == null || mod.trim().isEmpty || mod == 'ALL') {
+      mod = await TokenStorage.getBusinessModule();
+    }
+    final outletCode = await TokenStorage.getOutletCode();
+    if (outletCode != null && outletCode.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('brand_module_$outletCode');
+      if (cached != null && cached.isNotEmpty && cached != 'ALL') {
+        mod = cached;
+      }
+    }
     final role = (userMap?['role'] ?? '').toString();
     if (!mounted) return;
     setState(() {
-      _userBusinessModule = mod;
+      _userBusinessModule = (mod != null && mod.trim().isNotEmpty) ? mod : 'ALL';
       _currentUserRole = role;
     });
   }
@@ -703,7 +715,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     final docDays = TextEditingController(text: 'Mon,Tue,Wed,Thu,Fri,Sat');
     bool docIsPublic = true;
 
-    String role = AppConstants.getRolesForModule(_userBusinessModule).first;
+    String selectedDialogModule = _userBusinessModule;
+    String role = AppConstants.getRolesForModule(selectedDialogModule).first;
     bool showInQuickLogin = false;
 
     bool isEmailVerified = false;
@@ -839,13 +852,41 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                 border: OutlineInputBorder())),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          initialValue: AppConstants.getRolesForModule(_userBusinessModule).contains(role)
+                          value: selectedDialogModule,
+                          decoration: const InputDecoration(
+                            labelText: 'Module Selection',
+                            prefixIcon: Icon(Icons.widgets_outlined),
+                            border: OutlineInputBorder(),
+                            helperText: 'Select module to filter roles (or ALL for all roles)',
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'ALL', child: Text('ALL (All Modules & Roles)')),
+                            DropdownMenuItem(value: 'CLINIC', child: Text('CLINIC (Doctors, Patients, Pharmacy)')),
+                            DropdownMenuItem(value: 'RETAIL', child: Text('RETAIL (Store, POS Billing)')),
+                            DropdownMenuItem(value: 'RESTAURANT', child: Text('RESTAURANT (Dining, Waiter, Captain, KDS)')),
+                            DropdownMenuItem(value: 'INVENTORY', child: Text('INVENTORY (Stock, Warehouse)')),
+                          ],
+                          onChanged: (val) {
+                            if (val == null) return;
+                            setDialogState(() {
+                              selectedDialogModule = val;
+                              final validRoles = AppConstants.getRolesForModule(selectedDialogModule);
+                              if (!validRoles.contains(role)) {
+                                role = validRoles.first;
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey('add_role_${selectedDialogModule}'),
+                          value: AppConstants.getRolesForModule(selectedDialogModule).contains(role)
                               ? role
-                              : AppConstants.getRolesForModule(_userBusinessModule).first,
+                              : AppConstants.getRolesForModule(selectedDialogModule).first,
                           decoration: const InputDecoration(
                               labelText: 'Role', border: OutlineInputBorder()),
                           items: (() {
-                            final validRoles = AppConstants.getRolesForModule(_userBusinessModule);
+                            final validRoles = AppConstants.getRolesForModule(selectedDialogModule);
                             final list = validRoles.contains(role) ? validRoles : [...validRoles, role];
                             return list
                                 .map((e) => DropdownMenuItem(value: e, child: Text(e)))
@@ -1184,7 +1225,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                               pinCode: pinCode.text.trim().isNotEmpty ? pinCode.text.trim() : null,
                               showInQuickLogin: showInQuickLogin,
                               maxDiscountPercent: double.tryParse(maxDiscount.text.trim()) ?? 100.0,
-                              permissions: AppConstants.getDefaultPermissionsForRole(role, _userBusinessModule),
+                              permissions: AppConstants.getDefaultPermissionsForRole(role, selectedDialogModule),
                               password: password.text,
                               speciality: role.toUpperCase() == 'DOCTOR' ? docSpeciality.text.trim() : null,
                               qualification: role.toUpperCase() == 'DOCTOR' ? docQualification.text.trim() : null,
@@ -1375,6 +1416,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     final docDays = TextEditingController(text: u.availableDays ?? 'Mon,Tue,Wed,Thu,Fri,Sat');
     bool docIsPublic = u.isPublicListed;
 
+    String editDialogModule = _userBusinessModule;
+    final rUpper = u.role.toUpperCase().trim();
+    if (rUpper == 'DOCTOR' || rUpper == 'RECEPTIONIST' || rUpper == 'PHARMACIST') {
+      editDialogModule = 'CLINIC';
+    } else if (rUpper == 'WAITER' || rUpper == 'CAPTAIN' || rUpper == 'KDS') {
+      editDialogModule = 'RESTAURANT';
+    } else if (rUpper == 'RETAIL' || rUpper == 'STORE') {
+      editDialogModule = 'RETAIL';
+    }
     String role = u.role;
     bool showInQuickLogin = u.showInQuickLogin;
 
@@ -1464,13 +1514,41 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                 border: OutlineInputBorder())),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          initialValue: AppConstants.getRolesForModule(_userBusinessModule).contains(role)
+                          value: editDialogModule,
+                          decoration: const InputDecoration(
+                            labelText: 'Module Selection',
+                            prefixIcon: Icon(Icons.widgets_outlined),
+                            border: OutlineInputBorder(),
+                            helperText: 'Select module to filter roles (or ALL for all roles)',
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'ALL', child: Text('ALL (All Modules & Roles)')),
+                            DropdownMenuItem(value: 'CLINIC', child: Text('CLINIC (Doctors, Patients, Pharmacy)')),
+                            DropdownMenuItem(value: 'RETAIL', child: Text('RETAIL (Store, POS Billing)')),
+                            DropdownMenuItem(value: 'RESTAURANT', child: Text('RESTAURANT (Dining, Waiter, Captain, KDS)')),
+                            DropdownMenuItem(value: 'INVENTORY', child: Text('INVENTORY (Stock, Warehouse)')),
+                          ],
+                          onChanged: (val) {
+                            if (val == null) return;
+                            setDialogState(() {
+                              editDialogModule = val;
+                              final validRoles = AppConstants.getRolesForModule(editDialogModule);
+                              if (!validRoles.contains(role)) {
+                                role = validRoles.first;
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey('edit_role_${editDialogModule}'),
+                          value: AppConstants.getRolesForModule(editDialogModule).contains(role)
                               ? role
-                              : AppConstants.getRolesForModule(_userBusinessModule).first,
+                              : AppConstants.getRolesForModule(editDialogModule).first,
                           decoration: const InputDecoration(
                               labelText: 'Role', border: OutlineInputBorder()),
                           items: (() {
-                            final validRoles = AppConstants.getRolesForModule(_userBusinessModule);
+                            final validRoles = AppConstants.getRolesForModule(editDialogModule);
                             final list = validRoles.contains(role) ? validRoles : [...validRoles, role];
                             return list
                                 .map((e) => DropdownMenuItem(value: e, child: Text(e)))

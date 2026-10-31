@@ -683,11 +683,30 @@ app.use("/api/backup", require("./routes/backup.routes"));
 app.use("/api/transport", require("./routes/transport.routes"));
 const { renderUnsubscribePage } = require("./controllers/public/unsubscribe.controller");
 app.get(["/unsubscribe", "/api/v1/unsubscribe", "/api/unsubscribe"], renderUnsubscribePage);
-const webBuildPath = import_path.default.join(rootDir, "public");
+
+const { renderDiningWebPortal } = require("./controllers/restaurant/diningWeb.controller");
+app.get(["/dining", "/table", "/dining.html", "/table.html", "/menu", "/menu.html"], renderDiningWebPortal);
+
+const candidatePaths = [
+  import_path.default.join(rootDir, "public"),
+  import_path.default.join(rootDir, "backend", "public"),
+  import_path.default.join(__dirname, "public"),
+  import_path.default.join(__dirname, "..", "public"),
+  import_path.default.join(process.cwd(), "backend", "public"),
+  import_path.default.join(process.cwd(), "public"),
+  "C:\\Retailpos\\public"
+];
+let webBuildPath = candidatePaths[0];
+for (const p of candidatePaths) {
+  if (import_fs.default.existsSync(p)) {
+    webBuildPath = p;
+    break;
+  }
+}
 if (import_fs.default.existsSync(webBuildPath)) {
   app.use(import_express.default.static(webBuildPath));
   app.use((req, res, next) => {
-    if (req.method === "GET" && !req.path.startsWith("/api") && !req.path.startsWith("/health") && !req.path.startsWith("/uploads") && !req.path.startsWith("/webhooks")) {
+    if (req.method === "GET" && !req.path.startsWith("/api") && !req.path.startsWith("/health") && !req.path.startsWith("/uploads") && !req.path.startsWith("/webhooks") && !req.path.startsWith("/dining") && !req.path.startsWith("/table") && !req.path.startsWith("/menu") && !req.path.startsWith("/unsubscribe")) {
       return res.sendFile(import_path.default.join(webBuildPath, "index.html"));
     }
     next();

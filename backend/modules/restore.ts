@@ -84,7 +84,13 @@ export async function executeSqlFileViaNode(sqlFilePath: string, db_name: any, d
     await client.connect();
 
     try {
-        const sqlContent = fs.readFileSync(sqlFilePath, "utf8");
+        let sqlContent = fs.readFileSync(sqlFilePath, "utf8");
+
+        // Remove psql meta-commands (lines starting with \) so pure Node PG client does not choke
+        sqlContent = sqlContent
+            .split(/\r?\n/)
+            .filter(line => !line.trim().startsWith('\\'))
+            .join('\n');
 
         // If the SQL file does not create tables (e.g. Node fallback dump), run migrations first
         const hasCreateTable = /CREATE\s+TABLE/i.test(sqlContent);
@@ -108,18 +114,24 @@ export async function executeDatabaseRestore(sqlFilePath: string, db_name: any, 
     const targetHost = host || config.db_host || "127.0.0.1";
     const targetPort = port || config.db_port || 5432;
 
-    // 1. Clean the schema first to prevent foreign key and constraint conflicts
-    await cleanDatabaseSchema(targetDb, targetUser, targetPass, targetHost, targetPort);
+    const psqlPath = findPostgresBinary("psql");
+    if (!fs.existsSync(sqlFilePath) || fs.statSync(sqlFilePath).size === 0) {
+        throw new Error("Restore SQL file is missing or empty.");
+    }
+    const hasPsql = psqlPath && fs.existsSync(psqlPath);
+    if (!hasPsql) {
+        console.warn("⚠️ psql.exe was not found (" + psqlPath + "). Restoring directly via pure Node.js PG client...");
+        await executeSqlFileViaNode(sqlFilePath, targetDb, targetUser, targetPass, targetHost, targetPort);
+        return;
+    }
 
     // 2. Perform the actual restore
-    let restoreSuccess = false;
-    const psqlPath = findPostgresBinary("psql");
-
     try {
         console.log(`🚀 Starting database restore for ${targetDb} via psql (${psqlPath})...`);
         await new Promise<void>((resolve, reject) => {
             const env: any = { ...process.env, PGPASSWORD: targetPass };
             const args = [
+                "-X",
                 "-h", targetHost,
                 "-p", String(targetPort),
                 "-U", targetUser,
@@ -127,16 +139,25 @@ export async function executeDatabaseRestore(sqlFilePath: string, db_name: any, 
                 "-f", sqlFilePath
             ];
 
-            const restoreProcess = spawn(psqlPath, args, { env });
-
-            restoreProcess.stderr.on("data", (data) => console.log(`📦 psql: ${data.toString().trim()}`));
+            const restoreProcess = spawn(psqlPath, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+            let stderrOutput = "";
+            restoreProcess.stdout.resume(); // Drain stdout to prevent OS pipe buffer saturation
+            restoreProcess.stderr.on("data", (data) => { stderrOutput += data.toString(); });
 
             restoreProcess.on("close", (code) => {
                 if (code === 0) {
                     console.log("✅ Database restored completely via psql!");
                     resolve();
                 } else {
-                    reject(new Error("psql failed with code " + code));
+                    const lines = stderrOutput.trim().split(/\r?\n/);
+                    let errorIndex = -1;
+                    for (let i = lines.length - 1; i >= 0; i--) {
+                        if (/\bERROR:/i.test(lines[i])) { errorIndex = i; break; }
+                    }
+                    const details = errorIndex >= 0
+                        ? lines.slice(errorIndex, Math.min(lines.length, errorIndex + 8)).join("\n")
+                        : lines.slice(-8).join("\n");
+                    reject(new Error("psql restore failed with code " + code + ": " + (details || "no PostgreSQL error details were returned")));
                 }
             });
 
@@ -144,11 +165,9 @@ export async function executeDatabaseRestore(sqlFilePath: string, db_name: any, 
                 reject(err);
             });
         });
-        restoreSuccess = true;
     } catch (psqlErr: any) {
-        console.warn(`⚠️ psql restore failed (${psqlErr.message}). Triggering Node.js SQL restore runner fallback...`);
+        console.warn("⚠️ psql restore failed (" + psqlErr?.message + "). Falling back to pure Node.js PG client...");
         await executeSqlFileViaNode(sqlFilePath, targetDb, targetUser, targetPass, targetHost, targetPort);
-        restoreSuccess = true;
     }
 
     // 3. Post-Restore Schema Alignment & Migration verification

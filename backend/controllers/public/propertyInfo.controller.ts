@@ -29,6 +29,11 @@ exports.getPropertyInfo = async (req: any, res: any) => {
             }
         }
 
+        // If still no outlet found (e.g. brand new installation with 0 outlets registered), return empty data
+        if (!actualOutletId) {
+            return res.json({ success: true, data: {} });
+        }
+
         const info = await req.propertyDb.models.property_info.findOne({
             where: { outlet_id: actualOutletId }
         });

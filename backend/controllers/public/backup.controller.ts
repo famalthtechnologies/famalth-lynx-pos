@@ -94,10 +94,14 @@ exports.createLocalEncBackup = async (req, res) => {
     }
 };
 
-exports.restoreFromLocalEnc = async (req, res) => {
+exports.restoreFromLocalEnc = async (req: any, res: any) => {
     try {
-        const filename = String(req.body.filename || "").trim();
-        const base64 = String(req.body.base64 || "").trim();
+        let body = req.body || {};
+        if ((!body || Object.keys(body).length === 0) && req.rawBody) {
+            try { body = JSON.parse(req.rawBody.toString('utf8')); } catch (_) {}
+        }
+        const filename = String(body.filename || "").trim();
+        const base64 = String(body.base64 || "").trim();
         if (!filename.toLowerCase().endsWith(".enc")) {
             return res.status(400).json({
                 success: false,

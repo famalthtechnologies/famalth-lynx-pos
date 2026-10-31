@@ -21,7 +21,7 @@ async function resolveOutletId(req) {
 
 exports.getTableDiningInfo = async (req, res) => {
     try {
-        const outlet_id = await resolveOutletId(req);
+        let outlet_id = await resolveOutletId(req);
         if (!outlet_id) {
             return res.status(400).json({ success: false, message: 'Valid outlet is required' });
         }
@@ -31,7 +31,7 @@ exports.getTableDiningInfo = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Table ID is required' });
         }
 
-        const table = await req.propertyDb.models.restaurant_tables.findOne({
+        let table = await req.propertyDb.models.restaurant_tables.findOne({
             where: { id: table_id, outlet_id },
             include: [
                 { model: req.propertyDb.models.floors, as: 'floor', attributes: ['name'], required: false },
@@ -40,6 +40,20 @@ exports.getTableDiningInfo = async (req, res) => {
                 { model: req.propertyDb.models.hr_employees, as: 'waiter', attributes: [['full_name', 'employee_name']], required: false }
             ]
         });
+
+        if (!table) {
+            table = await req.propertyDb.models.restaurant_tables.findByPk(table_id, {
+                include: [
+                    { model: req.propertyDb.models.floors, as: 'floor', attributes: ['name'], required: false },
+                    { model: req.propertyDb.models.dining_areas, as: 'dining_area', attributes: ['name'], required: false },
+                    { model: req.propertyDb.models.table_types, as: 'table_type', attributes: ['name', 'charge_amount'], required: false },
+                    { model: req.propertyDb.models.hr_employees, as: 'waiter', attributes: [['full_name', 'employee_name']], required: false }
+                ]
+            });
+            if (table) {
+                outlet_id = table.outlet_id;
+            }
+        }
 
         if (!table) {
             return res.status(404).json({ success: false, message: 'Table not found in this outlet' });
@@ -74,12 +88,32 @@ exports.getTableDiningInfo = async (req, res) => {
                 sysSettings = await req.propertyDb.models.system_settings.findOne({ where: { outlet_id } });
             }
             if (!sysSettings) {
-                sysSettings = await req.propertyDb.models.system_settings.findOne();
+                sysSettings = await req.propertyDb.models.system_settings.findOne({ order: [['id', 'ASC']] });
             }
             if (sysSettings) {
                 if (sysSettings.allow_negative_stock) allowNegativeStock = true;
-                if (sysSettings.base_currency_symbol) baseCurrencySymbol = sysSettings.base_currency_symbol;
-                if (sysSettings.base_currency_code) baseCurrencyCode = sysSettings.base_currency_code;
+                
+                const isKenya = String(sysSettings.billing_country || '').trim().toLowerCase() === 'kenya';
+                let rawSym = (sysSettings.base_currency_symbol || '').trim();
+                let rawCode = (sysSettings.base_currency_code || '').trim();
+
+                // If KSh was assigned by migration default and country is not Kenya, discard it
+                if (rawSym === 'KSh' && !isKenya) {
+                    rawSym = '';
+                    rawCode = '';
+                }
+
+                if (rawSym) {
+                    baseCurrencySymbol = rawSym;
+                } else if (String(sysSettings.billing_country || '').toLowerCase() === 'india') {
+                    baseCurrencySymbol = '₹';
+                    baseCurrencyCode = 'INR';
+                }
+
+                if (rawCode) {
+                    baseCurrencyCode = rawCode;
+                }
+
                 if (sysSettings.billing_tax_mode) billingTaxMode = sysSettings.billing_tax_mode;
                 enablePaymentGateway = sysSettings.enable_payment_gateway === true || sysSettings.enable_payment_gateway === 1 || String(sysSettings.enable_payment_gateway) === 'true';
                 if (sysSettings.payment_gateway_provider) paymentGatewayProvider = sysSettings.payment_gateway_provider;
@@ -865,10 +899,14 @@ exports.placeCustomerDiningOrder = async (req, res) => {
             }
         }
 
-        const table = await req.propertyDb.models.restaurant_tables.findOne({
+        let table = await req.propertyDb.models.restaurant_tables.findOne({
             where: { id: table_id, outlet_id },
             transaction: t
         });
+        if (!table) {
+            table = await req.propertyDb.models.restaurant_tables.findByPk(table_id, { transaction: t });
+            if (table) outlet_id = table.outlet_id;
+        }
         if (!table) throw new Error('Table not found');
 
         let assignedWaiterId = table.current_waiter_id;

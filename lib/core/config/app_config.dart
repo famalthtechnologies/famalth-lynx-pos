@@ -71,7 +71,7 @@ class AppConfig {
         }
 
         if (data['outlets'] != null) {
-          outlets = List<String>.from(data['outlets']);
+          outlets = List<String>.from(data['outlets']).map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
         }
         return true;
       }

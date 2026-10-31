@@ -137,6 +137,7 @@ function createBackup(dbName: string, backupStem: string): Promise<string> {
                 "--dbname=" + dbUrl,
                 "-F", "p",
                 "-c",
+                "--if-exists",
                 "-f", file
             ];
         } else {
@@ -146,6 +147,7 @@ function createBackup(dbName: string, backupStem: string): Promise<string> {
                 "-U", config.db_user || "postgres",
                 "-F", "p",
                 "-c",
+                "--if-exists",
                 "-f", file,
                 dbName || config.db_database || "postgres"
             ];

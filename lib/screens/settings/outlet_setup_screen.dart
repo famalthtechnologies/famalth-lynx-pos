@@ -203,7 +203,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
       );
 
       if (verifyRes['success'] == true) {
-        await _submitExistingClient();
+        await _completeExistingClientFlow(verifyRes);
       } else {
         throw verifyRes['message'] ?? "PIN verification failed.";
       }
@@ -212,6 +212,24 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _completeExistingClientFlow(
+    Map<String, dynamic> verification,
+  ) async {
+    if (_isLocalSetupServer) {
+      final folderId = verification['folderId']?.toString().trim() ?? '';
+      final rawClientData = verification['clientData'];
+      if (folderId.isEmpty || rawClientData is! Map) {
+        throw Exception('Verified outlet recovery details are incomplete.');
+      }
+      await recoveryCtrl.executeRecovery(
+        folderId,
+        Map<String, dynamic>.from(rawClientData),
+      );
+    }
+
+    await _submitExistingClient();
   }
 
   Future<void> _submitExistingClient() async {
@@ -280,7 +298,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
       );
 
       if (response['success'] == true) {
-        await _submitExistingClient();
+        await _completeExistingClientFlow(response);
       } else {
         throw response['message'] ?? "OTP verification failed.";
       }
@@ -1817,6 +1835,10 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
           child: Text('All Features (Retail + Restaurant + Inventory)'),
         ),
         DropdownMenuItem(
+          value: 'CLINIC',
+          child: Text('Clinic & OPD Healthcare (Doctors, Patients, Pharmacy)'),
+        ),
+        DropdownMenuItem(
           value: 'RETAIL',
           child: Text('Retail POS (Billing + Stock Inventory)'),
         ),
@@ -1928,15 +1950,17 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 28),
-            SizedBox(width: 12),
-            Text("Terminal Linked"),
+            const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 28),
+            const SizedBox(width: 12),
+            Text(_isLocalSetupServer ? "System Restored" : "Terminal Linked"),
           ],
         ),
-        content: const Text(
-          "Your workstation has been successfully verified and linked to this business.",
+        content: Text(
+          _isLocalSetupServer
+              ? "The system backup was restored and this outlet is ready."
+              : "Your workstation has been successfully verified and linked to this business.",
           style: TextStyle(color: Color(0xFF475569)),
         ),
         actions: [

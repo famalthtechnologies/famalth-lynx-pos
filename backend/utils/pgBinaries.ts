@@ -5,7 +5,44 @@ import { execSync } from "child_process";
 export function findPostgresBinary(binaryName: string): string {
     const exeName = process.platform === "win32" ? `${binaryName}.exe` : binaryName;
 
-    // 1. Try finding in system PATH
+    if (process.platform === "win32") {
+        const isCompiled = typeof (process as any).pkg !== "undefined";
+        const appDir = isCompiled ? path.dirname(process.execPath) : path.join(__dirname, "..");
+        const configuredCandidates: string[] = [];
+
+        // 1. Process environment variable
+        const configuredBin = process.env.FAMALTH_PG_BIN;
+        if (configuredBin) configuredCandidates.push(configuredBin.trim().replace(/^"|"$/g, ""));
+
+        // 2. pg_bin.txt in app directory
+        try {
+            const savedBin = fsSync.readFileSync(path.join(appDir, "pg_bin.txt"), "utf8").trim();
+            if (savedBin) configuredCandidates.push(savedBin.replace(/^"|"$/g, ""));
+        } catch (_) {}
+
+        // 3. Dynamic scan for any PostgreSQL version (25 down to 10) in appDir and root directories
+        for (let ver = 25; ver >= 10; ver--) {
+            configuredCandidates.push(
+                path.join(appDir, `PostgreSQL${ver}`, "bin"),
+                `C:\\FamalthLynx\\PostgreSQL${ver}\\bin`,
+                `D:\\FamalthLynx\\PostgreSQL${ver}\\bin`
+            );
+        }
+        configuredCandidates.push(
+            path.join(appDir, "PostgreSQL", "bin"),
+            "C:\\FamalthLynx\\PostgreSQL\\bin",
+            "D:\\FamalthLynx\\PostgreSQL\\bin"
+        );
+
+        for (const binDir of configuredCandidates) {
+            if (binDir) {
+                const candidate = path.join(binDir, exeName);
+                if (fsSync.existsSync(candidate)) return candidate;
+            }
+        }
+    }
+
+    // 4. Try finding in system PATH
     try {
         const cmd = process.platform === "win32" ? `where.exe ${exeName}` : `which ${binaryName}`;
         const output = execSync(cmd, { stdio: ["pipe", "pipe", "ignore"], encoding: "utf8" });
@@ -15,7 +52,7 @@ export function findPostgresBinary(binaryName: string): string {
         }
     } catch (_) {}
 
-    // 2. Try known Windows Program Files directories for versions 20 down to 10
+    // 5. Try known Windows Program Files directories for versions 20 down to 10
     if (process.platform === "win32") {
         const basePaths = [
             process.env.ProgramFiles || "C:\\Program Files",
@@ -34,7 +71,7 @@ export function findPostgresBinary(binaryName: string): string {
         }
     }
 
-    // 3. Fallback to binary name
+    // 6. Fallback to binary name
     return binaryName;
 }
 

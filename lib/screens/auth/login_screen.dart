@@ -20,6 +20,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../controllers/settings/theme_controller.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/permissions/module_capability.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:retailpos/widgets/brand_logo_widget.dart';
 import '../../controllers/security/password_recovery_controller.dart';
@@ -185,13 +186,19 @@ class _LoginScreenState extends State<LoginScreen>
       fetchedBg = prefs.getString('brand_home_bg_$_selectedOutlet');
       fetchedName = prefs.getString('brand_name_$_selectedOutlet');
 
+      final cachedModule = prefs.getString('brand_module_$_selectedOutlet');
+      if (cachedModule != null && cachedModule.isNotEmpty) {
+        mod = cachedModule;
+      }
+
       try {
         final res = await ApiClient.get(
           '${ApiEndpoints.publicPropertyInfo}?outlet_code=$_selectedOutlet',
         );
         if (res != null && res['success'] == true && res['data'] != null) {
           final data = res['data'];
-          mod = data['business_module'] ?? data['outlet_module'] ?? 'ALL';
+          mod = data['business_module'] ?? data['outlet_module'] ?? mod;
+          await prefs.setString('brand_module_$_selectedOutlet', mod);
 
           final serverName = (data['property_name'] ?? data['outlet_name'] ?? data['name'] ?? data['hotel_name'])?.toString().trim();
           if (serverName != null && serverName.isNotEmpty) {
@@ -253,6 +260,10 @@ class _LoginScreenState extends State<LoginScreen>
         _activeModule = mod;
         _bgCoverImagePath = fetchedBg;
         _outletName = fetchedName;
+        final validRoles = AppConstants.getRolesForModule(_activeModule);
+        if (!validRoles.contains(_role)) {
+          _role = validRoles.first;
+        }
       });
     }
   }
@@ -1395,10 +1406,11 @@ class _LoginScreenState extends State<LoginScreen>
             ),
             const SizedBox(height: 14),
             DropdownButtonFormField<String>(
-              initialValue: () {
+              key: ValueKey('workstation_role_$_activeModule'),
+              value: (() {
                 final roles = AppConstants.getRolesForModule(_activeModule);
                 return roles.contains(_role) ? _role : roles.first;
-              }(),
+              })(),
               decoration: _enterpriseInputDecoration(
                 labelText: 'Workstation Role',
                 prefixIcon: Icons.badge_outlined,
@@ -1483,7 +1495,7 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
               ),
             ),
-          ] else ...[
+          ] else if (_isPinMode) ...[
             // PIN Login Form
             if (_quickUsers.isNotEmpty) ...[
               DropdownButtonFormField<QuickUser?>(
@@ -1615,8 +1627,7 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
               ),
             ),
-          ],
-          if (_isQrMode) ...[
+          ] else if (_isQrMode) ...[
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(

@@ -139,6 +139,10 @@ async function executeFullSystemRecovery(req, res) {
     try {
         console.log(`[RECOVERY] Executing system restore for: ${clientData.outlet_code}`);
 
+        // Restore first; only persist the link if database recovery succeeds.
+        await autoRestoreLatest(folderId);
+        await downloadSystemConfigs(folderId);
+
         // 1. Read existing configuration safely
         let clients = [];
         if (fs.existsSync(CLIENT_FILE)) {
@@ -182,9 +186,6 @@ async function executeFullSystemRecovery(req, res) {
         console.log(`[RECOVERY] Local client.json configuration updated.`);
 
         // 4. Download external dependencies and restore database
-        await downloadSystemConfigs(folderId);
-        await autoRestoreLatest(folderId);
-
         console.log("[RECOVERY] Sequence complete. Awaiting system restart.");
 
         res.json({

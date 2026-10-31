@@ -1,7 +1,7 @@
 [Setup]
 AppName=Famalth Lynx
 AppId={{8C07A1B8-7BE7-4F73-9A89-42D8F7B9D322}
-AppVersion=1.1.31
+AppVersion=1.1.32
 AppPublisher=Famalth Technologies
 DefaultDirName={sd}\FamalthLynx
 UsePreviousAppDir=yes
@@ -49,8 +49,6 @@ Name: "{commondesktop}\Famalth Lynx"; Filename: "{app}\FamalthLynx.exe"; IconFil
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"
 
 [Registry]
-; Clean up legacy autorun value if present
-Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "RetailposBackendServer"; Flags: deletevalue; Components: backend
 ; Auto-start server on boot (ONLY on the Server)
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "FamalthLynxBackendServer"; ValueData: "wscript.exe ""{app}\run_hidden.vbs"""; Flags: uninsdeletevalue; Components: backend
 
@@ -58,19 +56,43 @@ Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; VC++ Redist is required for both Flutter Windows apps and Node.js
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Check: NeedsVC
 
-; Firewall and Server start (ONLY on the Server)
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Famalth Lynx API Port 3000"" dir=in action=allow protocol=TCP localport=3000"; Flags: runhidden; Components: backend
-Filename: "wscript.exe"; Parameters: """{app}\run_hidden.vbs"""; WorkingDir: "{app}"; Flags: nowait; Components: backend
-
 ; Launch Flutter UI (On both)
 Filename: "{app}\FamalthLynx.exe"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
-[UninstallRun]
-; Remove Firewall rule (ONLY if it was a Server)
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Famalth Lynx API Port 3000"""; Flags: runhidden; RunOnceId: "DelFwFamalth"; Components: backend
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Retailpos API Port 3000"""; Flags: runhidden; RunOnceId: "DelFwRetailpos"; Components: backend
-
 [Code]
+function EscapePowerShell(Value: String): String;
+var
+  i: Integer;
+begin
+  Result := '';
+  for i := 1 to Length(Value) do
+  begin
+    if Value[i] = #39 then Result := Result + #39 + #39
+    else Result := Result + Value[i];
+  end;
+end;
+
+function StopOwnedBackend(): Boolean;
+var
+  ScriptPath, ScriptText: String;
+  ResultCode: Integer;
+begin
+  ScriptPath := ExpandConstant('{tmp}\famalth_stop_backend.ps1');
+  ScriptText := '$target = ''' + EscapePowerShell(ExpandConstant('{app}\server.exe')) + '''' + #13#10 +
+    '$p = Get-CimInstance Win32_Process -Filter "Name=''server.exe''" -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ieq $target }' + #13#10 +
+    'if ($p) { $p | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop }; Start-Sleep -Milliseconds 800 }' + #13#10 +
+    '$left = Get-CimInstance Win32_Process -Filter "Name=''server.exe''" -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.ExecutablePath -and $_.ExecutablePath -ieq $target }' + #13#10 +
+    'if ($left) { exit 5 } else { exit 0 }';
+  if not SaveStringToFile(ScriptPath, ScriptText, False) then
+  begin Result := False; Exit; end;
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  DeleteFile(ScriptPath);
+  Sleep(500);
+end;
+
 function NeedsVC: Boolean;
 var
   VCRuntimeInstalled: Cardinal;
@@ -86,29 +108,14 @@ begin
   end;
 end;
 
+{ Do not kill processes by executable name or remove scheduled tasks not created
+  and owned by this installer. The app's own Run value starts its backend. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  ResultCode: Integer;
 begin
-  Exec('taskkill.exe', '/F /IM FamalthLynx.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/F /IM Retailpos.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/F /IM server.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(1000);
-  Result := '';
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  ResultCode: Integer;
-begin
-  if CurStep = ssPostInstall then
-  begin
-    // Auto-start is safely and reliably handled via the HKLM\Run registry entry.
-    // Suppress any external task scheduler errors so installer always succeeds.
-    try
-      Exec('cmd.exe', '/c schtasks /delete /tn "INVINS_Server" /f >nul 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-      Exec('cmd.exe', '/c schtasks /delete /tn "FamalthLynx_Server" /f >nul 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    except
-    end;
-  end;
+  NeedsRestart := False;
+  if not StopOwnedBackend() then
+    Result := 'Famalth Lynx could not stop its own backend process at ' +
+      ExpandConstant('{app}\server.exe') + '. Close Famalth Lynx and retry setup.'
+  else
+    Result := '';
 end;
