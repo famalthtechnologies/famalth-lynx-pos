@@ -27,13 +27,14 @@ Name: "backend"; Description: "Local Backend Server Services"; Types: server
 
 [Files]
 ; UI Files (Installed on both Server and Client)
-Source: "D:\inventorynew\RetailSale new\RetailSale\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: ui
+Source: "D:\inventorynew\RetailSale new\RetailSale\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Excludes: "server_config.json,server_port.txt"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: ui
 Source: "D:\inventorynew\RetailSale new\RetailSale\windows\runner\resources\app_icon.ico"; DestDir: "{app}\resources"; Flags: ignoreversion; Components: ui
 Source: "D:\inventorynew\RetailSale new\RetailSale\installer\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 ; Backend Files (Installed ONLY on the Server)
 Source: "D:\inventorynew\RetailSale new\RetailSale\backend\server.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: backend
 Source: "D:\inventorynew\RetailSale new\RetailSale\backend\license.key"; DestDir: "{app}"; Flags: ignoreversion; Components: backend
+Source: "D:\inventorynew\RetailSale new\RetailSale\backend\config.enc"; DestDir: "{app}"; Flags: ignoreversion; Components: backend
 Source: "D:\inventorynew\RetailSale new\RetailSale\backend\sysConfig.enc"; DestDir: "{app}"; Flags: ignoreversion; Components: backend
 Source: "D:\inventorynew\RetailSale new\RetailSale\backend\run_hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion; Components: backend
 
@@ -49,17 +50,32 @@ Name: "{commondesktop}\Famalth Lynx"; Filename: "{app}\FamalthLynx.exe"; IconFil
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"
 
 [Registry]
-; Auto-start server on boot (ONLY on the Server)
-Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "FamalthLynxBackendServer"; ValueData: "wscript.exe ""{app}\run_hidden.vbs"""; Flags: uninsdeletevalue; Components: backend
+; Auto-start server on boot (ONLY on the Server, scoped per directory for multi-company isolation)
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{code:GetBackendRunValueName}"; ValueData: "wscript.exe ""{app}\run_hidden.vbs"""; Flags: uninsdeletevalue; Components: backend
 
 [Run]
 ; VC++ Redist is required for both Flutter Windows apps and Node.js
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; Check: NeedsVC
 
+; Auto-start local Backend Server upon setup completion (Server installation only)
+Filename: "wscript.exe"; Parameters: """{app}\run_hidden.vbs"""; WorkingDir: "{app}"; Flags: runhidden; Components: backend
+
 ; Launch Flutter UI (On both)
 Filename: "{app}\FamalthLynx.exe"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+function GetBackendRunValueName(Param: String): String;
+var
+  AppDir, LeafName: String;
+begin
+  AppDir := ExpandConstant('{app}');
+  LeafName := ExtractFileName(AppDir);
+  if (LeafName = '') or (Uppercase(LeafName) = 'FAMALTHLYNX') then
+    Result := 'FamalthLynxBackendServer'
+  else
+    Result := 'FamalthLynxBackendServer_' + LeafName;
+end;
+
 function EscapePowerShell(Value: String): String;
 var
   i: Integer;

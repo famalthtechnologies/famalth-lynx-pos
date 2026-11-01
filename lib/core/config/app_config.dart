@@ -101,6 +101,17 @@ class AppConfig {
 
       final file = File(_configPath);
       await file.writeAsString(jsonEncode({'baseUrl': cleanUrl, 'outlets': newOutlets}));
+
+      // If running on a local workstation (not a remote/cloud server), also keep server_port.txt synchronized
+      if (isLocalServer) {
+        try {
+          final uri = Uri.tryParse(cleanUrl);
+          if (uri != null && uri.hasPort && uri.port > 0) {
+            final portFile = File(p.join(p.dirname(_configPath), 'server_port.txt'));
+            await portFile.writeAsString(uri.port.toString());
+          }
+        } catch (_) {}
+      }
     } catch (e) {
       print('Error saving config: $e');
       throw Exception(
@@ -113,10 +124,12 @@ class AppConfig {
     try {
       final uri = Uri.parse(baseUrl);
       final host = uri.host.toLowerCase();
-      return host == 'localhost' || host == '127.0.0.1';
+      return host == 'localhost' || host == '127.0.0.1' || host == '0.0.0.0';
     } catch (_) {
       final lower = baseUrl.toLowerCase();
-      return lower.contains('localhost') || lower.contains('127.0.0.1');
+      return lower.contains('localhost') || lower.contains('127.0.0.1') || lower.contains('0.0.0.0');
     }
   }
+
+  static bool get isCloudServer => !isLocalServer;
 }

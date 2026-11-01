@@ -802,9 +802,62 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     res.status(500).json({ success: false, message: 'Server error' });
 });
 
+// Dynamic server port resolution supporting Cloud environments, multi-instance setups, and custom local ports
+function resolveServerPort(): number {
+    // 1. Cloud environment or explicit process.env.PORT always takes top priority
+    if (process.env.PORT && !isNaN(Number(process.env.PORT))) {
+        const envPort = Number(process.env.PORT);
+        if (envPort > 0 && envPort < 65536) {
+            console.log(`🌐 [PORT_RESOLVER] Using environment/cloud PORT: ${envPort}`);
+            return envPort;
+        }
+    }
+
+    const appDir = process.cwd();
+
+    // 2. Check local server_port.txt in the application directory
+    const portFilePath = path.join(appDir, 'server_port.txt');
+    if (fs.existsSync(portFilePath)) {
+        try {
+            const raw = fs.readFileSync(portFilePath, 'utf8').trim();
+            const parsed = parseInt(raw, 10);
+            if (Number.isFinite(parsed) && parsed > 0 && parsed < 65536) {
+                console.log(`📄 [PORT_RESOLVER] Using port from server_port.txt: ${parsed}`);
+                return parsed;
+            }
+        } catch (_) {}
+    }
+
+    // 3. Check local server_config.json in the application directory
+    const configFilePath = path.join(appDir, 'server_config.json');
+    if (fs.existsSync(configFilePath)) {
+        try {
+            const raw = fs.readFileSync(configFilePath, 'utf8').trim();
+            const json = JSON.parse(raw);
+            if (json && json.baseUrl) {
+                const parsedUrl = new URL(json.baseUrl);
+                const host = parsedUrl.hostname.toLowerCase();
+                const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
+
+                // Only infer local server port from baseUrl if it points to a local address with an explicit port
+                if (isLocalHost && parsedUrl.port) {
+                    const parsed = parseInt(parsedUrl.port, 10);
+                    if (Number.isFinite(parsed) && parsed > 0 && parsed < 65536) {
+                        console.log(`⚙️ [PORT_RESOLVER] Using port from server_config.json: ${parsed}`);
+                        return parsed;
+                    }
+                }
+            }
+        } catch (_) {}
+    }
+
+    // 4. Default fallback port for local workstations
+    return 3000;
+}
+
 // server
-const PORT = process.env.PORT || 3000;
-const HOST = license.allowed_mode === 'ONLINE' ? '0.0.0.0' : '0.0.0.0';
+const PORT = resolveServerPort();
+const HOST = process.env.HOST || (license.allowed_mode === 'ONLINE' ? '0.0.0.0' : '0.0.0.0');
 
 const server = app.listen(PORT, HOST, () => {
     console.log(`INV API running on http://${HOST}:${PORT}`);

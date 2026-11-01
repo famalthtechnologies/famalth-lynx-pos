@@ -14,6 +14,7 @@ class Item {
   final String imagePath;
   final String location;
   final double rate;
+  final double? averageRate;
   final double retailSalePrice;
   final String taxType;
   final double taxPercent;
@@ -62,6 +63,7 @@ class Item {
     this.imagePath = '',
     this.location = '-',
     required this.rate,
+    this.averageRate,
     required this.retailSalePrice,
     required this.taxType,
     required this.taxPercent,
@@ -115,6 +117,7 @@ class Item {
           ? '-'
           : (json['location'] ?? json['kitchen_location'] ?? '-').toString(),
       rate: double.tryParse(json['rate'].toString()) ?? 0.0,
+      averageRate: json['average_rate'] != null ? double.tryParse(json['average_rate'].toString()) : null,
       retailSalePrice:
           double.tryParse(json['retail_sale_price'].toString()) ?? 0.0,
       taxType: json['tax_type'] ?? 'GST',
@@ -165,6 +168,7 @@ class Item {
       'image_path': imagePath,
       'location': location,
       'rate': rate,
+      'average_rate': averageRate ?? rate,
       'retail_sale_price': retailSalePrice,
       'tax_type': taxType,
       'tax_percent': taxPercent,

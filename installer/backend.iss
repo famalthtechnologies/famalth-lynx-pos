@@ -2351,6 +2351,7 @@ var
 
   ApiPort: String;
   ExistingApiPort: String;
+  ExistingPortAnsi: AnsiString;
 
 begin
 
@@ -2631,7 +2632,19 @@ begin
     StopOwnedBackend();
 
     ApiPort := '';
-    if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Famalth\Lynx\Backend', 'ApiPort', ExistingApiPort) and
+    // Priority 1: Check if this specific {app} folder already has server_port.txt
+    if FileExists(ExpandConstant('{app}\server_port.txt')) then
+    begin
+      if LoadStringFromFile(ExpandConstant('{app}\server_port.txt'), ExistingPortAnsi) then
+      begin
+        ExistingApiPort := Trim(String(ExistingPortAnsi));
+        if (ExistingApiPort <> '') then
+          ApiPort := ExistingApiPort;
+      end;
+    end;
+
+    // Priority 2: Check registry
+    if (ApiPort = '') and RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Famalth\Lynx\Backend', 'ApiPort', ExistingApiPort) and
        (not IsTcpPortInUse(ExistingApiPort)) then
     begin
       ApiPort := ExistingApiPort;

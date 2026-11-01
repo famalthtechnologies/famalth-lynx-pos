@@ -51,7 +51,8 @@ class _SplashScreenState extends State<SplashScreen> {
           try {
             final res = await ApiClient.get(
               '${ApiEndpoints.publicPropertyInfo}?outlet_code=$outletCode',
-            );
+              silent: true,
+            ).timeout(const Duration(seconds: 2), onTimeout: () => null);
             if (res != null && res['success'] == true && res['data'] != null) {
               final serverLogo = res['data']['logo_path']?.toString();
               if (serverLogo != null && serverLogo.trim().isNotEmpty) {

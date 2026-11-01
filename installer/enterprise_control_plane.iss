@@ -18,7 +18,8 @@ RestartApplications=no
 
 [Files]
 ; Standalone Enterprise Control Plane Executable and Flutter runtime dependencies
-Source: "..\build\enterprise_console\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\enterprise_console\Release\*"; DestDir: "{app}"; Excludes: "server_config.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\enterprise_console\Release\server_config.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Source: "..\windows\runner\resources\app_icon.ico"; DestDir: "{app}\resources"; Flags: ignoreversion
 Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 

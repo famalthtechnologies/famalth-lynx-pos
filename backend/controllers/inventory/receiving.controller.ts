@@ -26,9 +26,91 @@ function normalizeLineStatus(value: any, fallback = 'CLOSED') {
 
 async function syncItemPricing({ req, itemCode, itemId, purchaseRate, saleRate, isTaxInclusive, transaction }: any) {
     if (!itemCode && !itemId) return;
-    const payload: any = {
-        rate: Number(purchaseRate) || 0
-    };
+    const outlet_id = (req as any).user?.outlet_id;
+    if (!outlet_id) return;
+
+    const where: any = { outlet_id };
+    if (itemId) {
+        where.id = itemId;
+    } else {
+        where.item_code = itemCode;
+    }
+
+    const item = await (req as any).propertyDb.models.item_master.findOne({
+        where,
+        transaction
+    });
+
+    if (!item) return;
+
+    const resolvedItemId = item.id || itemId || null;
+    const resolvedItemCode = item.item_code || itemCode || '';
+
+    // Calculate cumulative goods receipt quantities and costs for this item across all active (non-cancelled) GRNs
+    const [grnAgg]: any = await (req as any).propertyDb.query(`
+        SELECT 
+            COALESCE(SUM(CAST(gri.qty AS NUMERIC)), 0) AS total_grn_qty,
+            COALESCE(SUM(CAST(gri.qty AS NUMERIC) * CAST(gri.rate AS NUMERIC)), 0) AS total_grn_cost
+        FROM goods_receipt_items gri
+        INNER JOIN goods_receipts gr ON gri.grn_id = gr.id
+        WHERE gr.outlet_id = :outlet_id
+          AND UPPER(COALESCE(gr.status, '')) != 'CANCELLED'
+          AND (
+              (:item_id IS NOT NULL AND gri.item_id = :item_id)
+              OR (gri.item_code = :item_code)
+          )
+          AND CAST(gri.qty AS NUMERIC) > 0
+    `, {
+        replacements: {
+            outlet_id,
+            item_id: resolvedItemId,
+            item_code: resolvedItemCode
+        },
+        transaction
+    });
+
+    const totalGrnQty = Number(grnAgg?.[0]?.total_grn_qty || 0);
+    const totalGrnCost = Number(grnAgg?.[0]?.total_grn_cost || 0);
+
+    // Incorporate opening balance and opening rate if present
+    const openingQty = Math.max(0, Number(item.opening_balance || 0));
+    let openingRate = 0;
+    const payload: any = {};
+
+    if (openingQty > 0) {
+        if (item.opening_rate !== null && item.opening_rate !== undefined && Number(item.opening_rate) > 0) {
+            openingRate = Number(item.opening_rate);
+        } else if (Number(item.rate) > 0) {
+            openingRate = Number(item.rate);
+            payload.opening_rate = openingRate;
+        } else if (purchaseRate !== undefined && purchaseRate !== null && Number(purchaseRate) > 0) {
+            openingRate = Number(purchaseRate);
+            payload.opening_rate = openingRate;
+        }
+    }
+
+    const openingCost = openingQty * openingRate;
+    const combinedQty = totalGrnQty + openingQty;
+    const combinedCost = totalGrnCost + openingCost;
+
+    let avgRate = 0;
+    if (combinedQty > 0 && combinedCost > 0) {
+        avgRate = Number((combinedCost / combinedQty).toFixed(2));
+    } else if (totalGrnQty > 0 && totalGrnCost > 0) {
+        avgRate = Number((totalGrnCost / totalGrnQty).toFixed(2));
+    } else if (purchaseRate !== undefined && purchaseRate !== null && Number(purchaseRate) > 0) {
+        avgRate = Number(purchaseRate);
+    } else {
+        avgRate = Number(item.rate) || 0;
+    }
+
+    if (!Number.isFinite(avgRate) || avgRate < 0) {
+        avgRate = 0;
+    }
+
+    // Set Buy Rate in item_master as the calculated Average Rate
+    payload.rate = avgRate;
+    payload.average_rate = avgRate;
 
     if (saleRate !== undefined && saleRate !== null) {
         payload.retail_sale_price = Number(saleRate) || 0;
@@ -36,21 +118,8 @@ async function syncItemPricing({ req, itemCode, itemId, purchaseRate, saleRate, 
     if (isTaxInclusive !== undefined && isTaxInclusive !== null) {
         payload.is_tax_inclusive = isTaxInclusive === true || isTaxInclusive === 'true' || isTaxInclusive === 1;
     }
-    const where: any = {
-        outlet_id: req.user.outlet_id
-    };
-    if (itemId) {
-        where.id = itemId;
-    } else {
-        where.item_code = itemCode;
-    }
-    await req.propertyDb.models.item_master.update(
-        payload,
-        {
-            where,
-            transaction
-        }
-    );
+
+    await item.update(payload, { transaction });
 }
 
 export const createReceiving = async (req: Request, res: Response) => {
@@ -168,12 +237,13 @@ export const createReceiving = async (req: Request, res: Response) => {
                 : (i.is_tax_inclusive !== undefined && i.is_tax_inclusive !== null
                     ? (i.is_tax_inclusive === true || i.is_tax_inclusive === 'true' || i.is_tax_inclusive === 1)
                     : undefined);
+            const saleRateVal = (i.sale_rate !== undefined && i.sale_rate !== null && String(i.sale_rate).trim() !== '') ? Number(i.sale_rate) : undefined;
             await syncItemPricing({
                 req,
                 itemId: i.item_id,
                 itemCode: i.code,
                 purchaseRate: (i.original_rate !== undefined && i.original_rate !== null && Number(i.original_rate) > 0) ? i.original_rate : i.rate,
-                saleRate: Number(i.sale_rate ?? i.rate) || 0,
+                saleRate: saleRateVal,
                 isTaxInclusive: isSaleInclusive,
                 transaction: t
             });
@@ -763,9 +833,13 @@ export const deleteReceivingItem = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false });
         }
 
+        const itemId = item.item_id;
+        const itemCode = item.item_code;
+        const outletId = (req as any).user?.outlet_id || item.outlet_id;
+
         // REVERSE STOCK
         await (req as any).propertyDb.models.stock_ledger.create({
-            outlet_id: item.outlet_id,
+            outlet_id: outletId,
             item_code: item.item_code,
             txn_date: new Date(),
             txn_type: 'GRN_DELETE',
@@ -775,6 +849,15 @@ export const deleteReceivingItem = async (req: Request, res: Response) => {
         }, { transaction: t });
 
         await item.destroy({ transaction: t });
+
+        // Recalculate average buy rate in item_master after line deletion
+        await syncItemPricing({
+            req,
+            itemId,
+            itemCode,
+            transaction: t
+        });
+
         await t.commit();
 
         await audit.log({
@@ -863,6 +946,22 @@ export const cancelReceiving = async (req: Request, res: Response) => {
         }
 
         await grn.update({ status: 'CANCELLED' }, { transaction: t });
+
+        // Recalculate average buy rate in item_master for each item affected by cancellation
+        const processedItems = new Set<string>();
+        for (const item of (grn.goods_receipt_items || [])) {
+            const key = `${item.item_id || ''}_${item.item_code || ''}`;
+            if (!processedItems.has(key)) {
+                processedItems.add(key);
+                await syncItemPricing({
+                    req,
+                    itemId: item.item_id,
+                    itemCode: item.item_code,
+                    transaction: t
+                });
+            }
+        }
+
         await t.commit();
 
         await audit.log({

@@ -79,7 +79,7 @@ class ApiClient {
     final response = await http.get(
       uri,
       headers: await _headers(path),
-    );
+    ).timeout(const Duration(seconds: 15));
     return _handleResponse(response, silent: silent);
   }
 
@@ -89,7 +89,7 @@ class ApiClient {
       _uri(path),
       headers: await _headers(path),
       body: jsonEncode(body),
-    );
+    ).timeout(const Duration(seconds: 15));
     return _handleResponse(response, silent: silent);
   }
 
@@ -99,7 +99,7 @@ class ApiClient {
       _uri(path),
       headers: await _headers(path),
       body: jsonEncode(body),
-    );
+    ).timeout(const Duration(seconds: 15));
     return _handleResponse(response, silent: silent);
   }
 
@@ -109,7 +109,7 @@ class ApiClient {
       _uri(path),
       headers: await _headers(path),
       body: jsonEncode(body),
-    );
+    ).timeout(const Duration(seconds: 15));
     return _handleResponse(response, silent: silent);
   }
 
@@ -119,7 +119,7 @@ class ApiClient {
       _uri(path),
       headers: await _headers(path),
       body: body != null ? jsonEncode(body) : null,
-    );
+    ).timeout(const Duration(seconds: 15));
     return _handleResponse(response, silent: silent);
   }
 

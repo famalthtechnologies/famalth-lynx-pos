@@ -719,8 +719,56 @@ app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ success: false, message: "Server error" });
 });
-const PORT = process.env.PORT || 3e3;
-const HOST = license.allowed_mode === "ONLINE" ? "0.0.0.0" : "0.0.0.0";
+// Dynamic server port resolution supporting Cloud environments, multi-instance setups, and custom local ports
+function resolveServerPort() {
+  if (process.env.PORT && !isNaN(Number(process.env.PORT))) {
+    const envPort = Number(process.env.PORT);
+    if (envPort > 0 && envPort < 65536) {
+      console.log(`🌐 [PORT_RESOLVER] Using environment/cloud PORT: ${envPort}`);
+      return envPort;
+    }
+  }
+
+  const appDir = process.cwd();
+
+  const portFilePath = import_path.default.join(appDir, "server_port.txt");
+  if (import_fs.default.existsSync(portFilePath)) {
+    try {
+      const raw = import_fs.default.readFileSync(portFilePath, "utf8").trim();
+      const parsed = parseInt(raw, 10);
+      if (Number.isFinite(parsed) && parsed > 0 && parsed < 65536) {
+        console.log(`📄 [PORT_RESOLVER] Using port from server_port.txt: ${parsed}`);
+        return parsed;
+      }
+    } catch (_) {}
+  }
+
+  const configFilePath = import_path.default.join(appDir, "server_config.json");
+  if (import_fs.default.existsSync(configFilePath)) {
+    try {
+      const raw = import_fs.default.readFileSync(configFilePath, "utf8").trim();
+      const json = JSON.parse(raw);
+      if (json && json.baseUrl) {
+        const parsedUrl = new URL(json.baseUrl);
+        const host = parsedUrl.hostname.toLowerCase();
+        const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0";
+
+        if (isLocalHost && parsedUrl.port) {
+          const parsed = parseInt(parsedUrl.port, 10);
+          if (Number.isFinite(parsed) && parsed > 0 && parsed < 65536) {
+            console.log(`⚙️ [PORT_RESOLVER] Using port from server_config.json: ${parsed}`);
+            return parsed;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  return 3000;
+}
+
+const PORT = resolveServerPort();
+const HOST = process.env.HOST || (license.allowed_mode === "ONLINE" ? "0.0.0.0" : "0.0.0.0");
 const server = app.listen(PORT, HOST, () => {
   console.log(`INV API running on http://${HOST}:${PORT}`);
 });

@@ -61,7 +61,9 @@ async function ensureItemMasterModifierColumns(propertyDb) {
             ADD COLUMN IF NOT EXISTS deduct_qty DECIMAL(12, 4) DEFAULT 0,
             ADD COLUMN IF NOT EXISTS food_type VARCHAR(20) DEFAULT 'VEG',
             ADD COLUMN IF NOT EXISTS dietary_type VARCHAR(20) DEFAULT 'VEG',
-            ADD COLUMN IF NOT EXISTS is_veg BOOLEAN DEFAULT TRUE;
+            ADD COLUMN IF NOT EXISTS is_veg BOOLEAN DEFAULT TRUE,
+            ADD COLUMN IF NOT EXISTS average_rate DECIMAL(12, 2) DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS opening_rate DECIMAL(12, 2) DEFAULT NULL;
         `);
     } catch (_) {}
 }
