@@ -307,12 +307,33 @@ class ApiClient {
 }
 
 void showErrorSnackbar(String message) {
+  final isLockout = message.contains('Lockout') ||
+      message.contains('Locked') ||
+      message.contains('Blocked') ||
+      message.toLowerCase().contains('temporarily locked');
+
   globalSnackbarKey.currentState?.showSnackBar(
     SnackBar(
-      content: Text(message),
-      backgroundColor: Colors.red.shade600,
+      content: Row(
+        children: [
+          if (isLockout) ...[
+            const Icon(Icons.lock_clock, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontWeight: isLockout ? FontWeight.bold : FontWeight.normal,
+                fontSize: isLockout ? 13.5 : 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+      backgroundColor: isLockout ? Colors.red.shade800 : Colors.red.shade600,
       behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 4),
+      duration: Duration(seconds: isLockout ? 10 : 4),
     ),
   );
 }

@@ -10,6 +10,7 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 
 import '../../controllers/restaurant/restaurant_analytics_reports_controller.dart';
 import '../../controllers/inventory/stock_transfer_controller.dart';
+import '../../core/api/api_client.dart';
 import '../../core/currency/currency_service.dart';
 import '../../core/printing/pos_invoice_printer.dart';
 import '../../models/reports/sales_report_model.dart';
@@ -29,6 +30,8 @@ class _RestaurantAnalyticsReportsScreenState
   final StockTransferController _transferCtrl = StockTransferController();
   Map<String, dynamic>? _hierarchyData;
   int? _selectedOutletId;
+  List<dynamic> _kots = [];
+  List<dynamic> _cancelledSales = [];
 
   final TextEditingController _fromCtrl = TextEditingController();
   final TextEditingController _toCtrl = TextEditingController();
@@ -141,6 +144,37 @@ class _RestaurantAnalyticsReportsScreenState
     setState(() => _isLoading = true);
     _controller.outletId = _selectedOutletId;
     await _controller.load();
+
+    final fromStr = DateFormat('yyyy-MM-dd').format(_controller.fromDate);
+    final toStr = DateFormat('yyyy-MM-dd').format(_controller.toDate);
+    String outletQuery = '';
+    if (_selectedOutletId != null && _selectedOutletId != -1) {
+      outletQuery = '&outlet_id=$_selectedOutletId';
+    }
+
+    try {
+      final kotRes = await ApiClient.get('/api/restaurant/kots?from_date=$fromStr&to_date=$toStr$outletQuery');
+      if (kotRes['success'] == true && kotRes['data'] is List) {
+        _kots = kotRes['data'];
+      } else {
+        _kots = [];
+      }
+    } catch (e) {
+      debugPrint('Error loading KOTs for restaurant analytics: $e');
+      _kots = [];
+    }
+
+    try {
+      final cancelSaleRes = await ApiClient.get('/api/sales?status=CANCELLED&from_date=$fromStr&to_date=$toStr$outletQuery');
+      if (cancelSaleRes['success'] == true && cancelSaleRes['data'] is List) {
+        _cancelledSales = cancelSaleRes['data'];
+      } else {
+        _cancelledSales = [];
+      }
+    } catch (_) {
+      _cancelledSales = [];
+    }
+
     if (mounted) {
       setState(() => _isLoading = false);
     }
@@ -290,20 +324,61 @@ class _RestaurantAnalyticsReportsScreenState
   // 6. Table Wise Rows
   List<_AggRow> get _tableRows {
     final Map<String, _AggRow> map = {};
-    for (final sale in _sales) {
-      if (sale.orderType.toUpperCase() == 'DINE_IN' || sale.notes.contains('Table:')) {
-        String tableNo = 'Table Main';
-        if (sale.notes.contains('Table:')) {
-          tableNo = 'Table ${sale.notes.split('Table:').last.split(';').first.trim()}';
+
+    for (final kot in _kots) {
+      final status = (kot['status'] ?? '').toString().toLowerCase();
+      if (status == 'cancelled' || status == 'rejected') continue;
+
+      String tableName = '';
+      if (kot['table'] is Map && (kot['table']['table_name'] ?? '').toString().trim().isNotEmpty) {
+        tableName = kot['table']['table_name'].toString().trim();
+      } else if ((kot['table_name'] ?? '').toString().trim().isNotEmpty) {
+        tableName = kot['table_name'].toString().trim();
+      } else if (kot['table_id'] != null) {
+        tableName = 'Table #${kot['table_id']}';
+      }
+
+      if (tableName.isEmpty) continue;
+      if (!tableName.toLowerCase().startsWith('table')) {
+        tableName = 'Table $tableName';
+      }
+
+      final double kotAmt = double.tryParse((kot['total_amount'] ?? kot['net_amount'] ?? kot['subtotal_amount'] ?? 0).toString()) ?? 0.0;
+      double kotQty = 0;
+      if (kot['items'] is List) {
+        for (final it in kot['items']) {
+          kotQty += double.tryParse((it['qty'] ?? 1).toString()) ?? 1.0;
         }
-        final current = map[tableNo] ?? _AggRow(name: tableNo);
-        map[tableNo] = current.copyWith(
-          amount: current.amount + sale.netAmount,
-          count: current.count + 1,
-          qty: current.qty + sale.totalQty,
-        );
+      }
+
+      final current = map[tableName] ?? _AggRow(name: tableName);
+      map[tableName] = current.copyWith(
+        amount: current.amount + kotAmt,
+        count: current.count + 1,
+        qty: current.qty + kotQty,
+      );
+    }
+
+    for (final sale in _sales) {
+      String? tableNo;
+      if (sale.notes.contains('Table:')) {
+        tableNo = 'Table ${sale.notes.split('Table:').last.split(';').first.trim()}';
+      } else if (sale.orderType.toUpperCase() == 'DINE_IN') {
+        tableNo = 'Dine-In Main';
+      }
+
+      if (tableNo != null && tableNo.isNotEmpty) {
+        if (!map.containsKey(tableNo)) {
+          final current = map[tableNo] ?? _AggRow(name: tableNo);
+          map[tableNo] = current.copyWith(
+            amount: current.amount + sale.netAmount,
+            count: current.count + 1,
+            qty: current.qty + sale.totalQty,
+          );
+        }
       }
     }
+
     final list = map.values.toList();
     list.sort((a, b) => b.amount.compareTo(a.amount));
     return list;
@@ -329,8 +404,58 @@ class _RestaurantAnalyticsReportsScreenState
   // 8. NC Analysis Rows
   List<_AggRow> get _ncRows {
     final List<_AggRow> list = [];
+    final Set<String> seenIds = {};
+
+    for (final kot in _kots) {
+      final String s = (kot['status'] ?? '').toString().toLowerCase();
+      final String kt = (kot['kottype'] ?? kot['service_type'] ?? '').toString().toLowerCase();
+      final String rem = (kot['remarks'] ?? kot['notes'] ?? '').toString().toLowerCase();
+      final bool isNc = kt == 'nc' || s == 'nc cleared' || s == 'nc_cleared' || rem.contains('nc') || rem.contains('complimentary') || rem.contains('no charge');
+
+      if (isNc) {
+        final String kotNo = (kot['kot_no'] ?? '#${kot['id']}').toString();
+        seenIds.add(kotNo);
+
+        String tableName = '';
+        if (kot['table'] is Map && (kot['table']['table_name'] ?? '').toString().trim().isNotEmpty) {
+          tableName = kot['table']['table_name'].toString().trim();
+        }
+        final String guest = (kot['customer_name'] ?? (tableName.isNotEmpty ? 'Table $tableName' : 'Management NC')).toString();
+
+        double ncTotal = double.tryParse((kot['total_amount'] ?? kot['net_amount'] ?? kot['subtotal_amount'] ?? 0).toString()) ?? 0.0;
+        double ncQty = 0;
+        if (kot['items'] is List) {
+          for (final it in kot['items']) {
+            final q = double.tryParse((it['qty'] ?? 1).toString()) ?? 1.0;
+            final r = double.tryParse((it['rate'] ?? it['price'] ?? 0).toString()) ?? 0.0;
+            ncQty += q;
+            if (ncTotal <= 0) ncTotal += (q * r);
+          }
+        }
+
+        final rawDate = kot['created_time'] ?? kot['created_at'];
+        final dateStr = rawDate != null
+            ? DateFormat('dd-MM-yyyy hh:mm a').format(DateTime.parse(rawDate.toString()).toLocal())
+            : 'N/A';
+
+        list.add(_AggRow(
+          name: 'KOT $kotNo',
+          group: dateStr,
+          code: guest,
+          amount: ncTotal,
+          count: 1,
+          qty: ncQty,
+        ));
+      }
+    }
+
     for (final sale in _sales) {
-      if (sale.orderType.toUpperCase() == 'NC' || sale.paymentMode.toUpperCase() == 'NC' || sale.notes.toLowerCase().contains('nc') || sale.notes.toLowerCase().contains('complimentary')) {
+      final bool isSaleNc = sale.orderType.toUpperCase() == 'NC' ||
+          sale.paymentMode.toUpperCase() == 'NC' ||
+          sale.notes.toLowerCase().contains('nc') ||
+          sale.notes.toLowerCase().contains('complimentary');
+
+      if (isSaleNc && !seenIds.contains(sale.saleNo)) {
         list.add(_AggRow(
           name: sale.saleNo,
           group: DateFormat('dd-MM-yyyy hh:mm a').format(sale.saleDate),
@@ -341,24 +466,114 @@ class _RestaurantAnalyticsReportsScreenState
         ));
       }
     }
+
+    list.sort((a, b) => b.amount.compareTo(a.amount));
     return list;
   }
 
   // 9. Cancel Order Rows
   List<_AggRow> get _cancelRows {
     final List<_AggRow> list = [];
-    for (final sale in _sales) {
-      if (sale.notes.toLowerCase().contains('cancel') || sale.notes.toLowerCase().contains('void') || sale.notes.toLowerCase().contains('refund')) {
+    final Set<String> seenIds = {};
+
+    for (final kot in _kots) {
+      final String s = (kot['status'] ?? '').toString().toLowerCase();
+      final bool isKotCancelled = s == 'cancelled' || s == 'rejected';
+
+      double cancelAmt = 0;
+      double cancelQty = 0;
+      String itemCancelReason = '';
+
+      if (kot['items'] is List) {
+        for (final it in kot['items']) {
+          final itStatus = (it['status'] ?? '').toString().toLowerCase();
+          final q = double.tryParse((it['qty'] ?? 1).toString()) ?? 1.0;
+          final r = double.tryParse((it['rate'] ?? it['price'] ?? 0).toString()) ?? 0.0;
+          if (isKotCancelled || itStatus == 'cancelled' || itStatus == 'rejected') {
+            cancelQty += q;
+            cancelAmt += (q * r);
+            if (it['cancel_reason'] != null && it['cancel_reason'].toString().isNotEmpty) {
+              itemCancelReason = it['cancel_reason'].toString();
+            }
+          }
+        }
+      }
+
+      if (isKotCancelled || cancelQty > 0) {
+        final String kotNo = (kot['kot_no'] ?? '#${kot['id']}').toString();
+        seenIds.add(kotNo);
+
+        String tableName = '';
+        if (kot['table'] is Map && (kot['table']['table_name'] ?? '').toString().trim().isNotEmpty) {
+          tableName = 'Table ${kot['table']['table_name']}';
+        } else if (kot['table_name'] != null) {
+          tableName = 'Table ${kot['table_name']}';
+        } else {
+          tableName = 'Dine-In';
+        }
+
+        final reason = (kot['cancel_reason'] ?? (itemCancelReason.isNotEmpty ? itemCancelReason : (kot['remarks'] ?? kot['notes'] ?? (s == 'rejected' ? 'Rejected by Staff' : 'Cancelled by Staff')))).toString();
+
+        if (cancelAmt <= 0) {
+          cancelAmt = double.tryParse((kot['total_amount'] ?? kot['net_amount'] ?? 0).toString()) ?? 0.0;
+        }
+
+        final rawDate = kot['created_time'] ?? kot['created_at'];
+        final dateStr = rawDate != null
+            ? DateFormat('dd-MM-yyyy hh:mm a').format(DateTime.parse(rawDate.toString()).toLocal())
+            : 'N/A';
+
         list.add(_AggRow(
-          name: sale.saleNo,
-          group: DateFormat('dd-MM-yyyy hh:mm a').format(sale.saleDate),
-          code: sale.customerName.isEmpty ? 'Customer' : sale.customerName,
-          amount: sale.netAmount,
+          name: 'KOT $kotNo',
+          group: dateStr,
+          code: '$tableName • $reason',
+          amount: cancelAmt,
           count: 1,
-          qty: sale.totalQty,
+          qty: cancelQty > 0 ? cancelQty : 1.0,
         ));
       }
     }
+
+    for (final sale in _cancelledSales) {
+      final String saleNo = (sale['sale_no'] ?? '#${sale['id']}').toString();
+      if (!seenIds.contains(saleNo)) {
+        seenIds.add(saleNo);
+        final rawDate = sale['sale_date'] ?? sale['created_at'];
+        final dateStr = rawDate != null
+            ? DateFormat('dd-MM-yyyy hh:mm a').format(DateTime.parse(rawDate.toString()).toLocal())
+            : 'N/A';
+        final amt = double.tryParse((sale['net_amount'] ?? sale['total_amount'] ?? 0).toString()) ?? 0.0;
+        final qty = double.tryParse((sale['total_qty'] ?? 1).toString()) ?? 1.0;
+        final notes = (sale['notes'] ?? 'Cancelled Sale').toString();
+        final cust = (sale['customer_name'] ?? 'Customer').toString();
+
+        list.add(_AggRow(
+          name: saleNo,
+          group: dateStr,
+          code: '$cust • $notes',
+          amount: amt,
+          count: 1,
+          qty: qty,
+        ));
+      }
+    }
+
+    for (final sale in _sales) {
+      if (sale.notes.toLowerCase().contains('cancel') || sale.notes.toLowerCase().contains('void')) {
+        if (!seenIds.contains(sale.saleNo)) {
+          list.add(_AggRow(
+            name: sale.saleNo,
+            group: DateFormat('dd-MM-yyyy hh:mm a').format(sale.saleDate),
+            code: '${sale.customerName.isEmpty ? "Customer" : sale.customerName} • ${sale.notes}',
+            amount: sale.netAmount,
+            count: 1,
+            qty: sale.totalQty,
+          ));
+        }
+      }
+    }
+
+    list.sort((a, b) => b.amount.compareTo(a.amount));
     return list;
   }
 

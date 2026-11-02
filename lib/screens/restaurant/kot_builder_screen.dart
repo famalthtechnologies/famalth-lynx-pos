@@ -553,7 +553,19 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
             for (final item in items) {
               final int itemId = item['item_id'];
               final double qty = double.tryParse(item['qty']?.toString() ?? '0') ?? 0.0;
-              final double rate = double.tryParse(item['rate']?.toString() ?? '') ?? 0.0;
+              final double rawRate = double.tryParse((item['rate'] ?? item['price'] ?? item['selling_price'] ?? item['item']?['rate'] ?? item['item']?['retail_sale_price'] ?? item['item']?['mrp'] ?? '').toString()) ?? 0.0;
+              double rate = rawRate;
+              if (rate <= 0) {
+                for (final m in allItems) {
+                  final mid = m is Map ? m['id'] : m.id;
+                  if (mid == itemId) {
+                    rate = m is Map
+                        ? (double.tryParse((m['retail_sale_price'] ?? m['selling_price'] ?? m['rate'] ?? m['mrp'] ?? '0').toString()) ?? 0.0)
+                        : (m.retailSalePrice > 0 ? m.retailSalePrice : m.rate);
+                    break;
+                  }
+                }
+              }
               final int kotItemId = item['id'] ?? 0;
               final String itemStat = (item['status'] ?? '').toString().toLowerCase();
 
@@ -574,6 +586,9 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
               if (_cart.containsKey(itemId)) {
                 _cart[itemId]!['qty'] = _cart[itemId]!['qty'] + qty;
                 _cart[itemId]!['original_qty'] = _cart[itemId]!['original_qty'] + qty;
+                if (rate > 0 && (_cart[itemId]!['rate'] == null || (_cart[itemId]!['rate'] as num) <= 0)) {
+                  _cart[itemId]!['rate'] = rate;
+                }
                 if (kotItemId > 0) (_cart[itemId]!['kot_item_ids'] as List<int>).add(kotItemId);
               } else {
                 _cart[itemId] = {
@@ -2281,7 +2296,19 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
                       final key = _cart.keys.elementAt(index);
                       final item = _cart[key]!;
                       final double qty = double.tryParse(item['qty']?.toString() ?? '0') ?? 0.0;
-                      final double rate = double.tryParse(item['rate']?.toString() ?? '0') ?? 0.0;
+                      double rate = double.tryParse(item['rate']?.toString() ?? '0') ?? 0.0;
+                      if (rate <= 0) {
+                        for (final m in allItems) {
+                          final mid = m is Map ? m['id'] : m.id;
+                          if (mid == key) {
+                            rate = m is Map
+                                ? (double.tryParse((m['retail_sale_price'] ?? m['selling_price'] ?? m['rate'] ?? m['mrp'] ?? '0').toString()) ?? 0.0)
+                                : (m.retailSalePrice > 0 ? m.retailSalePrice : m.rate);
+                            item['rate'] = rate;
+                            break;
+                          }
+                        }
+                      }
                       final List rawModObjs = item['modifier_objects'] as List? ?? [];
                       final double modExtraPerUnit = rawModObjs.fold(0.0, (sum, m) {
                         final p = double.tryParse(m['price']?.toString() ?? '0') ?? 0.0;
@@ -2521,9 +2548,20 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
                   child: (() {
                     double totalAmount = 0;
                     double totalQty = 0;
-                    _cart.forEach((_, item) {
+                    _cart.forEach((k, item) {
                       final q = double.tryParse(item['qty']?.toString() ?? '0') ?? 0.0;
-                      final r = double.tryParse(item['rate']?.toString() ?? '0') ?? 0.0;
+                      double r = double.tryParse(item['rate']?.toString() ?? '0') ?? 0.0;
+                      if (r <= 0) {
+                        for (final m in allItems) {
+                          final mid = m is Map ? m['id'] : m.id;
+                          if (mid == k) {
+                            r = m is Map
+                                ? (double.tryParse((m['retail_sale_price'] ?? m['selling_price'] ?? m['rate'] ?? m['mrp'] ?? '0').toString()) ?? 0.0)
+                                : (m.retailSalePrice > 0 ? m.retailSalePrice : m.rate);
+                            break;
+                          }
+                        }
+                      }
                       final rawModObjs = item['modifier_objects'] as List? ?? [];
                       final double modExtra = rawModObjs.fold(0.0, (sum, m) {
                         final p = double.tryParse(m['price']?.toString() ?? '0') ?? 0.0;

@@ -45,6 +45,7 @@ class Item {
   final double b2bPrice;
   final double b2cPrice;
   final int minOrderQtyB2B;
+  final bool isActive;
 
   bool get isVeg => foodType == 'VEG' || foodType == 'VEGAN';
   bool get isNonVeg => foodType == 'NON_VEG';
@@ -94,6 +95,7 @@ class Item {
     this.b2bPrice = 0.0,
     this.b2cPrice = 0.0,
     this.minOrderQtyB2B = 1,
+    this.isActive = true,
   });
 
   factory Item.fromJson(Map<String, dynamic> json) {
@@ -151,12 +153,14 @@ class Item {
       b2bPrice: double.tryParse(json['b2b_price']?.toString() ?? json['b2b_rate']?.toString() ?? '') ?? (double.tryParse(json['retail_sale_price']?.toString() ?? '') ?? 0.0),
       b2cPrice: double.tryParse(json['b2c_price']?.toString() ?? json['b2c_rate']?.toString() ?? '') ?? (double.tryParse(json['retail_sale_price']?.toString() ?? '') ?? 0.0),
       minOrderQtyB2B: int.tryParse(json['min_order_qty_b2b']?.toString() ?? '') ?? 1,
+      isActive: json['is_active'] != false,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'is_active': isActive,
       'item_code': itemCode,
       'item_name': itemName,
       'hsn_sac_code': hsnSacCode,

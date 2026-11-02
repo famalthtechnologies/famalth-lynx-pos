@@ -323,11 +323,9 @@ exports.createItem = async (req, res) => {
 
 exports.canImportItems = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
-        const hasTransactions = await hasAnyInventoryTransactions(req, outlet_id);
         res.json({
             success: true,
-            canImport: !hasTransactions
+            canImport: true
         });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -391,32 +389,35 @@ exports.bulkImportItems = async (req, res) => {
 
     try {
         const outlet_id = req.user.outlet_id;
-        const items = req.body;
+        const rawItems = Array.isArray(req.body) ? req.body : (req.body?.items || []);
 
-        const hasTransactions = await hasAnyInventoryTransactions(req, outlet_id);
-        if (hasTransactions) {
+        if (!Array.isArray(rawItems) || rawItems.length === 0) {
+            await t.rollback();
             return res.status(400).json({
                 success: false,
-                message: 'Import is blocked because transactions already exist.'
+                message: 'No item rows found in import data.'
             });
         }
 
-        // Simple behavior:
-        // If there are no transactions, clear existing active items first,
-        // then import the new Excel payload.
-        await req.propertyDb.models.item_master.update(
-            { is_active: false },
-            { where: { outlet_id, is_active: true }, transaction: t }
-        );
-
+        let importedCount = 0;
+        let updatedCount = 0;
         const seenCodes = new Set();
-        for (const row of items) {
+
+        for (const row of rawItems) {
             const normalizedCode = String(row.item_code || '').trim();
-            if (!normalizedCode) {
-                throw new Error('Item code is required in import file.');
+            const normalizedName = String(row.item_name || '').trim();
+
+            // Skip completely empty rows
+            if (!normalizedCode && !normalizedName) {
+                continue;
             }
+
+            if (!normalizedCode) {
+                throw new Error('Item Name "' + normalizedName + '" is missing an Item Code.');
+            }
+
             if (seenCodes.has(normalizedCode.toLowerCase())) {
-                throw new Error(`Duplicate item code in import file: ${normalizedCode}`);
+                throw new Error('Duplicate item code in import file: ' + normalizedCode);
             }
             seenCodes.add(normalizedCode.toLowerCase());
 
@@ -425,29 +426,29 @@ exports.bulkImportItems = async (req, res) => {
             const payload = {
                 outlet_id,
                 item_code: normalizedCode,
-                item_name: String(row.item_name || '').trim(),
-                hsn_sac_code: row.hsn_sac_code || null,
-                item_group: String(row.item_group || '').trim(),
-                sub_category: String(row.sub_category || '').trim(),
+                item_name: normalizedName || normalizedCode,
+                hsn_sac_code: row.hsn_sac_code ? String(row.hsn_sac_code).trim() : null,
+                item_group: String(row.item_group || '').trim() || 'General',
+                sub_category: String(row.sub_category || '').trim() || 'General',
                 brand: String(row.brand || '').trim(),
-                unit: String(row.unit || '').trim(),
-                barcode: row.barcode || null,
+                unit: String(row.unit || '').trim() || 'PCS',
+                barcode: row.barcode ? String(row.barcode).trim() : null,
                 image_path: row.image_path || null,
-                location: String(row.location || row.kitchen_location || 'Kitchen').trim() || 'Kitchen',
+                location: String(row.location || row.kitchen_location || '-').trim() || '-',
                 rate: parseFloat(row.rate) || 0,
                 retail_sale_price: parseFloat(row.retail_sale_price) || 0,
                 mrp: parseFloat(row.mrp) || 0,
                 tax_type: row.tax_type || 'GST',
                 tax_percent: parseFloat(row.tax_percent) || 0,
-                discount_applicable: row.discount_applicable !== false && row.discount_applicable !== 'NO',
-                scheme_applicable: row.scheme_applicable !== false && row.scheme_applicable !== 'NO',
+                discount_applicable: row.discount_applicable !== false && row.discount_applicable !== 'NO' && row.discount_applicable !== 'false' && row.discount_applicable !== 0,
+                scheme_applicable: row.scheme_applicable !== false && row.scheme_applicable !== 'NO' && row.scheme_applicable !== 'false' && row.scheme_applicable !== 0,
                 opening_balance: parseFloat(row.opening_balance) || 0,
                 pack_qty: parseFloat(row.pack_qty) || 0,
                 loose_item_code: String(row.loose_item_code || '').trim() || null,
                 min_level: parseInt(row.min_level) || 0,
                 max_level: parseInt(row.max_level) || 0,
-                stockable: row.stockable === true || row.stockable === 'YES',
-                is_saleable: row.is_saleable !== false && row.is_saleable !== 'NO',
+                stockable: row.stockable === true || row.stockable === 'YES' || row.stockable === 'true' || row.stockable === 1,
+                is_saleable: row.is_saleable !== false && row.is_saleable !== 'NO' && row.is_saleable !== 'false' && row.is_saleable !== 0,
                 is_modifier: row.is_modifier === true || row.is_modifier === 'YES' || row.is_modifier === 'true' || row.is_modifier === 1,
                 applicable_item_ids: row.applicable_item_ids ? String(row.applicable_item_ids) : null,
                 deduct_raw_item_id: row.deduct_raw_item_id ? Number(row.deduct_raw_item_id) : null,
@@ -467,14 +468,22 @@ exports.bulkImportItems = async (req, res) => {
 
             if (existing) {
                 await existing.update(payload, { transaction: t });
+                updatedCount++;
             } else {
                 await req.propertyDb.models.item_master.create(payload, { transaction: t });
+                importedCount++;
             }
         }
 
         await t.commit();
 
-        res.json({ success: true, message: 'Items imported successfully' });
+        res.json({
+            success: true,
+            message: 'Items imported successfully (' + importedCount + ' new, ' + updatedCount + ' updated).',
+            importedCount,
+            updatedCount,
+            totalProcessed: importedCount + updatedCount
+        });
 
     } catch (err) {
         await t.rollback();
@@ -491,13 +500,20 @@ exports.bulkImportItems = async (req, res) => {
 exports.getItems = async (req, res) => {
     try {
         await ensureItemMasterModifierColumns(req.propertyDb);
-        const { q } = req.query;
+        const { q, status, show_deleted, page, limit } = req.query;
         const outlet_id = req.user.outlet_id;
 
         const where = {
-            outlet_id,
-            is_active: true
+            outlet_id
         };
+
+        if (status === 'deleted' || status === 'inactive' || show_deleted === 'true') {
+            where.is_active = false;
+        } else if (status === 'all') {
+            // Include both active and inactive
+        } else {
+            where.is_active = true;
+        }
 
         if (q) {
             if (q && q.trim() !== '') {
@@ -515,7 +531,18 @@ exports.getItems = async (req, res) => {
 
         }
 
-        const items = await req.propertyDb.models.item_master.findAll({
+        const isPaginated = page !== undefined || (limit !== undefined && limit !== 'all');
+        let total = 0;
+        let pageNum = 1;
+        let pageSize = 50;
+
+        if (isPaginated) {
+            pageNum = Math.max(1, parseInt(page) || 1);
+            pageSize = limit ? Math.max(1, parseInt(limit) || 50) : 50;
+            total = await req.propertyDb.models.item_master.count({ where });
+        }
+
+        const queryOptions = {
             where,
             include: [
                 {
@@ -549,7 +576,14 @@ exports.getItems = async (req, res) => {
                 }
             ],
             order: [['item_name', 'ASC']]
-        });
+        };
+
+        if (isPaginated) {
+            queryOptions.limit = pageSize;
+            queryOptions.offset = (pageNum - 1) * pageSize;
+        }
+
+        const items = await req.propertyDb.models.item_master.findAll(queryOptions);
 
         // Get the latest balances from stock_ledger for all items in this outlet
         const [ledgerStockRows] = await req.propertyDb.query(`
@@ -602,7 +636,17 @@ exports.getItems = async (req, res) => {
             return itemJson;
         });
 
-        res.json({ success: true, data: itemsWithAvailableStock });
+        const response = {
+            success: true,
+            data: itemsWithAvailableStock
+        };
+        if (isPaginated) {
+            response.total = total;
+            response.page = pageNum;
+            response.limit = pageSize;
+            response.hasMore = (pageNum * pageSize) < total;
+        }
+        res.json(response);
 
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -756,17 +800,7 @@ exports.deleteItem = async (req, res) => {
             return res.status(404).json({ success: false, code: 404 });
         }
 
-        const hasLinkedTransactions = await hasItemLinkedTransactions(req, item.id, outlet_id);
-        if (hasLinkedTransactions) {
-            return res.status(400).json({
-                success: false,
-                message: 'This item cannot be deleted because transaction history exists for it.'
-            });
-        }
-
         await item.update({ is_active: false });
-
-
 
         await audit.log({
             req,
@@ -774,20 +808,62 @@ exports.deleteItem = async (req, res) => {
             action: 'DEACTIVATE',
             table: 'item_master',
             recordId: item.id,
-            old_data: { is_active: true },
-            new_data: { is_active: false },
+            oldData: { is_active: true },
+            newData: { is_active: false },
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
 
-
-        res.json({ success: true, message: 'Item deactivated' });
+        res.json({ success: true, message: 'Item deactivated successfully' });
 
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
+};
 
+exports.restoreItem = async (req, res) => {
+    try {
+        const id = req.params.id;
+        const outlet_id = req.user.outlet_id;
 
+        const item = await req.propertyDb.models.item_master.findOne({
+            where: { id, outlet_id }
+        });
+
+        if (!item) {
+            return res.status(404).json({ success: false, message: 'Item not found' });
+        }
+
+        // Check if item_code is currently used by another active item
+        const codeConflict = await req.propertyDb.models.item_master.findOne({
+            where: { outlet_id, item_code: item.item_code, is_active: true, id: { [Op.ne]: id } }
+        });
+        if (codeConflict) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot reactivate: Item Code "' + item.item_code + '" is currently used by active item "' + codeConflict.item_name + '".'
+            });
+        }
+
+        await item.update({ is_active: true });
+
+        await audit.log({
+            req,
+            module: 'ITEM_MASTER',
+            action: 'REACTIVATE',
+            table: 'item_master',
+            recordId: item.id,
+            oldData: { is_active: false },
+            newData: { is_active: true },
+            outlet_id: req.user.outlet_id,
+            user_id: req.user.id
+        });
+
+        res.json({ success: true, message: 'Item reactivated successfully', data: item });
+
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
 };
 
 exports.openPackStock = async (req, res) => {

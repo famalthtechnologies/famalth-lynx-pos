@@ -32,8 +32,8 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
   // Base Fields
   final _outletCode = TextEditingController();
   final _outletName = TextEditingController();
-  String _outletType = 'HOTEL';
-  String _businessModule = 'ALL';
+  String _outletType = 'RETAIL';
+  String _businessModule = 'RETAIL';
 
   // Enterprise Recovery Fields
   final _contactEmail = TextEditingController();
@@ -1804,14 +1804,40 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
         DropdownMenuItem(value: 'PETS', child: Text('Pet Care & Supplies')),
         DropdownMenuItem(value: 'SOFTWARE', child: Text('IT & Digital Services')),
       ],
-      onChanged: (v) => setState(() => _outletType = v!),
+      onChanged: (v) {
+        if (v == null) return;
+        setState(() {
+          _outletType = v;
+          if (_outletType == 'RETAIL' ||
+              const {
+                'MART',
+                'KIRANA',
+                'CLOTHES',
+                'SHOES',
+                'PARTS',
+                'MACHINERY',
+                'PETS',
+                'SOFTWARE'
+              }.contains(_outletType)) {
+            _businessModule = 'RETAIL';
+          } else if (const {'RESTAURANT', 'CAFE', 'BAR'}.contains(_outletType)) {
+            _businessModule = 'RESTAURANT';
+          } else if (_outletType == 'MEDICAL') {
+            _businessModule = 'CLINIC';
+          } else if (_outletType == 'WAREHOUSE') {
+            _businessModule = 'INVENTORY';
+          } else if (_outletType == 'HOTEL') {
+            _businessModule = 'ALL';
+          }
+        });
+      },
     );
   }
 
   Widget _modernModuleDropdown(ColorScheme scheme) {
     return DropdownButtonFormField<String>(
       isExpanded: true,
-      initialValue: _businessModule,
+      value: _businessModule,
       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF0F172A)),
       decoration: InputDecoration(
         labelText: "Feature Set & Module *",
@@ -1831,14 +1857,6 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
       ),
       items: const [
         DropdownMenuItem(
-          value: 'ALL',
-          child: Text('All Features (Retail + Restaurant + Inventory)'),
-        ),
-        DropdownMenuItem(
-          value: 'CLINIC',
-          child: Text('Clinic & OPD Healthcare (Doctors, Patients, Pharmacy)'),
-        ),
-        DropdownMenuItem(
           value: 'RETAIL',
           child: Text('Retail POS (Billing + Stock Inventory)'),
         ),
@@ -1847,8 +1865,16 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
           child: Text('Restaurant & Cafe (KDS, KOTs, Tables + POS)'),
         ),
         DropdownMenuItem(
+          value: 'CLINIC',
+          child: Text('Clinic & OPD Healthcare (Doctors, Patients, Pharmacy)'),
+        ),
+        DropdownMenuItem(
           value: 'INVENTORY',
           child: Text('Inventory Only (Stock, PO, HRMS & Reports)'),
+        ),
+        DropdownMenuItem(
+          value: 'ALL',
+          child: Text('All Features (Retail + Restaurant + Inventory)'),
         ),
       ],
       onChanged: (v) => setState(() => _businessModule = v!),

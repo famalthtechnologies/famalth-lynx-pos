@@ -211,8 +211,21 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   Future<void> _loadActiveModule() async {
     final userMap = await TokenStorage.getUser();
     var mod = (userMap?['business_module'] ?? userMap?['outlet_module'])?.toString();
-    if (mod == null || mod.trim().isEmpty || mod == 'ALL') {
-      mod = await TokenStorage.getBusinessModule();
+    final oType = (userMap?['outlet_type'] ?? '').toString().trim().toUpperCase();
+    if (mod == null || mod.trim().isEmpty) {
+      if (oType == 'RETAIL' ||
+          oType == 'RETAIL STORE' ||
+          const {'MART', 'KIRANA', 'CLOTHES', 'SHOES', 'PARTS', 'MACHINERY', 'PETS', 'SOFTWARE', 'SUPERMARKET', 'SHOP'}.contains(oType)) {
+        mod = 'RETAIL';
+      } else if (const {'RESTAURANT', 'CAFE', 'BAR', 'DINING'}.contains(oType)) {
+        mod = 'RESTAURANT';
+      } else if (const {'CLINIC', 'HOSPITAL', 'DOCTOR', 'MEDICAL'}.contains(oType)) {
+        mod = 'CLINIC';
+      } else if (const {'WAREHOUSE', 'LOGISTICS', 'INVENTORY'}.contains(oType)) {
+        mod = 'INVENTORY';
+      } else {
+        mod = 'RETAIL';
+      }
     }
     final outletCode = await TokenStorage.getOutletCode();
     if (outletCode != null && outletCode.isNotEmpty) {

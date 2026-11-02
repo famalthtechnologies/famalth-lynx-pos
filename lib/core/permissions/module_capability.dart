@@ -10,7 +10,7 @@ class ModuleCapability {
 
   /// Normalizes module input string or returns a list of active modules
   static String normalize(String? rawModule) {
-    if (rawModule == null || rawModule.trim().isEmpty) return all;
+    if (rawModule == null || rawModule.trim().isEmpty) return retail;
     final upper = rawModule.trim().toUpperCase();
 
     // Multi-module list preserved if comma-separated
@@ -25,7 +25,7 @@ class ModuleCapability {
     if (upper.contains('HRMS') || upper.contains('ATTENDANCE') || upper.contains('PAYROLL')) {
       return hrms;
     }
-    if (upper.contains('RETAIL') || upper.contains('POS') || upper.contains('KIRANA') || upper.contains('MART')) {
+    if (upper.contains('RETAIL') || upper.contains('POS') || upper.contains('KIRANA') || upper.contains('MART') || upper.contains('STORE') || upper.contains('SHOP')) {
       return retail;
     }
     if (upper.contains('INVENTORY') || upper.contains('WAREHOUSE')) {

@@ -420,9 +420,18 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   }
 
   String get _businessType => (user?.outletType ?? '').toUpperCase();
-  String get _businessModule => user?.businessModule ?? 'ALL';
+  String get _businessModule {
+    final raw = (user?.businessModule ?? '').trim().toUpperCase();
+    if (raw.isNotEmpty) return raw;
+    if (_isRetailBusiness) return 'RETAIL';
+    if (_isWarehouseBusiness) return 'INVENTORY';
+    if (const {'RESTAURANT', 'CAFE', 'BAR'}.contains(_businessType)) return 'RESTAURANT';
+    if (const {'CLINIC', 'HOSPITAL', 'DOCTOR'}.contains(_businessType)) return 'CLINIC';
+    return raw.isNotEmpty ? raw : 'RETAIL';
+  }
   bool get _isRetailBusiness =>
       _businessType == 'RETAIL' ||
+      _businessType == 'RETAIL STORE' ||
       const {
         'KIRANA',
         'MEDICAL',
@@ -5393,7 +5402,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'icon': Icons.settings,
         'label': 'Settings',
         'permission': 'SETTINGS',
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => loadUser()),
       },
       {
         'category': 'System',
@@ -5479,7 +5488,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'subLabel': 'Settings ➜ Clear Transaction Data',
         'permission': 'SETTINGS',
         'keywords': ['clear transaction data', 'delete data', 'wipe data', 'reset data', 'reset database', 'clear transactional data', 'transaction clear', 'database wipe'],
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => loadUser()),
       },
       {
         'category': 'System',
@@ -5488,7 +5497,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'subLabel': 'Settings ➜ Show Brand Name in Print / Bills',
         'permission': 'SETTINGS',
         'keywords': ['show brand name', 'brand name in print', 'brand display', 'print brand name', 'toggle brand'],
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => loadUser()),
       },
       {
         'category': 'System',
@@ -5497,7 +5506,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'subLabel': 'Settings ➜ Allow Negative Stock Toggle',
         'permission': 'SETTINGS',
         'keywords': ['allow negative stock', 'negative inventory', 'out of stock billing', 'negative stock', 'stock setup'],
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => loadUser()),
       },
       {
         'category': 'System',

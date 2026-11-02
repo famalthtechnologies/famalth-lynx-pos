@@ -1,4 +1,5 @@
 const audit = require('../../services/audit.service');
+const { resolveBusinessModule } = require('../../utils/moduleHelper');
 
 const TRANSACTION_TABLES = [
     // KOT & Restaurant transactional tables (dependent children first)
@@ -599,7 +600,10 @@ exports.getOnboardingStatus = async (req: any, res: any) => {
         const restaurantConfigured = (tablesCount > 0);
         const usersConfigured = (usersCount > 1);
 
-        const businessType = (propInfo?.business_type || outletObj?.business_module || req.user?.business_module || req.user?.outlet_type || 'ALL').toString().toUpperCase();
+        const businessType = resolveBusinessModule(
+            outletObj?.business_module || req.user?.business_module,
+            propInfo?.business_type || req.user?.outlet_type || outletObj?.outlet_type
+        );
 
         res.json({
             success: true,

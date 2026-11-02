@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const loadConfig = require("../../utils/decryptConfig");
+const { resolveBusinessModule } = require('../../utils/moduleHelper');
 const { initClient } = require("../../modules/clientSetup");
 const { verifyLicenseOnline, invalidateLicenseCache } = require('./licenseManager');
 const { syncSingleOutletToMaster } = require('../../services/masterSync.service');
@@ -146,12 +147,13 @@ exports.createOutlet = async (req, res) => {
 
 
         const pinHash = await bcrypt.hash(recovery_pin.toString(), 10);
+        const resolvedModule = resolveBusinessModule(business_module, outlet_type);
 
         const outlet = await req.propertyDb.models.outlets.create({
             outlet_code,
             outlet_name,
-            outlet_type,
-            business_module,
+            outlet_type: outlet_type || 'RETAIL',
+            business_module: resolvedModule,
             contact_email,
             contact_phone,
             parent_outlet_id: req.body.parent_outlet_id || null,
@@ -161,6 +163,22 @@ exports.createOutlet = async (req, res) => {
             tax_id: tax_id || 'TAX_DEFAULT',
             is_active: true
         });
+
+        if (req.propertyDb.models.property_info) {
+            await req.propertyDb.models.property_info.findOrCreate({
+                where: { outlet_id: outlet.id },
+                defaults: {
+                    outlet_id: outlet.id,
+                    property_name: outlet_name,
+                    legal_name: outlet_name,
+                    mobile: contact_phone || '',
+                    email: contact_email || '',
+                    gst_no: tax_id || '',
+                    business_type: outlet_type || 'RETAIL',
+                    is_active: true
+                }
+            }).catch(() => null);
+        }
 
         const userCount = await req.propertyDb.models.users.count({
             where: { outlet_id: outlet.id }
@@ -327,11 +345,11 @@ exports.updateOutletModule = async (req, res) => {
             });
         }
 
-        const validModules = ['INVENTORY', 'RETAIL', 'RESTAURANT', 'CLINIC', 'ALL'];
+        const validModules = ['INVENTORY', 'RETAIL', 'RESTAURANT', 'CLINIC', 'HRMS', 'ALL'];
         if (!validModules.includes(business_module.toUpperCase())) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid business_module value. Allowed: INVENTORY, RETAIL, RESTAURANT, CLINIC, ALL'
+                message: 'Invalid business_module value. Allowed: INVENTORY, RETAIL, RESTAURANT, CLINIC, HRMS, ALL'
             });
         }
 

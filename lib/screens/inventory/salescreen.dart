@@ -11516,18 +11516,25 @@ class _SaleScreenState extends State<SaleScreen> {
           const SizedBox(height: 14),
           (() {
             final double preTaxSum = _invoice.items
-                .where((item) => !item.isTaxInclusive)
+                .where((item) => !item.isTaxInclusive && (item.taxPercent > 0 || item.taxAmount > 0))
                 .fold<double>(0, (sum, item) => sum + item.amount);
             final double postTaxSum = _invoice.items
-                .where((item) => item.isTaxInclusive)
+                .where((item) => item.isTaxInclusive && (item.taxPercent > 0 || item.taxAmount > 0))
+                .fold<double>(0, (sum, item) => sum + item.amount);
+            final double nonTaxableSum = _invoice.items
+                .where((item) => item.taxPercent <= 0 && item.taxAmount <= 0)
                 .fold<double>(0, (sum, item) => sum + item.amount);
 
             final bool allInclusive = _invoice.items.isNotEmpty && _invoice.items.every((item) => item.isTaxInclusive);
             final String subTotalLabel = allInclusive ? 'Sub Total (Incl. ${CountryTaxHelper.taxName()})' : 'Sub Total';
 
             String? subTotalNote;
-            if (preTaxSum > 0 && postTaxSum > 0) {
-              subTotalNote = '(Pre-tax: ${CurrencyService.format(preTaxSum)}, Post-tax: ${CurrencyService.format(postTaxSum)})';
+            final List<String> noteParts = [];
+            if (preTaxSum > 0) noteParts.add('Pre-tax: ${CurrencyService.format(preTaxSum)}');
+            if (postTaxSum > 0) noteParts.add('Post-tax: ${CurrencyService.format(postTaxSum)}');
+            if (nonTaxableSum > 0) noteParts.add('Non-taxable: ${CurrencyService.format(nonTaxableSum)}');
+            if (noteParts.length > 1) {
+              subTotalNote = '(${noteParts.join(', ')})';
             }
 
             final double cgst = _invoice.totalTax / 2;
@@ -11550,6 +11557,8 @@ class _SaleScreenState extends State<SaleScreen> {
                   ];
                 })(),
                 _miniInfoCard('Taxable Value', _invoice.taxableAmount),
+                if (nonTaxableSum > 0.009)
+                  _miniInfoCard('Non-taxable', nonTaxableSum),
                 if (_invoice.chargeTotal > 0)
                   _miniInfoCard('Charges', _invoice.chargeTotal),
                 if (_invoice.chargeTaxTotal > 0)
@@ -11987,18 +11996,25 @@ class _SaleScreenState extends State<SaleScreen> {
                 ),
                 ...(() {
                   final double preTaxSum = invoice.items
-                      .where((item) => !item.isTaxInclusive)
+                      .where((item) => !item.isTaxInclusive && (item.taxPercent > 0 || item.taxAmount > 0))
                       .fold<double>(0, (sum, item) => sum + item.amount);
                   final double postTaxSum = invoice.items
-                      .where((item) => item.isTaxInclusive)
+                      .where((item) => item.isTaxInclusive && (item.taxPercent > 0 || item.taxAmount > 0))
+                      .fold<double>(0, (sum, item) => sum + item.amount);
+                  final double nonTaxableSum = invoice.items
+                      .where((item) => item.taxPercent <= 0 && item.taxAmount <= 0)
                       .fold<double>(0, (sum, item) => sum + item.amount);
 
                   final bool allInclusive = invoice.items.isNotEmpty && invoice.items.every((item) => item.isTaxInclusive);
                   final String subTotalLabel = allInclusive ? 'Sub Total (Incl. ${CountryTaxHelper.taxName()})' : 'Sub Total';
 
                   String? subTotalNote;
-                  if (preTaxSum > 0 && postTaxSum > 0) {
-                    subTotalNote = '(Pre-tax: ${CurrencyService.format(preTaxSum)}, Post-tax: ${CurrencyService.format(postTaxSum)})';
+                  final List<String> noteParts = [];
+                  if (preTaxSum > 0) noteParts.add('Pre-tax: ${CurrencyService.format(preTaxSum)}');
+                  if (postTaxSum > 0) noteParts.add('Post-tax: ${CurrencyService.format(postTaxSum)}');
+                  if (nonTaxableSum > 0) noteParts.add('Non-taxable: ${CurrencyService.format(nonTaxableSum)}');
+                  if (noteParts.length > 1) {
+                    subTotalNote = '(${noteParts.join(', ')})';
                   }
 
                   final double cgst = invoice.totalTax / 2;
@@ -12018,6 +12034,8 @@ class _SaleScreenState extends State<SaleScreen> {
                         compact: true,
                       ),
                     _summaryRow('Taxable Value', invoice.taxableAmount, compact: true),
+                    if (nonTaxableSum > 0.009)
+                      _summaryRow('Non-taxable Amount', nonTaxableSum, compact: true),
                     if (invoice.chargeTotal > 0)
                       _summaryRow('Charges', invoice.chargeTotal, compact: true),
                     if (invoice.taxSummary.isNotEmpty)

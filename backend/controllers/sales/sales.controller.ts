@@ -2969,7 +2969,23 @@ async function createSaleVersion({
             ? row.tax_breakup
             : [];
 
-        if (rowTaxes.length === 0 || isTaxInclusiveRow || isAdvanceOrSubFree) {
+        const headerTaxMode = String(header.billing_tax_mode || header.billingTaxMode || 'CGST_SGST').trim().toUpperCase();
+        if (headerTaxMode === 'IGST') {
+            if (taxPercent > 0) {
+                rowTaxes = [
+                    {
+                        code: 'IGST',
+                        label: 'IGST ' + (taxPercent % 1 === 0 ? taxPercent.toFixed(0) : taxPercent.toFixed(2)) + '%',
+                        taxType: 'GST',
+                        rate: taxPercent,
+                        taxableAmount: toAmount(taxableAmount),
+                        taxAmount: toAmount(taxAmount)
+                    }
+                ];
+            } else {
+                rowTaxes = [];
+            }
+        } else if (rowTaxes.length === 0 || isTaxInclusiveRow || isAdvanceOrSubFree) {
             if (taxPercent > 0) {
                 const halfRate = taxPercent / 2;
                 const halfTax = toAmount(taxAmount / 2);
@@ -3039,7 +3055,7 @@ async function createSaleVersion({
             taxable_amount: taxableAmount,
             tax_amount: taxAmount,
             line_total: lineTotal,
-            tax_breakup: Array.isArray(row.tax_breakup) ? row.tax_breakup : [],
+            tax_breakup: rowTaxes,
             net_amount: itemNetAmount,
             is_scheme_free: row.is_scheme_free === true,
             applied_scheme_id: row.applied_scheme_id || null,
@@ -5821,7 +5837,20 @@ exports.getSaleDetails = async (req, res) => {
                 returned_qty: alreadyReturned[item.item_id] || 0
             };
         });
-        saleJson.credit_notes = creditNotes;
+        saleJson.credit_notes = (creditNotes || []).map((cn: any) => {
+            const raw = typeof cn.toJSON === 'function' ? cn.toJSON() : cn;
+            return {
+                ...raw,
+                billing_tax_mode: sale.billing_tax_mode || sale.billingTaxMode || 'CGST_SGST',
+                sale: {
+                    id: sale.id,
+                    sale_no: sale.sale_no,
+                    sale_date: sale.sale_date,
+                    bill_format: sale.bill_format,
+                    billing_tax_mode: sale.billing_tax_mode || sale.billingTaxMode || 'CGST_SGST'
+                }
+            };
+        });
         let effectivePaymentLines = decodePaymentReferenceLines(saleJson.payment_reference);
         const repaymentsList = Array.isArray(sale.repayments) ? sale.repayments : [];
         if (repaymentsList.length > 0) {
@@ -7933,28 +7962,78 @@ exports.returnSale = async (req, res) => {
 
             // Calculate proportionate values
             const proportion = qtyToReturn / Number(saleItem.qty);
-            const taxable_amount = toAmount(Number(saleItem.taxable_amount) * proportion);
-            const tax_amount = toAmount(Number(saleItem.tax_amount) * proportion);
-            const line_total = toAmount(Number(saleItem.line_total) * proportion);
+            const rawTaxable = toAmount(Number(saleItem.taxable_amount) * proportion);
+            const tax_amount = toAmount(Number(saleItem.tax_amount || 0) * proportion);
+            const line_total = toAmount(Number(saleItem.line_total || 0) * proportion);
             const rate = Number(saleItem.rate);
-            const tax_percent = Number(saleItem.tax_percent);
+            const tax_percent = Number(saleItem.tax_percent || 0);
+            const isNonTaxable = tax_percent <= 0 && tax_amount <= 0;
+            const taxable_amount = isNonTaxable ? 0 : rawTaxable;
+            const non_taxable_amount = isNonTaxable ? rawTaxable : 0;
 
             let cgst_amount = 0;
             let sgst_amount = 0;
             let igst_amount = 0;
-            let tax_breakup = [];
+            let tax_breakup: any[] = [];
 
-            if (Array.isArray(saleItem.tax_breakup)) {
-                tax_breakup = saleItem.tax_breakup.map(tax => {
-                    const taxAmt = toAmount(Number(tax.taxAmount) * proportion);
-                    if (tax.code === 'CGST') cgst_amount += taxAmt;
-                    if (tax.code === 'SGST') sgst_amount += taxAmt;
-                    if (tax.code === 'IGST') igst_amount += taxAmt;
+            if (Array.isArray(saleItem.tax_breakup) && saleItem.tax_breakup.length > 0) {
+                tax_breakup = saleItem.tax_breakup.map((tax: any) => {
+                    const rawAmt = tax.taxAmount ?? tax.tax_amount ?? tax.amount ?? 0;
+                    const taxAmt = toAmount(Number(rawAmt) * proportion);
+                    const code = String(tax.code || '').trim().toUpperCase();
+                    if (code === 'CGST') cgst_amount += taxAmt;
+                    if (code === 'SGST' || code === 'UTGST') sgst_amount += taxAmt;
+                    if (code === 'IGST') igst_amount += taxAmt;
                     return {
                         ...tax,
-                        taxAmount: taxAmt
+                        code,
+                        taxAmount: taxAmt,
+                        tax_amount: taxAmt
                     };
                 });
+            }
+
+            if (tax_amount > 0 && (cgst_amount + sgst_amount + igst_amount) === 0) {
+                const headerMode = String(sale.billing_tax_mode || sale.billingTaxMode || '').trim().toUpperCase();
+                if (headerMode === 'IGST') {
+                    igst_amount = tax_amount;
+                    tax_breakup = [
+                        {
+                            code: 'IGST',
+                            label: 'IGST ' + (tax_percent % 1 === 0 ? tax_percent.toFixed(0) : tax_percent.toFixed(2)) + '%',
+                            taxType: 'GST',
+                            rate: tax_percent,
+                            taxableAmount: rawTaxable,
+                            tax_amount: tax_amount,
+                            taxAmount: tax_amount
+                        }
+                    ];
+                } else {
+                    const halfTax = toAmount(tax_amount / 2);
+                    cgst_amount = halfTax;
+                    sgst_amount = toAmount(tax_amount - halfTax);
+                    const halfRate = tax_percent / 2;
+                    tax_breakup = [
+                        {
+                            code: 'CGST',
+                            label: 'CGST',
+                            taxType: 'GST',
+                            rate: halfRate,
+                            taxableAmount: rawTaxable,
+                            tax_amount: cgst_amount,
+                            taxAmount: cgst_amount
+                        },
+                        {
+                            code: 'SGST',
+                            label: 'SGST',
+                            taxType: 'GST',
+                            rate: halfRate,
+                            taxableAmount: rawTaxable,
+                            tax_amount: sgst_amount,
+                            taxAmount: sgst_amount
+                        }
+                    ];
+                }
             }
 
             cnItems.push({
@@ -7964,7 +8043,8 @@ exports.returnSale = async (req, res) => {
                 qty: qtyToReturn,
                 rate,
                 tax_percent,
-                taxable_amount,
+                taxable_amount: rawTaxable,
+                non_taxable_amount,
                 cgst_amount,
                 sgst_amount,
                 igst_amount,

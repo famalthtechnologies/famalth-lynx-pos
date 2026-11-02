@@ -1,13 +1,14 @@
 const audit = require('../../services/audit.service');
 const { upsertClient } = require("../../modules/driveService");
 const loadConfig = require("../../utils/decryptConfig");
+const { resolveBusinessModule } = require('../../utils/moduleHelper');
 
 exports.getPropertyInfo = async (req: any, res: any) => {
     try {
-        let actualOutletId = req.user?.outlet_id || req.query?.outlet_id || req.body?.outlet_id;
+        let actualOutletId = req.user?.outlet_id || req.query?.outlet_id || req.body?.outlet_id || req.query?.outlet_code || req.body?.outlet_code;
 
         // If it's a string code (like OUTLET001), resolve it to integer id
-        if (typeof actualOutletId === 'string' && (actualOutletId.startsWith('OUTLET') || isNaN(Number(actualOutletId)))) {
+        if (typeof actualOutletId === 'string' && isNaN(Number(actualOutletId))) {
             const outlet = await req.propertyDb.models.outlets.findOne({
                 where: { outlet_code: actualOutletId }
             });
@@ -42,8 +43,11 @@ exports.getPropertyInfo = async (req: any, res: any) => {
         if (actualOutletId && req.propertyDb.models.outlets) {
             const outletObj = await req.propertyDb.models.outlets.findByPk(actualOutletId);
             if (outletObj) {
-                infoObj.outlet_module = outletObj.business_module || outletObj.outlet_module || 'ALL';
-                infoObj.business_module = outletObj.business_module || outletObj.outlet_module || 'ALL';
+                const resolvedMod = resolveBusinessModule(outletObj.business_module, outletObj.outlet_type);
+                infoObj.outlet_module = resolvedMod;
+                infoObj.business_module = resolvedMod;
+                infoObj.outlet_type = outletObj.outlet_type || '';
+                infoObj.business_type = infoObj.business_type || outletObj.outlet_type || '';
                 if (!infoObj.property_name && outletObj.outlet_name) {
                     infoObj.property_name = outletObj.outlet_name;
                 }
@@ -190,6 +194,9 @@ exports.savePropertyInfo = async (req: any, res: any) => {
                 if (req.body.outlet_module) {
                     outletUpdates.outlet_module = req.body.outlet_module;
                     outletUpdates.business_module = req.body.outlet_module;
+                } else if (req.body.business_type && !req.body.outlet_module) {
+                    const resolvedMod = resolveBusinessModule('', req.body.business_type);
+                    outletUpdates.business_module = resolvedMod;
                 }
                 if (req.body.recovery_pin) outletUpdates.recovery_pin = req.body.recovery_pin;
                 if (req.body.mobile) outletUpdates.contact_phone = req.body.mobile;

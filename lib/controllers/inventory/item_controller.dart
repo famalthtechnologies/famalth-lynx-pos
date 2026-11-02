@@ -8,18 +8,27 @@ class ItemController extends ChangeNotifier {
   bool loading = false;
   List<Item> list = [];
 
-  Future<void> load({String q = ''}) async {
+  Future<void> load({String q = '', bool showDeleted = false}) async {
     loading = true;
     notifyListeners();
 
+    final statusQuery = showDeleted ? '&status=deleted' : '';
     final res = await ApiClient.get(
-      '${ApiEndpoints.items}?q=$q',
+      '${ApiEndpoints.items}?q=$q$statusQuery',
     );
 
     list = (res['data'] as List).map((e) => Item.fromJson(e)).toList();
 
     loading = false;
     notifyListeners();
+  }
+
+  Future<void> restore(int id) async {
+    loading = true;
+    notifyListeners();
+
+    await ApiClient.put('${ApiEndpoints.items}/$id/restore', {});
+    await load(showDeleted: true);
   }
 
   Future<String> getNextCode() async {

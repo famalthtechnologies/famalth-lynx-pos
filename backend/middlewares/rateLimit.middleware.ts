@@ -16,15 +16,51 @@ export const apiLimiter = rateLimit({
 });
 
 /**
- * Login & Auth Brute-Force Rate Limiter
- * Limits failed login / PIN attempts to 10 per 15 minutes per IP.
+ * Tier 1: User / Account Rate Limiter
+ * Scoped by (Outlet + Username).
+ * If a specific cashier enters wrong PIN/password 8 times, ONLY their account is locked for 15 mins.
+ * Other staff members and other outlets on the same machine are NOT affected.
  */
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 8,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => {
+    const outlet = String(req.body?.outlet_code || req.body?.outletCode || req.headers['x-outlet-code'] || '').trim().toLowerCase();
+    const user = String(req.body?.username || req.body?.email || req.body?.pin || '').trim().toLowerCase();
+    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+
+    if (outlet && user) {
+      return `${outlet}:${user}`;
+    } else if (outlet) {
+      return `${outlet}:${ip}`;
+    }
+    return `${ip}:${user || 'anonymous'}`;
+  },
   message: {
     success: false,
-    message: 'Too many login attempts. Account temporarily locked for 15 minutes.'
+    lockoutType: 'ACCOUNT_LOCKOUT',
+    message: '🔒 Account Locked: Too many failed login attempts for this user. This specific user account is locked for 15 minutes. Other users or outlets on this machine can still sign in.'
+  }
+});
+
+/**
+ * Tier 2: Workstation / Terminal IP-Level Flood Protection
+ * Scoped by Machine / Terminal IP across all accounts.
+ * If 25 failed attempts occur from this computer (trying multiple IDs/passwords),
+ * the entire workstation is locked to prevent brute force attacks.
+ */
+export const terminalIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 25,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => {
+    return req.ip || req.socket?.remoteAddress || '127.0.0.1';
+  },
+  message: {
+    success: false,
+    lockoutType: 'TERMINAL_LOCKOUT',
+    message: '🚫 Workstation Blocked: Excessive failed attempts detected from this terminal. This entire machine is temporarily locked for 15 minutes. Please do NOT retry switching users or outlets until cooldown expires.'
   }
 });
 
@@ -59,6 +95,7 @@ export const reportQueryLimiter = rateLimit({
 module.exports = {
   apiLimiter,
   loginLimiter,
+  terminalIpLimiter,
   ddosBurstLimiter,
   reportQueryLimiter
 };

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -77,6 +78,13 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
 
   List<Item> _items = [];
   List<Item> _filtered = [];
+  bool _showDeleted = false;
+  int _currentPage = 1;
+  int _totalItems = 0;
+  bool _hasMore = false;
+  bool _isLoading = false;
+  bool _isLoadingMore = false;
+  Timer? _searchDebounce;
 
   // Dropdowns
   String? _group;
@@ -233,6 +241,8 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
     _init();
 
     // NEW: Auto-focus the first editable field (Item Name) when screen loads
+    _tableVerticalController.addListener(_onTableScroll);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _nameFocus.requestFocus();
     });
@@ -256,6 +266,8 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
     _search.dispose();
     _taxPercent.dispose();
     _deductQtyCtrl.dispose();
+    _tableVerticalController.removeListener(_onTableScroll);
+    _searchDebounce?.cancel();
     _tableVerticalController.dispose();
     _tableHorizontalController.dispose();
     _searchNode.dispose();
@@ -331,13 +343,73 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
     await _loadItemImportPermission();
   }
 
+  void _onTableScroll() {
+    if (!_tableVerticalController.hasClients) return;
+    final maxScroll = _tableVerticalController.position.maxScrollExtent;
+    final currentScroll = _tableVerticalController.position.pixels;
+    // Auto load next 50 reel-style when user scrolls near the bottom
+    if (currentScroll >= maxScroll - 200) {
+      _loadMoreItems();
+    }
+  }
+
   Future<void> _loadItems() async {
-    await itemCtrl.load();
-    _generateCode();
+    if (_isLoading) return;
     setState(() {
-      _items = itemCtrl.list;
-      _filtered = _items;
+      _isLoading = true;
+      _currentPage = 1;
+      _selectedRowIndex = -1;
     });
+    try {
+      final statusQuery = _showDeleted ? '&status=deleted' : '';
+      final q = _search.text.trim();
+      final res = await ApiClient.get(
+        '${ApiEndpoints.items}?q=$q$statusQuery&page=1&limit=50',
+      );
+      if (res['success'] == true) {
+        final List raw = res['data'] ?? [];
+        final items = raw.map((e) => Item.fromJson(e)).toList();
+        _generateCode();
+        if (!mounted) return;
+        setState(() {
+          _items = items;
+          _filtered = _items;
+          _totalItems = int.tryParse(res['total']?.toString() ?? '') ?? items.length;
+          _hasMore = res['hasMore'] == true || ((_currentPage * 50) < _totalItems);
+          itemCtrl.list = items;
+        });
+      }
+    } catch (_) {} finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadMoreItems() async {
+    if (_isLoadingMore || !_hasMore || _isLoading) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final nextPage = _currentPage + 1;
+      final statusQuery = _showDeleted ? '&status=deleted' : '';
+      final q = _search.text.trim();
+      final res = await ApiClient.get(
+        '${ApiEndpoints.items}?q=$q$statusQuery&page=$nextPage&limit=50',
+      );
+      if (res['success'] == true) {
+        final List raw = res['data'] ?? [];
+        final newItems = raw.map((e) => Item.fromJson(e)).toList();
+        if (!mounted) return;
+        setState(() {
+          _currentPage = nextPage;
+          _items.addAll(newItems);
+          _filtered = _items;
+          _totalItems = int.tryParse(res['total']?.toString() ?? '') ?? _items.length;
+          _hasMore = res['hasMore'] == true || ((_currentPage * 50) < _totalItems);
+          itemCtrl.list = _items;
+        });
+      }
+    } catch (_) {} finally {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
   }
 
   Future<void> _loadItemImportPermission() async {
@@ -764,6 +836,68 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
     }
   }
 
+  Future<void> _reactivateItem(int i) async {
+    if (i < 0 || i >= _filtered.length) return;
+    final it = _filtered[i];
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.replay, color: Color(0xFF008060)),
+            SizedBox(width: 8),
+            Text('Reactivate Item'),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to reactivate "${it.itemName}" (${it.itemCode})?\n\n'
+          'It will be restored and become active for sales, billing, and inventory.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF008060),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.check, size: 18),
+            label: const Text('Reactivate'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final res = await ApiClient.put('/api/inventory/items/${it.id}/restore', {});
+      if (res['success'] == true) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Item "${it.itemName}" reactivated successfully!'),
+            backgroundColor: const Color(0xFF008060),
+          ),
+        );
+        await _loadItems();
+      } else {
+        throw Exception(res['message'] ?? 'Failed to reactivate item');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _openPackDialog(int i) async {
     final item = _filtered[i];
     final countCtrl = TextEditingController(text: '1');
@@ -876,9 +1010,11 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
     );
   }
 
-  void _searchItem(String q) async {
-    await itemCtrl.load(q: q);
-    setState(() => _filtered = itemCtrl.list);
+  void _searchItem(String q) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _loadItems();
+    });
   }
 
   // ================= EXPORT & IMPORT =================
@@ -889,7 +1025,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
     return defaultValue;
   }
 
-  Future<void> _exportExcel() async {
+  Future<void> _exportExcel({bool sampleTemplateOnly = false}) async {
     var excel = Excel.createExcel();
     final defaultSheet = excel.getDefaultSheet();
     if (defaultSheet != null) {
@@ -927,42 +1063,96 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
       TextCellValue('Deduct Raw Item ID'),
       TextCellValue('Deduct Qty'),
     ]);
-    for (var item in _items) {
-      sheet.appendRow([
-        TextCellValue(item.itemCode),
-        TextCellValue(item.itemName),
-        TextCellValue(item.location),
-        TextCellValue(item.hsnSacCode),
-        TextCellValue(item.itemGroup),
-        TextCellValue(item.subCategory),
-        TextCellValue(item.brand),
-        TextCellValue(item.unit),
-        TextCellValue(item.barcode),
-        DoubleCellValue(item.rate),
-        DoubleCellValue(item.retailSalePrice),
-        DoubleCellValue(item.mrp),
-        TextCellValue(item.taxType),
-        DoubleCellValue(item.taxPercent),
-        TextCellValue(item.isTaxInclusive ? 'true' : 'false'),
-        TextCellValue(item.discountApplicable ? 'true' : 'false'),
-        TextCellValue(item.schemeApplicable ? 'true' : 'false'),
-        TextCellValue(item.isHappyHour ? 'true' : 'false'),
-        DoubleCellValue(item.openingBalance),
-        IntCellValue(item.minLevel),
-        IntCellValue(item.maxLevel),
-        TextCellValue(item.stockable ? 'true' : 'false'),
-        TextCellValue(item.isSaleable ? 'true' : 'false'),
-        TextCellValue(item.isModifier ? 'true' : 'false'),
-        TextCellValue(item.applicableItemIds ?? ''),
-        IntCellValue(item.deductRawItemId ?? 0),
-        DoubleCellValue(item.deductQty),
-      ]);
+
+    final sampleRow = [
+      TextCellValue('SAMPLE001'),
+      TextCellValue('Sample Product Name (Example)'),
+      TextCellValue('Kitchen'),
+      TextCellValue('19053100'),
+      TextCellValue('Food & Beverages'),
+      TextCellValue('Snacks'),
+      TextCellValue('Standard Brand'),
+      TextCellValue('PCS'),
+      TextCellValue('8901234567890'),
+      DoubleCellValue(100.0),
+      DoubleCellValue(120.0),
+      DoubleCellValue(120.0),
+      TextCellValue('GST'),
+      DoubleCellValue(5.0),
+      TextCellValue('true'),
+      TextCellValue('true'),
+      TextCellValue('true'),
+      TextCellValue('false'),
+      DoubleCellValue(10.0),
+      IntCellValue(5),
+      IntCellValue(100),
+      TextCellValue('true'),
+      TextCellValue('true'),
+      TextCellValue('false'),
+      TextCellValue(''),
+      IntCellValue(0),
+      DoubleCellValue(0.0),
+    ];
+
+    List<Item> exportItems = _items;
+    if (!sampleTemplateOnly && (_totalItems > _items.length || _hasMore)) {
+      try {
+        final statusQuery = _showDeleted ? '&status=deleted' : '';
+        final q = _search.text.trim();
+        final res = await ApiClient.get('${ApiEndpoints.items}?q=$q$statusQuery');
+        if (res['data'] is List) {
+          exportItems = (res['data'] as List).map((e) => Item.fromJson(e)).toList();
+        }
+      } catch (_) {}
+    }
+
+    if (sampleTemplateOnly) {
+      // Export only the sample template row with clear example values
+      sheet.appendRow(sampleRow);
+    } else {
+      // If there are existing items, export them; if empty, provide the sample row
+      if (exportItems.isEmpty) {
+        sheet.appendRow(sampleRow);
+      } else {
+        for (var item in exportItems) {
+          sheet.appendRow([
+            TextCellValue(item.itemCode),
+            TextCellValue(item.itemName),
+            TextCellValue(item.location),
+            TextCellValue(item.hsnSacCode),
+            TextCellValue(item.itemGroup),
+            TextCellValue(item.subCategory),
+            TextCellValue(item.brand),
+            TextCellValue(item.unit),
+            TextCellValue(item.barcode),
+            DoubleCellValue(item.rate),
+            DoubleCellValue(item.retailSalePrice),
+            DoubleCellValue(item.mrp),
+            TextCellValue(item.taxType),
+            DoubleCellValue(item.taxPercent),
+            TextCellValue(item.isTaxInclusive ? 'true' : 'false'),
+            TextCellValue(item.discountApplicable ? 'true' : 'false'),
+            TextCellValue(item.schemeApplicable ? 'true' : 'false'),
+            TextCellValue(item.isHappyHour ? 'true' : 'false'),
+            DoubleCellValue(item.openingBalance),
+            IntCellValue(item.minLevel),
+            IntCellValue(item.maxLevel),
+            TextCellValue(item.stockable ? 'true' : 'false'),
+            TextCellValue(item.isSaleable ? 'true' : 'false'),
+            TextCellValue(item.isModifier ? 'true' : 'false'),
+            TextCellValue(item.applicableItemIds ?? ''),
+            IntCellValue(item.deductRawItemId ?? 0),
+            DoubleCellValue(item.deductQty),
+          ]);
+        }
+      }
     }
 
     final bytes = excel.encode();
     if (bytes == null) return;
-    final fileName =
-        'items_export_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+    final fileName = sampleTemplateOnly
+        ? 'items_sample_template.xlsx'
+        : 'items_export_${DateTime.now().millisecondsSinceEpoch}.xlsx';
 
     if (kIsWeb) {
       await Printing.sharePdf(
@@ -982,22 +1172,20 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
     final file = File(path);
 
     await file.writeAsBytes(bytes, flush: true);
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Exported Successfully\nSaved at: $path')),
+      SnackBar(
+        content: Text(
+          sampleTemplateOnly
+              ? 'Sample Excel Template Downloaded\nSaved at: $path'
+              : 'Exported Successfully (${_items.isEmpty ? "Sample Row Included" : "${_items.length} items"})\nSaved at: $path',
+        ),
+        backgroundColor: const Color(0xFF008060),
+      ),
     );
   }
 
   Future<void> _importExcel() async {
-    final canReset = await _fetchCanResetAndImport();
-    if (!canReset) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Import blocked: transactions already exist.'),
-        ),
-      );
-      return;
-    }
-
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['xlsx'],
@@ -1074,15 +1262,44 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
         });
       }
 
-      String headerKey(dynamic value) =>
-          value?.toString().trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ') ??
-          '';
+      String headerKey(dynamic value) {
+        if (value == null) return '';
+        if (value is TextCellValue) {
+          return (value.value.text ?? value.toString()).trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+        }
+        return value.toString().trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+      }
 
       dynamic cellByHeader(List<Data?> row, Map<String, int> headers, String name,
           {int fallbackIndex = -1}) {
         final idx = headers[headerKey(name)] ?? fallbackIndex;
         if (idx < 0 || idx >= row.length) return null;
         return row[idx]?.value;
+      }
+
+      String cleanText(dynamic val) {
+        if (val == null) return '';
+        if (val is TextCellValue) return (val.value.text ?? val.toString()).trim();
+        if (val is IntCellValue) return val.value.toString().trim();
+        if (val is DoubleCellValue) return val.value.toString().trim();
+        if (val is BoolCellValue) return val.value ? 'true' : 'false';
+        return val.toString().trim();
+      }
+
+      double cleanDouble(dynamic val, [double def = 0.0]) {
+        if (val == null) return def;
+        if (val is DoubleCellValue) return val.value;
+        if (val is IntCellValue) return val.value.toDouble();
+        final s = cleanText(val);
+        return double.tryParse(s) ?? def;
+      }
+
+      int cleanInt(dynamic val, [int def = 0]) {
+        if (val == null) return def;
+        if (val is IntCellValue) return val.value;
+        if (val is DoubleCellValue) return val.value.toInt();
+        final s = cleanText(val);
+        return int.tryParse(s) ?? (double.tryParse(s)?.toInt() ?? def);
       }
 
       List<Map<String, dynamic>> bulkData = [];
@@ -1099,105 +1316,64 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
 
         for (int i = 1; i < rows.length; i++) {
           final row = rows[i];
+          final rawCode = cleanText(cellByHeader(row, headers, 'Item Code', fallbackIndex: 0));
+          final rawName = cleanText(cellByHeader(row, headers, 'Item Name', fallbackIndex: 1));
+
+          // Skip completely empty rows
+          if (rawCode.isEmpty && rawName.isEmpty) continue;
+
           bulkData.add({
-            "item_code": cellByHeader(row, headers, 'Item Code', fallbackIndex: 0)
-                ?.toString(),
-            "item_name": cellByHeader(row, headers, 'Item Name', fallbackIndex: 1)
-                ?.toString(),
-            "location": cellByHeader(row, headers, 'Location')?.toString() ??
-                cellByHeader(row, headers, 'Kitchen Location')?.toString() ??
-                '-',
-            "hsn_sac_code":
-                cellByHeader(row, headers, 'HSN/SAC', fallbackIndex: 2)?.toString(),
-            "item_group":
-                cellByHeader(row, headers, 'Group', fallbackIndex: 3)?.toString(),
-            "sub_category": cellByHeader(row, headers, 'Sub Category',
-                    fallbackIndex: 4)
-                ?.toString(),
-            "brand": cellByHeader(row, headers, 'Brand', fallbackIndex: 5)
-                ?.toString(),
-            "unit": cellByHeader(row, headers, 'Unit', fallbackIndex: 6)?.toString(),
-            "barcode":
-                cellByHeader(row, headers, 'Barcode', fallbackIndex: 7)?.toString(),
-            "rate": double.tryParse(
-                    cellByHeader(row, headers, 'Rate', fallbackIndex: 8)
-                            ?.toString() ??
-                        '0') ??
-                0,
-            "retail_sale_price": double.tryParse(
-                    cellByHeader(row, headers, 'Sale Rate', fallbackIndex: 9)
-                            ?.toString() ??
-                        '0') ??
-                0,
-            "mrp": double.tryParse(
-                    cellByHeader(row, headers, 'MRP', fallbackIndex: 10)
-                            ?.toString() ??
-                        '0') ??
-                0.0,
-            "tax_type": cellByHeader(row, headers, 'Tax Type', fallbackIndex: 11)
-                    ?.toString() ??
-                'GST',
-            "tax_percent": double.tryParse(
-                    cellByHeader(row, headers, 'Tax Percent', fallbackIndex: 12)
-                            ?.toString() ??
-                        '0') ??
-                0,
-            "is_tax_inclusive": _toBool(
-                cellByHeader(row, headers, 'Tax Inclusive', fallbackIndex: 13),
-                defaultValue: false),
-            "discount_applicable":
-                _toBool(cellByHeader(row, headers, 'Discount Applicable',
-                    fallbackIndex: 14), defaultValue: true),
-            "scheme_applicable": _toBool(
-                cellByHeader(row, headers, 'Scheme Applicable',
-                    fallbackIndex: 15),
-                defaultValue: true),
-            "is_happy_hour": _toBool(
-                cellByHeader(row, headers, 'Happy Hour', fallbackIndex: 16),
-                defaultValue: false),
-            "opening_balance": double.tryParse(
-                    cellByHeader(row, headers, 'Opening', fallbackIndex: 17)
-                            ?.toString() ??
-                        '0') ??
-                0,
-            "min_level": int.tryParse(
-                    cellByHeader(row, headers, 'Min', fallbackIndex: 18)
-                            ?.toString() ??
-                        '0') ??
-                0,
-            "max_level": int.tryParse(
-                    cellByHeader(row, headers, 'Max', fallbackIndex: 19)
-                            ?.toString() ??
-                        '0') ??
-                0,
-            "stockable": _toBool(
-                cellByHeader(row, headers, 'Stockable', fallbackIndex: 20),
-                defaultValue: true),
-            "is_saleable": _toBool(
-                cellByHeader(row, headers, 'Saleable', fallbackIndex: 21),
-                defaultValue: true),
-            "is_modifier": _toBool(
-                cellByHeader(row, headers, 'Is Modifier', fallbackIndex: 22) ??
-                cellByHeader(row, headers, 'Modifier'),
-                defaultValue: false),
-            "applicable_item_ids": cellByHeader(row, headers, 'Applicable Item IDs',
-                    fallbackIndex: 23)
-                ?.toString() ??
-                cellByHeader(row, headers, 'Applicable Items')?.toString() ??
-                '',
-            "deduct_raw_item_id": int.tryParse(cellByHeader(row, headers,
-                        'Deduct Raw Item ID', fallbackIndex: 24)
-                    ?.toString() ??
-                cellByHeader(row, headers, 'Deduct Raw Item')?.toString() ??
-                ''),
-            "deduct_qty": double.tryParse(cellByHeader(row, headers,
-                        'Deduct Qty', fallbackIndex: 25)
-                    ?.toString() ??
-                cellByHeader(row, headers, 'Deduct Quantity')?.toString() ??
-                '0') ??
-                0,
+            "item_code": rawCode,
+            "item_name": rawName.isNotEmpty ? rawName : rawCode,
+            "location": cleanText(cellByHeader(row, headers, 'Location', fallbackIndex: 2)).isNotEmpty
+                ? cleanText(cellByHeader(row, headers, 'Location', fallbackIndex: 2))
+                : '-',
+            "hsn_sac_code": cleanText(cellByHeader(row, headers, 'HSN/SAC', fallbackIndex: 3)),
+            "item_group": cleanText(cellByHeader(row, headers, 'Group', fallbackIndex: 4)).isNotEmpty
+                ? cleanText(cellByHeader(row, headers, 'Group', fallbackIndex: 4))
+                : 'General',
+            "sub_category": cleanText(cellByHeader(row, headers, 'Sub Category', fallbackIndex: 5)).isNotEmpty
+                ? cleanText(cellByHeader(row, headers, 'Sub Category', fallbackIndex: 5))
+                : 'General',
+            "brand": cleanText(cellByHeader(row, headers, 'Brand', fallbackIndex: 6)),
+            "unit": cleanText(cellByHeader(row, headers, 'Unit', fallbackIndex: 7)).isNotEmpty
+                ? cleanText(cellByHeader(row, headers, 'Unit', fallbackIndex: 7))
+                : 'PCS',
+            "barcode": cleanText(cellByHeader(row, headers, 'Barcode', fallbackIndex: 8)),
+            "rate": cleanDouble(cellByHeader(row, headers, 'Rate', fallbackIndex: 9)),
+            "retail_sale_price": cleanDouble(cellByHeader(row, headers, 'Sale Rate', fallbackIndex: 10)),
+            "mrp": cleanDouble(cellByHeader(row, headers, 'MRP', fallbackIndex: 11)),
+            "tax_type": cleanText(cellByHeader(row, headers, 'Tax Type', fallbackIndex: 12)).isNotEmpty
+                ? cleanText(cellByHeader(row, headers, 'Tax Type', fallbackIndex: 12))
+                : 'GST',
+            "tax_percent": cleanDouble(cellByHeader(row, headers, 'Tax Percent', fallbackIndex: 13)),
+            "is_tax_inclusive": _toBool(cellByHeader(row, headers, 'Tax Inclusive', fallbackIndex: 14), defaultValue: false),
+            "discount_applicable": _toBool(cellByHeader(row, headers, 'Discount Applicable', fallbackIndex: 15), defaultValue: true),
+            "scheme_applicable": _toBool(cellByHeader(row, headers, 'Scheme Applicable', fallbackIndex: 16), defaultValue: true),
+            "is_happy_hour": _toBool(cellByHeader(row, headers, 'Happy Hour', fallbackIndex: 17), defaultValue: false),
+            "opening_balance": cleanDouble(cellByHeader(row, headers, 'Opening', fallbackIndex: 18)),
+            "min_level": cleanInt(cellByHeader(row, headers, 'Min', fallbackIndex: 19)),
+            "max_level": cleanInt(cellByHeader(row, headers, 'Max', fallbackIndex: 20)),
+            "stockable": _toBool(cellByHeader(row, headers, 'Stockable', fallbackIndex: 21), defaultValue: true),
+            "is_saleable": _toBool(cellByHeader(row, headers, 'Saleable', fallbackIndex: 22), defaultValue: true),
+            "is_modifier": _toBool(cellByHeader(row, headers, 'Is Modifier', fallbackIndex: 23) ?? cellByHeader(row, headers, 'Modifier'), defaultValue: false),
+            "applicable_item_ids": cleanText(cellByHeader(row, headers, 'Applicable Item IDs', fallbackIndex: 24)),
+            "deduct_raw_item_id": cleanInt(cellByHeader(row, headers, 'Deduct Raw Item ID', fallbackIndex: 25)),
+            "deduct_qty": cleanDouble(cellByHeader(row, headers, 'Deduct Qty', fallbackIndex: 26)),
           });
         }
+      }
+
+      if (bulkData.isEmpty) {
+        if (mounted && dialogOpen) Navigator.of(context).pop();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No valid item rows found in the selected Excel file. Please fill item details.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
       }
 
       if (updateDialogState != null && dialogOpen) {
@@ -1207,7 +1383,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
         });
       }
 
-      await ApiClient.post('/api/inventory/items/bulk-import', bulkData);
+      final res = await ApiClient.post('/api/inventory/items/bulk-import', bulkData);
 
       if (updateDialogState != null && dialogOpen) {
         updateDialogState!(() {
@@ -1223,10 +1399,11 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
       await _loadItemImportPermission();
 
       if (!mounted) return;
+      final successMsg = res['message'] ?? 'Successfully imported ${bulkData.length} items!';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Successfully imported ${bulkData.length} items!'),
-          backgroundColor: Colors.green,
+          content: Text(successMsg),
+          backgroundColor: const Color(0xFF008060),
         ),
       );
     } catch (e) {
@@ -1234,7 +1411,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Import Failed: ${e.toString()}'),
+          content: Text('Import Failed: ${e.toString().replaceAll('Exception: ', '')}'),
           backgroundColor: Colors.red,
         ),
       );
@@ -1542,10 +1719,38 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
               tooltip: 'Import Excel',
               onPressed: _importExcel,
             ),
-            IconButton(
+            PopupMenuButton<String>(
+              tooltip: 'Export Excel / Sample Template',
               icon: const Icon(Icons.download),
-              tooltip: 'Export Excel',
-              onPressed: _exportExcel,
+              onSelected: (val) {
+                if (val == 'export_all') {
+                  _exportExcel(sampleTemplateOnly: false);
+                } else if (val == 'sample_template') {
+                  _exportExcel(sampleTemplateOnly: true);
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'export_all',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.file_download_outlined, size: 18),
+                      const SizedBox(width: 8),
+                      Text('Export Items (${_items.length})'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'sample_template',
+                  child: Row(
+                    children: [
+                      Icon(Icons.description_outlined, size: 18, color: Color(0xFF008060)),
+                      SizedBox(width: 8),
+                      Text('Download Sample Excel Template'),
+                    ],
+                  ),
+                ),
+              ],
             ),
             IconButton(
               icon: const Icon(Icons.qr_code_2),
@@ -3552,32 +3757,121 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
 
   // ================= SEARCH =================
   Widget _searchBar() {
-    return Center(
-      child: Container(
-        width: 420,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(30),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 420,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: TextField(
+                controller: _search,
+                onChanged: _searchItem,
+                focusNode: _searchNode,
+                decoration: InputDecoration(
+                  hintText: _showDeleted
+                      ? 'Search deleted item (code, name, brand)...'
+                      : 'Search item (code, barcode, name, group, brand)',
+                  prefixIcon: const Icon(Icons.search),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ChoiceChip(
+                    label: Text(!_showDeleted
+                        ? (_totalItems > _filtered.length
+                            ? 'Active Items ($_totalItems) • Loaded ${_filtered.length}'
+                            : 'Active Items ($_totalItems)')
+                        : 'Active Items'),
+                    selected: !_showDeleted,
+                    selectedColor: const Color(0xFF008060).withOpacity(0.15),
+                    labelStyle: TextStyle(
+                      color: !_showDeleted ? const Color(0xFF008060) : Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                    onSelected: (val) {
+                      if (!val) return;
+                      setState(() => _showDeleted = false);
+                      _loadItems();
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                  ChoiceChip(
+                    avatar: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+                    label: Text(_showDeleted
+                        ? (_totalItems > _filtered.length
+                            ? 'Deleted Items ($_totalItems) • Loaded ${_filtered.length}'
+                            : 'Deleted Items ($_totalItems)')
+                        : 'Deleted Items'),
+                    selected: _showDeleted,
+                    selectedColor: Colors.red.shade100,
+                    labelStyle: TextStyle(
+                      color: _showDeleted ? Colors.red.shade800 : Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                    onSelected: (val) {
+                      if (!val) return;
+                      setState(() => _showDeleted = true);
+                      _loadItems();
+                    },
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        child: TextField(
-          controller: _search,
-          onChanged: _searchItem,
-          focusNode: _searchNode,
-          decoration: const InputDecoration(
-            hintText: 'Search item (code, barcode, name, group, brand)',
-            prefixIcon: Icon(Icons.search),
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.symmetric(vertical: 14),
+        if (_showDeleted) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.amber.shade300),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.info_outline, color: Colors.amber.shade900, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  'Viewing Deactivated / Deleted Items. Click the green "Reactivate" button in the Action column to restore an item.',
+                  style: TextStyle(
+                    color: Colors.amber.shade900,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        ],
+      ],
     );
   }
 
@@ -3603,10 +3897,14 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                 child: SingleChildScrollView(
                   controller: _tableVerticalController,
                   scrollDirection: Axis.vertical,
-                  child: Focus(
-                    focusNode: _tableFocusNode,
-                    onKeyEvent: _onTableKey,
-                    child: DataTable(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Focus(
+                        focusNode: _tableFocusNode,
+                        onKeyEvent: _onTableKey,
+                        child: DataTable(
                       headingRowColor: WidgetStateProperty.all(
                         Theme.of(context).colorScheme.surfaceContainerHighest,
                       ),
@@ -3722,29 +4020,43 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                             )),
                             DataCell(
                               Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                  IconButton(
-                                      tooltip: 'Manage BOM',
-                                      icon: const Icon(Icons.settings_input_component,
-                                          color: Colors.blue),
-                                      onPressed: () {
-                                        showDialog(
-                                          context: context,
-                                          builder: (_) => BOMSetupDialog(
-                                            parentItem: it,
-                                            itemCtrl: itemCtrl,
-                                            onCostUpdated: () => _loadItems(),
-                                          ),
-                                        );
-                                      }),
-                                  IconButton(
-                                      icon: const Icon(Icons.edit),
-                                      onPressed: () => _editItem(i)),
-                                  IconButton(
-                                      icon: const Icon(Icons.delete,
-                                          color: Colors.red),
-                                      onPressed: () => _deleteItem(i)),
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (!it.isActive || _showDeleted) ...[
+                                    FilledButton.icon(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: const Color(0xFF008060),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                      ),
+                                      onPressed: () => _reactivateItem(i),
+                                      icon: const Icon(Icons.replay, size: 15),
+                                      label: const Text('Reactivate', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ] else ...[
+                                    IconButton(
+                                        tooltip: 'Manage BOM',
+                                        icon: const Icon(Icons.settings_input_component,
+                                            color: Colors.blue),
+                                        onPressed: () {
+                                          showDialog(
+                                            context: context,
+                                            builder: (_) => BOMSetupDialog(
+                                              parentItem: it,
+                                              itemCtrl: itemCtrl,
+                                              onCostUpdated: () => _loadItems(),
+                                            ),
+                                          );
+                                        }),
+                                    IconButton(
+                                        icon: const Icon(Icons.edit),
+                                        onPressed: () => _editItem(i)),
+                                    IconButton(
+                                        icon: const Icon(Icons.delete,
+                                            color: Colors.red),
+                                        onPressed: () => _deleteItem(i)),
+                                  ],
                                 ],
                               ),
                             ),
@@ -3753,7 +4065,36 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                       }),
                     ),
                   ),
-                ),
+                  if (_isLoadingMore)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF008060)),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Auto-loading next 50 items... (${_filtered.length} of $_totalItems loaded)',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (!_hasMore && _filtered.isNotEmpty && _totalItems > 50)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      child: Text(
+                        '✓ All $_totalItems items loaded',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                ],
+              ),
+            ),
               ),
             ),
           ),

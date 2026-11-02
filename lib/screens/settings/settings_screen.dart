@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -238,7 +239,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final requireDept = await LocalPreferences.getRequireDepartmentForNonStockable();
     final machineId = await LocalPreferences.getMachineId();
     final userMap = await TokenStorage.getUser();
-    final mod = userMap?['business_module'] ?? userMap?['outlet_module'] ?? 'ALL';
+    final rawMod = (userMap?['business_module'] ?? userMap?['outlet_module'] ?? '').toString().trim().toUpperCase();
+    final oType = (userMap?['outlet_type'] ?? '').toString().trim().toUpperCase();
+    String mod = rawMod;
+    if (mod.isEmpty) {
+      if (oType == 'RETAIL' ||
+          oType == 'RETAIL STORE' ||
+          const {'MART', 'KIRANA', 'CLOTHES', 'SHOES', 'PARTS', 'MACHINERY', 'PETS', 'SOFTWARE', 'SUPERMARKET', 'SHOP'}.contains(oType)) {
+        mod = 'RETAIL';
+      } else if (const {'RESTAURANT', 'CAFE', 'BAR', 'DINING'}.contains(oType)) {
+        mod = 'RESTAURANT';
+      } else if (const {'CLINIC', 'HOSPITAL', 'DOCTOR', 'MEDICAL'}.contains(oType)) {
+        mod = 'CLINIC';
+      } else if (const {'WAREHOUSE', 'LOGISTICS', 'INVENTORY'}.contains(oType)) {
+        mod = 'INVENTORY';
+      } else {
+        mod = 'RETAIL';
+      }
+    }
     if (!mounted) return;
     setState(() {
       _showNotifications = showNotifications;
@@ -2308,6 +2326,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ], constraints);
   }
 
+    Future<void> _changeModuleSuite(String value) async {
+    final ok = await OutletController().updateBusinessModule(value);
+    if (ok) {
+      final userMap = await TokenStorage.getUser();
+      if (userMap != null) {
+        userMap['business_module'] = value;
+        await TokenStorage.saveUser(userMap);
+      }
+      final outletCode = await TokenStorage.getOutletCode();
+      if (outletCode != null && outletCode.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('brand_module_$outletCode', value);
+      }
+      setState(() => _currentActiveModule = value);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Business Module updated to $value. Navigation menus refreshed.'),
+            backgroundColor: const Color(0xFF10B981),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to update Business Module'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildBusinessModuleTab(
       Widget Function(List<Widget>, BoxConstraints) buildTabBody,
       BoxConstraints constraints) {
@@ -2357,32 +2409,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
                 onChanged: (value) async {
                   if (value != null) {
-                    final ok =
-                        await OutletController().updateBusinessModule(value);
-                    if (ok) {
-                      final userMap = await TokenStorage.getUser();
-                      if (userMap != null) {
-                        userMap['business_module'] = value;
-                        await TokenStorage.saveUser(userMap);
-                      }
-                      setState(() => _currentActiveModule = value);
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                              content: Text(
-                                  'Business Module updated to $value. Navigation menus refreshed.')),
-                        );
-                      }
-                    } else {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Failed to update Business Module'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    }
+                    await _changeModuleSuite(value);
                   }
                 },
               ),
@@ -2413,6 +2440,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: '📦 Inventory Only',
               badgeColor: Colors.blue,
               isSelected: _currentActiveModule == 'INVENTORY',
+              onTap: () => _changeModuleSuite('INVENTORY'),
               features: [
                 'Item Master & Stock Locations',
                 'Purchase Orders & Goods Receiving (GRN)',
@@ -2427,6 +2455,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: '🛍️ Retail (POS + Inventory Included)',
               badgeColor: const Color(0xFF10B981),
               isSelected: _currentActiveModule == 'RETAIL',
+              onTap: () => _changeModuleSuite('RETAIL'),
               features: [
                 'Point of Sale (Enterprise POS & Cashier)',
                 'Customer App & Online Delivery Integration',
@@ -2441,6 +2470,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: '🍽️ Restaurant (KDS/KOTs + Inventory Included)',
               badgeColor: Colors.orange,
               isSelected: _currentActiveModule == 'RESTAURANT',
+              onTap: () => _changeModuleSuite('RESTAURANT'),
               features: [
                 'Kitchen Display System (KDS Queue)',
                 'Floor Plan & Dining Table Designer',
@@ -2455,6 +2485,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: '🩺 Clinic (Doctors + Appointments + Billing + Inventory)',
               badgeColor: const Color(0xFF0D9488),
               isSelected: _currentActiveModule == 'CLINIC',
+              onTap: () => _changeModuleSuite('CLINIC'),
               features: [
                 'Doctor Directory & Specialty Profiles',
                 'Patient Reception & Online Appointment Booking',
@@ -2469,6 +2500,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: '👥 Dedicated HRMS (Staff, Attendance & Biometrics)',
               badgeColor: const Color(0xFF6366F1),
               isSelected: _currentActiveModule == 'HRMS',
+              onTap: () => _changeModuleSuite('HRMS'),
               features: [
                 'Employee Profiles, Designations & Staff Documents',
                 'Shifts & Weekly Offs Auto-Scheduler',
@@ -2483,6 +2515,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: '🌐 All Modules (Full Suite Access)',
               badgeColor: Colors.purple,
               isSelected: _currentActiveModule == 'ALL',
+              onTap: () => _changeModuleSuite('ALL'),
               features: [
                 'Retail Sales (POS), Customer App & Delivery Portals',
                 'Restaurant KDS, KOTs, Tables & Dining Operations',
@@ -2501,8 +2534,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required Color badgeColor,
     required bool isSelected,
     required List<String> features,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: isSelected ? badgeColor.withOpacity(0.08) : Colors.white,
@@ -2559,7 +2596,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 
   List<TaxGroup> _loadedTaxGroups = [];

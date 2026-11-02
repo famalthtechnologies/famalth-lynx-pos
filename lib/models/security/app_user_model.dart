@@ -130,6 +130,39 @@ class UserProfile {
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
+    final rawType = (json['outlet_type'] ?? json['outletType'] ?? '').toString();
+    var mod = (json['business_module'] ?? json['businessModule'] ?? json['outlet_module'] ?? '').toString().trim().toUpperCase();
+
+    if (mod.isEmpty) {
+      final upperType = rawType.trim().toUpperCase();
+      if (upperType == 'RETAIL' ||
+          upperType == 'RETAIL STORE' ||
+          const {
+            'MART',
+            'KIRANA',
+            'CLOTHES',
+            'SHOES',
+            'PARTS',
+            'MACHINERY',
+            'PETS',
+            'SOFTWARE',
+            'SUPERMARKET',
+            'SHOP'
+          }.contains(upperType)) {
+        mod = 'RETAIL';
+      } else if (const {'RESTAURANT', 'CAFE', 'BAR', 'DINING', 'BAKERY', 'LOUNGE', 'DINER', 'FOOD'}.contains(upperType)) {
+        mod = 'RESTAURANT';
+      } else if (const {'CLINIC', 'HOSPITAL', 'DOCTOR', 'HEALTHCARE', 'MEDICAL', 'PHARMACY'}.contains(upperType)) {
+        mod = 'CLINIC';
+      } else if (const {'WAREHOUSE', 'LOGISTICS', 'INVENTORY', 'STOCK'}.contains(upperType)) {
+        mod = 'INVENTORY';
+      } else if (const {'HOTEL', 'LODGE', 'RESORT'}.contains(upperType)) {
+        mod = 'ALL';
+      } else if (mod.isEmpty) {
+        mod = 'RETAIL';
+      }
+    }
+
     return UserProfile(
       username: json['username'] ?? '',
       name: json['name'] ?? '',
@@ -137,8 +170,8 @@ class UserProfile {
       outletId: int.tryParse((json['outlet_id'] ?? json['outletId'] ?? 1).toString()) ?? 1,
       outletCode: json['outlet_code'] ?? '',
       propertyName: json['property_name'] ?? '',
-      outletType: json['outlet_type'] ?? '',
-      businessModule: json['business_module'] ?? json['outlet_module'] ?? 'ALL',
+      outletType: rawType,
+      businessModule: mod,
     );
   }
 }

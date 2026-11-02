@@ -2427,6 +2427,72 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
   }
 
   Widget _buildOrderHistoryCard(dynamic kot, String currency) {
+    try {
+      return _buildOrderHistoryCardInternal(kot, currency);
+    } catch (e) {
+      return _buildSafeFallbackOrderCard(kot, currency, e.toString());
+    }
+  }
+
+  Widget _buildSafeFallbackOrderCard(dynamic kot, String currency, String err) {
+    final kotNo = (kot is Map ? (kot['kot_no'] ?? kot['id']) : 'Order').toString();
+    final rawStatus = (kot is Map ? kot['status'] : 'Cancelled').toString();
+    final reason = (kot is Map ? (kot['cancel_reason'] ?? kot['remarks'] ?? kot['notes']) : '').toString();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFECACA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('KOT #$kotNo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  rawStatus.toUpperCase(),
+                  style: const TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold, fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF2F2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.cancel, color: Color(0xFFDC2626), size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    reason.isNotEmpty ? reason : 'This order was cancelled/rejected by restaurant staff.',
+                    style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOrderHistoryCardInternal(dynamic kot, String currency) {
     final kotNo = (kot['kot_no'] ?? kot['id'] ?? '').toString();
     final items = kot['items'] as List<dynamic>? ?? [];
     final rawStatus = (kot['status'] ?? 'Pending').toString();
@@ -2594,10 +2660,44 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
 
           const SizedBox(height: 10),
 
-          // Visual Progress Stepper Timeline
-          _buildOrderStepTimeline(statusInfo['step'] as int),
-
-          const SizedBox(height: 8),
+          // Visual Progress Stepper Timeline or Cancellation Callout
+          if (statusInfo['step'] != null && (statusInfo['step'] as int) > 0) ...[
+            _buildOrderStepTimeline(statusInfo['step'] as int),
+            const SizedBox(height: 8),
+          ] else ...[
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.cancel, size: 20, color: Color(0xFFDC2626)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          rawStatus.toLowerCase() == 'rejected' ? 'Order Rejected by Staff' : 'Order Cancelled by Staff',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF991B1B)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          (kot['cancel_reason'] ?? kot['remarks'] ?? kot['notes'] ?? 'This order was cancelled by restaurant steward.').toString(),
+                          style: const TextStyle(fontSize: 11.5, color: Color(0xFF7F1D1D)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
 
           // Ordered Items Breakdown List
           Container(
@@ -2827,7 +2927,31 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                 ),
                 onPressed: () => _showDigitalBillDialog(kot),
               ),
-              if (isSettled)
+              if (rawStatus.toLowerCase() == 'cancelled' || rawStatus.toLowerCase() == 'rejected')
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEE2E2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.cancel, size: 14, color: Color(0xFFDC2626)),
+                      const SizedBox(width: 5),
+                      Text(
+                        rawStatus.toLowerCase() == 'rejected' ? 'REJECTED' : 'CANCELLED',
+                        style: const TextStyle(
+                          color: Color(0xFFDC2626),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else if (isSettled)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                   decoration: BoxDecoration(
@@ -2983,6 +3107,19 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
   Map<String, dynamic> _getOrderStatusBadgeInfo(String? rawStatus, String? paymentStatus) {
     final s = (rawStatus ?? '').toString().toLowerCase().trim();
     final p = (paymentStatus ?? '').toString().toLowerCase().trim();
+
+    if (s == 'cancelled' || s == 'rejected') {
+      return {
+        'label': s == 'rejected' ? 'Rejected by Staff' : 'Order Cancelled',
+        'icon': Icons.cancel,
+        'color': const Color(0xFFDC2626),
+        'bgColor': const Color(0xFFFEE2E2),
+        'step': -1,
+        'description': s == 'rejected'
+            ? 'Order was rejected by restaurant kitchen/staff.'
+            : 'Order was cancelled by restaurant staff.',
+      };
+    }
 
     if (p == 'paid' || s == 'closed' || s == 'completed' || s == 'settled') {
       return {

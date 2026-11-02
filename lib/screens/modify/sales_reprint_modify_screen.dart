@@ -2098,7 +2098,16 @@ class _SalesReprintModifyScreenState extends State<SalesReprintModifyScreen> {
                                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                                 minimumSize: const Size(0, 30),
                                               ),
-                                              onPressed: () => _printCreditNote(cnMap),
+                                              onPressed: () {
+                                                final cnToPrint = Map<String, dynamic>.from(cnMap);
+                                                if (cnToPrint['sale'] == null && _selectedDetails != null) {
+                                                  cnToPrint['sale'] = _selectedDetails;
+                                                }
+                                                if (cnToPrint['billing_tax_mode'] == null && _selectedDetails?['billing_tax_mode'] != null) {
+                                                  cnToPrint['billing_tax_mode'] = _selectedDetails!['billing_tax_mode'];
+                                                }
+                                                _printCreditNote(cnToPrint);
+                                              },
                                               icon: const Icon(Icons.print, size: 14),
                                               label: const Text('Print Credit Note', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                                             ),

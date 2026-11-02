@@ -132,7 +132,23 @@ class _WhatsAppDashboardScreenState extends State<WhatsAppDashboardScreen>
     setState(() => _loading = true);
     try {
       final userMap = await TokenStorage.getUser();
-      _businessModule = userMap?['business_module'] ?? userMap?['outlet_module'] ?? 'ALL';
+      final rawMod = (userMap?['business_module'] ?? userMap?['outlet_module'] ?? '').toString().trim().toUpperCase();
+      final oType = (userMap?['outlet_type'] ?? '').toString().trim().toUpperCase();
+      if (rawMod.isNotEmpty) {
+        _businessModule = rawMod;
+      } else if (oType == 'RETAIL' ||
+          oType == 'RETAIL STORE' ||
+          const {'MART', 'KIRANA', 'CLOTHES', 'SHOES', 'PARTS', 'MACHINERY', 'PETS', 'SOFTWARE', 'SUPERMARKET', 'SHOP'}.contains(oType)) {
+        _businessModule = 'RETAIL';
+      } else if (const {'RESTAURANT', 'CAFE', 'BAR', 'DINING'}.contains(oType)) {
+        _businessModule = 'RESTAURANT';
+      } else if (const {'CLINIC', 'HOSPITAL', 'DOCTOR', 'MEDICAL'}.contains(oType)) {
+        _businessModule = 'CLINIC';
+      } else if (const {'WAREHOUSE', 'LOGISTICS', 'INVENTORY'}.contains(oType)) {
+        _businessModule = 'INVENTORY';
+      } else {
+        _businessModule = rawMod.isNotEmpty ? rawMod : 'RETAIL';
+      }
 
       await _whatsappCtrl.getConfig();
       await _whatsappCtrl.getTemplates();

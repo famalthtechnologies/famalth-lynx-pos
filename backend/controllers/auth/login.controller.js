@@ -27,6 +27,7 @@ const { verifyLicenseOnline } = require("../public/licenseManager");
 const { touchClient } = require("../../modules/sheetService");
 const { internalCheckOutlet } = require("../public/outlet.controller");
 const { sendOtpEmail } = require("../../modules/emailService");
+const { resolveBusinessModule } = require("../../utils/moduleHelper");
 const DEFAULT_ROLE_PERMISSIONS = {
   ADMIN: ["*"],
   STORE: [
@@ -275,7 +276,7 @@ exports.login = async (req, res, next) => {
         outlet_name: currentOutlet.outlet_name || "",
         property_name: currentOutlet.outlet_name || (property == null ? void 0 : property.property_name) || "",
         outlet_type: currentOutlet.outlet_type || "",
-        business_module: currentOutlet.business_module || "ALL",
+        business_module: resolveBusinessModule(currentOutlet.business_module, currentOutlet.outlet_type),
         speciality: user.speciality || "",
         qualification: user.qualification || "",
         consultation_fee: user.consultation_fee || 0,
@@ -392,7 +393,7 @@ exports.verifySupplierOtp = async (req, res) => {
         outlet_code: currentOutlet.outlet_code,
         property_name: (property == null ? void 0 : property.property_name) || "",
         outlet_type: currentOutlet.outlet_type || "",
-        business_module: currentOutlet.business_module || "ALL",
+        business_module: resolveBusinessModule(currentOutlet.business_module, currentOutlet.outlet_type),
         permissions: ["*"]
       }
     });
@@ -531,7 +532,7 @@ exports.switchOutlet = async (req, res) => {
         outlet_code: targetOutlet.outlet_code,
         property_name: (property == null ? void 0 : property.property_name) || targetOutlet.outlet_name,
         outlet_type: targetOutlet.outlet_type || "",
-        business_module: targetOutlet.business_module || "ALL",
+        business_module: resolveBusinessModule(targetOutlet.business_module, targetOutlet.outlet_type),
         permissions
       }
     });
@@ -735,7 +736,7 @@ exports.pinLogin = async (req, res) => {
         outlet_code: currentOutlet.outlet_code,
         property_name: (property == null ? void 0 : property.property_name) || currentOutlet.outlet_name,
         outlet_type: currentOutlet.outlet_type || "",
-        business_module: currentOutlet.business_module || "ALL",
+        business_module: resolveBusinessModule(currentOutlet.business_module, currentOutlet.outlet_type),
         speciality: user.speciality || "",
         qualification: user.qualification || "",
         consultation_fee: user.consultation_fee || 0,
@@ -842,7 +843,7 @@ exports.loginWithQrToken = async (req, res) => {
       outlet_id: currentOutlet.id,
       role: user.role,
       outlet_code: currentOutlet.outlet_code,
-      business_module: currentOutlet.business_module || "ALL",
+      business_module: resolveBusinessModule(currentOutlet.business_module, currentOutlet.outlet_type),
       permissions
     });
     await user.update({ last_login: /* @__PURE__ */ new Date() });
@@ -864,7 +865,7 @@ exports.loginWithQrToken = async (req, res) => {
         outlet_id: currentOutlet.id,
         outlet_code: currentOutlet.outlet_code,
         outlet_name: currentOutlet.outlet_name,
-        business_module: currentOutlet.business_module || "ALL",
+        business_module: resolveBusinessModule(currentOutlet.business_module, currentOutlet.outlet_type),
         property_name: (property == null ? void 0 : property.property_name) || currentOutlet.outlet_name,
         logo_path: (property == null ? void 0 : property.logo_path) || null,
         permissions

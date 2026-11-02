@@ -70,6 +70,8 @@ router.post('/stock-transfer', itemCtrl.openPackStock);
 router.get('/items/:id', itemCtrl.getItemById);
 router.put('/items/:id', itemCtrl.updateItem);
 router.delete('/items/:id', itemCtrl.deleteItem);
+router.put('/items/:id/restore', itemCtrl.restoreItem);
+router.post('/items/:id/restore', itemCtrl.restoreItem);
 router.post('/items/:id/image', itemCtrl.uploadItemImage);
 router.delete('/items/:id/image', itemCtrl.deleteItemImage);
 

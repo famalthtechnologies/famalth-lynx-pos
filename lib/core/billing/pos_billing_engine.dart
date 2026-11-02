@@ -58,15 +58,16 @@ class PosBillingEngine {
         }
 
         final netInclusive = (grossInclusive - lineDiscount).clamp(0.0, double.infinity);
-        final taxableAmount = netInclusive / (1 + item.taxPercent / 100);
-        final lineTaxes = _resolveTaxes(
+        final bool isTaxable = item.taxPercent > 0 || (item.taxGroup != null && item.taxGroup!.components.any((c) => c.rate > 0));
+        final taxableAmount = isTaxable ? (netInclusive / (1 + item.taxPercent / 100)) : 0.0;
+        final lineTaxes = isTaxable ? _resolveTaxes(
           taxMode: taxMode,
           taxType: item.taxType,
           taxPercent: item.taxPercent,
           taxableAmount: taxableAmount,
           taxGroup: item.taxGroup,
-        );
-        final taxAmount = netInclusive - taxableAmount;
+        ) : const <TaxBreakdown>[];
+        final taxAmount = isTaxable ? (netInclusive - taxableAmount) : 0.0;
         final lineTotal = netInclusive;
 
         calculatedSubTotal += grossInclusive;
@@ -93,16 +94,18 @@ class PosBillingEngine {
           lineDiscount = (item.lineDiscount + schemeShare + manualShare).clamp(0.0, grossExclusive);
         }
 
-        final taxableAmount = (grossExclusive - lineDiscount).clamp(0.0, double.infinity);
-        final lineTaxes = _resolveTaxes(
+        final double netExclusive = (grossExclusive - lineDiscount).clamp(0.0, double.infinity);
+        final bool isTaxable = item.taxPercent > 0 || (item.taxGroup != null && item.taxGroup!.components.any((c) => c.rate > 0));
+        final taxableAmount = isTaxable ? netExclusive : 0.0;
+        final lineTaxes = isTaxable ? _resolveTaxes(
           taxMode: taxMode,
           taxType: item.taxType,
           taxPercent: item.taxPercent,
           taxableAmount: taxableAmount,
           taxGroup: item.taxGroup,
-        );
-        final taxAmount = taxableAmount * (item.taxPercent / 100);
-        final lineTotal = taxableAmount + taxAmount;
+        ) : const <TaxBreakdown>[];
+        final taxAmount = isTaxable ? (taxableAmount * (item.taxPercent / 100)) : 0.0;
+        final lineTotal = isTaxable ? (taxableAmount + taxAmount) : netExclusive;
 
         calculatedSubTotal += grossExclusive;
         calculatedDiscount += lineDiscount;
@@ -190,12 +193,14 @@ class PosBillingEngine {
       }
     }
 
-    final taxableAmount = computedItems.fold<double>(
+    final taxableAmount = computedItems
+        .where((item) => item.taxPercent > 0 || item.taxAmount > 0)
+        .fold<double>(
           0,
           (sum, item) => sum + item.taxableAmount,
         ) +
         computedCharges
-            .where((charge) => charge.charge.taxable)
+            .where((charge) => charge.charge.taxable && charge.taxAmount > 0)
             .fold<double>(0, (sum, charge) => sum + charge.charge.amount);
     final totalTax = computedItems.fold<double>(
           0,
@@ -248,6 +253,22 @@ class PosBillingEngine {
   }) {
     if (taxMode == 'NONE' || taxPercent <= 0 || taxableAmount <= 0) {
       return const <TaxBreakdown>[];
+    }
+
+    final bool isIgst = taxMode.trim().toUpperCase() == 'IGST';
+
+    // Inter-State supply: If IGST mode is selected, all GST-taxable items MUST be taxed as IGST at full rate
+    if (isIgst) {
+      return [
+        TaxBreakdown(
+          code: 'IGST',
+          label: 'IGST (${_fmt(taxPercent)}%)',
+          taxType: 'GST',
+          rate: taxPercent,
+          taxableAmount: taxableAmount,
+          taxAmount: taxableAmount * taxPercent / 100,
+        ),
+      ];
     }
 
     if (taxGroup != null && taxGroup.components.isNotEmpty) {

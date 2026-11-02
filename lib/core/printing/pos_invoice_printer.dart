@@ -637,9 +637,10 @@ class PosInvoicePrinter {
                   style: emphasisStyle,
                 ),
               if (hasTaxData) _dashedDivider(),
-              if (hasTaxData) _thermalAmountRow('Taxable Value', _adjustedItemTaxableTotal(order)),
-              if (hasTaxData)
-                ...itemGroupedTaxes.map((tax) => _thermalAmountRow(tax.label, tax.taxAmount)),
+              if (hasTaxData) ...[
+                _thermalAmountRow('Taxable Value', _adjustedItemTaxableTotal(order)),
+                _thermalAmountRow('Total Tax', _groupTaxTotal(itemGroupedTaxes) + chargeTaxSummaryTotal),
+              ],
             ];
           })(),
           ...order.charges.where((charge) => charge.amount > 0).map(
@@ -2029,8 +2030,8 @@ class PosInvoicePrinter {
             item.isTaxInclusive ? '${_money(_displayRate(item))} (Incl.)' : _money(_displayRate(item)),
             _money(item.lineDiscount),
             _money(_taxableAmountForItem(item)),
-            item.taxPercent <= 0 ? 'NILL' : '$effCgstRate / ${_money(effCgstAmt)}${item.isTaxInclusive ? ' (Incl.)' : ''}',
-            item.taxPercent <= 0 ? 'NILL' : '$effSgstRate / ${_money(effSgstAmt)}${item.isTaxInclusive ? ' (Incl.)' : ''}',
+            item.taxPercent <= 0 ? 'NIL' : '$effCgstRate / ${_money(effCgstAmt)}${item.isTaxInclusive ? ' (Incl.)' : ''}',
+            item.taxPercent <= 0 ? 'NIL' : '$effSgstRate / ${_money(effSgstAmt)}${item.isTaxInclusive ? ' (Incl.)' : ''}',
             _money(_displayItemLineTotal(item)),
           ];
         } else {
@@ -2043,7 +2044,7 @@ class PosInvoicePrinter {
             item.isTaxInclusive ? '${_money(_displayRate(item))} (Incl.)' : _money(_displayRate(item)),
             _money(item.lineDiscount),
             _money(_taxableAmountForItem(item)),
-            item.taxPercent <= 0 ? 'NILL' : '${_formatTaxPercent(item.taxPercent)}% / ${_money(item.taxAmount)}${item.isTaxInclusive ? ' (Incl.)' : ''}',
+            item.taxPercent <= 0 ? 'NIL' : '${_formatTaxPercent(item.taxPercent)}% / ${_money(item.taxAmount)}${item.isTaxInclusive ? ' (Incl.)' : ''}',
             _money(_displayItemLineTotal(item)),
           ];
         }
@@ -2674,7 +2675,13 @@ class PosInvoicePrinter {
         '${_taxPrefix(order, item)}${_taxPrefix(order, item).contains('%') ? '' : ' ${_formatTaxPercent(item.taxPercent)}%'}${item.isTaxInclusive ? ' (Incl.)' : ''}'
             '${item.taxAmount > 0 ? ' = ${_money(item.taxAmount)}' : ''}'
       else
-        '${_taxPrefix(order, item)} NILL',
+        () {
+          final prefix = _taxPrefix(order, item).trim();
+          if (prefix.toUpperCase().contains('NIL')) {
+            return prefix;
+          }
+          return '$prefix 0% (NIL)';
+        }(),
       if (itemDiscount > 0.01) 'Disc ${_money(itemDiscount)}',
     ];
 
@@ -3082,31 +3089,34 @@ class PosInvoicePrinter {
   }
 
   static double _adjustedItemTaxableTotal(SaleOrder order) {
-    final hasSubscriptionItems = order.items.any((item) => item.isAdvanceFree);
-    if (order.taxableAmount > 0.0009 && !hasSubscriptionItems) {
-      return order.taxableAmount;
-    }
-    double total = 0.0;
+    // 1. Calculate taxable total strictly from items with tax (> 0)
+    double taxableItemsSum = 0.0;
     for (final item in order.items) {
       if (item.taxPercent > 0 || item.taxAmount > 0 || item.taxBreakup.isNotEmpty || item.taxGroup != null) {
-        total += _displayItemTaxableAmount(order, item);
+        taxableItemsSum += _displayItemTaxableAmount(order, item);
       }
     }
-    if (total > 0.0009) {
-      return total;
+    if (taxableItemsSum > 0.0009) {
+      return taxableItemsSum;
     }
+    // 2. Fallback to grouped tax breakup
     final grouped = _groupedTaxBreakup(order);
     if (grouped.isNotEmpty) {
-      return _groupTaxableTotal(grouped);
+      final groupedTotal = _groupTaxableTotal(grouped);
+      if (groupedTotal > 0.0009) return groupedTotal;
     }
-    final allItemsTotal = order.items.fold<double>(
-      0.0,
-      (sum, item) => sum + _displayItemTaxableAmount(order, item),
-    );
-    if (allItemsTotal > 0.0009) {
-      return allItemsTotal;
+    // 3. Fallback: if order.taxableAmount included non-taxable items, subtract them
+    final nonTaxableSum = order.items
+        .where((item) => item.taxPercent <= 0 && item.taxAmount <= 0)
+        .fold<double>(0, (sum, item) => sum + (item.rate > 0 ? (item.qty * item.rate) : (item.qty * _displayRate(item))));
+    final hasSubscriptionItems = order.items.any((item) => item.isAdvanceFree);
+    if (order.taxableAmount > 0.0009 && !hasSubscriptionItems) {
+      if (nonTaxableSum > 0.0009 && order.taxableAmount >= nonTaxableSum) {
+        return (order.taxableAmount - nonTaxableSum).clamp(0.0, double.infinity);
+      }
+      return order.taxableAmount;
     }
-    return order.taxableAmount > 0.0009 ? order.taxableAmount : order.subTotal;
+    return 0.0;
   }
 
   static List<TaxBreakdown> _adjustedItemGroupedTaxes(SaleOrder order, List<TaxBreakdown> original) {
@@ -3346,6 +3356,9 @@ class PosInvoicePrinter {
 
 
   static double _displayItemTaxableAmount(SaleOrder order, SaleItem item) {
+    if (item.taxPercent <= 0 && item.taxAmount <= 0) {
+      return 0.0;
+    }
     if (item.taxableAmount > 0.0009) {
       return item.taxableAmount;
     }
@@ -3468,6 +3481,22 @@ class PosInvoicePrinter {
     if (taxableAmount <= 0) return const <TaxBreakdown>[];
 
     final bool isIndia = CountryTaxHelper.isIndiaCountry(order.billingCountry);
+    final billingMode = order.billingTaxMode.trim().toUpperCase();
+    final bool isIgst = billingMode == 'IGST';
+
+    // Inter-State supply: If IGST mode is selected, all GST-taxable items MUST be taxed as IGST at full rate
+    if (isIgst) {
+      return [
+        TaxBreakdown(
+          code: 'IGST',
+          label: 'IGST (${_formatTaxPercent(taxPercent)}%)',
+          taxType: 'GST',
+          rate: taxPercent,
+          taxableAmount: taxableAmount,
+          taxAmount: taxAmount,
+        ),
+      ];
+    }
 
     if (item.taxGroup != null && item.taxGroup!.components.isNotEmpty) {
       final list = <TaxBreakdown>[];
@@ -3565,8 +3594,6 @@ class PosInvoicePrinter {
         ),
       ];
     }
-    final billingMode = order.billingTaxMode.trim().toUpperCase();
-
     if (normalizedType == 'GST' || normalizedType == 'CGST_SGST' || (isIndia && (billingMode == 'CGST_SGST' || billingMode.isEmpty))) {
       final halfRate = taxPercent / 2;
       final halfAmount = taxAmount / 2;
@@ -3700,8 +3727,10 @@ class PosInvoicePrinter {
           name.toUpperCase() != 'DEFAULT') {
         // Remove duplicate trailing rate/percentage so "GST 5%" doesn't become "GST 5% 5%"
         final cleaned = name
+            .replaceAll(RegExp(r'\s*\(\s*NILL?\s*\)\s*', caseSensitive: false), '')
             .replaceAll(RegExp(r'\s*\(\s*\d+(\.\d+)?%\s*\)\s*$', caseSensitive: false), '')
             .replaceAll(RegExp(r'\s*\b\d+(\.\d+)?%\s*$', caseSensitive: false), '')
+            .replaceAll(RegExp(r'\s*\bNILL?\b\s*', caseSensitive: false), '')
             .replaceAll(RegExp(r'[_]+'), ' ')
             .trim();
         final cleanWord = cleaned.replaceAll(RegExp(r'\s+\d+(\.\d+)?\s*$', caseSensitive: false), '').trim();
@@ -3777,6 +3806,9 @@ class PosInvoicePrinter {
   }
 
   static double _taxableAmountForItem(SaleItem item) {
+    if (item.taxPercent <= 0 && item.taxAmount <= 0) {
+      return 0.0;
+    }
     final itemRate = (item.rate > 0)
         ? item.rate
         : ((item.referenceRate > 0)
@@ -4451,6 +4483,63 @@ class PosInvoicePrinter {
     await Printing.layoutPdf(name: creditNote['credit_note_no'] ?? 'CreditNote', onLayout: (_) async => pdfBytes);
   }
 
+  static Map<String, double> _resolveCnItemTaxes(
+    Map<String, dynamic> it, {
+    String? billingTaxMode,
+  }) {
+    double cgst = double.tryParse((it['cgst_amount'] ?? 0).toString()) ?? 0.0;
+    double sgst = double.tryParse((it['sgst_amount'] ?? 0).toString()) ?? 0.0;
+    double igst = double.tryParse((it['igst_amount'] ?? 0).toString()) ?? 0.0;
+    final taxPercent = double.tryParse((it['tax_percent'] ?? 0).toString()) ?? 0.0;
+    final total = double.tryParse((it['line_total'] ?? 0).toString()) ?? 0.0;
+    final rawTaxable = double.tryParse((it['taxable_amount'] ?? 0).toString()) ?? 0.0;
+    double taxAmount = double.tryParse((it['tax_amount'] ?? 0).toString()) ?? 0.0;
+
+    if (cgst <= 0 && sgst <= 0 && igst <= 0 && it['tax_breakup'] is List) {
+      final breakupList = it['tax_breakup'] as List;
+      for (final b in breakupList) {
+        if (b is Map) {
+          final code = (b['code'] ?? '').toString().trim().toUpperCase();
+          final amt = double.tryParse((b['tax_amount'] ?? b['taxAmount'] ?? b['amount'] ?? 0).toString()) ?? 0.0;
+          if (code == 'CGST') cgst += amt;
+          if (code == 'SGST' || code == 'UTGST') sgst += amt;
+          if (code == 'IGST') igst += amt;
+        }
+      }
+    }
+
+    if (cgst <= 0 && sgst <= 0 && igst <= 0) {
+      if (taxAmount <= 0 && taxPercent > 0) {
+        if (rawTaxable > 0) {
+          taxAmount = double.parse((rawTaxable * taxPercent / 100.0).toStringAsFixed(2));
+        } else if (total > 0) {
+          taxAmount = double.parse((total - (total / (1 + (taxPercent / 100.0)))).toStringAsFixed(2));
+        }
+      } else if (taxAmount <= 0 && total > rawTaxable && rawTaxable > 0) {
+        taxAmount = double.parse((total - rawTaxable).toStringAsFixed(2));
+      }
+
+      if (taxAmount > 0) {
+        final mode = (billingTaxMode ?? it['billing_tax_mode'] ?? '').toString().trim().toUpperCase();
+        if (mode == 'IGST') {
+          igst = taxAmount;
+        } else {
+          final half = double.parse((taxAmount / 2.0).toStringAsFixed(2));
+          cgst = half;
+          sgst = double.parse((taxAmount - half).toStringAsFixed(2));
+        }
+      }
+    }
+
+    final totalComputedTax = cgst + sgst + igst > 0 ? (cgst + sgst + igst) : taxAmount;
+    return {
+      'cgst': cgst,
+      'sgst': sgst,
+      'igst': igst,
+      'tax': totalComputedTax,
+    };
+  }
+
   static Future<Uint8List> buildCreditNotePdf({
     required Map<String, dynamic> creditNote,
     required PropertyInfo? property,
@@ -4481,9 +4570,25 @@ class PosInvoicePrinter {
       final cnDateRaw = creditNote['credit_note_date']?.toString() ?? '';
       final cnDate = DateTimeService.instance.parseToConfiguredTimeZone(cnDateRaw);
 
-      final originalSaleNo = creditNote['sale'] is Map
+      final billingTaxMode = creditNote['billing_tax_mode']?.toString() ??
+          originalSale?['billing_tax_mode']?.toString() ??
+          creditNote['billingTaxMode']?.toString() ??
+          originalSale?['billingTaxMode']?.toString() ??
+          'CGST_SGST';
+
+      var originalSaleNo = creditNote['sale'] is Map
           ? (creditNote['sale']['sale_no']?.toString() ?? '')
           : '';
+      if (originalSaleNo.isEmpty && creditNote['sale_no'] != null) {
+        originalSaleNo = creditNote['sale_no'].toString();
+      }
+      if (originalSaleNo.isEmpty) {
+        final notesStr = (creditNote['notes'] ?? '').toString();
+        final match = RegExp(r'bill\s+([A-Za-z0-9\-_]+)', caseSensitive: false).firstMatch(notesStr);
+        if (match != null) {
+          originalSaleNo = match.group(1) ?? '';
+        }
+      }
       final originalSaleDateRaw = creditNote['sale'] is Map
           ? (creditNote['sale']['sale_date']?.toString() ?? '')
           : '';
@@ -4504,6 +4609,45 @@ class PosInvoicePrinter {
       ].join(', ');
 
       final itemsList = (creditNote['items'] as List? ?? const []).cast<Map<String, dynamic>>();
+
+      double derivedTotalCgst = double.tryParse((creditNote['cgst_amount'] ?? 0).toString()) ?? 0.0;
+      double derivedTotalSgst = double.tryParse((creditNote['sgst_amount'] ?? 0).toString()) ?? 0.0;
+      double derivedTotalIgst = double.tryParse((creditNote['igst_amount'] ?? 0).toString()) ?? 0.0;
+      double derivedTotalTax = double.tryParse((creditNote['total_tax'] ?? 0).toString()) ?? 0.0;
+      double derivedTaxableTotal = 0.0;
+      double derivedNonTaxableTotal = 0.0;
+      double sumItemCgst = 0.0;
+      double sumItemSgst = 0.0;
+      double sumItemIgst = 0.0;
+      double sumItemTax = 0.0;
+
+      for (final it in itemsList) {
+        final qty = double.tryParse((it['qty'] ?? 0).toString()) ?? 0.0;
+        final rawTaxable = double.tryParse((it['taxable_amount'] ?? 0).toString()) ?? 0.0;
+        final taxPercent = double.tryParse((it['tax_percent'] ?? 0).toString()) ?? 0.0;
+        final itTaxes = _resolveCnItemTaxes(it, billingTaxMode: billingTaxMode);
+        final itTax = itTaxes['tax'] ?? 0.0;
+
+        if (taxPercent > 0 || itTax > 0) {
+          derivedTaxableTotal += rawTaxable;
+        } else if (qty > 0) {
+          derivedNonTaxableTotal += rawTaxable > 0 ? rawTaxable : (double.tryParse((it['line_total'] ?? 0).toString()) ?? 0.0);
+        }
+
+        sumItemCgst += itTaxes['cgst'] ?? 0.0;
+        sumItemSgst += itTaxes['sgst'] ?? 0.0;
+        sumItemIgst += itTaxes['igst'] ?? 0.0;
+        sumItemTax += itTax;
+      }
+
+      if (derivedTotalCgst <= 0 && derivedTotalSgst <= 0 && derivedTotalIgst <= 0) {
+        derivedTotalCgst = sumItemCgst;
+        derivedTotalSgst = sumItemSgst;
+        derivedTotalIgst = sumItemIgst;
+      }
+      if (derivedTotalTax <= 0) {
+        derivedTotalTax = sumItemTax > 0 ? sumItemTax : (derivedTotalCgst + derivedTotalSgst + derivedTotalIgst);
+      }
 
       document.addPage(
         pw.MultiPage(
@@ -4636,17 +4780,23 @@ class PosInvoicePrinter {
                 final rate = double.tryParse((it['rate'] ?? 0).toString()) ?? 0.0;
                 final taxable = double.tryParse((it['taxable_amount'] ?? 0).toString()) ?? 0.0;
                 final taxPercent = double.tryParse((it['tax_percent'] ?? 0).toString()) ?? 0.0;
-                final cgst = double.tryParse((it['cgst_amount'] ?? 0).toString()) ?? 0.0;
-                final sgst = double.tryParse((it['sgst_amount'] ?? 0).toString()) ?? 0.0;
-                final igst = double.tryParse((it['igst_amount'] ?? 0).toString()) ?? 0.0;
                 final total = double.tryParse((it['line_total'] ?? 0).toString()) ?? 0.0;
+
+                final itTaxes = _resolveCnItemTaxes(it, billingTaxMode: billingTaxMode);
+                final cgst = itTaxes['cgst'] ?? 0.0;
+                final sgst = itTaxes['sgst'] ?? 0.0;
+                final igst = itTaxes['igst'] ?? 0.0;
+                final itTaxTotal = itTaxes['tax'] ?? 0.0;
+
+                final isNonTaxable = taxPercent <= 0 && itTaxTotal <= 0;
+                final displayTaxable = isNonTaxable ? 0.0 : taxable;
 
                 return [
                   '${index + 1}',
                   '${it['item_name'] ?? ''}',
                   qty.toStringAsFixed(2),
                   rate.toStringAsFixed(2),
-                  taxable.toStringAsFixed(2),
+                  displayTaxable.toStringAsFixed(2),
                   '${taxPercent.toStringAsFixed(0)}%',
                   cgst > 0 ? cgst.toStringAsFixed(2) : '-',
                   sgst > 0 ? sgst.toStringAsFixed(2) : '-',
@@ -4723,14 +4873,16 @@ class PosInvoicePrinter {
                     child: pw.Column(
                       children: [
                         _a4MetaCNRow('Total Qty Returned', '${double.tryParse((creditNote['total_qty'] ?? 0).toString())?.toStringAsFixed(2)}'),
-                        _a4MetaCNRow('Taxable Value', '${double.tryParse((creditNote['taxable_amount'] ?? 0).toString())?.toStringAsFixed(2)}'),
-                        if ((double.tryParse((creditNote['cgst_amount'] ?? 0).toString()) ?? 0) > 0)
-                          _a4MetaCNRow('Total CGST', '${double.tryParse((creditNote['cgst_amount'] ?? 0).toString())?.toStringAsFixed(2)}'),
-                        if ((double.tryParse((creditNote['sgst_amount'] ?? 0).toString()) ?? 0) > 0)
-                          _a4MetaCNRow('Total SGST', '${double.tryParse((creditNote['sgst_amount'] ?? 0).toString())?.toStringAsFixed(2)}'),
-                        if ((double.tryParse((creditNote['igst_amount'] ?? 0).toString()) ?? 0) > 0)
-                          _a4MetaCNRow('Total IGST', '${double.tryParse((creditNote['igst_amount'] ?? 0).toString())?.toStringAsFixed(2)}'),
-                        _a4MetaCNRow('Total Tax', '${double.tryParse((creditNote['total_tax'] ?? 0).toString())?.toStringAsFixed(2)}'),
+                        _a4MetaCNRow('Taxable Value', derivedTaxableTotal.toStringAsFixed(2)),
+                        if (derivedNonTaxableTotal > 0)
+                          _a4MetaCNRow('Non-taxable Amount', derivedNonTaxableTotal.toStringAsFixed(2)),
+                        if (derivedTotalCgst > 0)
+                          _a4MetaCNRow('Total CGST', derivedTotalCgst.toStringAsFixed(2)),
+                        if (derivedTotalSgst > 0)
+                          _a4MetaCNRow('Total SGST', derivedTotalSgst.toStringAsFixed(2)),
+                        if (derivedTotalIgst > 0)
+                          _a4MetaCNRow('Total IGST', derivedTotalIgst.toStringAsFixed(2)),
+                        _a4MetaCNRow('Total Tax', derivedTotalTax.toStringAsFixed(2)),
                         pw.Divider(),
                         pw.Row(
                           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -4810,9 +4962,49 @@ class PosInvoicePrinter {
 
     final itemsList = (creditNote['items'] as List? ?? const []).cast<Map<String, dynamic>>();
 
-    final cgstTotal = double.tryParse((creditNote['cgst_amount'] ?? 0).toString()) ?? 0.0;
-    final sgstTotal = double.tryParse((creditNote['sgst_amount'] ?? 0).toString()) ?? 0.0;
-    final igstTotal = double.tryParse((creditNote['igst_amount'] ?? 0).toString()) ?? 0.0;
+    final billingTaxMode = creditNote['billing_tax_mode']?.toString() ??
+        creditNote['sale']?['billing_tax_mode']?.toString() ??
+        creditNote['billingTaxMode']?.toString() ??
+        'CGST_SGST';
+
+    double derivedTotalCgst = double.tryParse((creditNote['cgst_amount'] ?? 0).toString()) ?? 0.0;
+    double derivedTotalSgst = double.tryParse((creditNote['sgst_amount'] ?? 0).toString()) ?? 0.0;
+    double derivedTotalIgst = double.tryParse((creditNote['igst_amount'] ?? 0).toString()) ?? 0.0;
+    double derivedTotalTax = double.tryParse((creditNote['total_tax'] ?? 0).toString()) ?? 0.0;
+    double derivedTaxableTotal = 0.0;
+    double derivedNonTaxableTotal = 0.0;
+    double sumItemCgst = 0.0;
+    double sumItemSgst = 0.0;
+    double sumItemIgst = 0.0;
+    double sumItemTax = 0.0;
+
+    for (final it in itemsList) {
+      final qty = double.tryParse((it['qty'] ?? 0).toString()) ?? 0.0;
+      final rawTaxable = double.tryParse((it['taxable_amount'] ?? 0).toString()) ?? 0.0;
+      final taxPercent = double.tryParse((it['tax_percent'] ?? 0).toString()) ?? 0.0;
+      final itTaxes = _resolveCnItemTaxes(it, billingTaxMode: billingTaxMode);
+      final itTax = itTaxes['tax'] ?? 0.0;
+
+      if (taxPercent > 0 || itTax > 0) {
+        derivedTaxableTotal += rawTaxable;
+      } else if (qty > 0) {
+        derivedNonTaxableTotal += rawTaxable > 0 ? rawTaxable : (double.tryParse((it['line_total'] ?? 0).toString()) ?? 0.0);
+      }
+
+      sumItemCgst += itTaxes['cgst'] ?? 0.0;
+      sumItemSgst += itTaxes['sgst'] ?? 0.0;
+      sumItemIgst += itTaxes['igst'] ?? 0.0;
+      sumItemTax += itTax;
+    }
+
+    if (derivedTotalCgst <= 0 && derivedTotalSgst <= 0 && derivedTotalIgst <= 0) {
+      derivedTotalCgst = sumItemCgst;
+      derivedTotalSgst = sumItemSgst;
+      derivedTotalIgst = sumItemIgst;
+    }
+    if (derivedTotalTax <= 0) {
+      derivedTotalTax = sumItemTax > 0 ? sumItemTax : (derivedTotalCgst + derivedTotalSgst + derivedTotalIgst);
+    }
 
     return pw.DefaultTextStyle(
       style: bodyStyle,
@@ -4956,11 +5148,13 @@ class PosInvoicePrinter {
 
           // Totals
           _thermalRow('Total Qty Returned:', '${double.tryParse((creditNote['total_qty'] ?? 0).toString())?.toStringAsFixed(2)}'),
-          _thermalRow('Taxable Value:', '${double.tryParse((creditNote['taxable_amount'] ?? 0).toString())?.toStringAsFixed(2)}'),
-          if (cgstTotal > 0) _thermalRow('Total CGST:', cgstTotal.toStringAsFixed(2)),
-          if (sgstTotal > 0) _thermalRow('Total SGST/UTGST:', sgstTotal.toStringAsFixed(2)),
-          if (igstTotal > 0) _thermalRow('Total IGST:', igstTotal.toStringAsFixed(2)),
-          _thermalRow('Total Tax:', '${double.tryParse((creditNote['total_tax'] ?? 0).toString())?.toStringAsFixed(2)}'),
+          _thermalRow('Taxable Value:', derivedTaxableTotal.toStringAsFixed(2)),
+          if (derivedNonTaxableTotal > 0)
+            _thermalRow('Non-taxable Amount:', derivedNonTaxableTotal.toStringAsFixed(2)),
+          if (derivedTotalCgst > 0) _thermalRow('Total CGST:', derivedTotalCgst.toStringAsFixed(2)),
+          if (derivedTotalSgst > 0) _thermalRow('Total SGST/UTGST:', derivedTotalSgst.toStringAsFixed(2)),
+          if (derivedTotalIgst > 0) _thermalRow('Total IGST:', derivedTotalIgst.toStringAsFixed(2)),
+          _thermalRow('Total Tax:', derivedTotalTax.toStringAsFixed(2)),
           pw.Divider(color: _thermalDivider, thickness: 0.5),
 
           // Grand Total / Refund

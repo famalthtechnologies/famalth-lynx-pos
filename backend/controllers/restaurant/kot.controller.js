@@ -190,6 +190,19 @@ exports.listKots = async (req, res) => {
                 }
             }
 
+            if (Array.isArray(plain.items)) {
+                plain.items = plain.items.map((it) => {
+                    const im = it.item || {};
+                    const rate = Number(im.retail_sale_price || im.rate || im.mrp || it.rate || it.price || 0);
+                    return {
+                        ...it,
+                        rate,
+                        price: rate,
+                        selling_price: rate
+                    };
+                });
+            }
+
             resultData.push(plain);
         }
 
@@ -301,6 +314,20 @@ exports.getKotDetails = async (req, res) => {
                 if (parsedEm) plain.customer_email = parsedEm;
             }
         }
+
+        if (Array.isArray(plain.items)) {
+            plain.items = plain.items.map((it) => {
+                const im = it.item || {};
+                const rate = Number(im.retail_sale_price || im.rate || im.mrp || it.rate || it.price || 0);
+                return {
+                    ...it,
+                    rate,
+                    price: rate,
+                    selling_price: rate
+                };
+            });
+        }
+
         res.json({ success: true, data: plain });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });

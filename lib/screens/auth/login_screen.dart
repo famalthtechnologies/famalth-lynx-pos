@@ -239,9 +239,38 @@ class _LoginScreenState extends State<LoginScreen>
       }
     }
 
-    if (mod == 'ALL') {
+    if (mod.isEmpty) {
       final user = await TokenStorage.getUser();
-      mod = user?['business_module'] ?? user?['outlet_module'] ?? 'ALL';
+      final userMod = (user?['business_module'] ?? user?['outlet_module'] ?? '').toString().trim().toUpperCase();
+      if (userMod.isNotEmpty && userMod != 'ALL') {
+        mod = userMod;
+      } else {
+        final oType = (user?['outlet_type'] ?? '').toString().trim().toUpperCase();
+        if (oType == 'RETAIL' ||
+            oType == 'RETAIL STORE' ||
+            const {
+              'MART',
+              'KIRANA',
+              'CLOTHES',
+              'SHOES',
+              'PARTS',
+              'MACHINERY',
+              'PETS',
+              'SOFTWARE',
+              'SUPERMARKET',
+              'SHOP'
+            }.contains(oType)) {
+          mod = 'RETAIL';
+        } else if (const {'RESTAURANT', 'CAFE', 'BAR', 'DINING'}.contains(oType)) {
+          mod = 'RESTAURANT';
+        } else if (const {'CLINIC', 'HOSPITAL', 'DOCTOR'}.contains(oType)) {
+          mod = 'CLINIC';
+        } else if (const {'WAREHOUSE', 'LOGISTICS', 'INVENTORY'}.contains(oType)) {
+          mod = 'INVENTORY';
+        } else {
+          mod = userMod.isNotEmpty ? userMod : 'RETAIL';
+        }
+      }
     }
 
     final branding = await LocalPreferences.getAppBranding();

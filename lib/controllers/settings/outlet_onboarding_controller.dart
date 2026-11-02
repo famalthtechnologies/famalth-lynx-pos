@@ -27,7 +27,7 @@ class OnboardingStepStatus {
 
 class OutletOnboardingController extends ChangeNotifier {
   bool isLoading = false;
-  String businessModule = 'ALL';
+  String businessModule = 'RETAIL';
 
   bool propertyConfigured = false;
   bool settingsConfigured = false;
@@ -209,10 +209,12 @@ class OutletOnboardingController extends ChangeNotifier {
         businessModule = 'RETAIL';
       } else if (upper.contains('RESTAURANT') || upper.contains('CAFE') || upper.contains('DINER') || upper.contains('FOOD')) {
         businessModule = 'RESTAURANT';
+      } else if (upper.contains('CLINIC') || upper.contains('HEALTH') || upper.contains('DOCTOR') || upper.contains('HOSPITAL') || upper.contains('PHARMACY')) {
+        businessModule = 'CLINIC';
       } else if (upper.contains('HOTEL') || upper.contains('LODGE') || upper.contains('RESORT')) {
-        businessModule = 'HOTEL';
+        businessModule = 'ALL';
       } else {
-        businessModule = upper.isNotEmpty ? upper : 'ALL';
+        businessModule = upper.isNotEmpty ? upper : 'RETAIL';
       }
 
       // 2. Property Setup Status
