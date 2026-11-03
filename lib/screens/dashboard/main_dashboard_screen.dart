@@ -4753,19 +4753,10 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       },
       {
         'category': _isHospitalityBusiness ? 'Masters & Departments' : 'Masters',
-        'icon': Icons.business_outlined,
-        'label': 'Property Information',
-        'permission': 'PROPERTY_INFORMATION',
-        'onTap': () async {
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => const PropertyInfoScreen(outletid: 0)));
-          _loadPropertyInfo();
-        },
-      },
-      {
-        'category': _isHospitalityBusiness ? 'Masters & Departments' : 'Masters',
         'icon': Icons.edit_location_alt_outlined,
         'label': 'Outlet Detail Modification',
         'permission': 'PROPERTY_INFORMATION',
+        'keywords': ['property info', 'property information', 'store info', 'store details', 'outlet details', 'company details', 'modify outlet details', 'outlet settings', 'store name', 'business address'],
         'onTap': () async {
           await Navigator.push(context, MaterialPageRoute(builder: (_) => const OutletDetailModificationScreen()));
           _loadPropertyInfo();

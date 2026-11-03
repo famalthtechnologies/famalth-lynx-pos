@@ -458,6 +458,29 @@ class FinanceHubController extends ChangeNotifier {
     });
   }
 
+  Future<Map<String, dynamic>> adjustBulkAdvance({
+    required String customerName,
+    required String customerPhone,
+    required String customerGstin,
+    required double amount,
+    required DateTime paymentDate,
+    required bool refundRemaining,
+    String refundPaymentMode = 'CASH',
+    String? note,
+  }) async {
+    final res = await ApiClient.post(ApiEndpoints.financeAdjustBulkAdvance, {
+      'customer_name': customerName,
+      'customer_phone': customerPhone,
+      'customer_gstin': customerGstin,
+      'amount': amount,
+      'payment_date': DateFormat('yyyy-MM-dd').format(paymentDate),
+      'refund_remaining': refundRemaining,
+      'refund_payment_mode': refundPaymentMode,
+      'note': note,
+    });
+    return Map<String, dynamic>.from(res is Map ? res : {});
+  }
+
   Future<void> loadDeliveryReport({required DateTime fromDate, required DateTime toDate, String search = '', String status = ''}) async {
     await _run(() async {
       final params = <String>[

@@ -19,12 +19,18 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   // =========================================================================
   // 1. 80mm / Thermal Bill Template Controllers & Toggles
   // =========================================================================
+  final _billInvoiceTitleCtrl = TextEditingController(text: 'TAX INVOICE');
   final _billHeaderTitleCtrl = TextEditingController();
   final _billHeaderSubtextCtrl = TextEditingController();
   final _billFooterNoteCtrl = TextEditingController();
   final _billTaxRegNoCtrl = TextEditingController();
   final _billTermsCtrl = TextEditingController();
   final _billResellerFooterCtrl = TextEditingController();
+  final _billBankNameCtrl = TextEditingController();
+  final _billBankAccountNoCtrl = TextEditingController();
+  final _billBankIfscCtrl = TextEditingController();
+  final _billUpiIdCtrl = TextEditingController();
+  final _billUpiPayeeNameCtrl = TextEditingController();
 
   bool _billShowLogo = true;
   bool _billShowAddress = true;
@@ -46,6 +52,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   // =========================================================================
   // 2. A4 Full Invoice Template Controllers & Toggles
   // =========================================================================
+  final _a4InvoiceTitleCtrl = TextEditingController(text: 'TAX INVOICE');
   final _a4HeaderTitleCtrl = TextEditingController();
   final _a4HeaderSubtextCtrl = TextEditingController();
   final _a4TaxRegNoCtrl = TextEditingController();
@@ -80,6 +87,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   // =========================================================================
   // 3. A5 Half-Sheet Invoice Template Controllers & Toggles
   // =========================================================================
+  final _a5InvoiceTitleCtrl = TextEditingController(text: 'TAX INVOICE');
   final _a5HeaderTitleCtrl = TextEditingController();
   final _a5HeaderSubtextCtrl = TextEditingController();
   final _a5TaxRegNoCtrl = TextEditingController();
@@ -161,6 +169,14 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   @override
   void dispose() {
     _tabController.dispose();
+    _billInvoiceTitleCtrl.dispose();
+    _billBankNameCtrl.dispose();
+    _billBankAccountNoCtrl.dispose();
+    _billBankIfscCtrl.dispose();
+    _billUpiIdCtrl.dispose();
+    _billUpiPayeeNameCtrl.dispose();
+    _a4InvoiceTitleCtrl.dispose();
+    _a5InvoiceTitleCtrl.dispose();
     _billHeaderTitleCtrl.dispose();
     _billHeaderSubtextCtrl.dispose();
     _billFooterNoteCtrl.dispose();
@@ -244,6 +260,20 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     }
 
     // 1. Bill 80mm Config
+    final rawBillTitle = billConfig['invoice_title']?.toString().trim();
+    _billInvoiceTitleCtrl.text = (rawBillTitle != null && rawBillTitle.isNotEmpty) ? rawBillTitle.toUpperCase() : 'TAX INVOICE';
+    _billBankNameCtrl.text = billConfig['bank_name'] ?? (prop?.bankName ?? '');
+    _billBankAccountNoCtrl.text = billConfig['bank_account_no'] ?? (prop?.bankAccNo ?? '');
+    _billBankIfscCtrl.text = billConfig['bank_ifsc'] ?? (prop?.bankIfsc ?? '');
+    _billUpiIdCtrl.text = billConfig['upi_id'] ?? (prop?.upiId ?? '');
+    _billUpiPayeeNameCtrl.text = billConfig['upi_payee_name'] ?? (prop?.upiPayeeName ?? '');
+
+    final rawA4Title = a4Config['invoice_title']?.toString().trim();
+    _a4InvoiceTitleCtrl.text = (rawA4Title != null && rawA4Title.isNotEmpty) ? rawA4Title.toUpperCase() : 'TAX INVOICE';
+
+    final rawA5Title = (a5Config['invoice_title'] ?? a4Config['invoice_title'])?.toString().trim();
+    _a5InvoiceTitleCtrl.text = (rawA5Title != null && rawA5Title.isNotEmpty) ? rawA5Title.toUpperCase() : 'TAX INVOICE';
+
     _billHeaderTitleCtrl.text = billConfig['header_title'] ?? (prop?.propertyName.isNotEmpty == true ? prop!.propertyName : 'RETAIL POS STORE');
     _billHeaderSubtextCtrl.text = billConfig['header_subtext'] ?? (prop?.address.isNotEmpty == true ? '${prop!.address}, ${prop.city}' : 'Business Address & City');
     _billFooterNoteCtrl.text = billConfig['footer_note'] ?? (prop?.thermalFooterNote.isNotEmpty == true ? prop!.thermalFooterNote : 'Thank you for your business!');
@@ -382,6 +412,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     }
 
     final billConfig = {
+      'invoice_title': _billInvoiceTitleCtrl.text.trim().toUpperCase(),
+      'bank_name': _billBankNameCtrl.text.trim(),
+      'bank_account_no': _billBankAccountNoCtrl.text.trim(),
+      'bank_ifsc': _billBankIfscCtrl.text.trim(),
+      'upi_id': _billUpiIdCtrl.text.trim(),
+      'upi_payee_name': _billUpiPayeeNameCtrl.text.trim(),
       'header_title': _billHeaderTitleCtrl.text.trim(),
       'header_subtext': _billHeaderSubtextCtrl.text.trim(),
       'footer_note': _billFooterNoteCtrl.text.trim(),
@@ -407,6 +443,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     };
 
     final a4Config = {
+      'invoice_title': _a4InvoiceTitleCtrl.text.trim().toUpperCase(),
       'header_title': _a4HeaderTitleCtrl.text.trim(),
       'header_subtext': _a4HeaderSubtextCtrl.text.trim(),
       'tax_reg_no': _a4TaxRegNoCtrl.text.trim(),
@@ -439,6 +476,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     };
 
     final a5Config = {
+      'invoice_title': _a5InvoiceTitleCtrl.text.trim().toUpperCase(),
       'header_title': _a5HeaderTitleCtrl.text.trim(),
       'header_subtext': _a5HeaderSubtextCtrl.text.trim(),
       'tax_reg_no': _a5TaxRegNoCtrl.text.trim(),
@@ -512,6 +550,27 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
 
     setState(() => _loading = true);
     await settingsCtrl.save(currentSettings);
+    try {
+      final propCtrl = PropertyInfoController();
+      await propCtrl.load();
+      if (propCtrl.data != null) {
+        final cur = propCtrl.data!;
+        final updatedProp = cur.copyWith(
+          thermalFooterNote: _billFooterNoteCtrl.text.trim().isNotEmpty ? _billFooterNoteCtrl.text.trim() : cur.thermalFooterNote,
+          termsAndConditions: _billTermsCtrl.text.trim().isNotEmpty ? _billTermsCtrl.text.trim() : cur.termsAndConditions,
+          printMobile: _billShowPhone,
+          printEmail: _billShowEmail,
+          printBankDetails: _billShowBankDetails,
+          printUpiQr: _billShowUpiQr,
+          bankName: _billBankNameCtrl.text.trim().isNotEmpty ? _billBankNameCtrl.text.trim() : cur.bankName,
+          bankAccNo: _billBankAccountNoCtrl.text.trim().isNotEmpty ? _billBankAccountNoCtrl.text.trim() : cur.bankAccNo,
+          bankIfsc: _billBankIfscCtrl.text.trim().isNotEmpty ? _billBankIfscCtrl.text.trim() : cur.bankIfsc,
+          upiId: _billUpiIdCtrl.text.trim().isNotEmpty ? _billUpiIdCtrl.text.trim() : cur.upiId,
+          upiPayeeName: _billUpiPayeeNameCtrl.text.trim().isNotEmpty ? _billUpiPayeeNameCtrl.text.trim() : cur.upiPayeeName,
+        );
+        await propCtrl.save(updatedProp);
+      }
+    } catch (_) {}
     setState(() => _loading = false);
 
     if (mounted) {
@@ -640,6 +699,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 _buildCardWrapper(
                   child: Column(
                     children: [
+                      _buildHeadingFieldWithPresets(
+                        label: 'Bill / Receipt Document Heading',
+                        controller: _billInvoiceTitleCtrl,
+                        presets: const ['TAX INVOICE', 'RETAIL INVOICE', 'BILL OF SUPPLY', 'ESTIMATE / QUOTATION', 'CASH MEMO', 'INVOICE'],
+                      ),
+                      const SizedBox(height: 12),
                       _buildTextField('Store / Business Header Title', _billHeaderTitleCtrl, 'e.g. ABC SUPERMARKET'),
                       const SizedBox(height: 12),
                       _buildTextField('Header Subtext (Address & Tel)', _billHeaderSubtextCtrl, 'e.g. Kimathi St, Nairobi • Tel: 0700000000', maxLines: 2),
@@ -671,7 +736,31 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       _buildSwitch('Print Discount & Scheme Breakdown', _billShowDiscounts, (v) => setState(() => _billShowDiscounts = v)),
                       _buildSwitch('Print Tax Analysis Table (VAT/CTL)', _billShowTaxBreakup, (v) => setState(() => _billShowTaxBreakup = v)),
                       _buildSwitch('Print Bank Account / M-Pesa Till', _billShowBankDetails, (v) => setState(() => _billShowBankDetails = v)),
+                      if (_billShowBankDetails) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(child: _buildTextField('Bank Name', _billBankNameCtrl, 'e.g. Bank / Branch')),
+                            const SizedBox(width: 8),
+                            Expanded(child: _buildTextField('Account / Till No', _billBankAccountNoCtrl, 'e.g. 1234567890')),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        _buildTextField('IFSC / SWIFT / Branch Code', _billBankIfscCtrl, 'e.g. HDFC0001234'),
+                        const SizedBox(height: 8),
+                      ],
                       _buildSwitch('Print Payment / e-Invoice QR Code', _billShowUpiQr, (v) => setState(() => _billShowUpiQr = v)),
+                      if (_billShowUpiQr) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(child: _buildTextField('UPI ID / VPA', _billUpiIdCtrl, 'e.g. store@upi')),
+                            const SizedBox(width: 8),
+                            Expanded(child: _buildTextField('Payee Legal Name', _billUpiPayeeNameCtrl, 'e.g. Retail Store Ltd')),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       _buildSwitch('Print Powered by Reseller Tag', _billShowResellerFooter, (v) => setState(() => _billShowResellerFooter = v)),
                       _buildSwitch('Print Currency Symbol (${CurrencyService.symbol})', _billShowCurrency, (v) => setState(() => _billShowCurrency = v)),
                     ],
@@ -694,7 +783,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                               decoration: _inputDecoration(),
                               items: const [
                                 DropdownMenuItem(value: '80mm', child: Text('80mm (Standard 3-inch Roll)')),
-                                DropdownMenuItem(value: '76mm', child: Text('76mm (Dot Matrix / POS)')),
+                                DropdownMenuItem(value: '76mm', child: Text('76mm (3-inch POS / Dot Matrix Roll)')),
+                                DropdownMenuItem(value: '72mm', child: Text('72mm (Standard Roll)')),
                                 DropdownMenuItem(value: '58mm', child: Text('58mm (Compact 2-inch Roll)')),
                               ],
                               onChanged: (v) => setState(() => _billThermalWidth = v ?? '80mm'),
@@ -783,6 +873,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 _buildCardWrapper(
                   child: Column(
                     children: [
+                      _buildHeadingFieldWithPresets(
+                        label: 'A4 Invoice Document Heading',
+                        controller: _a4InvoiceTitleCtrl,
+                        presets: const ['TAX INVOICE', 'RETAIL INVOICE', 'BILL OF SUPPLY', 'PROFORMA INVOICE', 'COMMERCIAL INVOICE', 'INVOICE'],
+                      ),
+                      const SizedBox(height: 12),
                       _buildTextField('Company / Firm Legal Name', _a4HeaderTitleCtrl, 'e.g. RETAIL ENTERPRISES LIMITED'),
                       const SizedBox(height: 12),
                       _buildTextField('Registered Office & Postal Address', _a4HeaderSubtextCtrl, 'e.g. Commercial Street, Nairobi, Kenya', maxLines: 2),
@@ -956,6 +1052,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 _buildCardWrapper(
                   child: Column(
                     children: [
+                      _buildHeadingFieldWithPresets(
+                        label: 'A5 Invoice Document Heading',
+                        controller: _a5InvoiceTitleCtrl,
+                        presets: const ['TAX INVOICE', 'RETAIL INVOICE', 'BILL OF SUPPLY', 'ESTIMATE', 'CASH MEMO', 'INVOICE'],
+                      ),
+                      const SizedBox(height: 12),
                       _buildTextField('Company / Firm Legal Name', _a5HeaderTitleCtrl, 'e.g. RETAIL ENTERPRISES LIMITED'),
                       const SizedBox(height: 12),
                       _buildTextField('Registered Office & Postal Address', _a5HeaderSubtextCtrl, 'e.g. Commercial Street, Nairobi, Kenya', maxLines: 2),
@@ -1181,7 +1283,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('TAX INVOICE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11 * scale, letterSpacing: 0.8)),
+                    Text(_a5InvoiceTitleCtrl.text.trim().isEmpty ? 'TAX INVOICE' : _a5InvoiceTitleCtrl.text.trim().toUpperCase(), style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11 * scale, letterSpacing: 0.8)),
                     Text('A5 COMPACT', style: TextStyle(color: Colors.white70, fontSize: 7 * scale)),
                   ],
                 ),
@@ -1562,6 +1664,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                                   decoration: _inputDecoration(),
                                   items: const [
                                     DropdownMenuItem(value: '80mm', child: Text('80mm Standard Roll')),
+                                    DropdownMenuItem(value: '76mm', child: Text('76mm POS / Dot Matrix Roll')),
+                                    DropdownMenuItem(value: '72mm', child: Text('72mm Roll')),
                                     DropdownMenuItem(value: '58mm', child: Text('58mm Compact Roll')),
                                   ],
                                   onChanged: (v) => setState(() => _tokenThermalWidth = v ?? '80mm'),
@@ -1746,7 +1850,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
           SizedBox(height: 3 * scale),
           Center(
             child: Text(
-              'TAX INVOICE',
+              _billInvoiceTitleCtrl.text.trim().isEmpty ? 'TAX INVOICE' : _billInvoiceTitleCtrl.text.trim().toUpperCase(),
               textAlign: TextAlign.center,
               style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: 10.5 * scale, color: Colors.black, letterSpacing: 0.5),
             ),
@@ -2106,7 +2210,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text('TAX INVOICE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13 * scale, letterSpacing: 1)),
+                    Text(_a4InvoiceTitleCtrl.text.trim().isEmpty ? 'TAX INVOICE' : _a4InvoiceTitleCtrl.text.trim().toUpperCase(), style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13 * scale, letterSpacing: 1)),
                     Text('ORIGINAL FOR RECIPIENT', style: TextStyle(color: Colors.white70, fontSize: 7.5 * scale)),
                   ],
                 ),
@@ -2745,6 +2849,45 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       ),
       padding: const EdgeInsets.all(16),
       child: child,
+    );
+  }
+
+  Widget _buildHeadingFieldWithPresets({
+    required String label,
+    required TextEditingController controller,
+    required List<String> presets,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF1E293B))),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          decoration: _inputDecoration(hint: 'e.g. TAX INVOICE, RETAIL INVOICE, BILL OF SUPPLY'),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: presets.map((p) {
+            final isSelected = controller.text.trim().toUpperCase() == p.toUpperCase();
+            return ActionChip(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+              label: Text(p, style: TextStyle(fontSize: 11, fontWeight: isSelected ? FontWeight.bold : FontWeight.w500, color: isSelected ? Colors.white : const Color(0xFF334155))),
+              backgroundColor: isSelected ? const Color(0xFF0B5CAD) : const Color(0xFFF1F5F9),
+              side: BorderSide(color: isSelected ? const Color(0xFF0B5CAD) : const Color(0xFFCBD5E1)),
+              onPressed: () {
+                setState(() {
+                  controller.text = p;
+                });
+              },
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 

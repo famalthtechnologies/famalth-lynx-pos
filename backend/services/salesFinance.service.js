@@ -27,7 +27,10 @@ function extractInitialPaid(sale) {
             if (Array.isArray(parsed)) {
                 return roundAmount(
                     parsed
-                        .filter(l => String(l.method || l.payment_method || '').toUpperCase() !== 'CREDIT')
+                        .filter(l => {
+                            const m = String(l.method || l.payment_method || '').toUpperCase();
+                            return m !== 'CREDIT' && m !== 'DUE' && m !== 'ADVANCE' && m !== 'ADVANCE_DEPOSIT' && m !== 'ADVANCE_ADDED';
+                        })
                         .reduce((sum, l) => sum + (Number(l.amount) || 0), 0)
                 );
             }

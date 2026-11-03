@@ -50,7 +50,7 @@ class PosInvoicePrinter {
 
   static bool _isThermalFormat(String billFormat) {
     final f = billFormat.toUpperCase();
-    return _thermalWidths.containsKey(billFormat) || f.contains('THERMAL') || f.contains('80MM') || f.contains('58MM') || f.contains('76MM');
+    return _thermalWidths.containsKey(billFormat) || f.contains('THERMAL') || f.contains('80MM') || f.contains('76MM') || f.contains('72MM') || f.contains('58MM');
   }
 
   static PdfPageFormat _thermalSheetFor(String billFormat, [String? configWidth]) {
@@ -58,10 +58,13 @@ class PosInvoicePrinter {
     if (configWidth != null && configWidth.isNotEmpty) {
       final cw = configWidth.toLowerCase();
       if (cw.contains('58')) widthMm = 58;
-      if (cw.contains('76')) widthMm = 76;
-      if (cw.contains('80')) widthMm = 80;
+      else if (cw.contains('72')) widthMm = 72;
+      else if (cw.contains('76')) widthMm = 76;
+      else if (cw.contains('80')) widthMm = 80;
     } else {
-      widthMm = _thermalWidths[billFormat] ?? (billFormat.toUpperCase().contains('58') ? 58 : 80);
+      final f = billFormat.toUpperCase();
+      widthMm = _thermalWidths[billFormat] ??
+          (f.contains('58') ? 58 : (f.contains('72') ? 72 : (f.contains('76') ? 76 : 80)));
     }
     final horizontalMargin = widthMm <= 58 ? 2.0 : 3.0;
     return PdfPageFormat(
@@ -403,7 +406,7 @@ class PosInvoicePrinter {
               children: [
                 pw.SizedBox(height: 4 * scale),
                 pw.Text(
-                  _receiptTitle(order, hasTaxData),
+                  _receiptTitle(order, hasTaxData, cfg['invoice_title']?.toString() ?? data.receiptTemplateConfig['invoice_title']?.toString()),
                   style: emphasisStyle,
                 ),
                 if (showToken && !_isRestaurantOrder(order) && (order.tokenNo ?? '').trim().isNotEmpty) ...[
@@ -1041,7 +1044,7 @@ class PosInvoicePrinter {
                     mainAxisSize: pw.MainAxisSize.min,
                     children: [
                       pw.Text(
-                        _receiptTitle(order, hasTaxData)
+                        _receiptTitle(order, hasTaxData, data.a5TemplateConfig['invoice_title']?.toString() ?? data.receiptTemplateConfig['invoice_title']?.toString())
                             .replaceFirst('BILL', 'INVOICE')
                             .replaceFirst('RECEIPT', 'INVOICE'),
                         style: pw.TextStyle(
@@ -1489,7 +1492,7 @@ class PosInvoicePrinter {
                     mainAxisSize: pw.MainAxisSize.min,
                     children: [
                       pw.Text(
-                        _receiptTitle(order, hasTaxData)
+                        _receiptTitle(order, hasTaxData, data.a4TemplateConfig['invoice_title']?.toString() ?? data.receiptTemplateConfig['invoice_title']?.toString())
                             .replaceFirst('BILL', 'INVOICE')
                             .replaceFirst('RECEIPT', 'INVOICE'),
                         style: pw.TextStyle(
@@ -2304,7 +2307,7 @@ class PosInvoicePrinter {
     return order.returnType == 'EXCHANGE' || paymentMode == 'EXCHANGE';
   }
 
-  static String _receiptTitle(SaleOrder order, bool hasTaxData) {
+  static String _receiptTitle(SaleOrder order, bool hasTaxData, [String? customTitle]) {
     if (_isExchangeOrder(order)) {
       return 'EXCHANGE RECEIPT';
     }
@@ -2318,6 +2321,9 @@ class PosInvoicePrinter {
         order.saleNo.trim().toUpperCase().startsWith('DRAFT-');
     if (isDraft) {
       return 'DRAFT / ESTIMATE BILL';
+    }
+    if (customTitle != null && customTitle.trim().isNotEmpty) {
+      return customTitle.trim().toUpperCase();
     }
     return hasTaxData ? 'TAX INVOICE' : 'INVOICE';
   }

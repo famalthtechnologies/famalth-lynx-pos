@@ -99,7 +99,6 @@ exports.login = async (req, res, next) => {
             const reqRole = (requestedRole || '').toString().toUpperCase().trim();
             if (!reqRole) return true;
             if (uRole === reqRole) return true;
-            if (uRole === 'ADMIN') return true;
             if (isWaiterOrCaptain(reqRole) && (isWaiterOrCaptain(uRole) || uRole === 'MANAGER')) return true;
             return false;
         };
@@ -107,7 +106,7 @@ exports.login = async (req, res, next) => {
         if (role && !isRoleAuthorized(user.role, role)) {
             return res.status(403).json({
                 success: false,
-                message: `Access Denied: User '${user.username}' is assigned role '${user.role}', not '${role}'. Please upgrade role.`
+                message: `Access Denied: User '${user.username}' is assigned role '${user.role}', not '${role}'. Please select the '${user.role}' workstation role to sign in.`
             });
         }
 
@@ -668,7 +667,6 @@ exports.pinLogin = async (req: any, res: any) => {
             const reqRole = (requestedRole || '').toString().toUpperCase().trim();
             if (!reqRole) return true;
             if (uRole === reqRole) return true;
-            if (uRole === 'ADMIN') return true;
             if (isWaiterOrCaptain(reqRole) && (isWaiterOrCaptain(uRole) || uRole === 'MANAGER')) return true;
             return false;
         };
@@ -676,7 +674,7 @@ exports.pinLogin = async (req: any, res: any) => {
         if (role && !isRoleAuthorized(user.role, role)) {
             return res.status(403).json({
                 success: false,
-                message: `Access Denied: User '${user.username || user.full_name}' is assigned role '${user.role}', not '${role}'. Please upgrade role.`
+                message: `Access Denied: User '${user.username || user.full_name}' is assigned role '${user.role}', not '${role}'. Please select the '${user.role}' workstation role to sign in.`
             });
         }
 

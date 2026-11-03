@@ -7699,6 +7699,9 @@ class _SaleScreenState extends State<SaleScreen> {
       return;
     }
     List<_PaymentLine> refPaymentEntries = List<_PaymentLine>.from(normalizedPayments.entries);
+    if (paymentSummary.advanceAppliedAmount > 0.009) {
+      refPaymentEntries.add(_PaymentLine(method: 'ADVANCE', amount: paymentSummary.advanceAppliedAmount));
+    }
     if (paymentSummary.advanceCreatedAmount > 0.009) {
       final adv = paymentSummary.advanceCreatedAmount;
       double remainingAdv = adv;
@@ -7800,6 +7803,7 @@ class _SaleScreenState extends State<SaleScreen> {
       amountPaid: paymentSummary.collectedAmount,
       changeAmount: paymentSummary.refundAmount,
       advanceAmount: paymentSummary.advanceCreatedAmount,
+      advanceAppliedAmount: paymentSummary.advanceAppliedAmount,
       balanceDue: paymentSummary.balanceDue,
       subTotal: invoice.subTotal,
       totalQty: invoice.totalQty,
@@ -7918,18 +7922,21 @@ class _SaleScreenState extends State<SaleScreen> {
         _pendingAdvanceApplied > 0 &&
         savedSaleId > 0 &&
         _hasCustomerContext) {
+      final cName = _customerName.text.trim().isNotEmpty ? _customerName.text.trim() : (_selectedCustomer?.customerName ?? '');
+      final cPhone = _customerPhone.text.trim().isNotEmpty ? _customerPhone.text.trim() : (_selectedCustomer?.customerPhone ?? '');
+      final cGstin = _customerGstin.text.trim().isNotEmpty ? _customerGstin.text.trim() : (_selectedCustomer?.customerGstin ?? '');
       ctrl.applyCustomerAdvance(
         saleId: savedSaleId,
-        customerName: _customerName.text.trim(),
-        customerPhone: _customerPhone.text.trim(),
-        customerGstin: _customerGstin.text.trim(),
+        customerName: cName,
+        customerPhone: cPhone,
+        customerGstin: cGstin,
         amount: _pendingAdvanceApplied,
         paymentDate: _saleDate,
         paymentMode: 'ADVANCE',
         referenceNo: _saleNo.text,
         note: 'Advance adjusted while billing ${_saleNo.text}',
       ).then((_) => _loadCustomerOutstanding()).catchError((e) {
-        debugPrint('Error applying advance: $e');
+        debugPrint('Error applying advance (may already be settled by backend): $e');
       });
     }
     if (status == 'COMPLETED' &&

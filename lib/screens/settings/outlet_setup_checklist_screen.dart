@@ -7,7 +7,7 @@ import '../inventory/item_master_screen.dart';
 import '../inventory/supplier_master_screen.dart';
 import '../restaurant/restaurant_setup_screen.dart';
 import 'document_sequence_screen.dart';
-import 'property_info_screen.dart';
+import 'outlet_detail_modification_screen.dart';
 import 'settings_screen.dart';
 import 'stock_location_screen.dart';
 import '../../core/auth/token_storage.dart';
@@ -34,7 +34,7 @@ class _OutletSetupChecklistScreenState extends State<OutletSetupChecklistScreen>
     Widget? destination;
     switch (key) {
       case 'PROPERTY':
-        destination = const PropertyInfoScreen(outletid: 0);
+        destination = const OutletDetailModificationScreen();
         break;
       case 'SETTINGS':
         destination = const SettingsScreen();

@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 
 /**
  * Standard API Rate Limiter
@@ -9,6 +9,7 @@ export const apiLimiter = rateLimit({
   max: 180,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
   message: {
     success: false,
     message: 'Too many requests from this IP. Please wait a moment.'
@@ -25,10 +26,12 @@ export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 8,
   skipSuccessfulRequests: true,
+  validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => {
     const outlet = String(req.body?.outlet_code || req.body?.outletCode || req.headers['x-outlet-code'] || '').trim().toLowerCase();
     const user = String(req.body?.username || req.body?.email || req.body?.pin || '').trim().toLowerCase();
-    const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const rawIp = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const ip = ipKeyGenerator(rawIp);
 
     if (outlet && user) {
       return `${outlet}:${user}`;
@@ -54,8 +57,10 @@ export const terminalIpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 25,
   skipSuccessfulRequests: true,
+  validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => {
-    return req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    const rawIp = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+    return ipKeyGenerator(rawIp);
   },
   message: {
     success: false,
@@ -73,6 +78,7 @@ export const ddosBurstLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
   message: {
     success: false,
     message: 'DDoS protection triggered. Request dropped.'
@@ -86,6 +92,7 @@ export const ddosBurstLimiter = rateLimit({
 export const reportQueryLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
+  validate: { keyGeneratorIpFallback: false },
   message: {
     success: false,
     message: 'Report query rate limit exceeded. Please wait a moment.'

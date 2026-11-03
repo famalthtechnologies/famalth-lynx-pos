@@ -455,7 +455,7 @@ class _LoginScreenState extends State<LoginScreen>
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString()),
+          content: Text(e.toString().replaceAll('Exception:', '').trim()),
           backgroundColor: Colors.red,
         ),
       );
@@ -524,7 +524,7 @@ class _LoginScreenState extends State<LoginScreen>
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString()),
+          content: Text(e.toString().replaceAll('Exception:', '').trim()),
           backgroundColor: Colors.red,
         ),
       );

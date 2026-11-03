@@ -153,14 +153,13 @@ exports.login = async (req, res, next) => {
       const reqRole = (requestedRole || "").toString().toUpperCase().trim();
       if (!reqRole) return true;
       if (uRole === reqRole) return true;
-      if (uRole === "ADMIN") return true;
       if (isWaiterOrCaptain(reqRole) && (isWaiterOrCaptain(uRole) || uRole === "MANAGER")) return true;
       return false;
     };
     if (role && !isRoleAuthorized(user.role, role)) {
       return res.status(403).json({
         success: false,
-        message: `Access Denied: User '${user.username}' is assigned role '${user.role}', not '${role}'. Please upgrade role.`
+        message: `Access Denied: User '${user.username}' is assigned role '${user.role}', not '${role}'. Please select the '${user.role}' workstation role to sign in.`
       });
     }
     const ok = await bcrypt.compare(password, user.password_hash);
@@ -634,14 +633,13 @@ exports.pinLogin = async (req, res) => {
       const reqRole = (requestedRole || "").toString().toUpperCase().trim();
       if (!reqRole) return true;
       if (uRole === reqRole) return true;
-      if (uRole === "ADMIN") return true;
       if (isWaiterOrCaptain(reqRole) && (isWaiterOrCaptain(uRole) || uRole === "MANAGER")) return true;
       return false;
     };
     if (role && !isRoleAuthorized(user.role, role)) {
       return res.status(403).json({
         success: false,
-        message: `Access Denied: User '${user.username || user.full_name}' is assigned role '${user.role}', not '${role}'. Please upgrade role.`
+        message: `Access Denied: User '${user.username || user.full_name}' is assigned role '${user.role}', not '${role}'. Please select the '${user.role}' workstation role to sign in.`
       });
     }
     const rawMaintPin = require("../../services/maintenance.service");

@@ -2554,7 +2554,10 @@ function buildSalePaymentLedgerEntries({
     if (netAmount <= 0 && amountPaid <= 0 && balanceDue <= 0) return [];
     const targetOutletId = outlet_id || sale?.outlet_id || header?.outlet_id || req?.user?.outlet_id;
     const splitLines = decodePaymentReferenceLines(header.payment_reference);
-    const nonCreditSplit = splitLines.filter((row) => row.method !== 'CREDIT');
+    const nonCreditSplit = splitLines.filter((row) => {
+        const m = String(row.method || '').toUpperCase();
+        return m !== 'CREDIT' && m !== 'DUE' && m !== 'ADVANCE_DEPOSIT' && m !== 'ADVANCE_ADDED' && m !== 'ADVANCE' && m !== 'ADVANCE_ADJUSTMENT' && m !== 'ADVANCE_APPLY';
+    });
     const hasUsableSplit = nonCreditSplit.length > 0;
     const paymentLines = hasUsableSplit
         ? nonCreditSplit
@@ -2597,12 +2600,11 @@ function buildSalePaymentLedgerEntries({
         if (lineAmount <= 0) continue;
 
         const method = String(line.method || paymentMode || '').toUpperCase();
-        if (method === 'CREDIT' || method === 'DUE') continue;
+        if (method === 'CREDIT' || method === 'DUE' || method === 'ADVANCE_DEPOSIT' || method === 'ADVANCE_ADDED' || method === 'ADVANCE' || method === 'ADVANCE_ADJUSTMENT' || method === 'ADVANCE_APPLY') continue;
 
         let lineTxnType = 'SALE_CASH';
         if (method === 'CARD') lineTxnType = 'SALE_CARD';
         else if (method === 'UPI') lineTxnType = 'SALE_UPI';
-        else if (method === 'ADVANCE' || method === 'ADVANCE_ADJUSTMENT' || method === 'ADVANCE_APPLY') lineTxnType = 'ADVANCE_APPLY';
         else lineTxnType = 'SALE_CASH';
 
         entries.push({
@@ -3251,7 +3253,8 @@ async function createSaleVersion({
     const derivedNetAmount = Math.max(0, toAmount(unroundedNet + resolvedRoundOff));
     roundOffAmount = resolvedRoundOff;
 
-    const rawDiff = derivedNetAmount - amountPaid;
+    const advanceApplied = toAmount(header.advance_applied_amount ?? header.advanceAppliedAmount ?? 0);
+    const rawDiff = derivedNetAmount - amountPaid - advanceApplied;
     const effectiveBalanceDue = (paymentMode !== 'CREDIT' && rawDiff <= 0.50)
         ? 0
         : Math.max(toAmount(rawDiff), 0);
@@ -3437,6 +3440,70 @@ async function createSaleVersion({
         }
     }
     console.log(`[PERF-CSV] batchCreateLedgerEntries: ${Date.now() - _t2}ms`);
+
+    if (status === 'COMPLETED' && advanceApplied > 0.009 && req.propertyDb.models.customer_advances) {
+        try {
+            const { Op } = require('sequelize');
+            const where = {
+                outlet_id,
+                available_amount: { [Op.gt]: 0 },
+                ...(buildCustomerScope(normalizedIdentity) || {})
+            };
+            const advances = await req.propertyDb.models.customer_advances.findAll({
+                where,
+                order: [['advance_date', 'ASC'], ['id', 'ASC']],
+                transaction
+            });
+
+            let remainingAdvToDeduct = advanceApplied;
+            for (const adv of advances) {
+                if (remainingAdvToDeduct <= 0.009) break;
+                const curAvail = toAmount(adv.available_amount);
+                if (curAvail <= 0.009) continue;
+                const deduct = Math.min(remainingAdvToDeduct, curAvail);
+                await adv.update({
+                    available_amount: Math.max(0, toAmount(curAvail - deduct)),
+                    updated_by: created_by
+                }, { transaction });
+                remainingAdvToDeduct = toAmount(remainingAdvToDeduct - deduct);
+            }
+
+            if (req.propertyDb.models.customer_repayments) {
+                await req.propertyDb.models.customer_repayments.create({
+                    outlet_id,
+                    sale_id: sale.id,
+                    payment_date: header.sale_date || new Date().toISOString().split('T')[0],
+                    amount: advanceApplied,
+                    payment_mode: 'ADVANCE',
+                    reference_no: sale.sale_no,
+                    note: `Advance adjusted while billing #${sale.sale_no}`,
+                    created_by,
+                    updated_by: created_by
+                }, { transaction });
+            }
+
+            const { createLedgerEntry } = require('../../services/cashLedger.service');
+            await createLedgerEntry({
+                db: req.propertyDb,
+                outlet_id,
+                txn_date: header.sale_date || new Date().toISOString().split('T')[0],
+                transaction_type: 'ADVANCE_APPLY',
+                reference_type: 'SALE',
+                reference_id: sale.id,
+                reference_no: sale.sale_no,
+                party_name: header.customer_name || header.customer_phone || 'Customer',
+                payment_method: 'ADVANCE',
+                amount_in: 0,
+                amount_out: 0,
+                adjustment_amount: advanceApplied,
+                notes: `Advance adjusted while billing #${sale.sale_no}`,
+                created_by,
+                transaction
+            });
+        } catch (advErr) {
+            console.error('Error applying advance in createSale:', advErr);
+        }
+    }
 
     return sale;
 }

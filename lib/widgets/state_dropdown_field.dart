@@ -9,6 +9,7 @@ class StateDropdownField extends StatefulWidget {
   final double? width;
   final bool enabled;
   final bool showAddButton;
+  final bool useExternalLabel;
   final ValueChanged<String?>? onSelected;
   final InputDecoration? decoration;
 
@@ -20,6 +21,7 @@ class StateDropdownField extends StatefulWidget {
     this.width = 240,
     this.enabled = true,
     this.showAddButton = true,
+    this.useExternalLabel = false,
     this.onSelected,
     this.decoration,
   });
@@ -194,6 +196,67 @@ class _StateDropdownFieldState extends State<StateDropdownField> {
     final country = CountryTaxHelper.normalizeCountryCode(widget.countryCode);
     final isIndia = CountryTaxHelper.isIndiaCountry(country);
     final fieldLabel = widget.label ?? (isIndia ? 'State (Optional)' : 'State / Region (Optional)');
+
+    if (widget.useExternalLabel) {
+      final double effectiveWidth = widget.width ?? 310;
+      return SizedBox(
+        width: effectiveWidth,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RichText(
+              text: TextSpan(
+                text: fieldLabel,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownMenu<String>(
+              width: effectiveWidth,
+              enabled: widget.enabled,
+              controller: widget.controller,
+              hintText: 'Select or type state / region',
+              enableFilter: true,
+              requestFocusOnTap: true,
+              leadingIcon: const Icon(Icons.map_outlined, size: 18, color: Color(0xFF94A3B8)),
+              trailingIcon: widget.showAddButton && widget.enabled
+                  ? IconButton(
+                      icon: const Icon(Icons.add_circle_outline, color: Color(0xFF2563EB), size: 20),
+                      tooltip: 'Add Custom State / Region to Database',
+                      onPressed: _showAddDialog,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    )
+                  : null,
+              inputDecorationTheme: InputDecorationTheme(
+                filled: true,
+                fillColor: widget.enabled ? const Color(0xFFF8FAFC) : const Color(0xFFF1F5F9),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFFF7A1A), width: 2)),
+                disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              dropdownMenuEntries: _states.map((String state) {
+                return DropdownMenuEntry<String>(
+                  value: state,
+                  label: state,
+                );
+              }).toList(),
+              onSelected: (String? val) {
+                if (val != null) {
+                  widget.controller.text = val;
+                }
+                if (widget.onSelected != null) {
+                  widget.onSelected!(val);
+                }
+              },
+            ),
+          ],
+        ),
+      );
+    }
 
     return Row(
       mainAxisSize: MainAxisSize.min,

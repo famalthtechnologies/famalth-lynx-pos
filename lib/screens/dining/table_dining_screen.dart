@@ -569,6 +569,10 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
         seatNumber: _currentSeat,
         tableName: _selectedTableName,
         onLoginSuccess: (profile) async {
+          // Instantly dismiss auth modal bottom sheet
+          if (Navigator.of(ctx).canPop()) {
+            Navigator.of(ctx).pop();
+          }
           final targetOutlet = (widget.outletId ?? '1').toString().trim();
           final prefs = await SharedPreferences.getInstance();
           final profileWithOutlet = Map<String, dynamic>.from(profile);
@@ -576,22 +580,64 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           final jsonStr = jsonEncode(profileWithOutlet);
           await prefs.setString('dining_customer_profile_$targetOutlet', jsonStr);
           await prefs.setString('dining_customer_profile', jsonStr);
-          setState(() {
-            _customerProfile = profileWithOutlet;
-            _isLoggedIn = true;
-          });
-          _fetchTableDiningCatalog(isSilent: true);
-          Navigator.pop(ctx);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Welcome, ${profile['customer_name'] ?? 'Guest'}! Table is ready.'),
-              backgroundColor: Colors.green.shade700,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          if (mounted) {
+            setState(() {
+              _customerProfile = profileWithOutlet;
+              _isLoggedIn = true;
+            });
+            _fetchTableDiningCatalog(isSilent: true);
+            final name = profile['customer_name'] ?? profile['name'] ?? 'Guest';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Welcome, $name! Table is ready.'),
+                backgroundColor: Colors.green.shade700,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
         },
       ),
     );
+  }
+
+  Future<void> _confirmAndLogoutCustomer() async {
+    final custName = (_customerProfile?['customer_name'] ?? _customerProfile?['name'] ?? 'Current User').toString();
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout, color: Color(0xFFDC2626)),
+            SizedBox(width: 8),
+            Text('Change User / Logout', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to log out from $custName?\nYou can sign in with a different mobile/email profile.',
+          style: const TextStyle(fontSize: 13.5, color: Color(0xFF334155)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      _logoutCustomer();
+    }
   }
 
   void _logoutCustomer() async {
@@ -2426,18 +2472,38 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     );
   }
 
+  dynamic _findCatalogItem(dynamic itemId, String? itemName) {
+    if (_allItems.isEmpty) return null;
+    final cleanName = itemName?.toLowerCase().trim();
+    for (final it in _allItems) {
+      if (it is Map) {
+        if (itemId != null && it['id']?.toString() == itemId.toString()) {
+          return it;
+        }
+        if (cleanName != null && cleanName.isNotEmpty && it['item_name']?.toString().toLowerCase().trim() == cleanName) {
+          return it;
+        }
+      }
+    }
+    return null;
+  }
+
   Widget _buildOrderHistoryCard(dynamic kot, String currency) {
     try {
       return _buildOrderHistoryCardInternal(kot, currency);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[ORDER_CARD_ERROR] $e\n$st');
       return _buildSafeFallbackOrderCard(kot, currency, e.toString());
     }
   }
 
   Widget _buildSafeFallbackOrderCard(dynamic kot, String currency, String err) {
     final kotNo = (kot is Map ? (kot['kot_no'] ?? kot['id']) : 'Order').toString();
-    final rawStatus = (kot is Map ? kot['status'] : 'Cancelled').toString();
-    final reason = (kot is Map ? (kot['cancel_reason'] ?? kot['remarks'] ?? kot['notes']) : '').toString();
+    final rawStatus = (kot is Map ? (kot['status'] ?? 'Pending') : 'Pending').toString();
+    final isCancelled = rawStatus.toLowerCase() == 'cancelled' || rawStatus.toLowerCase() == 'rejected';
+    final reason = (kot is Map ? (kot['cancel_reason'] ?? (isCancelled ? (kot['remarks'] ?? kot['notes']) : '')) : '').toString();
+    final rawItems = (kot is Map && kot['items'] is List) ? (kot['items'] as List) : [];
+    final double kotTotal = double.tryParse((kot is Map ? (kot['total_amount'] ?? kot['net_amount'] ?? 0) : 0).toString()) ?? 0.0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -2445,7 +2511,14 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFFECACA)),
+        border: Border.all(color: isCancelled ? const Color(0xFFFECACA) : const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2453,40 +2526,133 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('KOT #$kotNo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: primaryOrange.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.receipt_long, size: 14, color: primaryOrange),
+                  ),
+                  const SizedBox(width: 6),
+                  Text('KOT #$kotNo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: darkBg)),
+                ],
+              ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFEE2E2),
+                  color: isCancelled ? const Color(0xFFFEE2E2) : const Color(0xFFFFEDD5),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  rawStatus.toUpperCase(),
-                  style: const TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold, fontSize: 11),
+                  isCancelled ? rawStatus.toUpperCase() : (rawStatus.toLowerCase() == 'p' ? 'SENT TO KITCHEN' : rawStatus.toUpperCase()),
+                  style: TextStyle(
+                    color: isCancelled ? const Color(0xFFDC2626) : const Color(0xFFEA580C),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFEF2F2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.cancel, color: Color(0xFFDC2626), size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    reason.isNotEmpty ? reason : 'This order was cancelled/rejected by restaurant staff.',
-                    style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12),
+          if (isCancelled) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.cancel, color: Color(0xFFDC2626), size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      reason.isNotEmpty ? reason : 'This order was cancelled/rejected by restaurant staff.',
+                      style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12),
+                    ),
                   ),
+                ],
+              ),
+            ),
+          ],
+          if (rawItems.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Dishes in this Order (${rawItems.length}):', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: darkBg)),
+                      const Text('Status & Amount', style: TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8))),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Divider(height: 1),
+                  const SizedBox(height: 6),
+                  ...rawItems.map((it) {
+                    final String name = (it['item_name'] ?? 'Dish').toString();
+                    final int qty = (double.tryParse((it['qty'] ?? it['quantity'] ?? 1).toString()) ?? 1.0).round();
+                    final double price = double.tryParse((it['price'] ?? it['rate'] ?? it['selling_price'] ?? 0).toString()) ?? 0.0;
+                    final double lineTotal = double.tryParse((it['line_total'] ?? (price * qty)).toString()) ?? (price * qty);
+                    final String itemStatus = (it['status'] ?? rawStatus).toString();
+                    final itemBadge = _getItemStatusBadgeInfo(itemStatus);
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text('$qty x $name', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: darkBg)),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: itemBadge['bgColor'] as Color,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              itemBadge['label'] as String,
+                              style: TextStyle(color: itemBadge['color'] as Color, fontSize: 9.5, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '$currency${lineTotal.toStringAsFixed(2)}',
+                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: darkBg),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ],
+          if (kotTotal > 0) ...[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Order Total:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: darkBg)),
+                Text(
+                  '$currency${kotTotal.toStringAsFixed(2)}',
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: darkBg),
                 ),
               ],
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -2506,16 +2672,10 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
 
     for (final it in items) {
       final String n = (it['item_name'] ?? 'Dish').toString();
-      final int q = int.tryParse((it['qty'] ?? it['quantity'] ?? 1).toString()) ?? 1;
+      final int q = (double.tryParse((it['qty'] ?? it['quantity'] ?? 1).toString()) ?? 1.0).round();
       double p = double.tryParse((it['price'] ?? it['rate'] ?? it['selling_price'] ?? (it['item'] is Map ? (it['item']['retail_sale_price'] ?? it['item']['rate'] ?? it['item']['selling_price']) : 0) ?? 0).toString()) ?? 0.0;
       
-      dynamic catalogItem;
-      if (_allItems.isNotEmpty) {
-        catalogItem = _allItems.firstWhere(
-          (m) => m['id'] == it['item_id'] || m['item_name']?.toString().toLowerCase().trim() == n.toLowerCase().trim(),
-          orElse: () => null,
-        );
-      }
+      final dynamic catalogItem = _findCatalogItem(it['item_id'], n);
       if (p == 0.0 && catalogItem != null) {
         p = double.tryParse((catalogItem['retail_sale_price'] ?? catalogItem['selling_price'] ?? catalogItem['rate'] ?? catalogItem['mrp'] ?? 0).toString()) ?? 0.0;
       }
@@ -2726,22 +2886,21 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
 
                 ...items.map((it) {
                   final String name = (it['item_name'] ?? 'Dish').toString();
-                  final int qty = int.tryParse((it['qty'] ?? it['quantity'] ?? 1).toString()) ?? 1;
+                  final int qty = (double.tryParse((it['qty'] ?? it['quantity'] ?? 1).toString()) ?? 1.0).round();
                   double price = double.tryParse((it['price'] ?? it['rate'] ?? it['selling_price'] ?? (it['item'] is Map ? (it['item']['retail_sale_price'] ?? it['item']['rate'] ?? it['item']['selling_price']) : 0) ?? 0).toString()) ?? 0.0;
                   if (price == 0.0) {
-                    final catalogItem = _allItems.firstWhere(
-                      (m) => m['id'] == it['item_id'] || m['item_name']?.toString().toLowerCase().trim() == name.toLowerCase().trim(),
-                      orElse: () => null,
-                    );
+                    final catalogItem = _findCatalogItem(it['item_id'], name);
                     if (catalogItem != null) {
                       price = double.tryParse((catalogItem['retail_sale_price'] ?? catalogItem['selling_price'] ?? catalogItem['rate'] ?? catalogItem['mrp'] ?? 0).toString()) ?? 0.0;
                     }
                   }
 
+                  final double lineTotal = double.tryParse((it['line_total'] ?? (price * qty)).toString()) ?? (price * qty);
                   final String itemRawStatus = (it['status'] ?? rawStatus).toString();
                   final itemStatusInfo = _getItemStatusBadgeInfo(itemRawStatus);
                   final String remark = (it['item_remark'] ?? it['special_note'] ?? '').toString().trim();
                   final List<dynamic> modDetails = (it['modifier_details'] is List ? it['modifier_details'] : (it['modifiers'] is List ? it['modifiers'] : []));
+                  final bool isVeg = it['is_veg'] == true || (it['item'] is Map && it['item']['is_veg'] == true);
 
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 5),
@@ -2756,8 +2915,8 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                               width: 6,
                               height: 6,
                               margin: const EdgeInsets.only(right: 6),
-                              decoration: const BoxDecoration(
-                                color: pureVegGreen,
+                              decoration: BoxDecoration(
+                                color: isVeg ? pureVegGreen : const Color(0xFFDC2626),
                                 shape: BoxShape.circle,
                               ),
                             ),
@@ -2791,9 +2950,19 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Text(
-                              '$currency${(price * qty).toStringAsFixed(2)}',
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: darkBg),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '$currency${lineTotal.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: darkBg),
+                                ),
+                                if (qty > 1 && price > 0)
+                                  Text(
+                                    '@ $currency${price.toStringAsFixed(2)}',
+                                    style: const TextStyle(fontSize: 9.5, color: Color(0xFF64748B)),
+                                  ),
+                              ],
                             ),
                           ],
                         ),
@@ -3334,7 +3503,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
             ),
             if (_isLoggedIn)
                 InkWell(
-                  onTap: _logoutCustomer,
+                  onTap: _confirmAndLogoutCustomer,
                   child: const Text('Change User', style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.bold)),
                 )
               else
@@ -4762,16 +4931,10 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
 
     for (final it in items) {
       final name = (it['item_name'] ?? it['name'] ?? 'Dish').toString();
-      final q = int.tryParse((it['qty'] ?? it['quantity'] ?? 1).toString()) ?? 1;
+      final q = (double.tryParse((it['qty'] ?? it['quantity'] ?? 1).toString()) ?? 1.0).round();
       double p = double.tryParse((it['price'] ?? it['rate'] ?? it['selling_price'] ?? (it['item'] is Map ? (it['item']['retail_sale_price'] ?? it['item']['rate'] ?? it['item']['selling_price']) : 0) ?? 0).toString()) ?? 0.0;
       
-      dynamic catalogItem;
-      if (_allItems.isNotEmpty) {
-        catalogItem = _allItems.firstWhere(
-          (m) => m['id'] == it['item_id'] || m['item_name']?.toString().toLowerCase().trim() == name.toLowerCase().trim(),
-          orElse: () => null,
-        );
-      }
+      final dynamic catalogItem = _findCatalogItem(it['item_id'], name);
       if (p == 0.0 && catalogItem != null) {
         p = double.tryParse((catalogItem['retail_sale_price'] ?? catalogItem['selling_price'] ?? catalogItem['rate'] ?? catalogItem['mrp'] ?? 0).toString()) ?? 0.0;
       }
@@ -4896,13 +5059,10 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
               const SizedBox(height: 8),
               ...items.map((it) {
                 final name = (it['item_name'] ?? it['name'] ?? 'Dish').toString();
-                final q = int.tryParse((it['qty'] ?? it['quantity'] ?? 1).toString()) ?? 1;
+                final q = (double.tryParse((it['qty'] ?? it['quantity'] ?? 1).toString()) ?? 1.0).round();
                 double p = double.tryParse((it['price'] ?? it['rate'] ?? it['selling_price'] ?? (it['item'] is Map ? (it['item']['retail_sale_price'] ?? it['item']['rate'] ?? it['item']['selling_price']) : 0) ?? 0).toString()) ?? 0.0;
                 if (p == 0.0) {
-                  final catalogItem = _allItems.firstWhere(
-                    (m) => m['id'] == it['item_id'] || m['item_name']?.toString().toLowerCase().trim() == name.toLowerCase().trim(),
-                    orElse: () => null,
-                  );
+                  final catalogItem = _findCatalogItem(it['item_id'], name);
                   if (catalogItem != null) {
                     p = double.tryParse((catalogItem['retail_sale_price'] ?? catalogItem['selling_price'] ?? catalogItem['rate'] ?? catalogItem['mrp'] ?? 0).toString()) ?? 0.0;
                   }
@@ -5647,6 +5807,9 @@ class _CustomerAuthBottomSheetState extends State<_CustomerAuthBottomSheet> {
           final cust = Map<String, dynamic>.from(verifyJson['customer']);
           await _saveCustomerSession(cust, verifyJson['token']);
           widget.onLoginSuccess(cust);
+          if (mounted && Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
           return;
         }
 
@@ -5685,6 +5848,9 @@ class _CustomerAuthBottomSheetState extends State<_CustomerAuthBottomSheet> {
         };
         await _saveCustomerSession(cust, regJson['token'] ?? verifyJson['token']);
         widget.onLoginSuccess(cust);
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
         return;
       }
     } catch (_) {}
@@ -5722,6 +5888,9 @@ class _CustomerAuthBottomSheetState extends State<_CustomerAuthBottomSheet> {
 
     await _saveCustomerSession(fallbackCust, 'demo-token-${DateTime.now().millisecondsSinceEpoch}');
     widget.onLoginSuccess(fallbackCust);
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _saveCustomerSession(Map<String, dynamic> customer, String? token) async {

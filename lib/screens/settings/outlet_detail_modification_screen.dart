@@ -667,13 +667,11 @@ class _OutletDetailModificationScreenState extends State<OutletDetailModificatio
                             children: [
                               _field(_address, 'Street Address', width: double.infinity, prefixIcon: Icons.location_on, maxLines: 2, enabled: _isEditEnabled),
                               _field(_city, 'City', prefixIcon: Icons.location_city, enabled: _isEditEnabled),
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: StateDropdownField(
-                                  controller: _state,
-                                  enabled: _isEditEnabled,
-                                  width: 320,
-                                ),
+                              StateDropdownField(
+                                controller: _state,
+                                enabled: _isEditEnabled,
+                                width: 310,
+                                useExternalLabel: true,
                               ),
                               _field(_pin, 'Postal / PIN Code', prefixIcon: Icons.pin_drop, isNumber: true, enabled: _isEditEnabled),
                               _field(_recoveryPin, 'Manager Recovery PIN (4-Digits)', prefixIcon: Icons.lock_reset_rounded, isNumber: true, enabled: _isEditEnabled, required: false),
@@ -835,6 +833,60 @@ class _OutletDetailModificationScreenState extends State<OutletDetailModificatio
                                     onChanged: _isEditEnabled ? (v) => setState(() => _active = v) : null,
                                   ),
                                 ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 28),
+
+                          // 10. INVOICE PRINTING PREFERENCES
+                          _buildSectionTitle('Invoice & Print Visibility Options', Icons.print_rounded),
+                          const SizedBox(height: 14),
+                          Wrap(
+                            spacing: 20,
+                            runSpacing: 16,
+                            children: [
+                              _buildSwitchCard(
+                                title: 'Print Mobile Number',
+                                subtitle: 'Include store phone on printed bills',
+                                value: _printMobile,
+                                onChanged: _isEditEnabled ? (v) => setState(() => _printMobile = v) : null,
+                                icon: Icons.phone_android_rounded,
+                              ),
+                              _buildSwitchCard(
+                                title: 'Print Email Address',
+                                subtitle: 'Include store email on printed bills',
+                                value: _printEmail,
+                                onChanged: _isEditEnabled ? (v) => setState(() => _printEmail = v) : null,
+                                icon: Icons.alternate_email_rounded,
+                              ),
+                              _buildSwitchCard(
+                                title: 'Print Website URL',
+                                subtitle: 'Include website URL on printed bills',
+                                value: _printWebsite,
+                                onChanged: _isEditEnabled ? (v) => setState(() => _printWebsite = v) : null,
+                                icon: Icons.language_rounded,
+                              ),
+                              _buildSwitchCard(
+                                title: 'Print Bank Details',
+                                subtitle: 'Include bank name, acc no & IFSC on bills',
+                                value: _printBankDetails,
+                                onChanged: _isEditEnabled ? (v) => setState(() => _printBankDetails = v) : null,
+                                icon: Icons.account_balance_rounded,
+                              ),
+                              _buildSwitchCard(
+                                title: 'Print Instant UPI QR',
+                                subtitle: 'Include dynamic/static UPI QR code on bills',
+                                value: _printUpiQr,
+                                onChanged: _isEditEnabled ? (v) => setState(() => _printUpiQr = v) : null,
+                                icon: Icons.qr_code_scanner_rounded,
+                              ),
+                              _buildSwitchCard(
+                                title: 'Print Digital Signature',
+                                subtitle: 'Include authorized signature line on bills',
+                                value: _printDigitalSignature,
+                                onChanged: _isEditEnabled ? (v) => setState(() => _printDigitalSignature = v) : null,
+                                icon: Icons.draw_rounded,
                               ),
                             ],
                           ),
@@ -1156,6 +1208,35 @@ class _OutletDetailModificationScreenState extends State<OutletDetailModificatio
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSwitchCard({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool>? onChanged,
+    IconData icon = Icons.print_outlined,
+  }) {
+    return SizedBox(
+      width: 310,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFCBD5E1)),
+          borderRadius: BorderRadius.circular(10),
+          color: Colors.white,
+        ),
+        child: SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+          secondary: Icon(icon, color: const Color(0xFFFF7A1A), size: 20),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+          subtitle: Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 10.5)),
+          value: value,
+          activeThumbColor: Colors.green,
+          onChanged: onChanged,
+        ),
       ),
     );
   }

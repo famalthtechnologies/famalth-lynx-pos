@@ -24,6 +24,7 @@ class SaleOrder {
   final double amountPaid;
   final double changeAmount;
   final double advanceAmount;
+  final double advanceAppliedAmount;
   final double balanceDue;
   final List<Map<String, dynamic>> repayments;
   final String? customerAddress;
@@ -100,6 +101,7 @@ class SaleOrder {
     required this.amountPaid,
     required this.changeAmount,
     this.advanceAmount = 0.0,
+    this.advanceAppliedAmount = 0.0,
     required this.balanceDue,
     this.repayments = const [],
     this.customerAddress,
@@ -174,6 +176,7 @@ class SaleOrder {
     double? amountPaid,
     double? changeAmount,
     double? advanceAmount,
+    double? advanceAppliedAmount,
     double? balanceDue,
     String? customerAddress,
     String? customerGstin,
@@ -247,6 +250,7 @@ class SaleOrder {
       amountPaid: amountPaid ?? this.amountPaid,
       changeAmount: changeAmount ?? this.changeAmount,
       advanceAmount: advanceAmount ?? this.advanceAmount,
+      advanceAppliedAmount: advanceAppliedAmount ?? this.advanceAppliedAmount,
       balanceDue: balanceDue ?? this.balanceDue,
       customerAddress: customerAddress ?? this.customerAddress,
       customerGstin: customerGstin ?? this.customerGstin,
@@ -333,6 +337,7 @@ class SaleOrder {
         'amount_paid': amountPaid,
         'change_amount': changeAmount,
         'advance_amount': advanceAmount,
+        'advance_applied_amount': advanceAppliedAmount,
         'balance_due': balanceDue,
         'scheme_name': schemeName,
         'scheme_usage_mode': schemeUsageMode,
@@ -469,6 +474,8 @@ class SaleOrder {
       initialAmountPaid: parseNum(json['initial_amount_paid'] ?? json['initialAmountPaid']),
       amountPaid: parseNum(json['amount_paid']),
       changeAmount: parseNum(json['change_amount']),
+      advanceAmount: parseNum(json['advance_amount'] ?? json['advanceAmount']),
+      advanceAppliedAmount: parseNum(json['advance_applied_amount'] ?? json['advanceAppliedAmount']),
       balanceDue: parseNum(json['balance_due']),
       repayments: (json['repayments'] as List? ?? const [])
           .map((e) => Map<String, dynamic>.from(e))

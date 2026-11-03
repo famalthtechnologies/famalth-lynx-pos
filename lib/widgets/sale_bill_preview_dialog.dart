@@ -32,6 +32,12 @@ Future<void> showSaleBillPreviewDialog(
     activeFormat = sysBillFormat;
   } else if (rawSaleFormat != null && rawSaleFormat.isNotEmpty && rawSaleFormat != 'A4') {
     activeFormat = rawSaleFormat;
+  } else if (thermalWidthSetting.contains('58')) {
+    activeFormat = 'THERMAL_58';
+  } else if (thermalWidthSetting.contains('76')) {
+    activeFormat = 'THERMAL_76';
+  } else if (thermalWidthSetting.contains('72')) {
+    activeFormat = 'THERMAL_72';
   } else if (thermalWidthSetting.contains('80')) {
     activeFormat = 'THERMAL_80';
   } else if (rawSaleFormat != null && rawSaleFormat.isNotEmpty) {
@@ -39,9 +45,16 @@ Future<void> showSaleBillPreviewDialog(
   }
 
   // Normalize to standard known formats
-  if (activeFormat.toUpperCase().contains('80') || activeFormat.toUpperCase().contains('THERMAL')) {
+  final up = activeFormat.toUpperCase();
+  if (up.contains('58')) {
+    activeFormat = 'THERMAL_58';
+  } else if (up.contains('76')) {
+    activeFormat = 'THERMAL_76';
+  } else if (up.contains('72')) {
+    activeFormat = 'THERMAL_72';
+  } else if (up.contains('80') || up.contains('THERMAL')) {
     activeFormat = 'THERMAL_80';
-  } else if (activeFormat.toUpperCase().contains('A5')) {
+  } else if (up.contains('A5')) {
     activeFormat = 'A5';
   } else {
     activeFormat = 'A4';
@@ -75,18 +88,28 @@ Future<void> showSaleBillPreviewDialog(
                 segments: [
                   const ButtonSegment(
                     value: 'THERMAL_80',
-                    label: Text('80mm Thermal'),
+                    label: Text('80mm'),
                     icon: Icon(Icons.receipt_long_outlined, size: 16),
+                  ),
+                  const ButtonSegment(
+                    value: 'THERMAL_76',
+                    label: Text('76mm'),
+                    icon: Icon(Icons.receipt_outlined, size: 16),
+                  ),
+                  const ButtonSegment(
+                    value: 'THERMAL_58',
+                    label: Text('58mm'),
+                    icon: Icon(Icons.receipt_outlined, size: 16),
                   ),
                   if (sysBillFormat == 'A5' || activeFormat == 'A5')
                     const ButtonSegment(
                       value: 'A5',
-                      label: Text('A5 Invoice'),
+                      label: Text('A5'),
                       icon: Icon(Icons.description_outlined, size: 16),
                     ),
                   const ButtonSegment(
                     value: 'A4',
-                    label: Text('A4 Invoice'),
+                    label: Text('A4'),
                     icon: Icon(Icons.print_outlined, size: 16),
                   ),
                 ],
@@ -186,7 +209,7 @@ Future<void> showSaleBillPreviewDialog(
               icon: const Icon(Icons.print_outlined),
               label: Text(
                 isThermal
-                    ? 'Print 80mm Thermal'
+                    ? (activeFormat.contains('58') ? 'Print 58mm Thermal' : (activeFormat.contains('76') ? 'Print 76mm Thermal' : (activeFormat.contains('72') ? 'Print 72mm Thermal' : 'Print 80mm Thermal')))
                     : (isA5 ? 'Print A5 Invoice' : 'Print A4 Invoice'),
               ),
             ),

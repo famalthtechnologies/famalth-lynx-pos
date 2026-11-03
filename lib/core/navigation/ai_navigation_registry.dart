@@ -52,7 +52,7 @@ import '../../screens/restaurant/recurring_expenses_screen.dart';
 // Settings & Auth Screens
 import '../../screens/settings/whatsapp_dashboard_screen.dart';
 import '../../screens/settings/settings_screen.dart';
-import '../../screens/settings/property_info_screen.dart';
+import '../../screens/settings/outlet_detail_modification_screen.dart';
 import '../../screens/settings/workflow_automation_screen.dart';
 import '../../screens/settings/developer_ecosystem_screen.dart';
 import '../../screens/settings/plugin_marketplace_screen.dart';
@@ -439,7 +439,7 @@ class AiNavigationRegistry {
         break;
 
       case 'PROPERTY_INFO':
-        targetScreen = const PropertyInfoScreen(outletid: 0);
+        targetScreen = const OutletDetailModificationScreen();
         break;
 
       case 'AI_ANALYTICS':

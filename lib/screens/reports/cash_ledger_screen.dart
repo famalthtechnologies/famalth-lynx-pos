@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:excel/excel.dart' as exc;
 import 'package:flutter/material.dart';
@@ -1625,6 +1626,22 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                             ],
                           ),
                         ),
+                        if (customer.totalAdvance > 0.009 && customer.totalOutstanding > 0.009)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilledButton.icon(
+                              onPressed: () => _showAdjustAdvanceDialog(customer, onCompleted: fetchLedger),
+                              icon: const Icon(Icons.auto_fix_high_rounded, size: 14),
+                              label: Text('Adjust Advance (${_money(math.min(customer.totalAdvance, customer.totalOutstanding))})'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF059669),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ),
                         if (ledgerReport != null && ledgerReport!.entries.isNotEmpty)
                           IconButton(
                             tooltip: 'Print Statement (PDF)',
@@ -2461,6 +2478,322 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                   );
                 },
                 child: const Text('Confirm Refund'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showAdjustAdvanceDialog(
+    CreditCustomerReport customer, {
+    VoidCallback? onCompleted,
+  }) async {
+    final maxAdjustable = math.min(customer.totalAdvance, customer.totalOutstanding);
+    final amountCtrl = TextEditingController(text: maxAdjustable.toStringAsFixed(2));
+    final noteCtrl = TextEditingController(text: 'Advance adjusted against outstanding due');
+    DateTime paymentDate = DateTime.now();
+    bool refundRemaining = false;
+    String refundPaymentMode = 'CASH';
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final enteredAdjust = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+          final validAdjust = enteredAdjust.clamp(0.0, math.min(customer.totalAdvance, customer.totalOutstanding));
+          final remainingDue = math.max(0.0, customer.totalOutstanding - validAdjust);
+          final remainingAdvance = math.max(0.0, customer.totalAdvance - validAdjust);
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                const Icon(Icons.auto_fix_high_rounded, color: Color(0xFF059669)),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Adjust Advance against Due Bills',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 500,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            customer.customerName.isNotEmpty ? customer.customerName : 'Customer',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                          ),
+                          if (customer.customerPhone.isNotEmpty)
+                            Text(
+                              customer.customerPhone,
+                              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                            ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF0FDF4),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFFBBF7D0)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Available Advance',
+                                        style: TextStyle(fontSize: 11, color: Color(0xFF16A34A)),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _money(customer.totalAdvance),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15,
+                                          color: Color(0xFF16A34A),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFEF2F2),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: const Color(0xFFFECACA)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Total Unpaid Due',
+                                        style: TextStyle(fontSize: 11, color: Color(0xFFDC2626)),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _money(customer.totalOutstanding),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15,
+                                          color: Color(0xFFDC2626),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: amountCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      onChanged: (_) => setDialogState(() {}),
+                      decoration: InputDecoration(
+                        labelText: 'Advance Amount to Adjust',
+                        prefixText: '${CurrencyService.symbol} ',
+                        helperText: 'Max auto-adjustable: ${_money(maxAdjustable)}',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Adjustment Date'),
+                      subtitle: Text(_fmtDate(paymentDate)),
+                      trailing: const Icon(Icons.calendar_today, size: 18),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: paymentDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2100),
+                        );
+                        if (picked != null) {
+                          setDialogState(() => paymentDate = picked);
+                        }
+                      },
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade100),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Remaining Due after Adjust:', style: TextStyle(fontSize: 12)),
+                              Text(
+                                _money(remainingDue),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: remainingDue > 0 ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Advance Remaining after Adjust:', style: TextStyle(fontSize: 12)),
+                              Text(
+                                _money(remainingAdvance),
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF16A34A)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (remainingAdvance > 0.009) ...[
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: refundRemaining,
+                        activeColor: const Color(0xFFDC2626),
+                        title: Text(
+                          'Refund remaining advance (${_money(remainingAdvance)}) to customer',
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
+                        subtitle: const Text(
+                          'Returns any leftover advance balance back to customer in one transaction',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        onChanged: (val) {
+                          setDialogState(() => refundRemaining = val ?? false);
+                        },
+                      ),
+                      if (refundRemaining) ...[
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          initialValue: refundPaymentMode,
+                          items: const ['CASH', 'CARD', 'UPI', 'BANK']
+                              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                              .toList(),
+                          onChanged: (val) => setDialogState(() => refundPaymentMode = val ?? 'CASH'),
+                          decoration: InputDecoration(
+                            labelText: 'Refund Payment Mode',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                    ],
+                    TextField(
+                      controller: noteCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Note (Optional)',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF059669),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.check_circle_outline, size: 16),
+                label: const Text('Confirm & Adjust'),
+                onPressed: () async {
+                  final adjustVal = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+                  if (adjustVal <= 0 && !refundRemaining) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please enter an amount to adjust')),
+                    );
+                    return;
+                  }
+                  if (adjustVal > customer.totalAdvance + 0.009) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Adjust amount exceeds total advance of ${_money(customer.totalAdvance)}')),
+                    );
+                    return;
+                  }
+
+                  try {
+                    final res = await ctrl.adjustBulkAdvance(
+                      customerName: customer.customerName,
+                      customerPhone: customer.customerPhone,
+                      customerGstin: customer.customerGstin,
+                      amount: adjustVal,
+                      paymentDate: paymentDate,
+                      refundRemaining: refundRemaining,
+                      refundPaymentMode: refundPaymentMode,
+                      note: noteCtrl.text.trim(),
+                    );
+
+                    if (!mounted) return;
+                    Navigator.pop(dialogContext);
+
+                    final adjustedAmt = double.tryParse((res['data']?['adjusted_amount'] ?? adjustVal).toString()) ?? adjustVal;
+                    final refundedAmt = double.tryParse((res['data']?['refunded_amount'] ?? 0).toString()) ?? 0.0;
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        backgroundColor: const Color(0xFF059669),
+                        content: Text(
+                          'Adjusted ${_money(adjustedAmt)} advance against due bills'
+                          '${refundedAmt > 0 ? ' and refunded ${_money(refundedAmt)}' : ''}',
+                        ),
+                      ),
+                    );
+
+                    await ctrl.loadCreditReport(
+                      fromDate: fromDate,
+                      toDate: toDate,
+                      customer: creditSearchCtrl.text,
+                    );
+                    if (onCompleted != null) {
+                      onCompleted();
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Failed to adjust advance: $e')),
+                      );
+                    }
+                  }
+                },
               ),
             ],
           );
@@ -3843,6 +4176,19 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                                   ),
                                 ),
                               ),
+                              if (customer.totalAdvance > 0.009 && customer.totalOutstanding > 0.009)
+                                FilledButton.icon(
+                                  onPressed: () => _showAdjustAdvanceDialog(customer),
+                                  icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
+                                  label: Text('Adjust Advance (${_money(math.min(customer.totalAdvance, customer.totalOutstanding))})'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF059669),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                ),
                               (() {
                                 final nonSubAdvance = customer.advances.where((e) {
                                   if (e.availableAmount <= 0.009) return false;

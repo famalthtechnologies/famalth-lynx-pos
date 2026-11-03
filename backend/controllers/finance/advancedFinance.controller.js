@@ -1355,6 +1355,7 @@ exports.updateRepayment = async (req, res) => {
             });
         }
         const balance = await refreshSaleOutstanding({ db: req.propertyDb, sale, transaction: t });
+        await updateSaleLedgerOutstanding({ db: req.propertyDb, outlet_id: req.user.outlet_id, sale, balance, transaction: t });
         await t.commit();
         res.json({ success: true, data: { repayment, balance } });
     }
@@ -1620,8 +1621,144 @@ exports.applyAdvance = async (req, res) => {
             transaction: t
         });
         const balance = await refreshSaleOutstanding({ db: req.propertyDb, sale, transaction: t });
+        await updateSaleLedgerOutstanding({ db: req.propertyDb, outlet_id: req.user.outlet_id, sale, balance, transaction: t });
         await t.commit();
         res.json({ success: true, data: { balance, applied_amount: amount } });
+    }
+    catch (error) {
+        await t.rollback();
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
+exports.adjustBulkAdvance = async (req, res) => {
+    const t = await req.propertyDb.transaction();
+    try {
+        const identity = normalizeCustomerIdentity(req.body);
+        ensureCustomerIdentity(identity);
+        const adjustAmount = toAmount(req.body.amount);
+        const paymentDate = dateKey(req.body.payment_date || new Date());
+        const refundRemaining = Boolean(req.body.refund_remaining);
+        const refundPaymentMode = String(req.body.refund_payment_mode || 'CASH').trim().toUpperCase();
+        const note = String(req.body.note || '').trim() || null;
+        if (adjustAmount <= 0 && !refundRemaining) {
+            throw new Error('Adjustment amount must be greater than 0');
+        }
+        const match = buildCustomerExactMatch(identity);
+        if (!match) {
+            throw new Error('Customer identification is required');
+        }
+        const advances = await req.propertyDb.models.customer_advances.findAll({
+            where: Object.assign({ outlet_id: req.user.outlet_id, available_amount: { [Op.gt]: 0 } }, match),
+            order: [['advance_date', 'ASC'], ['id', 'ASC']],
+            transaction: t
+        });
+        const totalAvailable = advances.reduce((sum, adv) => sum + toAmount(adv.available_amount), 0);
+        if (adjustAmount > totalAvailable + 0.009) {
+            throw new Error(`Adjustment amount (${adjustAmount.toFixed(2)}) exceeds available advance (${totalAvailable.toFixed(2)})`);
+        }
+        const sales = await req.propertyDb.models.sales_headers.findAll({
+            where: Object.assign({ outlet_id: req.user.outlet_id, status: 'COMPLETED', is_latest: true, is_deleted: false, balance_due: { [Op.gt]: 0 } }, match),
+            order: [['sale_date', 'ASC'], ['id', 'ASC']],
+            transaction: t
+        });
+        let remainingToAdjust = adjustAmount;
+        const adjustedBills = [];
+        for (const sale of sales) {
+            if (remainingToAdjust <= 0.009)
+                break;
+            const due = toAmount(sale.balance_due);
+            if (due <= 0.009)
+                continue;
+            const alloc = Math.min(remainingToAdjust, due);
+            let remainingFromAdvance = alloc;
+            for (const adv of advances) {
+                if (remainingFromAdvance <= 0.009)
+                    break;
+                const curAvail = toAmount(adv.available_amount);
+                if (curAvail <= 0.009)
+                    continue;
+                const deduct = Math.min(remainingFromAdvance, curAvail);
+                adv.available_amount = Math.max(0, toAmount(curAvail - deduct));
+                await adv.update({
+                    available_amount: adv.available_amount,
+                    updated_by: req.user.id
+                }, { transaction: t });
+                remainingFromAdvance = toAmount(remainingFromAdvance - deduct);
+            }
+            await req.propertyDb.models.customer_repayments.create({
+                outlet_id: req.user.outlet_id,
+                sale_id: sale.id,
+                payment_date: paymentDate,
+                amount: alloc,
+                payment_mode: 'ADVANCE',
+                reference_no: `ADV-ADJ-${sale.sale_no}`,
+                note: note || `Advance adjusted against #${sale.sale_no}`,
+                created_by: req.user.id,
+                updated_by: req.user.id
+            }, { transaction: t });
+            const balance = await refreshSaleOutstanding({ db: req.propertyDb, sale, transaction: t });
+            await updateSaleLedgerOutstanding({ db: req.propertyDb, outlet_id: req.user.outlet_id, sale, balance, transaction: t });
+            await createLedgerEntry({
+                db: req.propertyDb,
+                outlet_id: req.user.outlet_id,
+                txn_date: paymentDate,
+                transaction_type: 'ADVANCE_APPLY',
+                reference_type: 'SALE',
+                reference_id: sale.id,
+                reference_no: sale.sale_no,
+                party_name: getCustomerLabel(sale),
+                payment_method: 'ADVANCE',
+                amount_in: 0,
+                amount_out: 0,
+                adjustment_amount: alloc,
+                notes: note || `Advance adjusted against #${sale.sale_no}`,
+                created_by: req.user.id,
+                transaction: t
+            });
+            adjustedBills.push({ sale_id: sale.id, sale_no: sale.sale_no, adjusted: alloc });
+            remainingToAdjust = toAmount(remainingToAdjust - alloc);
+        }
+        let totalRefunded = 0;
+        if (refundRemaining) {
+            const leftoverAdvances = advances.filter((a) => toAmount(a.available_amount) > 0.009);
+            for (const adv of leftoverAdvances) {
+                const curAvail = toAmount(adv.available_amount);
+                if (curAvail <= 0.009)
+                    continue;
+                const updatedNote = adv.note ? `${adv.note}; Refunded Rs. ${curAvail.toFixed(2)}` : `Refunded Rs. ${curAvail.toFixed(2)}`;
+                await adv.update({
+                    available_amount: 0,
+                    note: updatedNote,
+                    updated_by: req.user.id
+                }, { transaction: t });
+                await createLedgerEntry({
+                    db: req.propertyDb,
+                    outlet_id: req.user.outlet_id,
+                    txn_date: paymentDate,
+                    transaction_type: 'CUSTOMER_ADVANCE_REFUND',
+                    reference_type: 'CUSTOMER_ADVANCE',
+                    reference_id: adv.id,
+                    reference_no: adv.reference_no || `ADV-${adv.id}`,
+                    party_name: getCustomerLabel(adv),
+                    payment_method: refundPaymentMode,
+                    amount_in: 0,
+                    amount_out: curAvail,
+                    notes: `Refunded advance balance of Rs. ${curAvail.toFixed(2)}`,
+                    created_by: req.user.id,
+                    transaction: t
+                });
+                totalRefunded = toAmount(totalRefunded + curAvail);
+            }
+        }
+        await t.commit();
+        res.json({
+            success: true,
+            data: {
+                adjusted_amount: toAmount(adjustAmount - remainingToAdjust),
+                refunded_amount: totalRefunded,
+                adjusted_bills: adjustedBills
+            }
+        });
     }
     catch (error) {
         await t.rollback();
@@ -2451,11 +2588,26 @@ exports.getCustomerLedger = async (req, res) => {
                         : `Repayment for #${sale.sale_no}`,
                     payment_mode: p.payment_mode || 'CASH',
                     debit: 0,
-                    credit: isAdvanceAdjust ? 0 : toAmount(p.amount),
+                    credit: toAmount(p.amount),
                     notes: isAdvanceAdjust
                         ? (p.note || 'Settled from Advance')
                         : (p.note || 'Repayment received')
                 });
+
+                if (isAdvanceAdjust) {
+                    rawTransactions.push({
+                        date: p.payment_date,
+                        sort_time: p.created_at || p.payment_date,
+                        id: `adv-util-${p.id}`,
+                        voucher_type: 'ADVANCE_UTILIZED',
+                        voucher_no: p.reference_no || `REC-${p.id}`,
+                        description: `Advance Utilized for #${sale.sale_no}`,
+                        payment_mode: p.payment_mode || 'ADVANCE',
+                        debit: toAmount(p.amount),
+                        credit: 0,
+                        notes: p.note || `Adjusted from customer advance against #${sale.sale_no}`
+                    });
+                }
             }
         }
         for (const adv of advances) {

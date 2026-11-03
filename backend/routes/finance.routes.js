@@ -28,6 +28,7 @@ router.post('/advances', advancedCtrl.createAdvance);
 router.put('/advances/:id', advancedCtrl.updateAdvance);
 router.post('/advances/:id/refund', advancedCtrl.refundAdvance);
 router.post('/advances/apply', advancedCtrl.applyAdvance);
+router.post('/advances/adjust-bulk', advancedCtrl.adjustBulkAdvance);
 router.get('/repayments', advancedCtrl.listRepayments);
 router.post('/opening-balance', advancedCtrl.setOpeningBalance);
 router.get('/opening-balance', advancedCtrl.getOpeningBalances);
