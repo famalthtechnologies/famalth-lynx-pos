@@ -67,6 +67,34 @@ ORDER BY s.quantity ASC;
 
 ---
 
+## 🧮 Sales Revenue, Net Sales & Round-Off Invariants
+
+Implemented in `backend/controllers/report/salesReport.controller.ts` and `lib/screens/reports/sales_report_screen.dart`:
+
+### 1. Invariant Equation
+$$\text{Revenue} = \text{Net Sales} + \text{Extra Charges} + \text{Charges Tax} + \text{Round Off}$$
+Where:
+- $\text{Net Sales} = \text{Item Taxable Total} + \text{Item Tax Total} - \text{Discount Total}$
+- $\text{Round Off} = \text{Revenue} - (\text{Net Sales} + \text{Extra Charges} + \text{Charges Tax})$
+
+### 2. Operational Draft & Clinical Appointment Filter
+To prevent draft estimates or open doctor appointments from polluting statutory tax ledgers:
+```typescript
+if (order_type) {
+    where.order_type = order_type;
+} else {
+    where.order_type = { [Op.ne]: 'CLINIC_APPOINTMENT' };
+    where.sale_no = {
+        [Op.and]: [
+            { [Op.notILike]: 'DRAFT-%' },
+            { [Op.notILike]: 'APPT-%' }
+        ]
+    };
+}
+```
+
+---
+
 ## 📡 REST API Endpoint Specifications
 
 Mounted under `/api/reports` and `/api/analytics`:

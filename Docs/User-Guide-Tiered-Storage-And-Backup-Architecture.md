@@ -120,9 +120,18 @@ Famalth Lynx uses three purpose-built backup file formats:
 
 | Format | File Extension | Structure & Purpose | Typical Use Case |
 | :--- | :--- | :--- | :--- |
-| **Famalth Enterprise Archive** | `.fambak` | Gzip-compressed, multi-table JSON archive with embedded schema manifest, table metadata, and media references. | Selective outlet migration, scheduled cloud snapshots, and pre-restore inspection. |
+| **Famalth Enterprise Archive** | `.fambak` | Gzip-compressed, multi-table JSON archive with embedded schema manifest, table metadata, and media references. | Selective outlet migration, scheduled cloud snapshots, and pre-restore inspection. Supported directly in the Setup Wizard for 1-click restore. |
 | **Standard POS Snapshot** | `.posbak` | Fast, lightweight binary snapshot of operational transactions, open tables, and daily cash ledgers. | Quick end-of-day shift backup taken by cashiers before closing the counter. |
 | **Encrypted Raw Dump** | `.enc` | AES-256 encrypted raw PostgreSQL pg_dump binary with cryptographic salt and initialization vector (IV). | Bare-metal server disaster recovery sent to private off-site Google Drive. |
+
+### Restoring Local Backups with Security Email OTP:
+To prevent unauthorized staff from wiping a branch database:
+1. In **Outlet Setup Wizard** (`outlet_setup_screen.dart`), select **Restore Backup / Snapshot**.
+2. Select your backup file (`.fambak`, `.posbak`, or `.enc`).
+3. **Admin Email Verification**: Enter your registered admin email and click **Send OTP**.
+4. Enter the 6-digit cryptographic OTP received in your email.
+5. Once verified, click **Restore Selected Backup**.
+6. The system restores all tables, auto-binds the primary restored outlet code into `AppConfig`, and navigates to the login screen.
 
 ---
 

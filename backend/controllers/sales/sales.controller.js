@@ -69,14 +69,6 @@ function buildCustomerScope(identity = {}) {
     }
     return null;
 }
-    if (identity.customer_gstin) {
-        return { customer_gstin: identity.customer_gstin };
-    }
-    if (identity.customer_name) {
-        return { customer_name: identity.customer_name };
-    }
-    return null;
-}
 const getSharedOutletIds = async (req, outletId) => {
     const defaultIds = [Number(outletId)];
     if (!outletId)

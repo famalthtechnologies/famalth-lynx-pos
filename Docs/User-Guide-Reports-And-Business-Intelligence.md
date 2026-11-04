@@ -52,8 +52,13 @@ Reports Hub
 
 ### Retail Sales & Tax Split Report
 - **Screen**: `Reports > Retail Sales Report`
-- Filter by date range (Today, This Week, This Month, Custom Date Range), cashier terminal, or outlet.
-- Displays: Gross Sales, Net Discounts Applied, Net Sales, Tax Breakdown (CGST, SGST, IGST, VAT), and Final Billed Revenue.
+- Filter by date range (Today, This Week, This Month, Custom Date Range), cashier terminal, payment mode, or order type.
+- **Accurate Metric Cards**:
+  - **Revenue (Grand Total)**: Total net amount collected across all customer invoices.
+  - **Net Sales (Standard)**: Gross item taxable total plus item taxes minus discounts (`Taxable + Tax - Discount`).
+  - **Round Off Card**: Dedicated metric displaying fractional rupee/currency adjustments incurred during cash invoice total round-off, ensuring 100% mathematical reconciliation with individual receipt slips.
+  - **Taxed Sales vs Non-Taxed Sales**: Automatic separation of GST/VAT-exempt grocery/essential items from taxed products.
+  - **Exclusion of Drafts & Clinic Notes**: Unsettled clinical appointment consultations (`APPT-XXXX`) and quotation drafts (`DRAFT-XXXX`) are automatically excluded from final retail revenue figures to prevent premature tax reporting.
 
 ### Payment Mode Analysis (Cash, Card, M-Pesa, UPI)
 - **Screen**: `Reports > Payment Analysis`

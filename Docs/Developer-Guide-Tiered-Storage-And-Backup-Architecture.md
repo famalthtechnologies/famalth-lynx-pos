@@ -179,6 +179,7 @@ Mounted on `/api/backup` via `backend/routes/backup.routes.ts`:
 - `POST /api/backup/restore-fambak`: Execute selective or complete restoration from `.fambak` archive.
 - `POST /api/backup/restore-tenant-backup`: Restore `.posbak` operational snapshot.
 - `POST /api/backup/restore-cloud-backup`: 1-click cloud snapshot restoration.
+- `POST /api/public/backup/restore-local-enc`: Public restore endpoint supporting `.fambak`, `.posbak`, and `.enc` files with automated outlet code auto-discovery.
 
 ### 4. Enterprise Console Operations (SuperAdmin)
 - `POST /api/backup/system-backup`: Full bare-metal backup written to `storage/enterprise/backups/`.
