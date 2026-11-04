@@ -355,4 +355,82 @@ class BackupService {
     }
     throw Exception(res?['message'] ?? 'Failed to execute retention purge');
   }
+
+  /// Famalth Lynx Metered Cloud/Offline Storage Quota (GET /api/backup/storage-quota)
+  static Future<Map<String, dynamic>> fetchStorageQuota([String? outletCode]) async {
+    try {
+      final query = outletCode != null && outletCode.isNotEmpty
+          ? '?outlet_code=${Uri.encodeComponent(outletCode)}'
+          : '';
+      final res = await ApiClient.get('${ApiEndpoints.storageQuota}$query');
+      if (res != null && res['success'] == true && res['data'] != null) {
+        return Map<String, dynamic>.from(res['data']);
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  /// 1-Click Monthly Storage Expansion (POST /api/backup/storage-quota/upgrade)
+  static Future<Map<String, dynamic>> upgradeStorageQuota(String addonPlanCode, [String? outletCode]) async {
+    final payload = {
+      'addon_plan_code': addonPlanCode,
+      if (outletCode != null && outletCode.isNotEmpty) 'outlet_code': outletCode,
+    };
+    final res = await ApiClient.post(ApiEndpoints.storageQuotaUpgrade, payload);
+    if (res != null && res['success'] == true) {
+      return Map<String, dynamic>.from(res);
+    }
+    throw Exception(res?['message'] ?? 'Failed to upgrade storage quota');
+  }
+
+  /// Admin Console: Get All Clients Storage Usage & Paid Addons Overview
+  static Future<Map<String, dynamic>> fetchAdminStorageOverview() async {
+    final res = await ApiClient.get(ApiEndpoints.adminStorageOverview);
+    if (res != null && res['success'] == true && res['data'] != null) {
+      return Map<String, dynamic>.from(res['data']);
+    }
+    throw Exception(res?['message'] ?? 'Failed to load enterprise storage overview');
+  }
+
+  /// Admin Console: Manually Increase / Grant Storage Quota to Any Client
+  static Future<Map<String, dynamic>> adminModifyStorage({
+    required String outletCode,
+    required String action, // 'ADD_GB', 'SET_TOTAL_GB', 'ADD_BONUS_GB', 'FREEZE', 'UNFREEZE'
+    double? additionalGb,
+    double? totalGb,
+    String? notes,
+  }) async {
+    final payload = {
+      'outlet_code': outletCode,
+      'action': action,
+      if (additionalGb != null) 'additional_gb': additionalGb,
+      if (totalGb != null) 'total_gb': totalGb,
+      if (notes != null) 'notes': notes,
+    };
+    final res = await ApiClient.post(ApiEndpoints.adminModifyStorage, payload);
+    if (res != null && res['success'] == true) {
+      return Map<String, dynamic>.from(res);
+    }
+    throw Exception(res?['message'] ?? 'Failed to modify outlet storage');
+  }
+
+  /// Automatic Storage Increment on Payment Success
+  static Future<Map<String, dynamic>> processStoragePaymentSuccess({
+    required String outletCode,
+    required String planCode,
+    double? amount,
+    String? transactionId,
+  }) async {
+    final payload = {
+      'outlet_code': outletCode,
+      'plan_code': planCode,
+      if (amount != null) 'amount': amount,
+      if (transactionId != null) 'transaction_id': transactionId,
+    };
+    final res = await ApiClient.post(ApiEndpoints.storagePaymentSuccess, payload);
+    if (res != null && res['success'] == true) {
+      return Map<String, dynamic>.from(res);
+    }
+    throw Exception(res?['message'] ?? 'Failed to process storage payment');
+  }
 }

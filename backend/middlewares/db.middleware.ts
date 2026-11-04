@@ -58,6 +58,26 @@ export const dbMiddleware = async (req: Request, res: Response, next: NextFuncti
           ALTER TABLE users ADD COLUMN IF NOT EXISTS show_in_quick_login BOOLEAN DEFAULT FALSE;
           ALTER TABLE users ALTER COLUMN show_in_quick_login SET DEFAULT FALSE;
 
+          CREATE TABLE IF NOT EXISTS outlet_storage_quotas (
+            id SERIAL PRIMARY KEY,
+            outlet_id INTEGER NOT NULL,
+            outlet_code VARCHAR(64) NOT NULL UNIQUE,
+            base_quota_bytes BIGINT NOT NULL DEFAULT 16106127360,
+            addon_quota_bytes BIGINT NOT NULL DEFAULT 0,
+            promotional_bonus_bytes BIGINT NOT NULL DEFAULT 0,
+            total_allocated_bytes BIGINT NOT NULL DEFAULT 16106127360,
+            current_backups_bytes BIGINT NOT NULL DEFAULT 0,
+            current_uploads_bytes BIGINT NOT NULL DEFAULT 0,
+            current_db_bytes BIGINT NOT NULL DEFAULT 0,
+            total_used_bytes BIGINT NOT NULL DEFAULT 0,
+            warning_threshold_pct INTEGER NOT NULL DEFAULT 80,
+            is_frozen BOOLEAN NOT NULL DEFAULT FALSE,
+            active_plan_code VARCHAR(64) NOT NULL DEFAULT 'STARTER_15GB',
+            plan_expires_at TIMESTAMP WITH TIME ZONE NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+
         `);
         console.log('✅ Self-healed: Checked and added missing columns to tables');
 

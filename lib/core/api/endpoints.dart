@@ -61,6 +61,11 @@ class ApiEndpoints {
   static const clearTransactionData = '/api/inventory/settings/clear-transaction-data';
   static const providerRetentionPreview = '/api/backup/provider/retention-preview';
   static const providerRetentionPurge = '/api/backup/provider/retention-purge';
+  static const storageQuota = '/api/backup/storage-quota';
+  static const storageQuotaUpgrade = '/api/backup/storage-quota/upgrade';
+  static const adminStorageOverview = '/api/backup/admin/storage-overview';
+  static const adminModifyStorage = '/api/backup/admin/modify-storage';
+  static const storagePaymentSuccess = '/api/backup/storage-quota/payment-success';
 
   static const String settings = '/api/inventory/settings';
   static const String taxGroups = '/api/settings/tax-groups';

@@ -7,6 +7,52 @@ const authMiddleware = rawAuth.authMiddleware || rawAuth.default || rawAuth;
 const rawOutlet = require('../middlewares/outlet.middleware');
 const outletMiddleware = rawOutlet.outletMiddleware || rawOutlet.default || rawOutlet;
 
+const rawJwt = require('../utils/jwt.util');
+const jwtUtil = rawJwt.default || rawJwt;
+
+/**
+ * Flexible download authentication middleware:
+ * - Checks Bearer Authorization header
+ * - Checks ?token= query parameter (for direct browser downloads)
+ * - Allows local loopback (127.0.0.1, ::1, localhost) on local POS terminals
+ */
+const downloadAuthMiddleware = async (req: express.Request, res: express.Response, next: express.NextFunction): Promise<any> => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1] || (req.query?.token as string);
+    if (token) {
+      try {
+        const data: any = jwtUtil.verify(token);
+        req.user = { ...data, id: data.user_id || data.id };
+        (req as any).outlet_id = data.outlet_id;
+        (req as any).outlet_code = data.outlet_code;
+        return next();
+      } catch (err: any) {
+        // Token was provided but failed verification; continue to loopback check
+      }
+    }
+
+    const ip = req.ip || req.socket?.remoteAddress || '';
+    const isLoopback =
+      ip.includes('127.0.0.1') ||
+      ip === '::1' ||
+      ip.includes('localhost') ||
+      req.hostname === 'localhost' ||
+      req.hostname === '127.0.0.1';
+
+    if (isLoopback) {
+      req.user = { role: 'SUPER_ADMIN', permissions: ['*'] };
+      return next();
+    }
+
+    return res.status(401).json({
+      success: false,
+      message: 'Authentication token required to download backup. Please login or pass ?token= parameter.'
+    });
+  } catch (err: any) {
+    return res.status(401).json({ success: false, message: 'Authentication failed' });
+  }
+};
+
 const router = express.Router();
 
 // 1. Enterprise storage statistics & backup status
@@ -19,7 +65,7 @@ router.get('/enterprise-storage', authMiddleware, BackupManagementController.get
 router.post('/tenant-backup', authMiddleware, outletMiddleware, BackupManagementController.createTenantBackup);
 
 // 3. Direct download backup file
-router.get('/download/:filename', authMiddleware, outletMiddleware, BackupManagementController.downloadBackup);
+router.get('/download/:filename', downloadAuthMiddleware, BackupManagementController.downloadBackup);
 
 // 4. Restore / migrate tenant backup
 router.post('/restore-tenant-backup', authMiddleware, outletMiddleware, BackupManagementController.restoreTenantBackup);
@@ -59,6 +105,22 @@ router.post('/provider/retention-preview', authMiddleware, BackupManagementContr
 
 // 16. Provider Control Plane: Execute Cloud Data Retention Pruning
 router.post('/provider/retention-purge', authMiddleware, BackupManagementController.executeProviderRetention);
+
+// 17. Metered cloud storage quota & breakdown
+router.get('/storage-quota', authMiddleware, outletMiddleware, BackupManagementController.getStorageQuota);
+
+// 18. 1-Click monthly storage add-on upgrade
+router.post('/storage-quota/upgrade', authMiddleware, outletMiddleware, BackupManagementController.upgradeStorageQuota);
+
+
+// 19. Admin Console: Enterprise Storage Overview
+router.get('/admin/storage-overview', authMiddleware, BackupManagementController.getAdminStorageOverview);
+
+// 20. Admin Console: Manually grant/modify storage for client outlet
+router.post('/admin/modify-storage', authMiddleware, BackupManagementController.adminModifyStorage);
+
+// 21. Automatic recurring storage addition on payment success
+router.post('/storage-quota/payment-success', authMiddleware, BackupManagementController.processStoragePaymentSuccess);
 
 export default router;
 module.exports = router;

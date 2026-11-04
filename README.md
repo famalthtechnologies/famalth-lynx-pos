@@ -150,6 +150,7 @@ Deploy the web application and backend seamlessly on [Render.com](https://render
 - 🏥 **[Clinic Management, OPD Queue & Digital Prescriptions](./Docs/User-Guide-Clinic-Management-And-OPD.md)** — Doctor consultation desk, vitals recording, stock medicine prescribing & public appointment portal
 - 🛠️ **[System Maintenance Mode & Emergency Lockout](./Docs/User-Guide-Maintenance-Mode-And-Lockout.md)** — Non-dismissible lockout modal, advance maintenance notices & auto-resumption
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./Docs/User-Guide-Delivery-Challan-And-Transport-Logistics.md)** — Issuing goods in transit challans, fleet vehicle/driver management, trip loading manifest & POS conversion
+- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/User-Guide-Tiered-Storage-And-Backup-Architecture.md)** — Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing & .fambak/.posbak archives
 - ❓ **[Complete Store Operations FAQ](./Docs/User-Guide-FAQ.md)** — Frequently asked cashier and manager troubleshooting questions
 - 📖 **[Master User Guide & Workflow Index](./Docs/User-Guide.md)** — Universal operational documentation hub
 
@@ -158,11 +159,12 @@ Deploy the web application and backend seamlessly on [Render.com](https://render
 ### 🛠️ Developer & Technical Architecture Guides
 - 📋 **[Master Feature & Documentation Coverage Matrix](./Docs/Feature-Coverage-Checklist.md)** — 100% verified UI & backend feature audit
 - 📜 **[System Architecture Upgrades & Changelog (Sept–Oct 2026)](./Docs/System-Architecture-And-Changelog.md)** — Architectural evolution timeline & core invariants
-- 📡 **[Master REST API Endpoint Reference](./Docs/Endpoint-Reference.md)** — Comprehensive specification of all 47 backend route modules
+- 📡 **[Master REST API Endpoint Reference](./Docs/Endpoint-Reference.md)** — Comprehensive specification of all 48 backend route modules
 - 🏢 **[Enterprise SaaS Control Plane & Data Doctor](./Docs/Developer-Guide-Enterprise-Control-Plane-And-Data-Doctor.md)** — Master IAM, multi-tenant fleet governance, 30-day quota guard, sandboxed Data Doctor SQL runner, vector PDF invoicing & Inno Setup packaging
 - 🏥 **[Clinic Management & Digital Prescription Architecture](./Docs/Developer-Guide-Clinic-Management-And-OPD.md)** — Appointment state machine, doctor desk vitals JSONB, direct pharmacy billing & vector prescription PDF
 - 🛠️ **[System Maintenance & Lockout Middleware Engine](./Docs/Developer-Guide-Maintenance-Mode-And-Lockout.md)** — Maintenance middleware, atomic JSON state storage, role-based bypass rules & Flutter interceptor
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Architecture](./Docs/Developer-Guide-Delivery-Challan-And-Transport-Logistics.md)** — Logistics schema, trip assignment manifest, doorstep OTP verification & POS sales conversion pipeline
+- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/Developer-Guide-Tiered-Storage-And-Backup-Architecture.md)** — Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing, .fambak archive internals & quota services
 - 💳 **[Payment Gateways & Virtual Simulator Architecture](./Docs/Developer-Guide-Payment-Gateways-And-Virtual-Simulator.md)** — Multi-gateway credential store, secret masking & Flutter simulator
 - 🧩 **[Plugin Dev Studio & Sandbox Architecture](./Docs/Developer-Guide-Plugin-Dev-Studio-And-Sandbox.md)** — In-app IDE, safe TypeScript runner, sandbox lifecycle hooks & marketplace publishing
 - 🛵 **[Third-Party Orders & Outlet OTP Architecture](./Docs/Developer-Guide-Third-Party-Orders-And-Outlet-OTP.md)** — Delivery aggregator order normalization, commissions & OTP onboarding

@@ -232,6 +232,16 @@ exports.createOutlet = async (req, res) => {
             console.warn('[OUTLET REGISTRATION] Master tenant/outlet sync warning:', syncErr.message);
         }
 
+        // Automatically allocate 15 GB baseline Famalth Lynx Cloud & Offline Storage quota and isolated directories
+        try {
+            const rawStorage = require('../../services/storageQuota.service');
+            const StorageQuotaService = rawStorage.default || rawStorage;
+            await StorageQuotaService.getOrCreateQuota(req.propertyDb, outlet.id, outlet.outlet_code);
+            console.log(`[STORAGE PROVISIONING] Auto-allocated 15 GB Famalth Lynx Storage and isolated directories for outlet [${outlet.outlet_code}]`);
+        } catch (storageErr: any) {
+            console.warn('[STORAGE PROVISIONING WARNING] Quota provisioning non-fatal error:', storageErr.message);
+        }
+
         const config = loadConfig();
         await initClient(config, outlet);
 

@@ -198,13 +198,20 @@ export async function sendMail({
     const isSecure =
       Number(config?.smtp_port) === 465 ||
       (config?.encryption_type && String(config.encryption_type).includes('SSL'));
+    const smtpPass = config?.smtp_pass || process.env.EMAIL_PASS || process.env.SMTP_PASS;
+
+    if (!emailUser || !smtpPass) {
+      console.warn(`[EMAIL SERVICE] No SMTP credentials configured (user or password missing) for outlet ${outlet_id || 'system'}. Email to ${to} skipped.`);
+      return false;
+    }
+
     const transporter = nodemailer.createTransport({
       host: config?.smtp_host || process.env.EMAIL_HOST || 'smtp.gmail.com',
       port: Number(config?.smtp_port) || Number(process.env.EMAIL_PORT) || 587,
       secure: isSecure,
       auth: {
         user: emailUser,
-        pass: config?.smtp_pass || process.env.EMAIL_PASS
+        pass: smtpPass
       },
       tls: { rejectUnauthorized: false }
     });
@@ -221,8 +228,8 @@ export async function sendMail({
     const info = await transporter.sendMail(mailOptions);
     console.log(`[EMAIL SERVICE SMTP SUCCESS] Message sent to ${to}: ${info.messageId}`);
     return true;
-  } catch (error) {
-    console.error(`[EMAIL SERVICE ERROR] Error sending email to ${to}:`, error);
+  } catch (error: any) {
+    console.warn(`[EMAIL SERVICE NOTICE] Delivery to ${to} could not be completed: ${error?.message || error}`);
     return false;
   }
 }

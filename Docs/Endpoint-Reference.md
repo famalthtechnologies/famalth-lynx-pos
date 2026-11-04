@@ -566,4 +566,27 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 ---
 
-*Last Updated: November 2026 | Covers 100% of all 47 Express Route Modules & Developer Subsystems*
+## 48. Multi-Tiered Storage & Enterprise Backups (`/api/backup`)
+
+- `GET /api/backup/storage-stats` — Retrieve outlet-scoped storage usage breakdown (backups, uploads, database size).
+- `GET /api/backup/enterprise-storage` — Retrieve global cross-outlet storage usage analytics (Admin Console).
+- `GET /api/backup/storage-quota` — Check metered storage plan, quota limit, and warning threshold states.
+- `POST /api/backup/tenant-backup` — Generate fast `.posbak` operational snapshot for active outlet.
+- `POST /api/backup/create-fambak` — Generate comprehensive `.fambak` archive with schema manifest (Outlet or Enterprise scope).
+- `GET /api/backup/download/:filename` — Secure streaming download supporting JWT header, signed query token, or loopback.
+- `POST /api/backup/inspect-backup` — Pre-inspect archive manifest without executing writes.
+- `POST /api/backup/restore-fambak` — Execute selective outlet restore or complete enterprise restoration from `.fambak` package.
+- `POST /api/backup/restore-tenant-backup` — Restore `.posbak` transactional state.
+- `DELETE /api/backup/:filename` — Purge backup archive from outlet storage.
+- `POST /api/backup/system-backup` — Full bare-metal backup stored in `backend/storage/enterprise/backups/`.
+- `POST /api/backup/restore-system-backup` — Restore full bare-metal system backup.
+- `GET /api/backup/cloud-backups` — List historical encrypted `.enc` snapshots.
+- `POST /api/backup/restore-cloud-backup` — 1-click cloud snapshot restoration.
+- `POST /api/backup/email-backup-link` — Dispatch off-server signed download link via email.
+- `GET /api/backup/email-download` — Public token-authenticated download endpoint.
+- `POST /api/backup/provider/retention-purge` — Execute automated retention pruning of expired backups.
+- `POST /api/backup/storage-quota/upgrade` — Upgrade monthly storage capacity quota.
+
+---
+
+*Last Updated: November 2026 | Covers 100% of all 48 Express Route Modules & Developer Subsystems*

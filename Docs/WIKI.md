@@ -58,6 +58,7 @@ mindmap
 | **Clinic & OPD Healthcare Suite** | Doctors / Receptionists | Patient OPD token queue, doctor consultation desk & digital prescriptions | [User-Guide-Clinic-Management-And-OPD.md](./User-Guide-Clinic-Management-And-OPD.md) |
 | **System Maintenance Mode** | DevOps / Admins | Advance warning banner & non-dismissible lockout modal | [User-Guide-Maintenance-Mode-And-Lockout.md](./User-Guide-Maintenance-Mode-And-Lockout.md) |
 | **Delivery Challan & Transport** | Logistics / Cashiers | Fleet vehicle/driver tracking, dispatch loading manifests & POS conversion | [User-Guide-Delivery-Challan-And-Transport-Logistics.md](./User-Guide-Delivery-Challan-And-Transport-Logistics.md) |
+| **Multi-Tiered Storage Volume** | SysAdmins / DevOps | Partitioned root storage, enterprise tier, outlet sandboxing & .fambak archives | [User-Guide-Tiered-Storage-And-Backup-Architecture.md](./User-Guide-Tiered-Storage-And-Backup-Architecture.md) |
 | **Windows EXE Backend Packaging** | DevOps / Devs | Node.js pkg binary compilation, obfuscation & standalone bundle | [Windows-EXE-Packaging-And-Deployment-Guide.md](./Windows-EXE-Packaging-And-Deployment-Guide.md) |
 | **PostgreSQL Removal & Clean Reinstall** | SysAdmins / Support | Total PostgreSQL purge, registry wipe, and clean reinstallation | [PostgreSQL-Complete-Removal-Guide.md](./PostgreSQL-Complete-Removal-Guide.md) |
 
@@ -113,6 +114,7 @@ Step-by-step illustrated workflows written for store operators, cashiers, restau
 - 🏥 **[Clinic Management, OPD Queue & Digital Prescriptions](./User-Guide-Clinic-Management-And-OPD.md)**: Doctor consultation desk, vitals recording, stock medicine prescribing & public appointment portal.
 - 🛠️ **[System Maintenance Mode & Emergency Lockout](./User-Guide-Maintenance-Mode-And-Lockout.md)**: Non-dismissible lockout modal, advance maintenance notices & auto-resumption.
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./User-Guide-Delivery-Challan-And-Transport-Logistics.md)**: Issuing goods in transit challans, fleet vehicle/driver management, trip loading manifest & POS conversion.
+- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./User-Guide-Tiered-Storage-And-Backup-Architecture.md)**: Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing & .fambak/.posbak archives.
 - ❓ **[Complete Store Operations FAQ](./User-Guide-FAQ.md)**: Universal troubleshooting manual.
 
 ---
@@ -183,6 +185,7 @@ sequenceDiagram
 - 🏥 **[Clinic Management & Digital Prescription Architecture](./Developer-Guide-Clinic-Management-And-OPD.md)**: Appointment state machine, doctor desk vitals JSONB, direct pharmacy billing & vector prescription PDF.
 - 🛠️ **[System Maintenance & Lockout Middleware Engine](./Developer-Guide-Maintenance-Mode-And-Lockout.md)**: Maintenance middleware, atomic JSON state storage, role-based bypass rules & Flutter interceptor.
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Architecture](./Developer-Guide-Delivery-Challan-And-Transport-Logistics.md)**: Logistics schema, trip assignment manifest, doorstep OTP verification & POS sales conversion pipeline.
+- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Developer-Guide-Tiered-Storage-And-Backup-Architecture.md)**: Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing, .fambak archive internals & quota services.
 - 🍽️ **[QR Table Dining & Multi-Seat Architecture](./Developer-Guide-QR-Table-Ordering.md)**: Split-bill session engine, seat-level tagging, combined vs per-seat totals, and standalone dining app (`main_dining.dart`).
 - 🚀 **[1-Click Relational Store Migration Architecture](./One-Click-Cloud-Migration-Guide.md)**: In-memory relational ID translation engine and sequence re-alignment.
 - 🛍️ **[B2B Wholesale Marketplace & Community Chat Architecture](./B2B-Marketplace-And-Community-Guide.md)**: WebSocket chat protocols, vendor discovery, and direct PO translation.

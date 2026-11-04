@@ -391,8 +391,10 @@ export class TenantBackupService {
     const targetOutletId = Number(outletId);
     if (!targetOutletId) throw new Error('Valid target outlet ID is required for tenant backup.');
 
-    const outletDir = path.join(BACKUP_BASE_DIR, 'outlets', outletCode || `outlet_${targetOutletId}`);
-    await fsPromises.mkdir(outletDir, { recursive: true });
+    const rawStorage = require('./storageQuota.service');
+    const StorageQuotaService = rawStorage.default || rawStorage;
+    const tenantPaths = StorageQuotaService.getTenantStoragePaths(outletCode || `OUT_${targetOutletId}`);
+    const outletDir = tenantPaths.backupsDir;
 
     // Table export list: Scoped parent tables and their child items
     const scopedTables = [
@@ -710,45 +712,64 @@ export class TenantBackupService {
    */
   public static resolveBackupFilePath(filename: string, outletCode?: string, isSuperAdmin: boolean = false): string | null {
     const sanitized = path.basename(filename);
-    const searchRoots = getBackupSearchRoots();
+    const rawStorage = require('./storageQuota.service');
+    const StorageQuotaService = rawStorage.default || rawStorage;
 
+    const isEnterpriseFile = sanitized.includes('enterprise') || sanitized.includes('system_full') || sanitized.includes('_all_');
+
+    // SECURITY GUARD: Regular outlets can NEVER access Admin Console enterprise backups
+    if (isEnterpriseFile && !isSuperAdmin) {
+      return null;
+    }
+
+    // 1. If Enterprise / Super Admin: check Admin Console dedicated folder
+    if (isSuperAdmin || isEnterpriseFile) {
+      try {
+        const adminPaths = StorageQuotaService.getAdminConsoleStoragePaths();
+        const adminCandidate = path.join(adminPaths.backupsDir, sanitized);
+        if (fs.existsSync(adminCandidate)) return adminCandidate;
+      } catch (_) {}
+    }
+
+    // 2. Direct Outlet Isolated Storage Check (storage/outlets/<outletCode>/backups)
+    if (outletCode && outletCode !== 'ALL') {
+      try {
+        const tenantPaths = StorageQuotaService.getTenantStoragePaths(outletCode);
+        const tenantCandidate = path.join(tenantPaths.backupsDir, sanitized);
+        if (fs.existsSync(tenantCandidate)) return tenantCandidate;
+      } catch (_) {}
+    }
+
+    // 3. Fallback search roots (legacy backups/ directory, backward compatibility)
+    const searchRoots = getBackupSearchRoots();
     for (const root of searchRoots) {
       const entCandidate = path.join(root, 'enterprise', sanitized);
-      if (fs.existsSync(entCandidate)) return entCandidate;
-      if (outletCode) {
+      if (fs.existsSync(entCandidate)) {
+        if (!isSuperAdmin && isEnterpriseFile) continue;
+        return entCandidate;
+      }
+
+      if (outletCode && outletCode !== 'ALL') {
+        const outletBackupPath = path.join(root, 'outlets', outletCode, 'backups', sanitized);
+        if (fs.existsSync(outletBackupPath)) return outletBackupPath;
+
         const outletPath = path.join(root, 'outlets', outletCode, sanitized);
         if (fs.existsSync(outletPath)) return outletPath;
       }
 
       const rootCandidate = path.join(root, sanitized);
       if (fs.existsSync(rootCandidate)) {
-        if (!isSuperAdmin && outletCode) {
+        if (!isSuperAdmin && outletCode && outletCode !== 'ALL') {
           if (sanitized.includes(outletCode)) return rootCandidate;
-        } else {
+        } else if (isSuperAdmin) {
           return rootCandidate;
         }
-      }
-
-      // Check subdirectories in outlets/
-      const outletsDir = path.join(root, 'outlets');
-      if (fs.existsSync(outletsDir)) {
-        try {
-          const subdirs = fs.readdirSync(outletsDir);
-          for (const sub of subdirs) {
-            if (!isSuperAdmin && outletCode && sub !== outletCode) continue;
-            const cand = path.join(outletsDir, sub, sanitized);
-            if (fs.existsSync(cand)) return cand;
-          }
-        } catch (_) {}
       }
     }
 
     return null;
   }
 
-  /**
-   * 5. Delete Backup File
-   */
   public static async deleteBackup(filename: string, outletCode?: string, isSuperAdmin: boolean = false): Promise<{ success: boolean; message?: string }> {
     const filePath = this.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
     if (!filePath) {
@@ -775,9 +796,13 @@ export class TenantBackupService {
    * Backs up all outlets, global configurations, and schemas into a signed system archive.
    */
   public static async createSystemBackup(activeDb: any): Promise<{ filename: string; filePath: string; totalRecords: number; sizeBytes: number; checksum: string }> {
+    const rawStorage = require('./storageQuota.service');
+    const StorageQuotaService = rawStorage.default || rawStorage;
+    const adminPaths = StorageQuotaService.getAdminConsoleStoragePaths();
+
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const filename = `system_full_backup_${timestamp}.posbak`;
-    const filePath = path.join(BACKUP_BASE_DIR, filename);
+    const filePath = path.join(adminPaths.backupsDir, filename);
 
     const allTables = [
       'outlets', 'system_settings', 'item_master', 'batches', 'stock_locations',
@@ -1141,13 +1166,32 @@ export class TenantBackupService {
     let filename = '';
     let targetDirectory = '';
 
+    
+    // DYNAMIC DATABASE-WIDE DISCOVERY: Complete table backup (not just hardcoded list)
+    let allPublicTables: string[] = [];
+    try {
+      const tableRows: any[] = await activeDb.query(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name;",
+        { type: QueryTypes.SELECT }
+      );
+      allPublicTables = tableRows.map((r: any) => r.table_name || r.TABLE_NAME).filter(Boolean);
+    } catch (_) {
+      allPublicTables = [];
+    }
+    if (allPublicTables.length === 0) {
+      allPublicTables = tablesToExport;
+    }
+
+    const rawStorage = require('./storageQuota.service');
+    const StorageQuotaService = rawStorage.default || rawStorage;
+
     if (isAll) {
-      targetDirectory = path.join(BACKUP_BASE_DIR, 'enterprise');
-      await fsPromises.mkdir(targetDirectory, { recursive: true });
+      const adminPaths = StorageQuotaService.getAdminConsoleStoragePaths();
+      targetDirectory = adminPaths.backupsDir;
       filename = `enterprise_backup_all_${timestamp}.fambak`;
 
       // Read all records for each table
-      for (const tbl of tablesToExport) {
+      for (const tbl of allPublicTables) {
         try {
           const rows: any[] = await activeDb.query(`SELECT * FROM "${tbl}";`, { type: QueryTypes.SELECT }).catch(() => []);
           const rowList = Array.isArray(rows) ? rows : (rows?.[0] || []);
@@ -1189,8 +1233,8 @@ export class TenantBackupService {
       // Scoped Single Outlet
       const outletId = Number(options.outletId || 1);
       const outletCode = String(options.outletCode || `OUT_${outletId}`);
-      targetDirectory = path.join(BACKUP_BASE_DIR, 'outlets', outletCode);
-      await fsPromises.mkdir(targetDirectory, { recursive: true });
+      const tenantPaths = StorageQuotaService.getTenantStoragePaths(outletCode);
+      targetDirectory = tenantPaths.backupsDir;
       filename = `outlet_backup_${outletCode}_${timestamp}.fambak`;
 
       const outletScopedTables = [
@@ -1722,7 +1766,14 @@ export class TenantBackupService {
           if (match && match[1]) fileOutlet = match[1];
         }
 
-        if (!isSuperAdmin && outletCode && outletCode !== 'ALL' && !isEnterprise && fileOutlet !== outletCode) {
+        // STRICT OUTLET DATA ISOLATION:
+        // If an outlet is specified (outletCode !== 'ALL'), only return files for this specific outlet.
+        // Enterprise full backups and other outlets are strictly excluded.
+        if (outletCode && outletCode !== 'ALL') {
+          if (fileOutlet !== outletCode) {
+            continue;
+          }
+        } else if (!isSuperAdmin) {
           continue;
         }
 

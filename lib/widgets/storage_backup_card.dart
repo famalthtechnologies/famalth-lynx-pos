@@ -1,5 +1,5 @@
 import '../screens/recovery/backup_service.dart';
-import '../screens/auth/login_screen.dart';
+
 import '../core/settings/local_preferences.dart';
 import '../core/auth/token_storage.dart';
 import 'dart:io';
@@ -9,6 +9,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/api/api_client.dart';
 import '../core/api/endpoints.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import '../core/config/app_config.dart';
 
 class StorageBackupCard extends StatefulWidget {
@@ -320,15 +323,366 @@ class _ManageBackupsDialog extends StatefulWidget {
 class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
   bool _isActionInProgress = false;
   String? _statusMessage;
+  String? _dialogAlertMessage;
+  String _dialogAlertType = 'SUCCESS'; // 'SUCCESS', 'WARNING', 'ERROR', 'INFO'
   List<dynamic> _backupsList = [];
   String _backupScope = 'OUTLET'; // 'OUTLET' or 'ALL'
   bool _saveToGoogleDrive = true;
   bool _emailDownloadLinkToOperator = true;
   String? _currentOutletCode;
+  int _dialogTab = 0; // 0 = Outlet Backups, 1 = Admin Console
+  Map<String, dynamic>? _adminOverview;
+  bool _isAdminOverviewLoading = false;
+
+  Future<void> _fetchAdminOverview() async {
+    setState(() => _isAdminOverviewLoading = true);
+    try {
+      final res = await BackupService.fetchAdminStorageOverview();
+      if (mounted) {
+        setState(() {
+          _adminOverview = res;
+          _isAdminOverviewLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isAdminOverviewLoading = false);
+        _showDialogMessage('Failed to load enterprise storage overview: $e', type: 'ERROR');
+      }
+    }
+  }
+
+  
+  
+  void _showAdminIncreaseStorageModal(Map<String, dynamic> client) {
+    final oCode = (client['outletCode'] ?? '').toString();
+    final oName = (client['outletName'] ?? oCode).toString();
+    final currAlloc = (client['totalAllocatedPretty'] ?? '15.00 GB').toString();
+
+    double selectedGb = 25.0;
+    String actionType = 'ADD_GB';
+    final customController = TextEditingController(text: '25');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Padding(
+                padding: const EdgeInsets.all(22),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.add_to_photos_rounded, color: Colors.blue, size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Admin Storage Grant: $oName', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                              Text('Outlet: $oCode • Current: $currAlloc', style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500)),
+                            ],
+                          ),
+                        ),
+                        IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Select Allocation Action:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('+ Additional Add-On GB'),
+                          selected: actionType == 'ADD_GB',
+                          onSelected: (_) => setModalState(() => actionType = 'ADD_GB'),
+                        ),
+                        ChoiceChip(
+                          label: const Text('🎁 Promotional Bonus GB'),
+                          selected: actionType == 'ADD_BONUS_GB',
+                          onSelected: (_) => setModalState(() => actionType = 'ADD_BONUS_GB'),
+                        ),
+                        ChoiceChip(
+                          label: Text(client['isFrozen'] == true ? '🔓 Unfreeze' : '❄️ Freeze'),
+                          selected: actionType == (client['isFrozen'] == true ? 'UNFREEZE' : 'FREEZE'),
+                          onSelected: (_) => setModalState(() => actionType = (client['isFrozen'] == true ? 'UNFREEZE' : 'FREEZE')),
+                        ),
+                      ],
+                    ),
+                    if (actionType == 'ADD_GB' || actionType == 'ADD_BONUS_GB') ...[
+                      const SizedBox(height: 14),
+                      const Text('Quick Add Storage Options:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [10, 25, 50, 100].map((gb) {
+                          final isSel = selectedGb == gb.toDouble();
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                backgroundColor: isSel ? Colors.blue.withValues(alpha: 0.15) : null,
+                                side: BorderSide(color: isSel ? Colors.blue : Colors.grey.shade400),
+                              ),
+                              onPressed: () {
+                                setModalState(() {
+                                  selectedGb = gb.toDouble();
+                                  customController.text = gb.toString();
+                                });
+                              },
+                              child: Text('+$gb GB', style: TextStyle(fontWeight: isSel ? FontWeight.bold : FontWeight.normal)),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: customController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Custom GB to Add',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (val) {
+                          final parsed = double.tryParse(val);
+                          if (parsed != null && parsed > 0) {
+                            setModalState(() => selectedGb = parsed);
+                          }
+                        },
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                        const SizedBox(width: 10),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.blue.shade700,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.check, size: 16),
+                          label: const Text('Apply Quota Change'),
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            setState(() {
+                              _isActionInProgress = true;
+                              _statusMessage = 'Applying storage adjustment for $oCode...';
+                            });
+                            try {
+                              final res = await BackupService.adminModifyStorage(
+                                outletCode: oCode,
+                                action: actionType,
+                                additionalGb: (actionType == 'ADD_GB' || actionType == 'ADD_BONUS_GB') ? selectedGb : null,
+                              );
+                              _showDialogMessage(res['message'] ?? '✓ Storage updated successfully!', type: 'SUCCESS');
+                              await _fetchAdminOverview();
+                            } catch (e) {
+                              _showDialogMessage('Failed to update storage: $e', type: 'ERROR');
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showUpgradeStorageModal() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final plans = [
+      {
+        'code': 'ADDON_25GB',
+        'name': 'Famalth Lynx +25 GB',
+        'storage': '+25 GB Storage',
+        'price': '₹99 / month',
+        'desc': 'Ideal for busy stores backing up 2+ years of sales & invoices',
+        'color': const Color(0xFF0284C7),
+      },
+      {
+        'code': 'ADDON_50GB',
+        'name': 'Famalth Lynx +50 GB',
+        'storage': '+50 GB Storage',
+        'price': '₹189 / month',
+        'desc': 'Popular for multi-terminal branches with extensive item photos & reports',
+        'color': const Color(0xFF7C3AED),
+      },
+      {
+        'code': 'ADDON_100GB',
+        'name': 'Famalth Lynx +100 GB',
+        'storage': '+100 GB Storage',
+        'price': '₹349 / month',
+        'desc': 'Enterprise capacity with high-frequency snapshots and audit trails',
+        'color': const Color(0xFF059669),
+      },
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0284C7).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.cloud_upload_rounded, color: Color(0xFF0284C7), size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Famalth Lynx Storage Expansion',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            'Baseline 15 GB auto-allocated. Expand capacity anytime without disruption.',
+                            style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ...plans.map((p) => Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: (p['color'] as Color).withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  p['name'] as String,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: (p['color'] as Color).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    p['price'] as String,
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: p['color'] as Color),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              p['desc'] as String,
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: p['color'] as Color,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          setState(() {
+                            _isActionInProgress = true;
+                            _statusMessage = 'Upgrading to ${p['name']}...';
+                          });
+                          try {
+                            final res = await BackupService.upgradeStorageQuota(
+                              p['code'] as String,
+                              _currentOutletCode,
+                            );
+                            _showDialogMessage(
+                              '✓ Storage expanded! Total allocation is now ${res['totalAllocatedPretty'] ?? 'expanded'}.',
+                              type: 'SUCCESS',
+                            );
+                            widget.onRefreshParent();
+                          } catch (err) {
+                            _showDialogMessage('Upgrade failed: $err', type: 'ERROR');
+                          }
+                        },
+                        child: const Text('Add Plan', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                )),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
+  void _showDialogMessage(String message, {String type = 'SUCCESS'}) {
+    if (!mounted) return;
+    setState(() {
+      _dialogAlertMessage = message;
+      _dialogAlertType = type;
+      _isActionInProgress = false;
+      _statusMessage = null;
+    });
+  }
 
   @override
   void initState() {
     super.initState();
+    if (!AppConfig.isLocalServer) {
+      _backupScope = 'OUTLET';
+    }
     _backupsList = widget.initialData?['backupsList'] as List<dynamic>? ?? [];
     _loadCurrentOutletAndBackups();
   }
@@ -345,11 +699,19 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
 
   Future<void> _fetchUpdatedList() async {
     try {
-      final cloudItems = await BackupService.fetchCloudBackups(_currentOutletCode);
+      final cloudItems = await BackupService.fetchCloudBackups(
+        (AppConfig.isLocalServer && _backupScope == 'ALL') ? 'ALL' : _currentOutletCode,
+      );
       if (cloudItems.isNotEmpty) {
         if (!mounted) return;
+        final filtered = (!AppConfig.isLocalServer && _currentOutletCode != null && _currentOutletCode!.isNotEmpty)
+            ? cloudItems.where((b) {
+                final oCode = (b['outletCode'] ?? '').toString();
+                return oCode == _currentOutletCode;
+              }).toList()
+            : cloudItems;
         setState(() {
-          _backupsList = cloudItems;
+          _backupsList = filtered;
         });
         return;
       }
@@ -367,6 +729,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
   Future<void> _takeFambakBackup() async {
     final isAll = _backupScope == 'ALL';
     setState(() {
+      _dialogAlertMessage = null;
       _isActionInProgress = true;
       _statusMessage = isAll
           ? 'Securing Complete Enterprise Database across all outlets into .fambak archive...'
@@ -386,28 +749,18 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
       final filename = result['filename'] ?? 'backup.fambak';
       final driveMsg = result['driveStatus']?['message'];
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isAll
-                ? 'Enterprise backup created ($totalRec records)! Archive: $filename${driveMsg != null ? " • $driveMsg" : ""}'
-                : 'Outlet backup created ($totalRec records)! Archive: $filename${driveMsg != null ? " • $driveMsg" : ""}',
-          ),
-          backgroundColor: Colors.green.shade700,
-          duration: const Duration(seconds: 4),
-        ),
+      _showDialogMessage(
+        isAll
+            ? '✓ Enterprise backup created ($totalRec records)! Archive: $filename${driveMsg != null ? " • $driveMsg" : ""}'
+            : '✓ Outlet backup created ($totalRec records)! Archive: $filename${driveMsg != null ? " • $driveMsg" : ""}',
+        type: 'SUCCESS',
       );
 
       widget.onRefreshParent();
       await _fetchUpdatedList();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Backup creation failed: $e'),
-          backgroundColor: Colors.red.shade700,
-        ),
-      );
+      _showDialogMessage('Backup creation failed: $e', type: 'ERROR');
     } finally {
       if (mounted) {
         setState(() {
@@ -511,21 +864,14 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                   outletCode: _currentOutletCode,
                 );
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(res['message'] ?? 'Disaster recovery email sent successfully!'),
-                    backgroundColor: Colors.green.shade700,
-                    duration: const Duration(seconds: 4),
-                  ),
+                final bool emailFailed = res['emailSent'] == false;
+                _showDialogMessage(
+                  res['message'] ?? (emailFailed ? 'Email delivery skipped: Please configure SMTP in Settings.' : 'Disaster recovery email sent successfully!'),
+                  type: emailFailed ? 'WARNING' : 'SUCCESS',
                 );
               } catch (e) {
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Failed to send email: $e'),
-                    backgroundColor: Colors.red.shade700,
-                  ),
-                );
+                _showDialogMessage('Failed to send email: $e', type: 'ERROR');
               } finally {
                 if (mounted) {
                   setState(() {
@@ -544,16 +890,77 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
   Future<void> _downloadFile(String downloadPath) async {
     final serverBase = AppConfig.baseUrl.replaceAll(RegExp(r'/+$'), '');
     final cleanPath = downloadPath.startsWith('/') ? downloadPath : '/$downloadPath';
-    final fullUrl = '$serverBase$cleanPath';
+    final token = await TokenStorage.read();
 
-    final uri = Uri.parse(fullUrl);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open download link: $fullUrl')),
-      );
+    final separator = cleanPath.contains('?') ? '&' : '?';
+    final tokenParam = (token != null && token.isNotEmpty && !cleanPath.contains('token='))
+        ? '${separator}token=${Uri.encodeComponent(token)}'
+        : '';
+    final fullUrl = '$serverBase$cleanPath$tokenParam';
+
+    setState(() {
+      _isActionInProgress = true;
+      _statusMessage = 'Downloading backup archive to local storage...';
+    });
+
+    try {
+      if (!kIsWeb) {
+        final uri = Uri.parse(fullUrl);
+        final headers = <String, String>{};
+        if (token != null && token.isNotEmpty) {
+          headers['Authorization'] = 'Bearer $token';
+        }
+
+        final response = await http.get(uri, headers: headers);
+        if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+          Directory? targetDir;
+          try {
+            targetDir = await getDownloadsDirectory();
+          } catch (_) {}
+          targetDir ??= await getApplicationDocumentsDirectory();
+
+          String filename = 'backup_${DateTime.now().millisecondsSinceEpoch}.fambak';
+          final uriLast = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '';
+          if (uriLast.isNotEmpty &&
+              (uriLast.endsWith('.fambak') ||
+                  uriLast.endsWith('.posbak') ||
+                  uriLast.endsWith('.enc') ||
+                  uriLast.endsWith('.zip'))) {
+            filename = Uri.decodeComponent(uriLast);
+          }
+
+          final saveFile = File(p.join(targetDir.path, filename));
+          await saveFile.writeAsBytes(response.bodyBytes);
+
+          if (!mounted) return;
+          _showDialogMessage('✓ Saved to Downloads: ${saveFile.path}', type: 'SUCCESS');
+          return;
+        }
+      }
+
+      final uri = Uri.parse(fullUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (!mounted) return;
+        _showDialogMessage('Could not open download link: $fullUrl', type: 'ERROR');
+      }
+    } catch (e) {
+      try {
+        final uri = Uri.parse(fullUrl);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        if (mounted) {
+          _showDialogMessage('Download failed: $e', type: 'ERROR');
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isActionInProgress = false;
+          _statusMessage = null;
+        });
+      }
     }
   }
 
@@ -573,9 +980,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
         _isActionInProgress = false;
         _statusMessage = null;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Inspection failed: $e'), backgroundColor: Colors.red.shade700),
-      );
+      _showDialogMessage('Inspection failed: $e', type: 'ERROR');
       return;
     } finally {
       if (mounted) {
@@ -856,31 +1261,16 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
       await TokenStorage.saveOutletCode(restoredOutlet);
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Restored $totalRestored records into outlet $restoredOutlet!'),
-          backgroundColor: Colors.green.shade700,
-          duration: const Duration(seconds: 8),
-          action: SnackBarAction(
-            label: 'Sign In Now',
-            textColor: Colors.amber,
-            onPressed: () {
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => LoginScreen(initialOutletCode: restoredOutlet)),
-                (route) => false,
-              );
-            },
-          ),
-        ),
+      _showDialogMessage(
+        '✓ Restored $totalRestored records into outlet $restoredOutlet successfully! Switch outlet on Login to proceed.',
+        type: 'SUCCESS',
       );
 
       widget.onRefreshParent();
       await _fetchUpdatedList();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Restore execution failed: $e'), backgroundColor: Colors.red.shade700),
-      );
+      _showDialogMessage('Restore execution failed: $e', type: 'ERROR');
     } finally {
       if (mounted) {
         setState(() {
@@ -955,28 +1345,16 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
         setState(() {
           _backupsList.removeWhere((item) => (item is Map && item['filename'] == filename));
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(res['message'] ?? 'Snapshot deleted successfully.'),
-            backgroundColor: Colors.green.shade700,
-          ),
-        );
+        _showDialogMessage('✓ ' + (res['message'] ?? 'Snapshot deleted successfully.'), type: 'SUCCESS');
         widget.onRefreshParent();
         await _fetchUpdatedList();
       } else {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(res?['message'] ?? 'Backup file not found or could not be removed.'),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
+        _showDialogMessage(res?['message'] ?? 'Backup file not found or could not be removed.', type: 'ERROR');
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete error: $e'), backgroundColor: Colors.red.shade700),
-      );
+      _showDialogMessage('Delete error: $e', type: 'ERROR');
     }
   }
 
@@ -1020,7 +1398,9 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Export .fambak archives (Single Outlet or All Outlets), store to Google Drive & Cloud, and safely restore with pre-inspection.',
+                          AppConfig.isLocalServer
+                              ? 'Export .fambak archives (Single Outlet or All Outlets), store to Famalth Lynx Cloud Storage, and safely restore with pre-inspection.'
+                              : 'Export .fambak archives for your store (${_currentOutletCode ?? "Active"}), sync to Famalth Lynx Cloud Storage, and safely restore with pre-inspection.',
                           style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500),
                         ),
                       ],
@@ -1033,6 +1413,335 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                 ],
               ),
               const SizedBox(height: 16),
+              if (AppConfig.isLocalServer) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => setState(() => _dialogTab = 0),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 9),
+                            decoration: BoxDecoration(
+                              color: _dialogTab == 0 ? const Color(0xFFEF4444) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Text(
+                                'Outlet Backups & Restore',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: _dialogTab == 0 ? Colors.white : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () {
+                            setState(() => _dialogTab = 1);
+                            if (_adminOverview == null) {
+                              _fetchAdminOverview();
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 9),
+                            decoration: BoxDecoration(
+                              color: _dialogTab == 1 ? const Color(0xFF0284C7) : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Center(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.admin_panel_settings_rounded,
+                                    size: 15,
+                                    color: _dialogTab == 1 ? Colors.white : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Admin Console (Clients & Storage)',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: _dialogTab == 1 ? Colors.white : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              if (_dialogTab == 1) ...[
+                // ADMIN CONSOLE: ALL CLIENTS & RUNNING PAID VERSIONS
+                if (_isAdminOverviewLoading) ...[
+                  const Expanded(
+                    child: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ] else if (_adminOverview == null) ...[
+                  Expanded(
+                    child: Center(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Load Enterprise Storage Overview'),
+                        onPressed: _fetchAdminOverview,
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  // Metric Cards Row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Total Outlets', style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 4),
+                              Text('${_adminOverview!['totalOutlets'] ?? 0} Active', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              Text('Total Quota: ${_adminOverview!['totalAllocatedPretty'] ?? ""}', style: TextStyle(fontSize: 10.5, color: Colors.grey.shade500)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.purple.withValues(alpha: 0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Running Paid Add-ons', style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 4),
+                              Text('${_adminOverview!['paidSubscriptionsCount'] ?? 0} Outlets', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED))),
+                              Text('+${_adminOverview!['totalPaidAddonPretty'] ?? "0 GB"} Paid Storage', style: TextStyle(fontSize: 10.5, color: Colors.grey.shade500)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Monthly Add-on Revenue', style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 4),
+                              Text('₹${_adminOverview!['monthlyRecurringRevenue'] ?? 0} / mo', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+                              Text('Active Recurring Plans', style: TextStyle(fontSize: 10.5, color: Colors.grey.shade500)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Outlets Quota Table Header
+                  Row(
+                    children: [
+                      const Icon(Icons.people_alt_outlined, size: 16, color: Color(0xFF7C3AED)),
+                      const SizedBox(width: 6),
+                      const Text('Client Outlets Storage Quotas & Management', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 16),
+                        tooltip: 'Refresh Outlets Data',
+                        onPressed: _fetchAdminOverview,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Scrollable Outlets List
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: (_adminOverview!['outlets'] as List? ?? []).length,
+                      itemBuilder: (context, idx) {
+                        final o = (_adminOverview!['outlets'] as List)[idx] as Map<String, dynamic>;
+                        final oCode = (o['outletCode'] ?? '').toString();
+                        final oName = (o['outletName'] ?? oCode).toString();
+                        final totalUsed = (o['totalUsedPretty'] ?? '0 B').toString();
+                        final totalAlloc = (o['totalAllocatedPretty'] ?? '15.00 GB').toString();
+                        final usagePct = (o['usagePct'] as num?)?.toDouble() ?? 0.0;
+                        final isPaid = o['isPaidPlan'] == true;
+                        final isFrozen = o['isFrozen'] == true;
+                        final planCode = (o['activePlanCode'] ?? 'STARTER_15GB').toString();
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isFrozen
+                                  ? Colors.red.shade300
+                                  : (usagePct > 90 ? Colors.orange.shade300 : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0))),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: isPaid ? Colors.purple.withValues(alpha: 0.1) : Colors.blue.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  isPaid ? Icons.workspace_premium_rounded : Icons.store_rounded,
+                                  color: isPaid ? Colors.purple : Colors.blue,
+                                  size: 18,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 3,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(oName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                          decoration: BoxDecoration(
+                                            color: isPaid ? Colors.purple.shade50 : Colors.blue.shade50,
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: isPaid ? Colors.purple.shade200 : Colors.blue.shade200),
+                                          ),
+                                          child: Text(
+                                            isPaid ? 'Paid Addon ($planCode)' : '15GB Free Starter',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w700,
+                                              color: isPaid ? Colors.purple.shade700 : Colors.blue.shade700,
+                                            ),
+                                          ),
+                                        ),
+                                        if (isFrozen) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(4)),
+                                            child: const Text('FROZEN', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.red)),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text('Code: $oCode • Used: $totalUsed of $totalAlloc (${usagePct.toStringAsFixed(1)}%)', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 2,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: LinearProgressIndicator(
+                                    value: (usagePct / 100).clamp(0.01, 1.0),
+                                    minHeight: 6,
+                                    backgroundColor: Colors.grey.withValues(alpha: 0.2),
+                                    color: isFrozen ? Colors.red : (usagePct > 90 ? Colors.orange : const Color(0xFF059669)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF0284C7),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  visualDensity: VisualDensity.compact,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                ),
+                                icon: const Icon(Icons.bolt_rounded, size: 14),
+                                label: const Text('Increase Storage', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                onPressed: () => _showAdminIncreaseStorageModal(o),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ] else ...[
+                // Storage Quota Bar (Famalth Lynx Ecosystem)
+              if (widget.initialData?['quota'] != null) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cloud_done_rounded, size: 18, color: Color(0xFF0284C7)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Famalth Lynx Storage: ${widget.initialData!['quota']['totalUsedPretty'] ?? "0 B"} of ${widget.initialData!['quota']['totalAllocatedPretty'] ?? "15.00 GB"} used (${widget.initialData!['quota']['usagePct'] ?? 0}%)',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF0284C7),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          visualDensity: VisualDensity.compact,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        ),
+                        icon: const Icon(Icons.add_circle_outline, size: 14),
+                        label: const Text('Get More Storage', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        onPressed: _showUpgradeStorageModal,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               // Backup Creation & Scope Selector Card
               Container(
@@ -1062,7 +1771,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                                 activeColor: const Color(0xFF0284C7),
                                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
-                              const Text('Google Drive Sync', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                              const Text('Famalth Lynx Cloud Sync', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
                             ],
                           ),
                         ),
@@ -1126,78 +1835,103 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => setState(() => _backupScope = 'ALL'),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: _backupScope == 'ALL'
-                                    ? (isDark ? Colors.green.withValues(alpha: 0.2) : Colors.green.shade50)
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: _backupScope == 'ALL' ? Colors.green.shade600 : Colors.grey.shade300,
+                        if (AppConfig.isLocalServer) ...[
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => setState(() => _backupScope = 'ALL'),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _backupScope == 'ALL'
+                                      ? (isDark ? Colors.green.withValues(alpha: 0.2) : Colors.green.shade50)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _backupScope == 'ALL' ? Colors.green.shade600 : Colors.grey.shade300,
+                                  ),
                                 ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _backupScope == 'ALL' ? Icons.radio_button_checked : Icons.radio_button_off,
-                                    size: 16,
-                                    color: _backupScope == 'ALL' ? Colors.green.shade600 : Colors.grey,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('All Outlets (Enterprise DB)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5)),
-                                        Text('Complete multi-tenant catalogs & transactions', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
-                                      ],
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      _backupScope == 'ALL' ? Icons.radio_button_checked : Icons.radio_button_off,
+                                      size: 16,
+                                      color: _backupScope == 'ALL' ? Colors.green.shade600 : Colors.grey,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text('All Outlets (Enterprise DB)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5)),
+                                          Text('Complete multi-tenant catalogs & transactions', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 12),
 
-                    // Trigger Buttons Row
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 8,
-                      children: [
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFEF4444),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: const Icon(Icons.download_for_offline_rounded, size: 16),
-                          label: Text(
-                            _backupScope == 'ALL' ? 'Create Complete Enterprise Backup (.fambak)' : 'Create Outlet Backup (.fambak)',
-                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
-                          ),
-                          onPressed: _isActionInProgress ? null : _takeFambakBackup,
+                    // Trigger Buttons Row (Restricted on Client PC)
+                    if (AppConfig.isClientPc)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.amber.shade300),
                         ),
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          icon: const Icon(Icons.upload_file_rounded, size: 16),
-                          label: const Text('Upload & Pre-Inspect Archive (.fambak)', style: TextStyle(fontSize: 12)),
-                          onPressed: _isActionInProgress ? null : _uploadAndRestoreExternalFile,
+                        child: Row(
+                          children: [
+                            Icon(Icons.lock_clock_rounded, color: Colors.amber.shade900, size: 20),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Text(
+                                'Client Terminal Notice: Database backup & restore operations are restricted to the Main Server PC. Backups cannot be initiated from this client terminal.',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      )
+                    else
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFEF4444),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.download_for_offline_rounded, size: 16),
+                            label: Text(
+                              _backupScope == 'ALL' ? 'Create Complete Enterprise Backup (.fambak)' : 'Create Outlet Backup (.fambak)',
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                            ),
+                            onPressed: _isActionInProgress ? null : _takeFambakBackup,
+                          ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.upload_file_rounded, size: 16),
+                            label: const Text('Upload & Pre-Inspect Archive (.fambak)', style: TextStyle(fontSize: 12)),
+                            onPressed: _isActionInProgress ? null : _uploadAndRestoreExternalFile,
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -1219,6 +1953,86 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                         child: Text(
                           _statusMessage ?? 'Processing operation...',
                           style: TextStyle(color: Colors.blue.shade900, fontSize: 12.5, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Inline Dialog Result Banner (Clearly visible inside Dialog instead of hidden behind SnackBar)
+              if (_dialogAlertMessage != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: _dialogAlertType == 'ERROR'
+                        ? (isDark ? const Color(0xFF7F1D1D).withValues(alpha: 0.25) : const Color(0xFFFEF2F2))
+                        : (_dialogAlertType == 'WARNING'
+                            ? (isDark ? const Color(0xFF78350F).withValues(alpha: 0.25) : const Color(0xFFFFFBEB))
+                            : (_dialogAlertType == 'INFO'
+                                ? (isDark ? const Color(0xFF0C4A6E).withValues(alpha: 0.25) : const Color(0xFFF0F9FF))
+                                : (isDark ? const Color(0xFF064E3B).withValues(alpha: 0.25) : const Color(0xFFECFDF5)))),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _dialogAlertType == 'ERROR'
+                          ? const Color(0xFFEF4444)
+                          : (_dialogAlertType == 'WARNING'
+                              ? const Color(0xFFF59E0B)
+                              : (_dialogAlertType == 'INFO'
+                                  ? const Color(0xFF0284C7)
+                                  : const Color(0xFF10B981))),
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _dialogAlertType == 'ERROR'
+                            ? Icons.error_rounded
+                            : (_dialogAlertType == 'WARNING'
+                                ? Icons.warning_rounded
+                                : (_dialogAlertType == 'INFO'
+                                    ? Icons.info_rounded
+                                    : Icons.check_circle_rounded)),
+                        size: 20,
+                        color: _dialogAlertType == 'ERROR'
+                            ? const Color(0xFFDC2626)
+                            : (_dialogAlertType == 'WARNING'
+                                ? const Color(0xFFD97706)
+                                : (_dialogAlertType == 'INFO'
+                                    ? const Color(0xFF0284C7)
+                                    : const Color(0xFF059669))),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _dialogAlertMessage!,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: _dialogAlertType == 'ERROR'
+                                ? (isDark ? const Color(0xFFFCA5A5) : const Color(0xFF991B1B))
+                                : (_dialogAlertType == 'WARNING'
+                                    ? (isDark ? const Color(0xFFFCD34D) : const Color(0xFF92400E))
+                                    : (_dialogAlertType == 'INFO'
+                                        ? (isDark ? const Color(0xFF7DD3FC) : const Color(0xFF075985))
+                                        : (isDark ? const Color(0xFF6EE7B7) : const Color(0xFF065F46)))),
+                          ),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => setState(() => _dialogAlertMessage = null),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.close,
+                            size: 16,
+                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                          ),
                         ),
                       ),
                     ],
@@ -1367,29 +2181,32 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                                   tooltip: 'Email Download Link (Off-Site Disaster Recovery)',
                                   onPressed: () => _showEmailBackupDialog(filename, scope: scope),
                                 ),
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.orange.shade800,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                    visualDensity: VisualDensity.compact,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                if (!AppConfig.isClientPc) ...[
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.orange.shade800,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      visualDensity: VisualDensity.compact,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                    ),
+                                    icon: const Icon(Icons.settings_backup_restore, size: 15),
+                                    label: const Text('Inspect & Restore', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                    onPressed: () => _inspectAndRestore(filename: filename),
                                   ),
-                                  icon: const Icon(Icons.settings_backup_restore, size: 15),
-                                  label: const Text('Inspect & Restore', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                                  onPressed: () => _inspectAndRestore(filename: filename),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                                  tooltip: 'Delete Snapshot',
-                                  onPressed: () => _deleteBackupFile(filename),
-                                ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                    tooltip: 'Delete Snapshot',
+                                    onPressed: () => _deleteBackupFile(filename),
+                                  ),
+                                ],
                               ],
                             ),
                           );
                         },
                       ),
               ),
+            ],
             ],
           ),
         ),

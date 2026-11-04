@@ -148,6 +148,9 @@ propertyDb.models.outlet_settings =
 propertyDb.models.app_branding =
     require('../../models/property/appBranding.model')(propertyDb, DataTypes);
 
+propertyDb.models.outlet_storage_quotas =
+    require('../../models/property/outletStorageQuota.model')(propertyDb, DataTypes);
+
 // WHATSAPP INTEGRATION
 propertyDb.models.whatsapp_configurations =
     require('../../models/property/whatsappConfig.model')(propertyDb, DataTypes);

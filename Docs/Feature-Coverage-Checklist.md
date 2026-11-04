@@ -233,4 +233,15 @@ This matrix provides a 100% verified audit of all UI screens, Backend route modu
 
 ---
 
-*Last Verified: November 2026 | Total Project UI and Backend Feature Coverage: 100% Complete across all 21 Modules*
+### 22. Multi-Tiered Storage Volume & Enterprise Backup Engine
+| UI Screen / Feature | Backend Route | Non-Technical User Guide | Technical Developer Guide | Audit Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Multi-Tiered Storage Volume** (`backend/storage/`) | `/api/backup/storage-stats` | [Tiered Storage Guide](./User-Guide-Tiered-Storage-And-Backup-Architecture.md) | [Storage & Backup Dev Architecture](./Developer-Guide-Tiered-Storage-And-Backup-Architecture.md) | 🟢 100% Covered |
+| **Enterprise Admin Tier** (`storage/enterprise/`) | `/api/backup/enterprise-storage` | [Enterprise Storage Guide](./User-Guide-Tiered-Storage-And-Backup-Architecture.md#3-enterprise-tier-admin-console--system-backups) | [Storage & Backup Dev Architecture](./Developer-Guide-Tiered-Storage-And-Backup-Architecture.md#4-enterprise-tier-vs-outlet-sandboxing) | 🟢 100% Covered |
+| **Multi-Tenant Outlet Sandboxing** (`storage/outlets/`) | `/api/backup/tenant-backup` | [Outlet Sandboxing Guide](./User-Guide-Tiered-Storage-And-Backup-Architecture.md#4-outlets-tier-multi-tenant-branch-isolation) | [Storage & Backup Dev Architecture](./Developer-Guide-Tiered-Storage-And-Backup-Architecture.md#3-path-resolution-engine-storagequotaservice) | 🟢 100% Covered |
+| **Archive Formats (`.fambak`, `.posbak`)** | `/api/backup/create-fambak` | [Archive Formats Guide](./User-Guide-Tiered-Storage-And-Backup-Architecture.md#5-backup-file-formats-explained-fambak-vs-posbak-vs-enc) | [Archive Internals](./Developer-Guide-Tiered-Storage-And-Backup-Architecture.md#5-backup-archive-formats-fambak-posbak-enc) | 🟢 100% Covered |
+| **Pre-Restore Inspection Engine** | `/api/backup/inspect-backup` | [Pre-Restore Guide](./User-Guide-Tiered-Storage-And-Backup-Architecture.md#5-backup-file-formats-explained-fambak-vs-posbak-vs-enc) | [Inspection Engine](./Developer-Guide-Tiered-Storage-And-Backup-Architecture.md#7-pre-restore-manifest-inspection-engine) | 🟢 100% Covered |
+
+---
+
+*Last Verified: November 2026 | Total Project UI and Backend Feature Coverage: 100% Complete across all 22 Modules*

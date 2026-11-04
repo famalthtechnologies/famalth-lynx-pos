@@ -160,13 +160,44 @@ async function saveItemImageFromPayload(req: any, item: any, payload: any) {
     const buffer = Buffer.from(cleanBase64, 'base64');
     if (!buffer.length) throw new Error('Invalid image data');
 
+    // Storage Quota Enforcement
+    const outletId = Number(req.user?.outlet_id || 1);
+    const outletCode = String(req.user?.outlet_code || req.outlet?.outlet_code || `OUT_${outletId}`);
+    const activeDb = (req as any).propertyDb;
+    if (activeDb) {
+      try {
+        const rawStorage = require('../../services/storageQuota.service');
+        const StorageQuotaService = rawStorage.default || rawStorage;
+        const quota = await StorageQuotaService.calculateTenantStorage(activeDb, outletId, outletCode);
+        if (quota.isFrozen) {
+          throw new Error('Storage quota is frozen. Please upgrade your Famalth Lynx storage to continue uploading files.');
+        }
+        if (quota.totalUsedBytes + buffer.length > quota.totalAllocatedBytes) {
+          throw new Error(`Storage quota exceeded (${quota.totalUsedPretty} of ${quota.totalAllocatedPretty} used). Please upgrade your Famalth Lynx storage.`);
+        }
+      } catch (qErr: any) {
+        if (qErr.message.includes('Storage quota')) throw qErr;
+      }
+    }
+
     const ext = resolveImageExtension(payload.file_name || payload.fileName, payload.mime_type || payload.mimeType);
+    const fileName = `item_${item.id}_${Date.now()}${ext}`;
+
+    // 1. Standard web uploads folder
     const folder = path.join(process.cwd(), 'uploads', 'items', String(req.user.outlet_id));
     await fs.promises.mkdir(folder, { recursive: true });
-
-    const fileName = `item_${item.id}_${Date.now()}${ext}`;
     const absolutePath = path.join(folder, fileName);
     await fs.promises.writeFile(absolutePath, buffer);
+
+    // 2. Tenant isolated storage folder (Famalth Lynx Quota)
+    try {
+      const rawStorage = require('../../services/storageQuota.service');
+      const StorageQuotaService = rawStorage.default || rawStorage;
+      const { uploadsDir } = StorageQuotaService.getTenantStoragePaths(outletCode);
+      const tenantItemFolder = path.join(uploadsDir, 'items');
+      await fs.promises.mkdir(tenantItemFolder, { recursive: true });
+      await fs.promises.copyFile(absolutePath, path.join(tenantItemFolder, fileName));
+    } catch (_) {}
 
     const imagePath = `/uploads/items/${req.user.outlet_id}/${fileName}`;
     await item.update({ image_path: imagePath });
@@ -1093,8 +1124,18 @@ export const deleteItemImage = async (req: Request, res: Response) => {
         if (oldImagePath) {
             const absolutePath = path.join(process.cwd(), oldImagePath.replace(/^\/+/, ''));
             if (fs.existsSync(absolutePath)) {
-                fs.unlinkSync(absolutePath);
+                try { fs.unlinkSync(absolutePath); } catch (_) {}
             }
+            try {
+                const outletCode = String((req as any).user?.outlet_code || (req as any).outlet?.outlet_code || `OUT_${outlet_id}`);
+                const rawStorage = require('../../services/storageQuota.service');
+                const StorageQuotaService = rawStorage.default || rawStorage;
+                const { uploadsDir } = StorageQuotaService.getTenantStoragePaths(outletCode);
+                const tenantFilePath = path.join(uploadsDir, 'items', path.basename(oldImagePath));
+                if (fs.existsSync(tenantFilePath)) {
+                    fs.unlinkSync(tenantFilePath);
+                }
+            } catch (_) {}
         }
 
         await item.update({ image_path: null });

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import TenantBackupService from '../../services/tenantBackup.service';
 import DataRetentionService from '../../services/dataRetention.service';
+import StorageQuotaService from '../../services/storageQuota.service';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
@@ -36,7 +37,12 @@ export class BackupManagementController {
         'DEFAULT'
       );
 
-      const stats = await TenantBackupService.getStorageStats(activeDb, outletCode, isSuperAdmin);
+      const stats: any = await TenantBackupService.getStorageStats(activeDb, outletCode, isSuperAdmin);
+      try {
+        const outletId = Number((req as any).outlet_id || req.user?.outlet_id || 1);
+        const quota = await StorageQuotaService.calculateTenantStorage(activeDb, outletId, outletCode);
+        stats.quota = quota;
+      } catch (_) {}
 
       return res.json({
         success: true,
@@ -290,7 +296,33 @@ export class BackupManagementController {
   public static async createFambakBackup(req: Request, res: Response) {
     try {
       const activeDb = (req as any).propertyDb;
-      const scope = (String(req.body?.scope || 'OUTLET').toUpperCase() === 'ALL') ? 'ALL' : 'OUTLET';
+      const ip = req.ip || req.socket?.remoteAddress || '';
+      const isLoopback =
+        ip.includes('127.0.0.1') ||
+        ip === '::1' ||
+        ip.includes('localhost') ||
+        req.hostname === 'localhost' ||
+        req.hostname === '127.0.0.1';
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const isMasterAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+
+      // Check if request is from a LAN Client PC (private IP not loopback)
+      const isLanClient = !isLoopback && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
+      if (isLanClient) {
+        return res.status(403).json({
+          success: false,
+          message: 'Database backups cannot be initiated from a Client PC. Please perform backups on the Main Server PC.',
+        });
+      }
+
+      const scope: 'ALL' | 'OUTLET' = (String(req.body?.scope || 'OUTLET').toUpperCase() === 'ALL') ? 'ALL' : 'OUTLET';
+      // Full enterprise database backup (ALL) is restricted strictly to the Local Server PC
+      if (scope === 'ALL' && (!isLoopback || !isMasterAdmin)) {
+        return res.status(403).json({
+          success: false,
+          message: 'All Outlets (Enterprise DB) backups can only be created directly on the Local Server PC. Cloud servers and remote terminals are restricted to their own outlet backup.',
+        });
+      }
       const outletId = Number(req.body?.outletId || (req as any).outlet_id || req.user?.outlet_id || 1);
       const outletCode = String(req.body?.outletCode || (req as any).outlet_code || req.user?.outlet_code || `OUT_${outletId}`);
       const outletMeta = (req as any).outlet || {};
@@ -392,7 +424,34 @@ export class BackupManagementController {
       const activeDb = (req as any).propertyDb;
       const userRole = String(req.user?.role || '').toUpperCase();
       const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+      const ip = req.ip || req.socket?.remoteAddress || '';
+      const isLoopback =
+        ip.includes('127.0.0.1') ||
+        ip === '::1' ||
+        ip.includes('localhost') ||
+        req.hostname === 'localhost' ||
+        req.hostname === '127.0.0.1';
+      const isMasterAdmin = (userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN');
+      const isLocalServerSuperAdmin = isMasterAdmin && isLoopback;
+
+      // Reject restore from a LAN Client PC
+      const isLanClient = !isLoopback && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
+      if (isLanClient) {
+        return res.status(403).json({
+          success: false,
+          message: 'Database restoration cannot be performed from a Client PC. Please restore on the Main Server PC.',
+        });
+      }
+
       const userOutletCode = String((req as any).outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
+
+      const requestedScope = String(req.body?.scope || '').toUpperCase();
+      if (requestedScope === 'ALL' && !isLocalServerSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Complete enterprise database restoration can only be performed directly on the Local Server PC.',
+        });
+      }
 
       const {
         base64,
@@ -455,7 +514,18 @@ export class BackupManagementController {
   public static async listCloudBackups(req: Request, res: Response) {
     try {
       const userRole = String(req.user?.role || '').toUpperCase();
-      const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+      const ip = req.ip || req.socket?.remoteAddress || '';
+      const isLoopback =
+        ip.includes('127.0.0.1') ||
+        ip === '::1' ||
+        ip.includes('localhost') ||
+        req.hostname === 'localhost' ||
+        req.hostname === '127.0.0.1';
+
+      // Enterprise super-admin visibility only applies to local server loopback:
+      const isLocalServerSuperAdmin = (userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN') && isLoopback;
+
+      const requestedScope = String(req.query?.scope || '').toUpperCase();
       const outletCode = String(
         req.query?.outlet_code ||
         (req as any).outlet_code ||
@@ -465,7 +535,10 @@ export class BackupManagementController {
         ''
       );
 
-      const snapshots = await TenantBackupService.listCloudSnapshots(outletCode, isSuperAdmin);
+      // On Cloud server or remote client, always force outletCode isolation
+      const targetOutlet = (isLocalServerSuperAdmin && requestedScope === 'ALL') ? 'ALL' : outletCode;
+
+      const snapshots = await TenantBackupService.listCloudSnapshots(targetOutlet, isLocalServerSuperAdmin);
 
       return res.json({
         success: true,
@@ -666,7 +739,7 @@ export class BackupManagementController {
       success: emailSent,
       message: emailSent
         ? `Disaster recovery backup link successfully emailed to ${recipientEmail}.`
-        : `Backup link generated, but email delivery failed. Verify SMTP / Gmail credentials.`,
+        : `Backup archive secured on disk & cloud. Note: Email delivery skipped (SMTP credentials not configured in Settings).`,
       downloadUrl,
       expiresAt,
       checksum,
@@ -909,6 +982,165 @@ export class BackupManagementController {
       return res.status(500).json({ success: false, message: err.message || 'Failed to execute provider retention purge.' });
     }
   }
+
+  /**
+   * 17. Get Outlet Metered Cloud Storage Quota
+   * GET /api/backup/storage-quota
+   */
+  public static async getStorageQuota(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const outletId = Number((req as any).outlet_id || req.user?.outlet_id || req.query?.outlet_id || 1);
+      const outletCode = String(
+        (req as any).outlet_code ||
+        req.user?.outlet_code ||
+        req.outlet?.outlet_code ||
+        req.outlet?.code ||
+        req.query?.outlet_code ||
+        `OUT_${outletId}`
+      );
+
+      const quotaStatus = await StorageQuotaService.calculateTenantStorage(activeDb, outletId, outletCode);
+
+      return res.json({
+        success: true,
+        data: quotaStatus,
+      });
+    } catch (err: any) {
+      console.error('getStorageQuota error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Failed to retrieve storage quota.' });
+    }
+  }
+
+  /**
+   * 18. 1-Click Monthly Storage Expansion
+   * POST /api/backup/storage-quota/upgrade
+   */
+  public static async upgradeStorageQuota(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const outletCode = String(
+        req.body?.outletCode ||
+        (req as any).outlet_code ||
+        req.user?.outlet_code ||
+        req.outlet?.outlet_code ||
+        req.outlet?.code ||
+        ''
+      );
+      const addonPlanCode = String(req.body?.addonPlanCode || req.body?.planCode || 'ADDON_25GB').toUpperCase();
+
+      if (!outletCode) {
+        return res.status(400).json({ success: false, message: 'Outlet code required for storage upgrade.' });
+      }
+
+      const result = await StorageQuotaService.upgradeStorageAddon(activeDb, outletCode, addonPlanCode);
+
+      return res.json({
+        success: true,
+        message: result.message,
+        data: result,
+      });
+    } catch (err: any) {
+      console.error('upgradeStorageQuota error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Storage upgrade failed.' });
+    }
+  }
+
+  /**
+   * 19. Admin Console: Enterprise Storage Overview & Paid Subscriptions
+   * GET /api/backup/admin/storage-overview
+   */
+  public static async getAdminStorageOverview(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const overview = await StorageQuotaService.getEnterpriseStorageOverview(activeDb);
+      return res.json({
+        success: true,
+        data: overview,
+      });
+    } catch (err: any) {
+      console.error('getAdminStorageOverview error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Failed to load enterprise storage overview.' });
+    }
+  }
+
+  /**
+   * 20. Admin Console: Manually Increase / Grant Storage Quota to Any Client
+   * POST /api/backup/admin/modify-storage
+   */
+  public static async adminModifyStorage(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const outletCode = String(req.body?.outletCode || req.body?.outlet_code || '').trim();
+      const action = String(req.body?.action || 'ADD_GB').toUpperCase() as any;
+      const additionalGb = Number(req.body?.additionalGb || req.body?.additional_gb || 0);
+      const totalGb = Number(req.body?.totalGb || req.body?.total_gb || 0);
+      const notes = req.body?.notes ? String(req.body.notes) : undefined;
+
+      if (!outletCode) {
+        return res.status(400).json({ success: false, message: 'Target outlet_code required.' });
+      }
+
+      const result = await StorageQuotaService.adminModifyStorage(activeDb, {
+        outletCode,
+        action,
+        additionalGb,
+        totalGb,
+        notes,
+      });
+
+      return res.json({
+        success: true,
+        message: result.message,
+        data: result.data,
+      });
+    } catch (err: any) {
+      console.error('adminModifyStorage error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Failed to modify outlet storage quota.' });
+    }
+  }
+
+  /**
+   * 21. Automatic Storage Expansion on Payment Success
+   * POST /api/backup/storage-quota/payment-success
+   */
+  public static async processStoragePaymentSuccess(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const outletCode = String(
+        req.body?.outletCode ||
+        req.body?.outlet_code ||
+        (req as any).outlet_code ||
+        req.user?.outlet_code ||
+        ''
+      ).trim();
+      const planCode = String(req.body?.planCode || req.body?.plan_code || 'ADDON_25GB').toUpperCase();
+      const amount = Number(req.body?.amount || 0);
+      const transactionId = req.body?.transactionId || req.body?.transaction_id || `TXN_${Date.now()}`;
+
+      if (!outletCode) {
+        return res.status(400).json({ success: false, message: 'Outlet code required for storage payment processing.' });
+      }
+
+      const result = await StorageQuotaService.processPaymentSuccess(activeDb, {
+        outletCode,
+        planCode,
+        amount,
+        transactionId,
+      });
+
+      return res.json({
+        success: true,
+        message: result.message,
+        data: result.quota,
+      });
+    } catch (err: any) {
+      console.error('processStoragePaymentSuccess error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Payment storage expansion failed.' });
+    }
+  }
 }
 
+
 export default BackupManagementController;
+module.exports = BackupManagementController;

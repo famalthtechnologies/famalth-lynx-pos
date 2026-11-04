@@ -110,6 +110,7 @@ Step-by-step illustrated workflows written for store operators, cashiers, restau
 - 🏥 **[Clinic Management, OPD Queue & Digital Prescriptions](./Docs/User-Guide-Clinic-Management-And-OPD.md)**: Doctor consultation desk, vitals recording, stock medicine prescribing & public appointment portal.
 - 🛠️ **[System Maintenance Mode & Emergency Lockout](./Docs/User-Guide-Maintenance-Mode-And-Lockout.md)**: Non-dismissible lockout modal, advance maintenance notices & auto-resumption.
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./Docs/User-Guide-Delivery-Challan-And-Transport-Logistics.md)**: Issuing goods in transit challans, fleet vehicle/driver management, trip loading manifest & POS conversion.
+- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/User-Guide-Tiered-Storage-And-Backup-Architecture.md)**: Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing & .fambak/.posbak archives.
 - ❓ **[Complete Store Operations FAQ](./Docs/User-Guide-FAQ.md)**: Universal troubleshooting manual.
 
 ---
@@ -180,6 +181,7 @@ sequenceDiagram
 - 🏥 **[Clinic Management & Digital Prescription Architecture](./Docs/Developer-Guide-Clinic-Management-And-OPD.md)**: Appointment state machine, doctor desk vitals JSONB, direct pharmacy billing & vector prescription PDF.
 - 🛠️ **[System Maintenance & Lockout Middleware Engine](./Docs/Developer-Guide-Maintenance-Mode-And-Lockout.md)**: Maintenance middleware, atomic JSON state storage, role-based bypass rules & Flutter interceptor.
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Architecture](./Docs/Developer-Guide-Delivery-Challan-And-Transport-Logistics.md)**: Logistics schema, trip assignment manifest, doorstep OTP verification & POS sales conversion pipeline.
+- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/Developer-Guide-Tiered-Storage-And-Backup-Architecture.md)**: Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing, .fambak archive internals & quota services.
 - 🍽️ **[QR Table Dining & Multi-Seat Architecture](./Docs/Developer-Guide-QR-Table-Ordering.md)**: Split-bill session engine, seat-level tagging, combined vs per-seat totals, and standalone dining app (`main_dining.dart`).
 - 🚀 **[1-Click Relational Store Migration Architecture](./Docs/One-Click-Cloud-Migration-Guide.md)**: In-memory relational ID translation engine and sequence re-alignment.
 - 🛍️ **[B2B Wholesale Marketplace & Community Chat Architecture](./Docs/B2B-Marketplace-And-Community-Guide.md)**: WebSocket chat protocols, vendor discovery, and direct PO translation.

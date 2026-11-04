@@ -129,6 +129,7 @@ app.use((0, import_cors.default)({
   credentials: true
 }));
 app.use("/uploads", import_express.default.static(import_path.default.join(rootDir, "uploads")));
+app.use("/storage", import_express.default.static(import_path.default.join(rootDir, "storage")));
 app.get("/health", async (req, res) => {
   try {
     const licensePath2 = import_path.default.join(rootDir, "license.key");
@@ -706,7 +707,7 @@ for (const p of candidatePaths) {
 if (import_fs.default.existsSync(webBuildPath)) {
   app.use(import_express.default.static(webBuildPath));
   app.use((req, res, next) => {
-    if (req.method === "GET" && !req.path.startsWith("/api") && !req.path.startsWith("/health") && !req.path.startsWith("/uploads") && !req.path.startsWith("/webhooks") && !req.path.startsWith("/dining") && !req.path.startsWith("/table") && !req.path.startsWith("/menu") && !req.path.startsWith("/unsubscribe")) {
+    if (req.method === "GET" && !req.path.startsWith("/api") && !req.path.startsWith("/health") && !req.path.startsWith("/uploads") && !req.path.startsWith("/storage") && !req.path.startsWith("/webhooks") && !req.path.startsWith("/dining") && !req.path.startsWith("/table") && !req.path.startsWith("/menu") && !req.path.startsWith("/unsubscribe")) {
       return res.sendFile(import_path.default.join(webBuildPath, "index.html"));
     }
     next();

@@ -1,40 +1,22 @@
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-var db_middleware_exports = {};
-__export(db_middleware_exports, {
-  dbMiddleware: () => dbMiddleware,
-  default: () => db_middleware_default
-});
-module.exports = __toCommonJS(db_middleware_exports);
-const propertyDb = require("../db/models");
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.dbMiddleware = void 0;
+const propertyDb = require('../db/models');
 let selfHealed = false;
 const dbMiddleware = async (req, res, next) => {
-  try {
-    req.propertyDb = propertyDb;
-    if (!selfHealed) {
-      selfHealed = true;
-      try {
-        await propertyDb.sync().catch((err) => {
-          if (!err.message.includes("foreign key constraint")) {
-            console.warn("\u26A0\uFE0F Model sync notice:", err.message);
-          }
-        });
-        await propertyDb.query(`
+    try {
+        req.propertyDb = propertyDb;
+        if (!selfHealed) {
+            selfHealed = true;
+            try {
+                // Ensure base tables exist on fresh database
+                await propertyDb.sync().catch((err) => {
+                    if (!err.message.includes('foreign key constraint')) {
+                        console.warn('⚠️ Model sync notice:', err.message);
+                    }
+                });
+                // Dynamically ensure columns exist
+                await propertyDb.query(`
           ALTER TABLE outlets ADD COLUMN IF NOT EXISTS business_module VARCHAR(50) DEFAULT 'ALL';
           ALTER TABLE sales_headers ADD COLUMN IF NOT EXISTS salesman_id INTEGER NULL;
           ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS leave_type_id INTEGER NULL;
@@ -74,30 +56,49 @@ const dbMiddleware = async (req, res, next) => {
           ALTER TABLE users ADD COLUMN IF NOT EXISTS show_in_quick_login BOOLEAN DEFAULT FALSE;
           ALTER TABLE users ALTER COLUMN show_in_quick_login SET DEFAULT FALSE;
 
+          CREATE TABLE IF NOT EXISTS outlet_storage_quotas (
+            id SERIAL PRIMARY KEY,
+            outlet_id INTEGER NOT NULL,
+            outlet_code VARCHAR(64) NOT NULL UNIQUE,
+            base_quota_bytes BIGINT NOT NULL DEFAULT 16106127360,
+            addon_quota_bytes BIGINT NOT NULL DEFAULT 0,
+            promotional_bonus_bytes BIGINT NOT NULL DEFAULT 0,
+            total_allocated_bytes BIGINT NOT NULL DEFAULT 16106127360,
+            current_backups_bytes BIGINT NOT NULL DEFAULT 0,
+            current_uploads_bytes BIGINT NOT NULL DEFAULT 0,
+            current_db_bytes BIGINT NOT NULL DEFAULT 0,
+            total_used_bytes BIGINT NOT NULL DEFAULT 0,
+            warning_threshold_pct INTEGER NOT NULL DEFAULT 80,
+            is_frozen BOOLEAN NOT NULL DEFAULT FALSE,
+            active_plan_code VARCHAR(64) NOT NULL DEFAULT 'STARTER_15GB',
+            plan_expires_at TIMESTAMP WITH TIME ZONE NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+
         `);
-        console.log("\u2705 Self-healed: Checked and added missing columns to tables");
-        const rawMigrationRunner = require("../utils/migrationRunner");
-        const runMigrations = typeof rawMigrationRunner === "function" ? rawMigrationRunner : rawMigrationRunner.default || rawMigrationRunner.runMigrations;
-        if (typeof runMigrations === "function") {
-          await runMigrations(propertyDb);
+                console.log('✅ Self-healed: Checked and added missing columns to tables');
+                const rawMigrationRunner = require('../utils/migrationRunner');
+                const runMigrations = typeof rawMigrationRunner === 'function' ? rawMigrationRunner : (rawMigrationRunner.default || rawMigrationRunner.runMigrations);
+                if (typeof runMigrations === 'function') {
+                    await runMigrations(propertyDb);
+                }
+                console.log('✅ Self-healed: Checked and ran database schema migrations');
+            }
+            catch (healErr) {
+                console.warn('⚠️ Self-healing column check warning:', healErr.message);
+            }
         }
-        console.log("\u2705 Self-healed: Checked and ran database schema migrations");
-      } catch (healErr) {
-        console.warn("\u26A0\uFE0F Self-healing column check warning:", healErr.message);
-      }
+        next();
     }
-    next();
-  } catch (err) {
-    console.error("DB Middleware Error:", err);
-    res.status(500).json({
-      success: false,
-      message: "Database connection failed"
-    });
-  }
+    catch (err) {
+        console.error('DB Middleware Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Database connection failed'
+        });
+    }
 };
-module.exports = dbMiddleware;
-var db_middleware_default = dbMiddleware;
-// Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
-  dbMiddleware
-});
+exports.dbMiddleware = dbMiddleware;
+module.exports = exports.dbMiddleware;
+exports.default = exports.dbMiddleware;

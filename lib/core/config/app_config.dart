@@ -131,5 +131,29 @@ class AppConfig {
     }
   }
 
-  static bool get isCloudServer => !isLocalServer;
+  /// True if this terminal is a Client PC connected to a local server across LAN
+  static bool get isClientPc {
+    if (kIsWeb) return false;
+    if (isLocalServer) return false;
+    try {
+      final uri = Uri.parse(baseUrl);
+      final host = uri.host.toLowerCase();
+      if (host.startsWith('192.168.') || host.startsWith('10.') || host.endsWith('.local')) {
+        return true;
+      }
+      if (host.startsWith('172.')) {
+        final parts = host.split('.');
+        if (parts.length >= 2) {
+          final second = int.tryParse(parts[1]) ?? 0;
+          if (second >= 16 && second <= 31) return true;
+        }
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// True if connected to an online cloud hosted server (e.g. VPS, DigitalOcean, Cloud domain)
+  static bool get isCloudServer => !isLocalServer && !isClientPc;
 }

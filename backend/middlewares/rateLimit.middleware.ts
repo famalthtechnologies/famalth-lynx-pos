@@ -6,10 +6,15 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
  */
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 180,
+  max: 3000, // Increased threshold for active POS workstations and settings dialogs
   standardHeaders: true,
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
+  skip: (req) => {
+    const rawIp = (req.ip || req.socket?.remoteAddress || '').toLowerCase();
+    const host = (req.hostname || req.headers?.host || '').toLowerCase();
+    return rawIp === '127.0.0.1' || rawIp === '::1' || rawIp.includes('127.0.0.1') || rawIp.includes('localhost') || host.includes('127.0.0.1') || host.includes('localhost') || req.headers?.['x-internal-request'] === 'true';
+  },
   message: {
     success: false,
     message: 'Too many requests from this IP. Please wait a moment.'

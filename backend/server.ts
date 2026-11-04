@@ -114,6 +114,7 @@ app.use(cors({
 }));
 
 app.use('/uploads', express.static(path.join(rootDir, 'uploads')));
+app.use('/storage', express.static(path.join(rootDir, 'storage')));
 
 // health
 app.get('/health', async (req: Request, res: Response) => {
@@ -778,7 +779,7 @@ if (fs.existsSync(webBuildPath)) {
         if (req.method === 'GET' && 
             !req.path.startsWith('/api') && 
             !req.path.startsWith('/health') && 
-            !req.path.startsWith('/uploads') && 
+            !req.path.startsWith('/uploads') && !req.path.startsWith('/storage') && 
             !req.path.startsWith('/webhooks') &&
             !req.path.startsWith('/dining') &&
             !req.path.startsWith('/table') &&

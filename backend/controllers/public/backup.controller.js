@@ -183,6 +183,15 @@ exports.uploadBackupOnDemand = async (req, res) => {
         const fileName = `backup_${timestamp}.enc`;
         const finalFilePath = path.join(BACKUP_DIR, fileName);
         fs.renameSync(tempFile, finalFilePath);
+        // Mirror into Famalth Lynx tenant isolated storage directory
+        try {
+            const rawStorage = require('../../services/storageQuota.service');
+            const StorageQuotaService = rawStorage.default || rawStorage;
+            const { backupsDir } = StorageQuotaService.getTenantStoragePaths(outletCode);
+            const tenantBackupFile = path.join(backupsDir, fileName);
+            fs.copyFileSync(finalFilePath, tenantBackupFile);
+        }
+        catch (_) { }
         // If running on Cloud Online Server, DO NOT use Google Script / Drive.
         // If running on Local Server, use Google Script and Google Drive backup!
         const isCloudServer = isCloudEnvironment();
