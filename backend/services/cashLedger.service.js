@@ -60,6 +60,10 @@ function entryDelta(entry) {
     if (type === 'SALE_CREDIT' || type === 'PURCHASE_GRN' || type === 'SUBSCRIPTION_SETTLEMENT_CREDIT' || type === 'SUBSCRIPTION_SETTLEMENT_PARTIAL') {
         return 0;
     }
+    if (type === 'ADVANCE_APPLY' || type === 'ADVANCE_ADJUSTMENT') {
+        const out = roundAmount(entry?.amount_out ?? 0) > 0.009 ? roundAmount(entry?.amount_out ?? 0) : roundAmount(entry?.adjustment_amount ?? 0);
+        return roundAmount(roundAmount(entry?.amount_in ?? 0) - out);
+    }
     if (type === 'SUPPLIER_PAYMENT' || type === 'REPAYMENT' || type === 'CUSTOMER_REPAYMENT' || type === 'WAIVE_OFF' || type.startsWith('SALE_')) {
         return roundAmount(entry?.amount_in ?? 0) - roundAmount(entry?.amount_out ?? 0);
     }
@@ -254,8 +258,10 @@ async function createLedgerEntry({ db, outlet_id, txn_date = new Date(), transac
     }
     const txnTypeStr = String(transaction_type || '').toUpperCase();
     const isZeroCashTxn = txnTypeStr === 'SALE_CREDIT' || txnTypeStr === 'PURCHASE_GRN' || txnTypeStr === 'SUBSCRIPTION_SETTLEMENT_CREDIT' || txnTypeStr === 'SUBSCRIPTION_SETTLEMENT_PARTIAL';
-    const delta = isZeroCashTxn ? 0 : ((txnTypeStr === 'SUPPLIER_PAYMENT' || txnTypeStr === 'REPAYMENT' || txnTypeStr === 'CUSTOMER_REPAYMENT' || txnTypeStr === 'WAIVE_OFF' || txnTypeStr.startsWith('SALE_'))
-        ? (roundAmount(amount_in) - roundAmount(amount_out))
+    const isAdvanceAdj = txnTypeStr === 'ADVANCE_APPLY' || txnTypeStr === 'ADVANCE_ADJUSTMENT';
+    const effectiveOut = isAdvanceAdj ? (roundAmount(amount_out) > 0.009 ? roundAmount(amount_out) : roundAmount(adjustment_amount)) : roundAmount(amount_out);
+    const delta = isZeroCashTxn ? 0 : ((txnTypeStr === 'SUPPLIER_PAYMENT' || txnTypeStr === 'REPAYMENT' || txnTypeStr === 'CUSTOMER_REPAYMENT' || txnTypeStr === 'WAIVE_OFF' || isAdvanceAdj || txnTypeStr.startsWith('SALE_'))
+        ? (roundAmount(amount_in) - effectiveOut)
         : (roundAmount(amount_in) - roundAmount(amount_out) + roundAmount(adjustment_amount)));
     const newBalance = roundAmount(runningBalance + delta);
     const entry = await db.models.cash_ledger.create({

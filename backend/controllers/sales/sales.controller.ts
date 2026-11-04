@@ -3496,7 +3496,7 @@ async function createSaleVersion({
                 party_name: header.customer_name || header.customer_phone || 'Customer',
                 payment_method: 'ADVANCE',
                 amount_in: 0,
-                amount_out: 0,
+                amount_out: advanceApplied,
                 adjustment_amount: advanceApplied,
                 notes: `Advance adjusted while billing #${sale.sale_no}`,
                 created_by,

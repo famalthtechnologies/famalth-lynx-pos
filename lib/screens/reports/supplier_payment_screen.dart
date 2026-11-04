@@ -379,7 +379,8 @@ class _SupplierPaymentScreenState extends State<SupplierPaymentScreen> {
 
   // ================= PAYMENT DIALOG =================
   Future<void> _openPaymentDialog(SupplierBill bill) async {
-    final amountCtrl = TextEditingController();
+    final defaultAmount = bill.balance > 0 ? bill.balance.toStringAsFixed(2) : '';
+    final amountCtrl = TextEditingController(text: defaultAmount);
     final creditAdjustedCtrl = TextEditingController(text: '0');
     final roundOffCtrl = TextEditingController(text: '0');
     final referenceCtrl = TextEditingController();

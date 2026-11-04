@@ -647,6 +647,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   List<_GstSalesRow> get _rows {
     final flattened = <_GstSalesRow>[];
     for (final sale in ctrl.list) {
+      if (sale.orderType == 'CLINIC_APPOINTMENT' || sale.saleNo.startsWith('APPT-')) continue;
       final customerGstin = sale.customerGstin.trim();
       if (_gstFilter == 'B2B_ONLY' && customerGstin.isEmpty) continue;
       if (_gstFilter == 'B2C_ONLY' && customerGstin.isNotEmpty) continue;
@@ -1209,15 +1210,15 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   // All figures from header-level columns (consistent with DB, dashboard, and payment breakdown)
   double get _headerCgstTotal => _billWiseSales.fold<double>(
         0,
-        (sum, sale) => sum + sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'CGST')),
+        (sum, sale) => sum + (sale.cgstAmount > 0.0001 ? sale.cgstAmount : sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'CGST'))),
       );
   double get _headerSgstTotal => _billWiseSales.fold<double>(
         0,
-        (sum, sale) => sum + sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'SGST')),
+        (sum, sale) => sum + (sale.sgstAmount > 0.0001 ? sale.sgstAmount : sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'SGST'))),
       );
   double get _headerIgstTotal => _billWiseSales.fold<double>(
         0,
-        (sum, sale) => sum + sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'IGST')),
+        (sum, sale) => sum + (sale.igstAmount > 0.0001 ? sale.igstAmount : sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'IGST'))),
       );
   double get _headerDiscountTotal =>
       _billWiseSales.fold<double>(0, (sum, sale) => sum + sale.totalDiscount);
@@ -1255,6 +1256,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     final query = _itemSearchCtrl.text.trim().toLowerCase();
     final filtered = ctrl.list.where((sale) {
       if (_isCustomerDataRow(sale)) return false;
+      if (sale.orderType == 'CLINIC_APPOINTMENT' || sale.saleNo.startsWith('APPT-')) return false;
       if (ctrl.paymentMode != null &&
           ctrl.paymentMode!.isNotEmpty &&
           sale.paymentMode.toUpperCase() != ctrl.paymentMode!.toUpperCase()) {
@@ -5509,10 +5511,17 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     final list = item.taxBreakup
         .where((tax) => tax.code.toUpperCase() == code);
     if (list.isNotEmpty) {
-      return list.fold<double>(0, (sum, tax) => sum + tax.taxAmount);
+      final total = list.fold<double>(0, (sum, tax) => sum + tax.taxAmount);
+      if (total > 0.0001) return total;
     }
-    if (code == 'CGST' || code == 'SGST') {
-      return (item.taxAmount / 2);
+    if (item.taxAmount > 0.009) {
+      final isIgst = item.taxBreakup.any((t) => t.code.toUpperCase() == 'IGST');
+      if (code == 'IGST') {
+        return isIgst ? item.taxAmount : 0.0;
+      }
+      if (code == 'CGST' || code == 'SGST') {
+        return isIgst ? 0.0 : (item.taxAmount / 2);
+      }
     }
     return 0.0;
   }

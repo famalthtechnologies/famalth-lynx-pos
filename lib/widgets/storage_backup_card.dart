@@ -64,8 +64,12 @@ class _StorageBackupCardState extends State<StorageBackupCard> {
       }
     } catch (e) {
       if (!mounted) return;
+      final str = e.toString().toLowerCase();
+      final isTimeout = str.contains('timeout');
       setState(() {
-        _errorMessage = e.toString();
+        _errorMessage = isTimeout
+            ? 'Storage analytics timed out. Tap retry to refresh.'
+            : 'Could not load storage stats: ${e.toString().replaceAll('Exception:', '').trim()}';
         _isLoading = false;
       });
     }

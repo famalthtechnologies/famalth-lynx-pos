@@ -236,17 +236,26 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
               return entrySum + (isCreditMode ? 0.0 : entry.amountIn);
             }),
       );
+  double _ledgerEntryDebit(CashLedgerEntry entry) {
+    final isCreditMode = entry.transactionType.trim().toUpperCase() == 'SALE_CREDIT' ||
+        entry.paymentMethod.trim().toUpperCase() == 'CREDIT';
+    if (isCreditMode) return 0.0;
+    if (entry.amountOut > 0.009) return entry.amountOut;
+    final isAdvanceAdjust = entry.transactionType.trim().toUpperCase() == 'ADVANCE_APPLY' ||
+        entry.transactionType.trim().toUpperCase() == 'ADVANCE_ADJUSTMENT';
+    if (isAdvanceAdjust && entry.adjustmentAmount > 0.009) {
+      return entry.adjustmentAmount;
+    }
+    return 0.0;
+  }
+
   double get _ledgerDebitGrandTotal => _ledgerDaysAsc.fold<double>(
         0,
         (sum, day) =>
             sum +
             day.entries.fold<double>(
               0,
-              (entrySum, entry) {
-                final isCreditMode = entry.transactionType.trim().toUpperCase() == 'SALE_CREDIT' ||
-                    entry.paymentMethod.trim().toUpperCase() == 'CREDIT';
-                return entrySum + (isCreditMode ? 0.0 : entry.amountOut);
-              },
+              (entrySum, entry) => entrySum + _ledgerEntryDebit(entry),
             ),
       );
 
@@ -2045,10 +2054,8 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                                       // Full Desktop/Tablet Table View (with 2D horizontal & vertical scrolling and minWidth stretch)
                                       return LayoutBuilder(
                                         builder: (context, tblConstraints) {
-                                          return Scrollbar(
-                                            thumbVisibility: true,
-                                            child: SingleChildScrollView(
-                                              scrollDirection: Axis.vertical,
+                                          return SingleChildScrollView(
+                                            scrollDirection: Axis.vertical,
                                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                                               child: SingleChildScrollView(
                                                 scrollDirection: Axis.horizontal,
@@ -2152,10 +2159,9 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                                                   ),
                                                 ),
                                               ),
-                                            ),
-                                          );
-                                        },
-                                      );
+                                            );
+                                          },
+                                        );
                                     },
                                   ),
                   ),
@@ -3111,9 +3117,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         final dayDebitTotal = day.entries.fold<double>(
           0,
           (sum, entry) {
-            final isCreditMode = entry.transactionType.trim().toUpperCase() == 'SALE_CREDIT' ||
-                entry.paymentMethod.trim().toUpperCase() == 'CREDIT';
-            return sum + (isCreditMode ? 0.0 : entry.amountOut);
+            return sum + _ledgerEntryDebit(entry);
           },
         );
         writeRow([
@@ -3134,7 +3138,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           final isCreditMode = entry.transactionType.trim().toUpperCase() == 'SALE_CREDIT' ||
               entry.paymentMethod.trim().toUpperCase() == 'CREDIT';
           final creditAmt = isCreditMode ? 0.0 : entry.amountIn;
-          final debitAmt = isCreditMode ? 0.0 : entry.amountOut;
+          final debitAmt = _ledgerEntryDebit(entry);
           writeRow([
             _fmtDateTime(entry.txnDate),
             entry.transactionType,
@@ -3379,11 +3383,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         );
         final dayDebitTotal = day.entries.fold<double>(
           0,
-          (sum, entry) {
-            final isCreditMode = entry.transactionType.trim().toUpperCase() == 'SALE_CREDIT' ||
-                entry.paymentMethod.trim().toUpperCase() == 'CREDIT';
-            return sum + (isCreditMode ? 0.0 : entry.amountOut);
-          },
+          (sum, entry) => sum + _ledgerEntryDebit(entry),
         );
         rows.add([
           _fmtDate(day.date),
@@ -3403,7 +3403,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           final isCreditMode = entry.transactionType.trim().toUpperCase() == 'SALE_CREDIT' ||
               entry.paymentMethod.trim().toUpperCase() == 'CREDIT';
           final creditAmt = isCreditMode ? 0.0 : entry.amountIn;
-          final debitAmt = isCreditMode ? 0.0 : entry.amountOut;
+          final debitAmt = _ledgerEntryDebit(entry);
           rows.add([
             _fmtDateTime(entry.txnDate),
             entry.transactionType,
@@ -4867,11 +4867,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                   );
                   final dayDebitTotal = day.entries.fold<double>(
                     0,
-                    (sum, entry) {
-                      final isCreditMode = entry.transactionType.trim().toUpperCase() == 'SALE_CREDIT' ||
-                          entry.paymentMethod.trim().toUpperCase() == 'CREDIT';
-                      return sum + (isCreditMode ? 0.0 : entry.amountOut);
-                    },
+                    (sum, entry) => sum + _ledgerEntryDebit(entry),
                   );
                   return Container(
                     margin: const EdgeInsets.only(bottom: 16),
@@ -5065,7 +5061,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
             final suppDue = _ledgerSupplierDue(entry);
             final isCreditMode = entry.transactionType.trim().toUpperCase() == 'SALE_CREDIT' ||
                 entry.paymentMethod.trim().toUpperCase() == 'CREDIT';
-            final debitAmount = isCreditMode ? 0.0 : entry.amountOut;
+            final debitAmount = _ledgerEntryDebit(entry);
             final creditAmount = isCreditMode ? 0.0 : entry.amountIn;
 
             final isExpense = entry.transactionType.trim().toUpperCase() == 'EXPENSE' ||
@@ -6136,8 +6132,12 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         type == 'CUSTOMER_REPAYMENT' ||
         type == 'WAIVE_OFF' ||
         type == 'CONSULTATION_FEE' ||
+        type == 'ADVANCE_APPLY' ||
+        type == 'ADVANCE_ADJUSTMENT' ||
         refType == 'REPAYMENT' ||
         refType == 'WAIVE_OFF' ||
+        refType == 'ADVANCE_APPLY' ||
+        refType == 'ADVANCE_ADJUSTMENT' ||
         refType == 'CLINIC_APPOINTMENT';
   }
 
@@ -6335,8 +6335,10 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         if (type == 'REPAYMENT' ||
             type == 'CUSTOMER_REPAYMENT' ||
             type == 'WAIVE_OFF' ||
+            type == 'ADVANCE_APPLY' ||
+            type == 'ADVANCE_ADJUSTMENT' ||
             (e.amountIn > 0.009 && type != 'SALE_CREDIT')) {
-          totalPaid += e.amountIn;
+          totalPaid += (e.amountIn > 0.009 ? e.amountIn : e.adjustmentAmount);
         }
       }
 
@@ -6345,10 +6347,10 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         if (e.id != lastEntry.id) {
           _cachedCustomerDue[e.id] = 0.0;
         } else {
-          if (e.notes.contains('(Settled / Paid)')) {
+          final isSettledNote = e.notes.contains('(Settled / Paid)');
+          final isFullyPaid = initialBill > 0.009 && (totalPaid >= initialBill - 0.009);
+          if (isSettledNote || isFullyPaid) {
             _cachedCustomerDue[e.id] = 0.0;
-          } else if (e.adjustmentAmount > 0.009) {
-            _cachedCustomerDue[e.id] = e.adjustmentAmount;
           } else {
             double due = 0.0;
             final m = RegExp(r'outstanding\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)', caseSensitive: false)
@@ -6493,7 +6495,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
 
   Color _ledgerRowColor(CashLedgerEntry entry) {
     if (entry.amountIn > 0) return Colors.green.withOpacity(.05);
-    if (entry.amountOut > 0) return Colors.red.withOpacity(.05);
+    if (_ledgerEntryDebit(entry) > 0) return Colors.red.withOpacity(.05);
     return Colors.white;
   }
 

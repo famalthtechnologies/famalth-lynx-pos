@@ -1817,6 +1817,8 @@ exports.applyAdvance = async (req, res) => {
             reference_no: sale.sale_no,
             party_name: getCustomerLabel(sale),
             payment_method: payment_mode,
+            amount_in: 0,
+            amount_out: amount,
             adjustment_amount: amount,
             notes: note || `Advance adjusted against ${sale.sale_no}`,
             created_by: req.user.id,
@@ -1938,7 +1940,7 @@ exports.adjustBulkAdvance = async (req: any, res: any) => {
                 party_name: getCustomerLabel(sale),
                 payment_method: 'ADVANCE',
                 amount_in: 0,
-                amount_out: 0,
+                amount_out: alloc,
                 adjustment_amount: alloc,
                 notes: note || `Advance adjusted against #${sale.sale_no}`,
                 created_by: req.user.id,
@@ -2857,12 +2859,23 @@ exports.getCustomerLedger = async (req, res) => {
             const sameDateRepaymentTotal = sameDateRepayments.reduce((sum, p) => sum + toAmount(p.amount), 0);
             const sameDateCredit = roundAmount(initialPaid + sameDateRepaymentTotal);
 
+            const advanceRepayments = (sale.repayments || []).filter((p: any) => String(p.payment_mode || '').toUpperCase() === 'ADVANCE');
+            const totalAdvanceAdjusted = advanceRepayments.reduce((sum: number, p: any) => sum + toAmount(p.amount), 0);
+
             let noteText = `Mode: ${sale.payment_mode || 'CREDIT'}`;
             if (sameDateCredit >= netAmount && netAmount > 0) {
                 noteText = initialPaid > 0.009 ? 'Paid at checkout' : 'Settled on same date';
             } else if (sameDateCredit > 0.009) {
                 noteText = `Partially paid (${sameDateCredit}) on bill date`;
+            } else if (totalAdvanceAdjusted >= netAmount && netAmount > 0) {
+                noteText = 'Settled from customer advance';
+            } else if (totalAdvanceAdjusted > 0.009) {
+                noteText = `Advance adjusted (${totalAdvanceAdjusted.toFixed(2)})`;
             }
+
+            const effectivePaymentMode = (sameDateCredit >= netAmount && netAmount > 0)
+                ? (sale.payment_mode || (sameDateRepayments[0]?.payment_mode || 'CASH'))
+                : (totalAdvanceAdjusted > 0.009 ? 'ADVANCE' : (sale.payment_mode || 'CREDIT'));
 
             rawTransactions.push({
                 date: sale.sale_date,
@@ -2871,9 +2884,7 @@ exports.getCustomerLedger = async (req, res) => {
                 voucher_type: 'SALE_INVOICE',
                 voucher_no: sale.sale_no,
                 description: `Invoice #${sale.sale_no} (${sale.order_type || 'Sale'})`,
-                payment_mode: sameDateCredit > 0.009
-                    ? (sale.payment_mode || (sameDateRepayments[0]?.payment_mode || 'CASH'))
-                    : (sale.payment_mode || 'CREDIT'),
+                payment_mode: effectivePaymentMode,
                 debit: netAmount,
                 credit: sameDateCredit,
                 notes: noteText
@@ -2881,37 +2892,23 @@ exports.getCustomerLedger = async (req, res) => {
 
             for (const p of otherDateRepayments) {
                 const isAdvanceAdjust = String(p.payment_mode || '').toUpperCase() === 'ADVANCE';
+                if (isAdvanceAdjust) {
+                    // Pre-existing advance credit was already credited in customer ledger upon deposit.
+                    // The invoice debit already draws down against that advance. Do not insert redundant opposing credit + debit rows!
+                    continue;
+                }
                 rawTransactions.push({
                     date: p.payment_date,
                     sort_time: p.created_at || p.payment_date,
                     id: `repay-${p.id}`,
-                    voucher_type: isAdvanceAdjust ? 'ADVANCE_ADJUSTED' : 'REPAYMENT',
+                    voucher_type: 'REPAYMENT',
                     voucher_no: p.reference_no || `REC-${p.id}`,
-                    description: isAdvanceAdjust
-                        ? `Advance Adjusted against #${sale.sale_no}`
-                        : `Repayment for #${sale.sale_no}`,
+                    description: `Repayment for #${sale.sale_no}`,
                     payment_mode: p.payment_mode || 'CASH',
                     debit: 0,
                     credit: toAmount(p.amount),
-                    notes: isAdvanceAdjust
-                        ? (p.note || 'Settled from Advance')
-                        : (p.note || 'Repayment received')
+                    notes: p.note || 'Repayment received'
                 });
-
-                if (isAdvanceAdjust) {
-                    rawTransactions.push({
-                        date: p.payment_date,
-                        sort_time: p.created_at || p.payment_date,
-                        id: `adv-util-${p.id}`,
-                        voucher_type: 'ADVANCE_UTILIZED',
-                        voucher_no: p.reference_no || `REC-${p.id}`,
-                        description: `Advance Utilized for #${sale.sale_no}`,
-                        payment_mode: p.payment_mode || 'ADVANCE',
-                        debit: toAmount(p.amount),
-                        credit: 0,
-                        notes: p.note || `Adjusted from customer advance against #${sale.sale_no}`
-                    });
-                }
             }
         }
 

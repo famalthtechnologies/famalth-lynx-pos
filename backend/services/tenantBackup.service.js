@@ -1291,144 +1291,251 @@ class TenantBackupService {
         let totalRecordsRestored = 0;
         const tablesRestored = [];
         const colMap = new Map();
-        try {
-            const [tableCols] = await activeDb.query(`
-        SELECT table_name, column_name, data_type 
-        FROM information_schema.columns 
-        WHERE table_schema = 'public'
-      `);
-            for (const c of tableCols) {
-                if (!colMap.has(c.table_name))
-                    colMap.set(c.table_name, new Map());
-                colMap.get(c.table_name).set(c.column_name, c.data_type);
-            }
-        }
-        catch (_) { }
-        const isSelectiveOutlet = Boolean(options.selectedOutletCode) || options.scope === 'OUTLET' || manifest.scope === 'OUTLET';
-        if (isSelectiveOutlet) {
-            const selectedCode = (options.selectedOutletCode || manifest.sourceOutletCode || (manifest.outlets[0]?.code) || '').trim();
-            const matchedOutlet = manifest.outlets.find(o => String(o.code).toLowerCase() === selectedCode.toLowerCase()) || manifest.outlets[0];
-            const sourceOutletId = matchedOutlet ? Number(matchedOutlet.id) : Number(manifest.outlets[0]?.id || 1);
-            const destOutletId = Number(options.targetOutletId || sourceOutletId || 1);
-            const destOutletCode = String(options.targetOutletCode || selectedCode || `OUT_${destOutletId}`);
-            await activeDb.transaction(async (t) => {
-                const [existingOutlet] = await activeDb.query(`SELECT id, outlet_code FROM outlets WHERE id = :destOutletId OR outlet_code = :destOutletCode LIMIT 1;`, { replacements: { destOutletId, destOutletCode }, type: sequelize_1.QueryTypes.SELECT, transaction: t }).catch(() => []);
-                if (!existingOutlet) {
-                    await activeDb.query(`INSERT INTO outlets (id, outlet_code, outlet_name, business_module, created_at, updated_at)
+    try {
+      const tableCols = await activeDb.query(
+        `SELECT table_name, column_name, data_type 
+         FROM information_schema.columns 
+         WHERE table_schema = 'public'`,
+        { type: sequelize_1.QueryTypes.SELECT }
+      ).catch(() => []);
+      for (const c of tableCols) {
+        const tName = Array.isArray(c) ? c[0] : (c.table_name || c.TABLE_NAME);
+        const colName = Array.isArray(c) ? c[1] : (c.column_name || c.COLUMN_NAME);
+        const dType = Array.isArray(c) ? c[2] : (c.data_type || c.DATA_TYPE);
+        if (!tName || !colName) continue;
+        if (!colMap.has(tName)) colMap.set(tName, new Map());
+        colMap.get(tName).set(colName, dType);
+      }
+    } catch (_) {}
+
+    // Dynamic discovery of existing base tables in public schema
+    let existingTables = new Set();
+    try {
+      const tRows = await activeDb.query(
+        `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
+        { type: sequelize_1.QueryTypes.SELECT }
+      ).catch(() => []);
+      existingTables = new Set(
+        tRows.map((r) => Array.isArray(r) ? r[0] : (r?.table_name || r?.TABLE_NAME || r)).filter(Boolean)
+      );
+    } catch (_) {}
+
+    // Primary key mapping for intelligent upserts
+    const pkMap = new Map();
+    try {
+      const pkRows = await activeDb.query(`
+        SELECT kcu.table_name, kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu 
+          ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+        WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public';
+      `, { type: sequelize_1.QueryTypes.SELECT }).catch(() => []);
+      for (const r of pkRows) {
+        const tName = Array.isArray(r) ? r[0] : (r.table_name || r.TABLE_NAME);
+        const colName = Array.isArray(r) ? r[1] : (r.column_name || r.COLUMN_NAME);
+        if (!tName || !colName) continue;
+        if (!pkMap.has(tName)) pkMap.set(tName, []);
+        pkMap.get(tName).push(colName);
+      }
+    } catch (_) {}
+
+    const masterEntityTables = new Set([
+      'tax_groups', 'tax_group_components', 'item_groups', 'subcategories', 'brands',
+      'system_settings', 'app_branding', 'paymentMethod', 'saleSource', 'numbering_settings',
+      'stock_locations', 'item_master', 'item_modifiers', 'item_boms',
+      'customers', 'supplier_master', 'restaurant_tables', 'table_reservations',
+      'hr_employees', 'hr_biometric_devices', 'bank_accounts'
+    ]);
+
+    // Topological dependency order: Independent Masters -> Purchases -> Sales -> Sales-Dependents -> Ledgers
+    const restoreOrder = [
+      // 1. Masters
+      'tax_groups', 'tax_group_components', 'item_groups', 'subcategories', 'brands',
+      'system_settings', 'app_branding', 'paymentMethod', 'saleSource', 'numbering_settings',
+      'stock_locations', 'item_master', 'item_modifiers', 'item_boms',
+      'customers', 'supplier_master', 'bank_accounts', 'restaurant_tables', 'table_reservations',
+      'hr_employees', 'hr_biometric_devices',
+
+      // 2. Purchases & GRN
+      'purchase_orders', 'purchase_order_items',
+      'goods_receipts', 'goods_receipt_items', 'supplier_bills', 'supplier_payments',
+
+      // 3. Sales Headers & Items
+      'sales_headers', 'sales_items',
+
+      // 4. Sales-Dependent Collections, Advances & Kitchen
+      'customer_advances', 'customer_repayments',
+      'sales_credit_notes', 'sales_refunds',
+      'kot_headers', 'kot_items',
+      'clinic_appointments',
+      'milk_subscriptions', 'milk_subscription_items', 'milk_subscription_consumptions',
+
+      // 5. Financial & Stock Ledgers
+      'expenses', 'accounting_vouchers', 'voucher_lines', 'cash_ledger', 'stock_ledger',
+      'hr_attendance_punches', 'user_notes', 'users'
+    ];
+
+    const isSelectiveOutlet = Boolean(options.selectedOutletCode) || options.scope === 'OUTLET' || manifest.scope === 'OUTLET';
+
+    if (isSelectiveOutlet) {
+      const selectedCode = (options.selectedOutletCode || manifest.sourceOutletCode || (manifest.outlets[0]?.code) || '').trim();
+      const matchedOutlet = manifest.outlets.find(o => String(o.code).toLowerCase() === selectedCode.toLowerCase()) || manifest.outlets[0];
+      const sourceOutletId = matchedOutlet ? Number(matchedOutlet.id) : Number(manifest.outlets[0]?.id || 1);
+
+      const destOutletId = Number(options.targetOutletId || sourceOutletId || 1);
+      const destOutletCode = String(options.targetOutletCode || selectedCode || `OUT_${destOutletId}`);
+
+      await activeDb.transaction(async (t) => {
+        const [existingOutlet] = await activeDb.query(
+          `SELECT id, outlet_code FROM outlets WHERE id = :destOutletId OR outlet_code = :destOutletCode LIMIT 1;`,
+          { replacements: { destOutletId, destOutletCode }, type: sequelize_1.QueryTypes.SELECT, transaction: t }
+        ).catch(() => []);
+
+        if (!existingOutlet) {
+          await activeDb.query(
+            `INSERT INTO outlets (id, outlet_code, outlet_name, business_module, created_at, updated_at)
              VALUES (:destOutletId, :destOutletCode, :name, :bizModule, NOW(), NOW())
-             ON CONFLICT (id) DO UPDATE SET outlet_code = :destOutletCode;`, {
-                        replacements: {
-                            destOutletId,
-                            destOutletCode,
-                            name: matchedOutlet?.name || `Outlet ${destOutletCode}`,
-                            bizModule: matchedOutlet?.business_module || 'ALL',
-                        },
-                        transaction: t,
-                    }).catch(() => { });
-                }
-                if (options.overwriteExisting) {
-                    const childDeletes = [
-                        `DELETE FROM "sales_items" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :destOutletId)`,
-                        `DELETE FROM "kot_items" WHERE kot_header_id IN (SELECT id FROM "kot_headers" WHERE outlet_id = :destOutletId)`,
-                        `DELETE FROM "purchase_order_items" WHERE po_id IN (SELECT id FROM "purchase_orders" WHERE outlet_id = :destOutletId)`,
-                        `DELETE FROM "goods_receipt_items" WHERE grn_id IN (SELECT id FROM "goods_receipts" WHERE outlet_id = :destOutletId)`,
-                        `DELETE FROM "voucher_lines" WHERE voucher_id IN (SELECT id FROM "accounting_vouchers" WHERE outlet_id = :destOutletId)`,
-                        `DELETE FROM "milk_subscription_items" WHERE subscription_id IN (SELECT id FROM "milk_subscriptions" WHERE outlet_id = :destOutletId)`,
-                        `DELETE FROM "sales_headers" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "kot_headers" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "purchase_orders" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "goods_receipts" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "stock_ledger" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "batches" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "stock_locations" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "customers" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "customer_advances" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "customer_repayments" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "supplier_bills" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "supplier_payments" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "expenses" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "accounting_vouchers" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "cash_ledger" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "clinic_appointments" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "hr_attendance_punches" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "hr_employees" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "restaurant_tables" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "milk_subscriptions" WHERE outlet_id = :destOutletId`,
-                        `DELETE FROM "user_notes" WHERE outlet_id = :destOutletId`
-                    ];
-                    for (const q of childDeletes) {
-                        try {
-                            await activeDb.query(q, { replacements: { destOutletId }, transaction: t }).catch(() => { });
-                        }
-                        catch (_) { }
-                    }
-                }
-                const restoreOrder = [
-                    'tax_groups', 'tax_group_components', 'item_groups', 'subcategories', 'brands',
-                    'system_settings', 'app_branding', 'paymentMethod', 'saleSource', 'numbering_settings',
-                    'stock_locations', 'batches', 'item_master', 'item_modifiers', 'item_boms',
-                    'customers', 'customer_advances', 'customer_repayments',
-                    'supplier_master', 'supplier_bills', 'supplier_payments',
-                    'sales_headers', 'sales_items', 'restaurant_tables', 'table_reservations',
-                    'kot_headers', 'kot_items', 'purchase_orders', 'purchase_order_items',
-                    'goods_receipts', 'goods_receipt_items', 'clinic_appointments',
-                    'hr_employees', 'hr_attendance_punches', 'hr_biometric_devices',
-                    'expenses', 'accounting_vouchers', 'voucher_lines', 'bank_accounts', 'cash_ledger',
-                    'stock_ledger', 'milk_subscriptions', 'milk_subscription_consumptions', 'milk_subscription_items',
-                    'user_notes', 'users'
-                ];
-                for (const tbl of restoreOrder) {
-                    const rawRows = tables[tbl];
-                    if (!Array.isArray(rawRows) || rawRows.length === 0)
-                        continue;
-                    const validColMap = colMap.get(tbl);
-                    if (colMap.size > 0 && !validColMap)
-                        continue;
-                    // Filter rows for this specific outlet
-                    const scopedRows = rawRows.filter(row => {
-                        if (!row || typeof row !== 'object')
-                            return false;
-                        if ('outlet_id' in row)
-                            return Number(row.outlet_id) === sourceOutletId;
-                        if ('outlet_code' in row)
-                            return String(row.outlet_code).toLowerCase() === selectedCode.toLowerCase();
-                        return true; // Global master table rows included
-                    });
-                    if (scopedRows.length === 0)
-                        continue;
-                    for (const row of scopedRows) {
-                        const rowCopy = { ...row };
-                        if ('outlet_id' in rowCopy)
-                            rowCopy.outlet_id = destOutletId;
-                        if ('outlet_code' in rowCopy)
-                            rowCopy.outlet_code = destOutletCode;
-                        const cols = Object.keys(rowCopy).filter(c => !validColMap || validColMap.has(c));
-                        if (cols.length === 0)
-                            continue;
-                        const colList = cols.map(c => `"${c}"`).join(', ');
-                        const valPlaceholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
-                        const values = cols.map(c => {
-                            const val = rowCopy[c];
-                            const dtype = validColMap ? validColMap.get(c) : null;
-                            if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
-                                return JSON.stringify(val);
-                            }
-                            if (dtype === 'json' || dtype === 'jsonb') {
-                                return typeof val === 'string' ? val : JSON.stringify(val);
-                            }
-                            return val;
-                        });
-                        try {
-                            await activeDb.query(`INSERT INTO "${tbl}" (${colList}) VALUES (${valPlaceholders}) ON CONFLICT DO NOTHING;`, { bind: values, transaction: t });
-                            totalRecordsRestored++;
-                        }
-                        catch (_) { }
-                    }
-                    tablesRestored.push(tbl);
-                }
-                // Sequence reset
-                try {
-                    await activeDb.query(`
+             ON CONFLICT (id) DO UPDATE SET outlet_code = :destOutletCode;`,
+            {
+              replacements: {
+                destOutletId,
+                destOutletCode,
+                name: matchedOutlet?.name || `Outlet ${destOutletCode}`,
+                bizModule: matchedOutlet?.business_module || 'ALL',
+              },
+              transaction: t,
+            }
+          ).catch(() => {});
+        }
+
+        if (options.overwriteExisting) {
+          // Break self/circular references before deletion so FK constraints do not abort transaction
+          if (existingTables.has('sales_headers')) {
+            await activeDb.query(
+              `UPDATE "sales_headers" SET original_sale_id = NULL, previous_sale_id = NULL, replaced_by_sale_id = NULL WHERE outlet_id = :destOutletId;`,
+              { replacements: { destOutletId }, transaction: t }
+            ).catch(() => {});
+          }
+          if (existingTables.has('kot_headers')) {
+            await activeDb.query(
+              `UPDATE "kot_headers" SET sales_header_id = NULL WHERE outlet_id = :destOutletId;`,
+              { replacements: { destOutletId }, transaction: t }
+            ).catch(() => {});
+          }
+
+          // Strict reverse-dependency ordered child deletes with table existence check
+          const safeChildDeletes = [
+            { tbl: 'sales_credit_notes', q: `DELETE FROM "sales_credit_notes" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'sales_refunds', q: `DELETE FROM "sales_refunds" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'customer_loyalty_ledger', q: `DELETE FROM "customer_loyalty_ledger" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'draw_vouchers', q: `DELETE FROM "draw_vouchers" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'hr_sales_commissions', q: `DELETE FROM "hr_sales_commissions" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'customer_item_advances', q: `DELETE FROM "customer_item_advances" WHERE outlet_id = :destOutletId` },
+            { tbl: 'customer_advances', q: `DELETE FROM "customer_advances" WHERE outlet_id = :destOutletId` },
+            { tbl: 'customer_repayments', q: `DELETE FROM "customer_repayments" WHERE outlet_id = :destOutletId` },
+            { tbl: 'milk_subscription_consumptions', q: `DELETE FROM "milk_subscription_consumptions" WHERE outlet_id = :destOutletId` },
+            { tbl: 'milk_subscription_items', q: `DELETE FROM "milk_subscription_items" WHERE subscription_id IN (SELECT id FROM "milk_subscriptions" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'milk_subscriptions', q: `DELETE FROM "milk_subscriptions" WHERE outlet_id = :destOutletId` },
+            { tbl: 'sales_items', q: `DELETE FROM "sales_items" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'clinic_appointments', q: `DELETE FROM "clinic_appointments" WHERE outlet_id = :destOutletId` },
+            { tbl: 'kot_items', q: `DELETE FROM "kot_items" WHERE kot_header_id IN (SELECT id FROM "kot_headers" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'kot_headers', q: `DELETE FROM "kot_headers" WHERE outlet_id = :destOutletId` },
+            { tbl: 'sales_headers', q: `DELETE FROM "sales_headers" WHERE outlet_id = :destOutletId` },
+            { tbl: 'purchase_order_items', q: `DELETE FROM "purchase_order_items" WHERE po_id IN (SELECT id FROM "purchase_orders" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'purchase_orders', q: `DELETE FROM "purchase_orders" WHERE outlet_id = :destOutletId` },
+            { tbl: 'goods_receipt_items', q: `DELETE FROM "goods_receipt_items" WHERE grn_id IN (SELECT id FROM "goods_receipts" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'goods_receipts', q: `DELETE FROM "goods_receipts" WHERE outlet_id = :destOutletId` },
+            { tbl: 'voucher_lines', q: `DELETE FROM "voucher_lines" WHERE voucher_id IN (SELECT id FROM "accounting_vouchers" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'accounting_vouchers', q: `DELETE FROM "accounting_vouchers" WHERE outlet_id = :destOutletId` },
+            { tbl: 'supplier_bills', q: `DELETE FROM "supplier_bills" WHERE outlet_id = :destOutletId` },
+            { tbl: 'supplier_payments', q: `DELETE FROM "supplier_payments" WHERE outlet_id = :destOutletId` },
+            { tbl: 'expenses', q: `DELETE FROM "expenses" WHERE outlet_id = :destOutletId` },
+            { tbl: 'cash_ledger', q: `DELETE FROM "cash_ledger" WHERE outlet_id = :destOutletId` },
+            { tbl: 'stock_ledger', q: `DELETE FROM "stock_ledger" WHERE outlet_id = :destOutletId` },
+            { tbl: 'table_reservations', q: `DELETE FROM "table_reservations" WHERE outlet_id = :destOutletId` },
+            { tbl: 'restaurant_tables', q: `DELETE FROM "restaurant_tables" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_attendance_punches', q: `DELETE FROM "hr_attendance_punches" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_employees', q: `DELETE FROM "hr_employees" WHERE outlet_id = :destOutletId` },
+            { tbl: 'user_notes', q: `DELETE FROM "user_notes" WHERE outlet_id = :destOutletId` }
+          ];
+
+          for (const item of safeChildDeletes) {
+            if (existingTables.size === 0 || existingTables.has(item.tbl)) {
+              try {
+                await activeDb.query(item.q, { replacements: { destOutletId }, transaction: t });
+              } catch (_) {}
+            }
+          }
+        }
+
+        for (const tbl of restoreOrder) {
+          if (existingTables.size > 0 && !existingTables.has(tbl)) continue;
+          const rawRows = tables[tbl];
+          if (!Array.isArray(rawRows) || rawRows.length === 0) continue;
+          const validColMap = colMap.get(tbl);
+          if (colMap.size > 0 && !validColMap) continue;
+          const pks = pkMap.get(tbl) || [];
+
+          // Filter rows for this specific outlet
+          const scopedRows = rawRows.filter(row => {
+            if (!row || typeof row !== 'object') return false;
+            if ('outlet_id' in row) return Number(row.outlet_id) === sourceOutletId;
+            if ('outlet_code' in row) return String(row.outlet_code).toLowerCase() === selectedCode.toLowerCase();
+            return true; // Global master table rows included
+          });
+
+          if (scopedRows.length === 0) continue;
+
+          for (const row of scopedRows) {
+            const rowCopy = { ...row };
+            if ('outlet_id' in rowCopy) rowCopy.outlet_id = destOutletId;
+            if ('outlet_code' in rowCopy) rowCopy.outlet_code = destOutletCode;
+
+            const cols = Object.keys(rowCopy).filter(c => !validColMap || validColMap.has(c));
+            if (cols.length === 0) continue;
+
+            const colList = cols.map(c => `"${c}"`).join(', ');
+            const valPlaceholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
+            const values = cols.map(c => {
+              const val = rowCopy[c];
+              const dtype = validColMap ? validColMap.get(c) : null;
+              if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
+                return JSON.stringify(val);
+              }
+              if (dtype === 'json' || dtype === 'jsonb') {
+                return typeof val === 'string' ? val : JSON.stringify(val);
+              }
+              return val;
+            });
+
+            // Upsert strategy: Overwrite on Rollback, or Merge upsert for Entity Masters
+            const shouldUpsert = options.overwriteExisting === true || masterEntityTables.has(tbl);
+            let sql = `INSERT INTO "${tbl}" (${colList}) VALUES (${valPlaceholders})`;
+
+            if (shouldUpsert && pks.length > 0) {
+              const nonPkCols = cols.filter(c => !pks.includes(c));
+              if (nonPkCols.length > 0) {
+                const updateClause = nonPkCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ');
+                sql += ` ON CONFLICT (${pks.map(c => `"${c}"`).join(', ')}) DO UPDATE SET ${updateClause};`;
+              } else {
+                sql += ` ON CONFLICT DO NOTHING;`;
+              }
+            } else {
+              sql += ` ON CONFLICT DO NOTHING;`;
+            }
+
+            try {
+              await activeDb.query(sql, { bind: values, transaction: t });
+              totalRecordsRestored++;
+            } catch (_) {}
+          }
+
+          tablesRestored.push(tbl);
+        }
+
+        // Sequence reset
+        try {
+          await activeDb.query(`
             DO $$
             DECLARE
               r RECORD;
@@ -1442,53 +1549,70 @@ class TenantBackupService {
               END LOOP;
             END $$;
           `, { transaction: t });
-                }
-                catch (_) { }
+        } catch (_) {}
+      });
+
+      return {
+        success: true,
+        totalRecordsRestored,
+        tablesRestored,
+        restoredOutletCode: destOutletCode,
+        targetOutletId: destOutletId,
+      };
+    } else {
+      // Full Enterprise Restore
+      await activeDb.transaction(async (t) => {
+        for (const tbl of restoreOrder) {
+          if (existingTables.size > 0 && !existingTables.has(tbl)) continue;
+          const rows = tables[tbl];
+          if (!Array.isArray(rows) || rows.length === 0) continue;
+          const validColMap = colMap.get(tbl);
+          if (colMap.size > 0 && !validColMap) continue;
+          const pks = pkMap.get(tbl) || [];
+
+          for (const row of rows) {
+            const cols = Object.keys(row).filter(c => !validColMap || validColMap.has(c));
+            if (cols.length === 0) continue;
+
+            const colList = cols.map(c => `"${c}"`).join(', ');
+            const valPlaceholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
+            const values = cols.map(c => {
+              const val = row[c];
+              const dtype = validColMap ? validColMap.get(c) : null;
+              if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
+                return JSON.stringify(val);
+              }
+              if (dtype === 'json' || dtype === 'jsonb') {
+                return typeof val === 'string' ? val : JSON.stringify(val);
+              }
+              return val;
             });
-            return {
-                success: true,
-                totalRecordsRestored,
-                tablesRestored,
-                restoredOutletCode: destOutletCode,
-                targetOutletId: destOutletId,
-            };
+
+            const shouldUpsert = options.overwriteExisting === true || masterEntityTables.has(tbl);
+            let sql = `INSERT INTO "${tbl}" (${colList}) VALUES (${valPlaceholders})`;
+
+            if (shouldUpsert && pks.length > 0) {
+              const nonPkCols = cols.filter(c => !pks.includes(c));
+              if (nonPkCols.length > 0) {
+                const updateClause = nonPkCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ');
+                sql += ` ON CONFLICT (${pks.map(c => `"${c}"`).join(', ')}) DO UPDATE SET ${updateClause};`;
+              } else {
+                sql += ` ON CONFLICT DO NOTHING;`;
+              }
+            } else {
+              sql += ` ON CONFLICT DO NOTHING;`;
+            }
+
+            try {
+              await activeDb.query(sql, { bind: values, transaction: t });
+              totalRecordsRestored++;
+            } catch (_) {}
+          }
+          tablesRestored.push(tbl);
         }
-        else {
-            // Full Enterprise Restore
-            await activeDb.transaction(async (t) => {
-                for (const [tbl, rows] of Object.entries(tables)) {
-                    if (!Array.isArray(rows) || rows.length === 0)
-                        continue;
-                    const validColMap = colMap.get(tbl);
-                    if (colMap.size > 0 && !validColMap)
-                        continue;
-                    for (const row of rows) {
-                        const cols = Object.keys(row).filter(c => !validColMap || validColMap.has(c));
-                        if (cols.length === 0)
-                            continue;
-                        const colList = cols.map(c => `"${c}"`).join(', ');
-                        const valPlaceholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
-                        const values = cols.map(c => {
-                            const val = row[c];
-                            const dtype = validColMap ? validColMap.get(c) : null;
-                            if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
-                                return JSON.stringify(val);
-                            }
-                            if (dtype === 'json' || dtype === 'jsonb') {
-                                return typeof val === 'string' ? val : JSON.stringify(val);
-                            }
-                            return val;
-                        });
-                        try {
-                            await activeDb.query(`INSERT INTO "${tbl}" (${colList}) VALUES (${valPlaceholders}) ON CONFLICT DO NOTHING;`, { bind: values, transaction: t });
-                            totalRecordsRestored++;
-                        }
-                        catch (_) { }
-                    }
-                    tablesRestored.push(tbl);
-                }
-                try {
-                    await activeDb.query(`
+
+        try {
+          await activeDb.query(`
             DO $$
             DECLARE
               r RECORD;
@@ -1502,17 +1626,17 @@ class TenantBackupService {
               END LOOP;
             END $$;
           `, { transaction: t });
-                }
-                catch (_) { }
-            });
-            return {
-                success: true,
-                totalRecordsRestored,
-                tablesRestored,
-                restoredOutletCode: 'ALL',
-                targetOutletId: null,
-            };
-        }
+        } catch (_) {}
+      });
+
+      return {
+        success: true,
+        totalRecordsRestored,
+        tablesRestored,
+        restoredOutletCode: 'ALL',
+        targetOutletId: null,
+      };
+    }
     }
     /**
      * 13. List Cloud Snapshots & Remote Backups

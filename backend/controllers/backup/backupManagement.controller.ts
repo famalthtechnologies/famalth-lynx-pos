@@ -18,14 +18,24 @@ function formatBytes(bytes: number, decimals: number = 2): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
+interface StorageStatsCacheEntry {
+  data: any;
+  expiry: number;
+}
+const storageStatsCache = new Map<string, StorageStatsCacheEntry>();
+const STATS_CACHE_TTL_MS = 60 * 1000; // 60s memory cache to guarantee instant sub-second response
+
 export class BackupManagementController {
+  public static invalidateStatsCache() {
+    storageStatsCache.clear();
+  }
+
   /**
    * 1. Get Enterprise Storage Analytics & Backups Status
    * GET /api/backup/storage-stats
    */
   public static async getStorageStats(req: Request, res: Response) {
     try {
-      
       const activeDb = (req as any).propertyDb;
       const userRole = String(req.user?.role || '').toUpperCase();
       const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
@@ -37,16 +47,42 @@ export class BackupManagementController {
         (req.query?.outlet_code as string) ||
         'DEFAULT'
       );
+      const outletId = Number((req as any).outlet_id || req.user?.outlet_id || 1);
+      const cacheKey = `${outletCode}_${outletId}_${isSuperAdmin}`;
 
-      const stats: any = await TenantBackupService.getStorageStats(activeDb, outletCode, isSuperAdmin);
-      try {
-        const outletId = Number((req as any).outlet_id || req.user?.outlet_id || 1);
-        const quota = await StorageQuotaService.calculateTenantStorage(activeDb, outletId, outletCode);
-        stats.quota = quota;
-      } catch (_) {}
+      // Fast in-memory cache hit
+      const cached = storageStatsCache.get(cacheKey);
+      if (cached && Date.now() < cached.expiry) {
+        return res.json({
+          success: true,
+          data: cached.data,
+        });
+      }
+
+      // Parallelize disk scan and quota audit with Promise.allSettled to eliminate 15s timeouts
+      const [statsRes, quotaRes] = await Promise.allSettled([
+        TenantBackupService.getStorageStats(activeDb, outletCode, isSuperAdmin),
+        StorageQuotaService.calculateTenantStorage(activeDb, outletId, outletCode)
+      ]);
+
+      const stats: any = statsRes.status === 'fulfilled' ? statsRes.value : {
+        disk: { total: 0, free: 0, used: 0, totalPretty: '0 GB', freePretty: '0 GB', usedPretty: '0 GB', usagePct: 0 },
+        backups: { count: 0, totalSize: 0, totalPretty: '0 MB', latest: null, items: [] },
+        uploads: { count: 0, totalSize: 0, totalPretty: '0 MB' },
+        database: { totalSize: 0, totalPretty: '0 MB' },
+      };
+
+      if (quotaRes.status === 'fulfilled') {
+        stats.quota = quotaRes.value;
+      }
 
       stats.isEnterpriseConsole = isSuperAdmin;
       stats.canManageAll = isSuperAdmin;
+
+      storageStatsCache.set(cacheKey, {
+        data: stats,
+        expiry: Date.now() + STATS_CACHE_TTL_MS,
+      });
 
       return res.json({
         success: true,
@@ -94,6 +130,7 @@ export class BackupManagementController {
       const outletCode = String(req.body?.outletCode || (req as any).outlet_code || req.user?.outlet_code || `OUT_${outletId}`);
       const outletMeta = (req as any).outlet || {};
 
+      BackupManagementController.invalidateStatsCache();
       const result = await TenantBackupService.createTenantBackup(activeDb, outletId, outletCode, outletMeta);
 
       return res.json({
@@ -211,6 +248,7 @@ export class BackupManagementController {
       const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
       const outletCode = String((req as any).outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
 
+      BackupManagementController.invalidateStatsCache();
       const result = await TenantBackupService.deleteBackup(filename, outletCode, isSuperAdmin);
       if (!result.success) {
         return res.status(404).json({ success: false, message: result.message || 'Backup file not found or access denied.' });
@@ -332,6 +370,7 @@ export class BackupManagementController {
       const outletMeta = (req as any).outlet || {};
       const saveToDrive = req.body?.saveToDrive === true || req.query?.saveToDrive === 'true';
 
+      BackupManagementController.invalidateStatsCache();
       const result = await TenantBackupService.createFambakBackup(activeDb, {
         scope,
         outletId,
@@ -487,6 +526,7 @@ export class BackupManagementController {
       const effectiveTargetId = Number(targetOutletId || (req as any).outlet_id || req.user?.outlet_id || 1);
       const effectiveTargetCode = String(targetOutletCode || userOutletCode || `OUT_${effectiveTargetId}`);
 
+      BackupManagementController.invalidateStatsCache();
       const result = await TenantBackupService.restoreFambakBackup(activeDb, fileBuffer, {
         scope: scope ? (String(scope).toUpperCase() === 'ALL' ? 'ALL' : 'OUTLET') : undefined,
         selectedOutletCode: selectedOutletCode ? String(selectedOutletCode).trim() : undefined,
