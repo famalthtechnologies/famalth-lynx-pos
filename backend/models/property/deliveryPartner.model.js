@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const DeliveryPartner = sequelize.define('delivery_partners', {
         id: {
@@ -37,13 +39,12 @@ module.exports = (sequelize, DataTypes) => {
         timestamps: true,
         underscored: true
     });
-
     DeliveryPartner.associate = (models) => {
         DeliveryPartner.hasMany(models.customer_orders, {
             foreignKey: 'assigned_partner_id',
             as: 'orders'
         });
     };
-
     return DeliveryPartner;
 };
+exports.default = module.exports;

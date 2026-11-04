@@ -1,5 +1,5 @@
+"use strict";
 const propertyDb = require('./db/propertyDb');
-
 async function fixB2bGstin() {
     console.log('[FIX_B2B_GSTIN] Starting backfill process for past sales headers...');
     try {
@@ -27,13 +27,12 @@ async function fixB2bGstin() {
               );
         `);
         console.log('[FIX_B2B_GSTIN] Updated sales_headers count:', metadata?.rowCount ?? metadata ?? results);
-    } catch (e) {
+    }
+    catch (e) {
         console.error('[FIX_B2B_GSTIN] Error during backfill:', e.message);
     }
 }
-
 if (require.main === module) {
     fixB2bGstin().then(() => process.exit(0));
 }
-
 module.exports = { fixB2bGstin };

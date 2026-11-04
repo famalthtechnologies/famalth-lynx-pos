@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const SalesRefund = sequelize.define('sales_refunds', {
         outlet_id: {
@@ -51,13 +53,12 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     SalesRefund.associate = (models) => {
         SalesRefund.belongsTo(models.sales_headers, {
             foreignKey: 'sale_id',
             as: 'sale'
         });
     };
-
     return SalesRefund;
 };
+exports.default = module.exports;

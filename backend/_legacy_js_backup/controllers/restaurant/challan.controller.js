@@ -1,7 +1,7 @@
+"use strict";
 const { Op } = require('sequelize');
 const { insertLedger } = require('../../services/stockLedger.service');
 const audit = require('../../services/audit.service');
-
 exports.listChallans = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -10,37 +10,35 @@ exports.listChallans = async (req, res) => {
             order: [['challan_date', 'DESC']]
         });
         res.json({ success: true, data: challans });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.getChallanDetails = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { id } = req.params;
-
         const challan = await req.propertyDb.models.delivery_challan_headers.findOne({
             where: { id, outlet_id },
             include: [{ model: req.propertyDb.models.delivery_challan_items, as: 'items' }]
         });
-
-        if (!challan) return res.status(404).json({ success: false, message: 'Challan not found' });
+        if (!challan)
+            return res.status(404).json({ success: false, message: 'Challan not found' });
         res.json({ success: true, data: challan });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.createChallan = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.user_id || req.user.id;
         const { customer_name, customer_phone, items } = req.body;
-
-        if (!items || items.length === 0) throw new Error('Cannot create Challan without items');
-
+        if (!items || items.length === 0)
+            throw new Error('Cannot create Challan without items');
         // Generate Challan Number
         const today = new Date();
         const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
@@ -55,20 +53,17 @@ exports.createChallan = async (req, res) => {
         });
         const seq = String(count + 1).padStart(4, '0');
         const challan_no = `DC-${dateStr}-${seq}`;
-
         let totalQty = 0;
         const itemsToCreate = [];
-
         for (const item of items) {
             const itemDef = await req.propertyDb.models.item_master.findOne({
                 where: { id: item.item_id, outlet_id },
                 transaction: t
             });
-            if (!itemDef) throw new Error(`Item ${item.item_name} not found`);
-
+            if (!itemDef)
+                throw new Error(`Item ${item.item_name} not found`);
             const qty = Number(item.qty) || 1.00;
             totalQty += qty;
-
             itemsToCreate.push({
                 item_id: item.item_id,
                 item_code: itemDef.item_code,
@@ -77,7 +72,6 @@ exports.createChallan = async (req, res) => {
                 unit: itemDef.unit || 'PCS'
             });
         }
-
         // Create Header
         const header = await req.propertyDb.models.delivery_challan_headers.create({
             outlet_id,
@@ -89,7 +83,6 @@ exports.createChallan = async (req, res) => {
             status: 'Issued',
             created_by: user_id
         }, { transaction: t });
-
         // Save items and write to Stock Ledger
         for (const item of itemsToCreate) {
             await req.propertyDb.models.delivery_challan_items.create({
@@ -100,7 +93,6 @@ exports.createChallan = async (req, res) => {
                 qty: item.qty,
                 unit: item.unit
             }, { transaction: t });
-
             // Deduct stock instantly
             await insertLedger({
                 db: req.propertyDb,
@@ -114,7 +106,6 @@ exports.createChallan = async (req, res) => {
                 allow_negative: true // Allow negative on dispatch, checks settings inside insertLedger
             });
         }
-
         await audit.log({
             req,
             module: 'INVENTORY',
@@ -125,17 +116,15 @@ exports.createChallan = async (req, res) => {
             outlet_id,
             user_id
         });
-
         await t.commit();
         res.json({ success: true, data: header });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
 const { createLedgerEntry } = require('../../services/cashLedger.service');
-
 exports.updateChallanStatus = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
@@ -143,7 +132,6 @@ exports.updateChallanStatus = async (req, res) => {
         const user_id = req.user.id;
         const { id } = req.params;
         const { status } = req.body;
-
         const challan = await req.propertyDb.models.delivery_challan_headers.findOne({
             where: { id, outlet_id },
             include: [{ model: req.propertyDb.models.delivery_challan_items, as: 'items' }],
@@ -153,14 +141,11 @@ exports.updateChallanStatus = async (req, res) => {
             await t.rollback();
             return res.status(404).json({ success: false, message: 'Challan not found' });
         }
-
         await challan.update({ status }, { transaction: t });
-
         // If status is Converted_To_Sale, create Sales Record and Cash Ledger revenue entry (NO stock re-deduction)
         if (status === 'Converted_To_Sale') {
             let grandTotal = 0;
             const itemsProcessed = [];
-
             if (challan.items && challan.items.length > 0) {
                 for (const item of challan.items) {
                     const itemDef = await req.propertyDb.models.item_master.findOne({
@@ -171,7 +156,6 @@ exports.updateChallanStatus = async (req, res) => {
                     const qty = parseFloat(item.qty) || 1.0;
                     const amount = qty * rate;
                     grandTotal += amount;
-
                     itemsProcessed.push({
                         item_id: item.item_id,
                         item_code: item.item_code,
@@ -183,9 +167,7 @@ exports.updateChallanStatus = async (req, res) => {
                     });
                 }
             }
-
             const saleNo = `SALE-${challan.challan_no}`;
-
             // Create Sales Header in database if sales_headers model exists
             if (req.propertyDb.models.sales_headers) {
                 const saleHeader = await req.propertyDb.models.sales_headers.create({
@@ -205,7 +187,6 @@ exports.updateChallanStatus = async (req, res) => {
                     is_latest: true,
                     is_deleted: false
                 }, { transaction: t });
-
                 if (req.propertyDb.models.sales_items) {
                     for (const it of itemsProcessed) {
                         await req.propertyDb.models.sales_items.create({
@@ -223,7 +204,6 @@ exports.updateChallanStatus = async (req, res) => {
                     }
                 }
             }
-
             // Post Revenue Entry into Cash Ledger
             if (grandTotal > 0) {
                 await createLedgerEntry({
@@ -242,7 +222,6 @@ exports.updateChallanStatus = async (req, res) => {
                     transaction: t
                 });
             }
-
             await audit.log({
                 req,
                 module: 'INVENTORY',
@@ -254,10 +233,10 @@ exports.updateChallanStatus = async (req, res) => {
                 user_id
             });
         }
-
         await t.commit();
         res.json({ success: true, data: challan, message: 'Challan successfully converted to Sales Invoice!' });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(400).json({ success: false, error: err.message });
     }

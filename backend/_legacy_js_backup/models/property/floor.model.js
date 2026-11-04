@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const Floor = sequelize.define('floors', {
         id: {
@@ -21,6 +22,5 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'floors',
         timestamps: false
     });
-
     return Floor;
 };

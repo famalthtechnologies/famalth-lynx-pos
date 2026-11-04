@@ -1,10 +1,12 @@
-const migrations = [
-  {
-    version: 1,
-    description: "Initial schema",
-    up: async (db) => {
-
-      await db.query(`
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.migrations = void 0;
+exports.migrations = [
+    {
+        version: 1,
+        description: "Initial schema",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 -- -- =========================
@@ -609,14 +611,13 @@ CREATE TABLE IF NOT EXISTS request_items (
 COMMIT;
 
       `);
-
-    }
-  },
-  {
-    version: 2,
-    description: "Add retail item fields",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 2,
+        description: "Add retail item fields",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE item_master
@@ -628,13 +629,13 @@ ON item_master(barcode);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 3,
-    description: "Add sales and sales scheme tables",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 3,
+        description: "Add sales and sales scheme tables",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS sales_headers (
@@ -705,13 +706,13 @@ ON sales_items(item_code);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 4,
-    description: "Add request approval workflow and sales reporting fields",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 4,
+        description: "Add request approval workflow and sales reporting fields",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE request_headers
@@ -743,13 +744,13 @@ ON sales_headers(customer_name);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 5,
-    description: "Add sales order tax and draft support",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 5,
+        description: "Add sales order tax and draft support",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_headers
@@ -780,13 +781,13 @@ ON sales_headers(order_type);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 6,
-    description: "Add global billing tax metadata and default charge settings",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 6,
+        description: "Add global billing tax metadata and default charge settings",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE item_master
@@ -859,13 +860,13 @@ ON sales_headers(billing_tax_mode);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 7,
-    description: "Add damage approval workflow",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 7,
+        description: "Add damage approval workflow",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE damage_headers
@@ -888,14 +889,13 @@ ON damage_headers(damage_date);
 
 COMMIT;
       `);
-    }
-  },
-
-  {
-    version: 9,
-    description: "Add hsncode item fields",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 9,
+        description: "Add hsncode item fields",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE item_master
@@ -906,14 +906,13 @@ ON item_master(hsn_sac_code);
 
 COMMIT;
       `);
-    }
-  },
-
-  {
-    version: 10,
-    description: "Add HSN/SAC support to sales items",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 10,
+        description: "Add HSN/SAC support to sales items",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_items
@@ -924,13 +923,13 @@ ON sales_items(hsn_sac_code);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 11,
-    description: "Add voucher persistence and sales voucher fields",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 11,
+        description: "Add voucher persistence and sales voucher fields",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE system_settings
@@ -945,13 +944,13 @@ ON sales_headers(voucher_code);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 12,
-    description: "Add printer settings to system settings",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 12,
+        description: "Add printer settings to system settings",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE system_settings
@@ -961,13 +960,13 @@ ADD COLUMN IF NOT EXISTS default_printer_url VARCHAR(500) DEFAULT '';
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 13,
-    description: "Add vendor, finance ledger, expense, and tax consistency fields",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 13,
+        description: "Add vendor, finance ledger, expense, and tax consistency fields",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE supplier_master
@@ -1069,13 +1068,13 @@ ON brands(outlet_id, lower(brand_name));
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 14,
-    description: "Add supplier purchase return and refund tracking",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 14,
+        description: "Add supplier purchase return and refund tracking",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS supplier_return_headers (
@@ -1137,13 +1136,13 @@ ON supplier_return_refunds(return_id, refund_date);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 15,
-    description: "Add sales bill revision tracking for reprint and modify flow",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 15,
+        description: "Add sales bill revision tracking for reprint and modify flow",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_headers
@@ -1177,13 +1176,13 @@ ON sales_headers(outlet_id, sale_no);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 16,
-    description: "Add customer repayments, day opening balances, and credit finance fields",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 16,
+        description: "Add customer repayments, day opening balances, and credit finance fields",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_headers
@@ -1236,13 +1235,13 @@ ON sales_headers(outlet_id, balance_due, sale_date);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 17,
-    description: "Expand payment reference storage for multi payment entries",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 17,
+        description: "Expand payment reference storage for multi payment entries",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_headers
@@ -1250,13 +1249,13 @@ ALTER COLUMN payment_reference TYPE TEXT;
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 18,
-    description: "Add customer advances for extra payment carry forward",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 18,
+        description: "Add customer advances for extra payment carry forward",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS customer_advances (
@@ -1286,13 +1285,13 @@ ON customer_advances(outlet_id, available_amount, advance_date);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 19,
-    description: "Add per-item open close status for purchase orders and requests",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 19,
+        description: "Add per-item open close status for purchase orders and requests",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE purchase_order_items
@@ -1315,13 +1314,13 @@ ON request_items(request_id, line_status);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 20,
-    description: "Allow multiple numbering rows per module by start date",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 20,
+        description: "Allow multiple numbering rows per module by start date",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE numbering_settings
@@ -1332,14 +1331,13 @@ ON numbering_settings(outlet_id, module, start_date);
 
 COMMIT;
       `);
-    }
-  },
-
-  {
-    version: 21,
-    description: "Retailer item-cycle schemes and item advancese",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 21,
+        description: "Retailer item-cycle schemes and item advancese",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_schemes
@@ -1358,16 +1356,13 @@ ON sales_schemes(outlet_id, scheme_scope, scheme_type, is_active);
 
 COMMIT;
       `);
-    }
-  },
-
-
-
-  {
-    version: 22,
-    description: "Retailer item-cycle schemes and item advances",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 22,
+        description: "Retailer item-cycle schemes and item advances",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS sales_scheme_customers (
@@ -1407,14 +1402,13 @@ CREATE TABLE IF NOT EXISTS customer_item_advances (
 
 COMMIT;
       `);
-    }
-  },
-
-  {
-    version: 23,
-    description: "Retailer item-cycle schemes and item advancese",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 23,
+        description: "Retailer item-cycle schemes and item advancese",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 CREATE INDEX IF NOT EXISTS idx_sales_scheme_customers_lookup
@@ -1443,14 +1437,13 @@ ON customer_advances(outlet_id, source_sale_id);
 
 COMMIT;
       `);
-    }
-  },
-
-  {
-    version: 24,
-    description: "Track item-advance consumption in sales items",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 24,
+        description: "Track item-advance consumption in sales items",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_items
@@ -1467,13 +1460,13 @@ ON sales_items(sale_id, is_advance_free);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 25,
-    description: "Item images and sales image toggle",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 25,
+        description: "Item images and sales image toggle",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE item_master
@@ -1484,25 +1477,25 @@ ADD COLUMN IF NOT EXISTS enable_item_images_in_sales BOOLEAN DEFAULT FALSE;
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 26,
-    description: "Alter system_settings",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 26,
+        description: "Alter system_settings",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         -- Changed to snake_case to match your other columns
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS is_cloud_enabled BOOLEAN DEFAULT FALSE;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 27,
-    description: "Milk subscription billing and settlement",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 27,
+        description: "Milk subscription billing and settlement",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
       
 CREATE TABLE IF NOT EXISTS milk_subscriptions (
@@ -1545,14 +1538,13 @@ CREATE TABLE IF NOT EXISTS milk_subscription_schemes (
 );
         COMMIT;
       `);
-    }
-  },
-
-  {
-    version: 28,
-    description: "Milk subscription billing and settlement",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 28,
+        description: "Milk subscription billing and settlement",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
       
 CREATE TABLE IF NOT EXISTS milk_subscription_settlements (
@@ -1573,14 +1565,13 @@ CREATE TABLE IF NOT EXISTS milk_subscription_settlements (
 );
         COMMIT;
       `);
-    }
-  },
-
-  {
-    version: 29,
-    description: "Milk subscription billing and settlement",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 29,
+        description: "Milk subscription billing and settlement",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 
@@ -1608,13 +1599,13 @@ CREATE TABLE IF NOT EXISTS milk_subscription_consumptions (
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 30,
-    description: "Milk subscription billing and settlement",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 30,
+        description: "Milk subscription billing and settlement",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 CREATE INDEX IF NOT EXISTS idx_milk_subscriptions_customer
@@ -1634,13 +1625,13 @@ ON milk_subscription_settlements(outlet_id, subscription_id, settlement_date);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 31,
-    description: "Scheme repeat and per-day quantity controls",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 31,
+        description: "Scheme repeat and per-day quantity controls",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_schemes
@@ -1667,13 +1658,13 @@ SET required_daily_qty = COALESCE(required_daily_qty, 0),
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 32,
-    description: "Track scheme cycle grants for one-time schemes",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 32,
+        description: "Track scheme cycle grants for one-time schemes",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_scheme_customers
@@ -1684,13 +1675,13 @@ ADD COLUMN IF NOT EXISTS last_applied_cycle_end DATE;
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 33,
-    description: "Track single-use customer schemes",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 33,
+        description: "Track single-use customer schemes",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_scheme_customers
@@ -1704,13 +1695,13 @@ ON sales_scheme_customers(outlet_id, scheme_id, usage_type, is_consumed, custome
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 34,
-    description: "Add subscription settlement payment tracking",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 34,
+        description: "Add subscription settlement payment tracking",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE milk_subscription_settlements
@@ -1733,13 +1724,13 @@ SET payment_mode = COALESCE(payment_mode, 'CASH'),
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 35,
-    description: "Add sales round-off tracking column",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 35,
+        description: "Add sales round-off tracking column",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE sales_headers
@@ -1750,13 +1741,13 @@ SET round_off_amount = COALESCE(round_off_amount, 0);
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 36,
-    description: "Loyalty program configuration, ledger, and sales loyalty fields",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 36,
+        description: "Loyalty program configuration, ledger, and sales loyalty fields",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS loyalty_master_config (
@@ -1824,13 +1815,13 @@ ADD COLUMN IF NOT EXISTS loyalty_discount_amount NUMERIC(12,2) NOT NULL DEFAULT 
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 37,
-    description: "Pack to loose stock conversion support for item master",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 37,
+        description: "Pack to loose stock conversion support for item master",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE item_master
@@ -1848,13 +1839,13 @@ SET pack_qty = COALESCE(pack_qty, 0),
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 38,
-    description: "Receiving item remarks support",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 38,
+        description: "Receiving item remarks support",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE goods_receipt_items
@@ -1862,13 +1853,13 @@ ADD COLUMN IF NOT EXISTS remarks TEXT;
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 39,
-    description: "Add credit_adjusted to supplier_payments and allow CREDIT payment mode",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 39,
+        description: "Add credit_adjusted to supplier_payments and allow CREDIT payment mode",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 ALTER TABLE supplier_payments ADD COLUMN IF NOT EXISTS credit_adjusted NUMERIC(12,2) DEFAULT 0;
@@ -1881,13 +1872,13 @@ ALTER TABLE supplier_return_refunds ADD CONSTRAINT supplier_return_refunds_payme
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 40,
-    description: "Add tables for item BOMs and product assembly tracking",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 40,
+        description: "Add tables for item BOMs and product assembly tracking",
+        up: async (db) => {
+            await db.query(`
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS item_boms (
@@ -1929,24 +1920,24 @@ CREATE TABLE IF NOT EXISTS assembly_items (
 
 COMMIT;
       `);
-    }
-  },
-  {
-    version: 41,
-    description: "Add status column to assembly_headers",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 41,
+        description: "Add status column to assembly_headers",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE assembly_headers ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'RUNNING';
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 42,
-    description: "Add sales_credit_notes table for sales returns and credit notes",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 42,
+        description: "Add sales_credit_notes table for sales returns and credit notes",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         CREATE TABLE IF NOT EXISTS sales_credit_notes (
             id SERIAL PRIMARY KEY,
@@ -1978,24 +1969,24 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_sales_credit_notes_credit_note_date ON sales_credit_notes(credit_note_date);
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 43,
-    description: "Add is_saleable column to item_master",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 43,
+        description: "Add is_saleable column to item_master",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE item_master ADD COLUMN IF NOT EXISTS is_saleable BOOLEAN DEFAULT TRUE;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 44,
-    description: "Add delivery partner and customer order tables",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 44,
+        description: "Add delivery partner and customer order tables",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         CREATE TABLE IF NOT EXISTS delivery_partners (
@@ -2037,13 +2028,13 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 45,
-    description: "Add delivery customers table for customer login and history tracking",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 45,
+        description: "Add delivery customers table for customer login and history tracking",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         CREATE TABLE IF NOT EXISTS delivery_customers (
@@ -2062,96 +2053,96 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 46,
-    description: "Add payment_mode, commission_amount, and commission_status to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 46,
+        description: "Add payment_mode, commission_amount, and commission_status to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20) DEFAULT 'CASH';
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS commission_amount DECIMAL(12, 2) DEFAULT 20.00;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS commission_status VARCHAR(30) DEFAULT 'UNPAID';
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 47,
-    description: "Add return_status, return_type, and refund_status to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 47,
+        description: "Add return_status, return_type, and refund_status to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS return_status VARCHAR(50) DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS return_type VARCHAR(50) DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS refund_status VARCHAR(50) DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 48,
-    description: "Add return_item_id and return_item_name to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 48,
+        description: "Add return_item_id and return_item_name to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS return_item_id INTEGER DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS return_item_name VARCHAR(255) DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 49,
-    description: "Add returned_items JSONB column to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 49,
+        description: "Add returned_items JSONB column to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS returned_items JSONB DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 50,
-    description: "Add password_hash column to delivery_partners table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 50,
+        description: "Add password_hash column to delivery_partners table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE delivery_partners ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255) DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 51,
-    description: "Add b2b_rate to item_master and gstin to customer_orders",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 51,
+        description: "Add b2b_rate to item_master and gstin to customer_orders",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE item_master ADD COLUMN IF NOT EXISTS b2b_rate NUMERIC(12, 2) DEFAULT 0;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS gstin VARCHAR(50) DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 52,
-    description: "Add return_window_days to item_master for per-item return window control",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 52,
+        description: "Add return_window_days to item_master for per-item return window control",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE item_master ADD COLUMN IF NOT EXISTS return_window_days INTEGER DEFAULT 7;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 53,
-    description: "Create outlet_settings table for store settings",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 53,
+        description: "Create outlet_settings table for store settings",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         CREATE TABLE IF NOT EXISTS outlet_settings (
           id SERIAL PRIMARY KEY,
@@ -2163,84 +2154,84 @@ COMMIT;
         );
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 54,
-    description: "Add charges jsonb column to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 54,
+        description: "Add charges jsonb column to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS charges JSONB DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 55,
-    description: "Add notes column to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 55,
+        description: "Add notes column to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 56,
-    description: "Add cancellation_reason and feedback columns to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 56,
+        description: "Add cancellation_reason and feedback columns to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS cancellation_reason TEXT DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS feedback JSONB DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 57,
-    description: "Add return_rejection_reason column to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 57,
+        description: "Add return_rejection_reason column to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS return_rejection_reason TEXT DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 58,
-    description: "Add received_items, original_net_amount, and modification_reason to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 58,
+        description: "Add received_items, original_net_amount, and modification_reason to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS received_items JSONB DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS original_net_amount DECIMAL(12, 2) DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS modification_reason TEXT DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 59,
-    description: "Add refund_payment_mode, refund_paid_at, and is_prepaid to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 59,
+        description: "Add refund_payment_mode, refund_paid_at, and is_prepaid to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS refund_payment_mode VARCHAR(50) DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS refund_paid_at TIMESTAMP DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS is_prepaid BOOLEAN DEFAULT FALSE;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 60,
-    description: "Create WhatsApp configuration, templates, campaigns and message logs tables",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 60,
+        description: "Create WhatsApp configuration, templates, campaigns and message logs tables",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         CREATE TABLE IF NOT EXISTS whatsapp_configurations (
           id SERIAL PRIMARY KEY,
@@ -2302,24 +2293,24 @@ COMMIT;
         );
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 61,
-    description: "Add cost column to whatsapp_logs table for billing dashboard",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 61,
+        description: "Add cost column to whatsapp_logs table for billing dashboard",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE whatsapp_logs ADD COLUMN IF NOT EXISTS cost DECIMAL(6, 2) DEFAULT 0.00;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 62,
-    description: "Create product templates, attributes, and variant mapping tables",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 62,
+        description: "Create product templates, attributes, and variant mapping tables",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         -- 1. Create product_templates table
@@ -2380,62 +2371,62 @@ COMMIT;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 56,
-    description: "Add cancellation_reason and feedback columns to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 56,
+        description: "Add cancellation_reason and feedback columns to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS cancellation_reason TEXT DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS feedback JSONB DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 57,
-    description: "Add return_rejection_reason column to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 57,
+        description: "Add return_rejection_reason column to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS return_rejection_reason TEXT DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 58,
-    description: "Add received_items, original_net_amount, and modification_reason to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 58,
+        description: "Add received_items, original_net_amount, and modification_reason to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS received_items JSONB DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS original_net_amount DECIMAL(12, 2) DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS modification_reason TEXT DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 59,
-    description: "Add refund_payment_mode, refund_paid_at, and is_prepaid to customer_orders table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 59,
+        description: "Add refund_payment_mode, refund_paid_at, and is_prepaid to customer_orders table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS refund_payment_mode VARCHAR(50) DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS refund_paid_at TIMESTAMP DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS is_prepaid BOOLEAN DEFAULT FALSE;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 60,
-    description: "Create WhatsApp configuration, templates, campaigns and message logs tables",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 60,
+        description: "Create WhatsApp configuration, templates, campaigns and message logs tables",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         CREATE TABLE IF NOT EXISTS whatsapp_configurations (
           id SERIAL PRIMARY KEY,
@@ -2497,24 +2488,24 @@ COMMIT;
         );
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 61,
-    description: "Add cost column to whatsapp_logs table for billing dashboard",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 61,
+        description: "Add cost column to whatsapp_logs table for billing dashboard",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE whatsapp_logs ADD COLUMN IF NOT EXISTS cost DECIMAL(6, 2) DEFAULT 0.00;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 62,
-    description: "Create product templates, attributes, and variant mapping tables",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 62,
+        description: "Create product templates, attributes, and variant mapping tables",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         -- 1. Create product_templates table
@@ -2575,71 +2566,71 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 63,
-    description: "Add drug_license_no column to property_info table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 63,
+        description: "Add drug_license_no column to property_info table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE property_info ADD COLUMN IF NOT EXISTS drug_license_no VARCHAR(50);
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 64,
-    description: "Add doctor_name and patient_name columns to sales_headers table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 64,
+        description: "Add doctor_name and patient_name columns to sales_headers table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE sales_headers ADD COLUMN IF NOT EXISTS doctor_name VARCHAR(150);
         ALTER TABLE sales_headers ADD COLUMN IF NOT EXISTS patient_name VARCHAR(150);
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 65,
-    description: "Add delivery_type to milk_subscriptions and enable_app_subscription to system_settings",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 65,
+        description: "Add delivery_type to milk_subscriptions and enable_app_subscription to system_settings",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE milk_subscriptions ADD COLUMN IF NOT EXISTS delivery_type VARCHAR(20) DEFAULT 'PICKUP';
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_app_subscription BOOLEAN DEFAULT FALSE;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 66,
-    description: "Add rejection_reason column to whatsapp_templates table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 66,
+        description: "Add rejection_reason column to whatsapp_templates table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 67,
-    description: "Add allow_automatic_messages to whatsapp_configurations and scheduled_at to whatsapp_campaigns",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 67,
+        description: "Add allow_automatic_messages to whatsapp_configurations and scheduled_at to whatsapp_campaigns",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE whatsapp_configurations ADD COLUMN IF NOT EXISTS allow_automatic_messages BOOLEAN DEFAULT TRUE;
         ALTER TABLE whatsapp_campaigns ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMP;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 68,
-    description: "Add payment gateway settings to system_settings and payment_gateway_details to customer_orders",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 68,
+        description: "Add payment gateway settings to system_settings and payment_gateway_details to customer_orders",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_payment_gateway BOOLEAN DEFAULT FALSE;
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS payment_gateway_provider VARCHAR(50) DEFAULT 'SANDBOX';
@@ -2648,36 +2639,36 @@ COMMIT;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS payment_gateway_details JSONB DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 69,
-    description: "Add subscription_allocation snapshot to customer_orders",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 69,
+        description: "Add subscription_allocation snapshot to customer_orders",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS subscription_allocation JSONB DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 70,
-    description: "Add coupon fields to customer_orders",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 70,
+        description: "Add coupon fields to customer_orders",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS coupon_code VARCHAR(80) DEFAULT NULL;
         ALTER TABLE customer_orders ADD COLUMN IF NOT EXISTS coupon_discount_amount DECIMAL(12, 2) DEFAULT 0;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 71,
-    description: "Add sale_sources and payment_methods tables and sales_headers sale_source column",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 71,
+        description: "Add sale_sources and payment_methods tables and sales_headers sale_source column",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         
         -- Create sale_sources table
@@ -2720,13 +2711,13 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 72,
-    description: "Create lucky draw campaigns, customer progress, and draw vouchers tables",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 72,
+        description: "Create lucky draw campaigns, customer progress, and draw vouchers tables",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         -- Create lucky_draw_campaigns table
@@ -2785,13 +2776,13 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 73,
-    description: "Add commission, tcs, tds, and net payout columns to sale_sources and sales_headers",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 73,
+        description: "Add commission, tcs, tds, and net payout columns to sale_sources and sales_headers",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         -- Add columns to sale_sources
@@ -2824,33 +2815,33 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 74,
-    description: "Add description column to lucky_draw_campaigns table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 74,
+        description: "Add description column to lucky_draw_campaigns table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE lucky_draw_campaigns
         ADD COLUMN IF NOT EXISTS description TEXT;
       `);
-    }
-  },
-  {
-    version: 75,
-    description: "Add allow_creditors column to lucky_draw_campaigns table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 75,
+        description: "Add allow_creditors column to lucky_draw_campaigns table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE lucky_draw_campaigns
         ADD COLUMN IF NOT EXISTS allow_creditors BOOLEAN NOT NULL DEFAULT TRUE;
       `);
-    }
-  },
-  {
-    version: 76,
-    description: "Create commission_rules table for hierarchical rule engine",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 76,
+        description: "Create commission_rules table for hierarchical rule engine",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         CREATE TABLE IF NOT EXISTS commission_rules (
@@ -2873,33 +2864,33 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 77,
-    description: "Add applied_rules column to sales_headers",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 77,
+        description: "Add applied_rules column to sales_headers",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE sales_headers ADD COLUMN IF NOT EXISTS applied_rules VARCHAR(255);
       `);
-    }
-  },
-  {
-    version: 78,
-    description: "Add commission_percentage_amount and commission_fixed_amount columns to sales_headers",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 78,
+        description: "Add commission_percentage_amount and commission_fixed_amount columns to sales_headers",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE sales_headers 
         ADD COLUMN IF NOT EXISTS commission_percentage_amount DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
         ADD COLUMN IF NOT EXISTS commission_fixed_amount DECIMAL(12, 2) NOT NULL DEFAULT 0.00;
       `);
-    }
-  },
-  {
-    version: 79,
-    description: "Change item_master unique constraint from (outlet_id, item_name) to (outlet_id, item_name, brand) to allow same item with multiple brands",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 79,
+        description: "Change item_master unique constraint from (outlet_id, item_name) to (outlet_id, item_name, brand) to allow same item with multiple brands",
+        up: async (db) => {
+            await db.query(`
         -- Drop the old unique index that only allowed one item per name
         DROP INDEX IF EXISTS uq_item_master_name;
 
@@ -2908,22 +2899,22 @@ COMMIT;
         CREATE UNIQUE INDEX IF NOT EXISTS uq_item_master_name_brand
         ON item_master(outlet_id, lower(item_name), lower(COALESCE(brand, '')));
       `);
-    }
-  },
-  {
-    version: 80,
-    description: "Add created_at column to issue_headers table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 80,
+        description: "Add created_at column to issue_headers table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE issue_headers ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
       `);
-    }
-  },
-  {
-    version: 81,
-    description: "Add website, print_mobile, print_email, print_website, and thermal_footer_note columns to property_info table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 81,
+        description: "Add website, print_mobile, print_email, print_website, and thermal_footer_note columns to property_info table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE property_info 
         ADD COLUMN IF NOT EXISTS website VARCHAR(150),
         ADD COLUMN IF NOT EXISTS print_mobile BOOLEAN DEFAULT TRUE,
@@ -2931,13 +2922,13 @@ COMMIT;
         ADD COLUMN IF NOT EXISTS print_website BOOLEAN DEFAULT TRUE,
         ADD COLUMN IF NOT EXISTS thermal_footer_note TEXT;
       `);
-    }
-  },
-  {
-    version: 82,
-    description: "Create professional-grade expense schema (expense_categories, taxes_master, expenses, expense_taxes, expense_deductions) and migrate basic expense entries",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 82,
+        description: "Create professional-grade expense schema (expense_categories, taxes_master, expenses, expense_taxes, expense_deductions) and migrate basic expense entries",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         -- 1. Create pgcrypto extension for gen_random_uuid if not exists
@@ -3088,13 +3079,13 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 83,
-    description: "HRMS: Add HR tables for employees, attendance, leaves, payroll, loans, commissions, cashier handovers",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 83,
+        description: "HRMS: Add HR tables for employees, attendance, leaves, payroll, loans, commissions, cashier handovers",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         -- ===========================
@@ -3422,24 +3413,24 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 84,
-    description: "HRMS: Add payroll_start_date column to hr_employees table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 84,
+        description: "HRMS: Add payroll_start_date column to hr_employees table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS payroll_start_date DATE NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 85,
-    description: "HRMS: Add hr_holidays table and weekly_offs column to hr_shifts",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 85,
+        description: "HRMS: Add hr_holidays table and weekly_offs column to hr_shifts",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         CREATE TABLE IF NOT EXISTS hr_holidays (
           id SERIAL PRIMARY KEY,
@@ -3454,58 +3445,58 @@ COMMIT;
         ALTER TABLE hr_shifts ADD COLUMN IF NOT EXISTS weekly_offs JSONB NOT NULL DEFAULT '["Sunday"]';
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 86,
-    description: "HRMS: Add father_name column to hr_employees table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 86,
+        description: "HRMS: Add father_name column to hr_employees table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS father_name VARCHAR(255) NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 87,
-    description: "POS Settings: Add enable_salesperson_tagging column to system_settings",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 87,
+        description: "POS Settings: Add enable_salesperson_tagging column to system_settings",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS enable_salesperson_tagging BOOLEAN DEFAULT FALSE;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 88,
-    description: "HRMS: Add commission_target_type and commission_target_amount columns to hr_employees",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 88,
+        description: "HRMS: Add commission_target_type and commission_target_amount columns to hr_employees",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS commission_target_type VARCHAR(50) NULL;
         ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS commission_target_amount DECIMAL(12, 2) NOT NULL DEFAULT 0.00;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 89,
-    description: "HRMS: Add pay_if_unmarked column to hr_employees",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 89,
+        description: "HRMS: Add pay_if_unmarked column to hr_employees",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS pay_if_unmarked BOOLEAN NOT NULL DEFAULT FALSE;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 90,
-    description: "Restaurant KDS Captain POS, Challans, Credit Notes, SMTP Email, Themes, Recurring Expenses, Multi-Item Subscriptions Integration",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 90,
+        description: "Restaurant KDS Captain POS, Challans, Credit Notes, SMTP Email, Themes, Recurring Expenses, Multi-Item Subscriptions Integration",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
 
         -- Master Tables
@@ -3771,13 +3762,13 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 91,
-    description: "Add free_item_id and days_of_week to sales_schemes, and original_rate and scheme_discount_per_unit to sales_items",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 91,
+        description: "Add free_item_id and days_of_week to sales_schemes, and original_rate and scheme_discount_per_unit to sales_items",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE sales_schemes ADD COLUMN IF NOT EXISTS free_item_id INTEGER REFERENCES item_master(id) ON DELETE SET NULL;
         ALTER TABLE sales_schemes ADD COLUMN IF NOT EXISTS days_of_week VARCHAR(255);
@@ -3785,14 +3776,14 @@ COMMIT;
         ALTER TABLE sales_items ADD COLUMN IF NOT EXISTS scheme_discount_per_unit DECIMAL(12, 2);
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 92,
-    description: "Add is_happy_hour to item_master, create happy_hours table, and add applied_happy_hour_id to sales_items",
-    up: async (db) => {
-      await db.query(`ALTER TABLE item_master ADD COLUMN IF NOT EXISTS is_happy_hour BOOLEAN DEFAULT FALSE`);
-      await db.query(`
+        }
+    },
+    {
+        version: 92,
+        description: "Add is_happy_hour to item_master, create happy_hours table, and add applied_happy_hour_id to sales_items",
+        up: async (db) => {
+            await db.query(`ALTER TABLE item_master ADD COLUMN IF NOT EXISTS is_happy_hour BOOLEAN DEFAULT FALSE`);
+            await db.query(`
         CREATE TABLE IF NOT EXISTS happy_hours (
           id SERIAL PRIMARY KEY,
           outlet_id INTEGER NOT NULL REFERENCES outlets(id) ON DELETE CASCADE,
@@ -3809,14 +3800,14 @@ COMMIT;
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
-      await db.query(`ALTER TABLE sales_items ADD COLUMN IF NOT EXISTS applied_happy_hour_id INTEGER`);
-    }
-  },
-  {
-    version: 93,
-    description: "Add mrp to item_master and create bill_value_promos table",
-    up: async (db) => {
-      await db.query(`
+            await db.query(`ALTER TABLE sales_items ADD COLUMN IF NOT EXISTS applied_happy_hour_id INTEGER`);
+        }
+    },
+    {
+        version: 93,
+        description: "Add mrp to item_master and create bill_value_promos table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE item_master ADD COLUMN IF NOT EXISTS mrp DECIMAL(12, 2) DEFAULT 0.00;
 
@@ -3833,80 +3824,80 @@ COMMIT;
         );
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 94,
-    description: "Add performance index on cash_ledger(outlet_id, txn_date, id) for O(1) running balance lookup",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 94,
+        description: "Add performance index on cash_ledger(outlet_id, txn_date, id) for O(1) running balance lookup",
+        up: async (db) => {
+            await db.query(`
         CREATE INDEX IF NOT EXISTS idx_cash_ledger_outlet_date_id
           ON cash_ledger (outlet_id, txn_date DESC, id DESC)
       `);
-    }
-  },
-  {
-    version: 95,
-    description: "Add location column to item_master table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 95,
+        description: "Add location column to item_master table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE item_master ADD COLUMN IF NOT EXISTS location VARCHAR(100) DEFAULT 'Kitchen';
       `);
-    }
-  },
-  {
-    version: 96,
-    description: "Add address and gstin to table_reservations table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 96,
+        description: "Add address and gstin to table_reservations table",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS address TEXT;
         ALTER TABLE table_reservations ADD COLUMN IF NOT EXISTS gstin VARCHAR(20);
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 97,
-    description: "Add cancel_reason to kot_items table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 97,
+        description: "Add cancel_reason to kot_items table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE kot_items ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
       `);
-    }
-  },
-  {
-    version: 98,
-    description: "Add kds_dismissed column to kot_headers table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 98,
+        description: "Add kds_dismissed column to kot_headers table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE kot_headers ADD COLUMN IF NOT EXISTS kds_dismissed BOOLEAN DEFAULT FALSE;
       `);
-    }
-  },
-  {
-    version: 99,
-    description: "Add show_brand_name column to system_settings table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 99,
+        description: "Add show_brand_name column to system_settings table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS show_brand_name BOOLEAN DEFAULT TRUE;
       `);
-    }
-  },
-  {
-    version: 100,
-    description: "Add kottype column to kot_headers table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 100,
+        description: "Add kottype column to kot_headers table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE kot_headers ADD COLUMN IF NOT EXISTS kottype VARCHAR(30) DEFAULT 'g';
       `);
-    }
-  },
-  {
-    version: 101,
-    description: "Create dedicated customers table and migrate historical unique customer rows from sales_headers",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 101,
+        description: "Create dedicated customers table and migrate historical unique customer rows from sales_headers",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         
         -- 1. Create customers table
@@ -3963,53 +3954,53 @@ COMMIT;
 
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 102,
-    description: "Update cash_ledger notes and transaction_type for subscription sales to Advance Adjustment",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 102,
+        description: "Update cash_ledger notes and transaction_type for subscription sales to Advance Adjustment",
+        up: async (db) => {
+            await db.query(`
         UPDATE cash_ledger
         SET transaction_type = 'ADVANCE_APPLY',
             notes = REPLACE(notes, 'Scheme free quantity expense booked for sale', 'Advance adjusted for subscription sale')
         WHERE (payment_method = 'SUBSCRIPTION' OR notes LIKE '%Scheme free%')
           AND (notes LIKE '%Scheme free%' OR transaction_type = 'SALE_SCHEME_FREE_EXPENSE');
       `);
-    }
-  },
-  {
-    version: 103,
-    description: "Add max_discount_percent column to users table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 103,
+        description: "Add max_discount_percent column to users table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE users ADD COLUMN IF NOT EXISTS max_discount_percent NUMERIC(5,2) DEFAULT 100.00;
       `);
-    }
-  },
-  {
-    version: 104,
-    description: "Add outlet_max_discount_percent column to system_settings table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 104,
+        description: "Add outlet_max_discount_percent column to system_settings table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS outlet_max_discount_percent NUMERIC(5,2) DEFAULT 100.00;
       `);
-    }
-  },
-  {
-    version: 105,
-    description: "Add time_zone column to system_settings table",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 105,
+        description: "Add time_zone column to system_settings table",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS time_zone VARCHAR(100) DEFAULT 'Asia/Kolkata';
       `);
-    }
-  },
-  {
-    version: 106,
-    description: "Add multi-currency, payment modes, template configs, and device printer mappings to system_settings",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 106,
+        description: "Add multi-currency, payment modes, template configs, and device printer mappings to system_settings",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE system_settings 
           ADD COLUMN IF NOT EXISTS enable_salesperson_tagging BOOLEAN DEFAULT FALSE,
@@ -4027,13 +4018,13 @@ COMMIT;
           ADD COLUMN IF NOT EXISTS kot_template_config JSONB DEFAULT '{}';
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 107,
-    description: "Create community_conversations, community_messages, community_message_deleted_users, and community_message_mentions tables",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 107,
+        description: "Create community_conversations, community_messages, community_message_deleted_users, and community_message_mentions tables",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         CREATE TABLE IF NOT EXISTS community_conversations (
             id VARCHAR(120) PRIMARY KEY,
@@ -4088,13 +4079,13 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_comm_mentions_handle ON community_message_mentions(mentioned_handle);
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 108,
-    description: "Add creator merchant columns to community_conversations",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 108,
+        description: "Add creator merchant columns to community_conversations",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE community_conversations 
           ADD COLUMN IF NOT EXISTS creator_merchant_id VARCHAR(100) DEFAULT NULL,
@@ -4104,13 +4095,13 @@ COMMIT;
           ADD COLUMN IF NOT EXISTS creator_merchant_city VARCHAR(100) DEFAULT NULL;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 109,
-    description: "Create custom_states table for custom and international state/region management",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 109,
+        description: "Create custom_states table for custom and international state/region management",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         CREATE TABLE IF NOT EXISTS custom_states (
           id SERIAL PRIMARY KEY,
@@ -4127,13 +4118,13 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_custom_states_outlet_country ON custom_states(outlet_id, country_code);
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 110,
-    description: "Add is_modifier, applicable_item_ids, deduct_raw_item_id, and deduct_qty columns to item_master table for inventory modifier & recipe integration",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 110,
+        description: "Add is_modifier, applicable_item_ids, deduct_raw_item_id, and deduct_qty columns to item_master table for inventory modifier & recipe integration",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE item_master 
           ADD COLUMN IF NOT EXISTS is_modifier BOOLEAN DEFAULT FALSE,
@@ -4142,13 +4133,13 @@ COMMIT;
           ADD COLUMN IF NOT EXISTS deduct_qty DECIMAL(12, 4) DEFAULT 0;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 111,
-    description: "Add modifier_details, modifier_objects, item_remark, and notes columns to sales_items table for modifier persistence",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 111,
+        description: "Add modifier_details, modifier_objects, item_remark, and notes columns to sales_items table for modifier persistence",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE sales_items 
           ADD COLUMN IF NOT EXISTS modifier_details JSONB DEFAULT '[]'::jsonb,
@@ -4157,13 +4148,13 @@ COMMIT;
           ADD COLUMN IF NOT EXISTS notes TEXT;
         COMMIT;
       `);
-    }
-  },
+        }
+    },
     {
-    version: 112,
-    description: "Add food_type, dietary_type, and is_veg columns to item_master table for dietary preferences and food tags",
-    up: async (db) => {
-      await db.query(`
+        version: 112,
+        description: "Add food_type, dietary_type, and is_veg columns to item_master table for dietary preferences and food tags",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE item_master 
           ADD COLUMN IF NOT EXISTS food_type VARCHAR(20) DEFAULT 'VEG',
@@ -4171,51 +4162,50 @@ COMMIT;
           ADD COLUMN IF NOT EXISTS is_veg BOOLEAN DEFAULT TRUE;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 113,
-    description: "Add show_in_quick_login and pin_code columns to users table for quick login staff selection",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 113,
+        description: "Add show_in_quick_login and pin_code columns to users table for quick login staff selection",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE users 
           ADD COLUMN IF NOT EXISTS pin_code VARCHAR(100) DEFAULT NULL,
           ADD COLUMN IF NOT EXISTS show_in_quick_login BOOLEAN DEFAULT FALSE;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 114,
-    description: "Set default FALSE for show_in_quick_login on users and clear unconfigured admin quick logins",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 114,
+        description: "Set default FALSE for show_in_quick_login on users and clear unconfigured admin quick logins",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE users ALTER COLUMN show_in_quick_login SET DEFAULT FALSE;
         UPDATE users SET show_in_quick_login = FALSE WHERE show_in_quick_login IS NULL OR role = 'ADMIN';
         COMMIT;
       `);
-    }
-  }
-,
-  {
-    version: 115,
-    description: "Add custom_settings column to system_settings table for dynamic integrations and M-Pesa config",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 115,
+        description: "Add custom_settings column to system_settings table for dynamic integrations and M-Pesa config",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE system_settings 
           ADD COLUMN IF NOT EXISTS custom_settings JSONB DEFAULT '{}'::jsonb;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 116,
-    description: "Create plugins_installed and plugin_execution_logs tables for dynamic JS/TS plugin ecosystem",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 116,
+        description: "Create plugins_installed and plugin_execution_logs tables for dynamic JS/TS plugin ecosystem",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         CREATE TABLE IF NOT EXISTS plugins_installed (
           id VARCHAR(100) NOT NULL,
@@ -4253,43 +4243,43 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_plugin_logs_plugin ON plugin_execution_logs(plugin_id, outlet_id);
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 117,
-    description: "Add advance_amount to sales_headers for tracking customer advance deposits on sales",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 117,
+        description: "Add advance_amount to sales_headers for tracking customer advance deposits on sales",
+        up: async (db) => {
+            await db.query(`
         BEGIN;
         ALTER TABLE sales_headers ADD COLUMN IF NOT EXISTS advance_amount DECIMAL(12, 2) DEFAULT 0;
         COMMIT;
       `);
-    }
-  },
-  {
-    version: 118,
-    description: "Create Master Control Plane tables (tenants, outlets, licenses, resellers, rms, support, sandboxed audit)",
-    up: async (db) => {
-      await db.query(`
-        -- Enable UUID extension if not enabled
+        }
+    },
+    {
+        version: 118,
+        description: "Create Master Control Plane tables: resellers, relationship managers, tenants, outlets, licenses, support desk and data doctor",
+        up: async (db) => {
+            await db.query(`
         CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-        -- 1. Master Resellers / Partners
+        -- 1. Resellers / Channel Partners
         CREATE TABLE IF NOT EXISTS master_resellers (
             id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
             reseller_code VARCHAR(50) UNIQUE NOT NULL,
-            company_name VARCHAR(150) NOT NULL,
-            contact_name VARCHAR(100) NOT NULL,
+            company_name VARCHAR(255) NOT NULL,
+            contact_name VARCHAR(150) NOT NULL,
             email VARCHAR(255) UNIQUE NOT NULL,
             phone VARCHAR(50) NOT NULL,
             commission_rate NUMERIC(5,2) DEFAULT 15.00,
-            allocated_license_credits INT DEFAULT 0,
+            allocated_license_credits INT DEFAULT 10,
+            password_hash VARCHAR(255),
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
 
-        -- 2. Master Relationship Managers
+        -- 2. Relationship Managers
         CREATE TABLE IF NOT EXISTS master_relationship_managers (
             id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
             rm_code VARCHAR(50) UNIQUE NOT NULL,
@@ -4315,7 +4305,7 @@ COMMIT;
             contact_phone VARCHAR(50) DEFAULT '',
             reseller_id UUID REFERENCES master_resellers(id) ON DELETE SET NULL,
             rm_id UUID REFERENCES master_relationship_managers(id) ON DELETE SET NULL,
-            status VARCHAR(30) DEFAULT 'ACTIVE',
+            status VARCHAR(30) DEFAULT 'ACTIVE', -- ACTIVE, SUSPENDED, DEACTIVATED, MAINTENANCE
             db_storage_mode VARCHAR(30) DEFAULT 'SHARED_DB_TENANT_TAGGED',
             db_connection_url TEXT,
             pin_hash VARCHAR(255),
@@ -4429,6 +4419,7 @@ COMMIT;
           ADD COLUMN IF NOT EXISTS license_warning_days INT DEFAULT 15,
           ADD COLUMN IF NOT EXISTS remote_control_status VARCHAR(30) DEFAULT 'ACTIVE';
 
+        -- SEED INITIAL DATA IF NOT PRESENT
         -- No dummy RM seeded by default. Real RM is only shown if explicitly created and assigned by admin.
 
         -- Default Reseller
@@ -4441,13 +4432,13 @@ COMMIT;
         VALUES ('L2 Diagnostic Support Lead', 'support.lead@famalth.com', 'L2', TRUE, 'SQL_DATA_DOCTOR')
         ON CONFLICT (email) DO NOTHING;
       `);
-    }
-  },
-  {
-    version: 119,
-    description: "Create master_staff_users table for isolated Master Control Plane IAM & Authentication",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 119,
+        description: "Create master_staff_users table for isolated Master Control Plane IAM & Authentication",
+        up: async (db) => {
+            await db.query(`
         -- 1. Create master_staff_users table
         CREATE TABLE IF NOT EXISTS master_staff_users (
             id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -4470,6 +4461,7 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_master_staff_email ON master_staff_users(email);
         CREATE INDEX IF NOT EXISTS idx_master_staff_username ON master_staff_users(username);
 
+        -- 2. Seed Default Control Plane Operators (Owners, Developers, Resellers, Support Staff)
         -- Primary Super Admin / Software Owner
         INSERT INTO master_staff_users (username, email, password_hash, full_name, role, permissions, is_active)
         VALUES (
@@ -4513,14 +4505,13 @@ COMMIT;
         )
         ON CONFLICT (username) DO NOTHING;
       `);
-    }
-  }
-,
-  {
-    version: 120,
-    description: "Create all missing core application tables (accounting, master control plane, night audit, transfers, branding, notes, refunds, and multi-regime tax engines)",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 120,
+        description: "Create all missing core application tables (accounting, master control plane, night audit, transfers, branding, notes, refunds, and multi-regime tax engines)",
+        up: async (db) => {
+            await db.query(`
         -- =========================================================================
         -- MIGRATION 120: CREATE ALL MISSING APPLICATION TABLES
         -- =========================================================================
@@ -4842,13 +4833,13 @@ COMMIT;
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
       `);
-    }
-  },
-  {
-    version: 121,
-    description: "Comprehensive ALTER TABLE upgrade adding all missing enterprise columns, indexes, and constraints across existing tables",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 121,
+        description: "Comprehensive ALTER TABLE upgrade adding all missing enterprise columns, indexes, and constraints across existing tables",
+        up: async (db) => {
+            await db.query(`
         -- =========================================================================
         -- MIGRATION 121: ADD ALL MISSING ENTERPRISE COLUMNS ACROSS TABLES
         -- =========================================================================
@@ -5055,25 +5046,25 @@ COMMIT;
         -- users
         ALTER TABLE users ADD COLUMN IF NOT EXISTS show_in_quick_login BOOLEAN DEFAULT FALSE;
       `);
-    }
-  },
-  {
-    version: 122,
-    description: "Add round_off and round_off_amount columns to goods_receipts, purchase_orders, supplier_payments, and supplier_bills",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 122,
+        description: "Add round_off and round_off_amount columns to goods_receipts, purchase_orders, supplier_payments, and supplier_bills",
+        up: async (db) => {
+            await db.query(`
         ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS round_off_amount NUMERIC(12, 2) DEFAULT 0.00;
         ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS round_off_amount NUMERIC(12, 2) DEFAULT 0.00;
         ALTER TABLE supplier_payments ADD COLUMN IF NOT EXISTS round_off NUMERIC(12, 2) DEFAULT 0.00;
         ALTER TABLE supplier_bills ADD COLUMN IF NOT EXISTS round_off_amount NUMERIC(12, 2) DEFAULT 0.00;
       `);
-    }
-  },
-  {
-    version: 123,
-    description: "Add staff login QR token, clinic appointments, service quota subscriptions, table reservations expansion, and USB mobile push settings",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 123,
+        description: "Add staff login QR token, clinic appointments, service quota subscriptions, table reservations expansion, and USB mobile push settings",
+        up: async (db) => {
+            await db.query(`
         -- 1. Users login QR token
         ALTER TABLE users ADD COLUMN IF NOT EXISTS login_qr_token VARCHAR(255);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login_qr_token ON users(login_qr_token) WHERE login_qr_token IS NOT NULL;
@@ -5127,13 +5118,13 @@ COMMIT;
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS allow_public_table_booking BOOLEAN DEFAULT TRUE;
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS usb_mobile_push_enabled BOOLEAN DEFAULT FALSE;
       `);
-    }
-  },
-  {
-    version: 124,
-    description: "Doctor directory public listing by city, specialty, verification badge, and patient email verification",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 124,
+        description: "Doctor directory public listing by city, specialty, verification badge, and patient email verification",
+        up: async (db) => {
+            await db.query(`
         -- 1. Doctor Profile columns on users
         ALTER TABLE users ADD COLUMN IF NOT EXISTS speciality VARCHAR(100);
         ALTER TABLE users ADD COLUMN IF NOT EXISTS qualification VARCHAR(100);
@@ -5155,13 +5146,13 @@ COMMIT;
         ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS is_email_verified BOOLEAN DEFAULT FALSE;
         ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS email_otp_verified_at TIMESTAMP;
       `);
-    }
-  },
-  {
-    version: 125,
-    description: "HRMS module & Biometric Attendance device integration, attendance excel import support",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 125,
+        description: "HRMS module & Biometric Attendance device integration, attendance excel import support",
+        up: async (db) => {
+            await db.query(`
         -- 1. Biometric Devices Table
         CREATE TABLE IF NOT EXISTS hr_biometric_devices (
           id SERIAL PRIMARY KEY,
@@ -5191,13 +5182,13 @@ COMMIT;
         ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS remarks TEXT;
         ALTER TABLE hr_attendance_punches ADD COLUMN IF NOT EXISTS biometric_device_id INTEGER;
       `);
-    }
-  },
-  {
-    version: 126,
-    description: "Multi-outlet tenancy performance indexes: enforce index scans for outlet-scoped data queries across inventory, sales, dining, and finance",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 126,
+        description: "Multi-outlet tenancy performance indexes: enforce index scans for outlet-scoped data queries across inventory, sales, dining, and finance",
+        up: async (db) => {
+            await db.query(`
         -- Multi-Outlet High-Performance Isolation B-Tree Indexes
         CREATE INDEX IF NOT EXISTS idx_item_master_outlet_id ON item_master(outlet_id);
         CREATE INDEX IF NOT EXISTS idx_stock_ledger_outlet_id ON stock_ledger(outlet_id);
@@ -5222,13 +5213,13 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_supplier_master_outlet_id ON supplier_master(outlet_id);
         CREATE INDEX IF NOT EXISTS idx_milk_subscriptions_outlet_id ON milk_subscriptions(outlet_id);
       `);
-    }
-  },
-  {
-    version: 127,
-    description: "Parity synchronization: add missing clinic OPD session & payment columns, restaurant table active flag, doctor public profiles, lab master, developer keys, and third-party orders schema",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 127,
+        description: "Parity synchronization: add missing clinic OPD session & payment columns, restaurant table active flag, doctor public profiles, lab master, developer keys, and third-party orders schema",
+        up: async (db) => {
+            await db.query(`
         -- 1. Table: clinic_appointments (Ensure all OPD clinical, billing, package, session & vital sign columns exist)
         ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS attended_by_doctor_id INTEGER;
         ALTER TABLE clinic_appointments ADD COLUMN IF NOT EXISTS attended_by_doctor_name VARCHAR(150);
@@ -5354,14 +5345,13 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_third_party_orders_outlet ON third_party_orders (outlet_id, source_tag);
         CREATE INDEX IF NOT EXISTS idx_third_party_orders_created ON third_party_orders (created_at DESC);
       `);
-    }
-  }
-,
-  {
-    version: 128,
-    description: "Support Console and Fleet Transportation ecosystem: add support ticket read status columns, transport vehicles & drivers tables, and delivery challan logistics columns",
-    up: async (db) => {
-      await db.query(`
+        }
+    },
+    {
+        version: 128,
+        description: "Support Console and Fleet Transportation ecosystem: add support ticket read status columns, transport vehicles & drivers tables, and delivery challan logistics columns",
+        up: async (db) => {
+            await db.query(`
         -- 1. Support Console / Owner Console (Resolves missing is_read_by_support from image error)
         ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_read_by_support BOOLEAN DEFAULT FALSE;
         ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS last_read_by_support_at TIMESTAMP WITH TIME ZONE;
@@ -5424,8 +5414,7 @@ COMMIT;
         CREATE INDEX IF NOT EXISTS idx_delivery_challan_vehicle ON delivery_challan_headers(vehicle_id);
         CREATE INDEX IF NOT EXISTS idx_delivery_challan_driver ON delivery_challan_headers(driver_id);
       `);
+        }
     }
-  }
 ];
-
-module.exports = migrations;
+exports.default = exports.migrations;

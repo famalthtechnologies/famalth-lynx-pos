@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const goods_receipt_items = sequelize.define('goods_receipt_items', {
         grn_id: DataTypes.INTEGER,
@@ -23,7 +25,6 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'goods_receipt_items',
         timestamps: false
     });
-
     if (sequelize && typeof sequelize.query === 'function') {
         sequelize.query(`
             ALTER TABLE goods_receipt_items 
@@ -32,15 +33,14 @@ module.exports = (sequelize, DataTypes) => {
             ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
             ALTER TABLE goods_receipt_items 
             ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-        `).catch(() => {});
+        `).catch(() => { });
     }
     goods_receipt_items.associate = (models) => {
-
         goods_receipt_items.belongsTo(models.goods_receipts, {
             foreignKey: 'grn_id',
             as: 'grn'
         });
-
     };
     return goods_receipt_items;
 };
+exports.default = module.exports;

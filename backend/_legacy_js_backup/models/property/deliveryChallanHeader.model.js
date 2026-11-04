@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const DeliveryChallanHeader = sequelize.define('delivery_challan_headers', {
         id: {
@@ -43,7 +44,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     DeliveryChallanHeader.associate = (models) => {
         DeliveryChallanHeader.belongsTo(models.users, {
             foreignKey: 'created_by',
@@ -54,6 +54,5 @@ module.exports = (sequelize, DataTypes) => {
             as: 'items'
         });
     };
-
     return DeliveryChallanHeader;
 };

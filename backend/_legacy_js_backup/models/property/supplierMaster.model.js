@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const SupplierMaster = sequelize.define('supplier_master', {
         outlet_id: {
@@ -46,38 +47,29 @@ module.exports = (sequelize, DataTypes) => {
             }
         ]
     });
-
     SupplierMaster.associate = (models) => {
-
         SupplierMaster.hasMany(models.supplier_bills, {
             foreignKey: 'supplier_id',
             as: 'bills'
         });
-
         SupplierMaster.hasMany(models.supplier_payments, {
             foreignKey: 'supplier_id',
             as: 'payments'
         });
     };
-
-
     SupplierMaster.associate = (models) => {
-
         SupplierMaster.hasMany(models.purchase_orders, {
             foreignKey: 'supplier_id',
             as: 'purchaseOrders'
         });
-
         SupplierMaster.hasMany(models.supplier_bills, {
             foreignKey: 'supplier_id',
             as: 'bills'
         });
-
         SupplierMaster.hasMany(models.supplier_payments, {
             foreignKey: 'supplier_id',
             as: 'payments'
         });
     };
-
     return SupplierMaster;
 };

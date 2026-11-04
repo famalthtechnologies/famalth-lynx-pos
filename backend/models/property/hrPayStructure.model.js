@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const HrPayStructure = sequelize.define('hr_pay_structures', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -11,7 +13,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     HrPayStructure.associate = (models) => {
         HrPayStructure.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
         HrPayStructure.hasMany(models.hr_pay_structure_components, { foreignKey: 'pay_structure_id', as: 'structureComponents' });
@@ -22,6 +23,6 @@ module.exports = (sequelize, DataTypes) => {
             as: 'components'
         });
     };
-
     return HrPayStructure;
 };
+exports.default = module.exports;

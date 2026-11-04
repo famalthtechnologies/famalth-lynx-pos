@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('loyalty_master_config', {
         outlet_id: {

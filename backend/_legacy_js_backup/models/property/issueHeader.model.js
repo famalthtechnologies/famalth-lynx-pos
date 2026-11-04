@@ -1,5 +1,5 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
-
     const IssueHeaders = sequelize.define('issue_headers', {
         issue_no: DataTypes.STRING,
         department: DataTypes.STRING,
@@ -17,13 +17,11 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     IssueHeaders.associate = (models) => {
         IssueHeaders.hasMany(models.issue_items, {
             foreignKey: 'issue_id',
             as: 'items'
         });
     };
-
     return IssueHeaders;
 };

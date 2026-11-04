@@ -1,39 +1,36 @@
+"use strict";
 const audit = require('../../services/audit.service');
 const { Op, Sequelize } = require('sequelize');
 const { normalizeDateKey } = require('../../utils/dateQuery');
-
 function normalizeLineStatus(value) {
     const status = String(value || 'CLOSED').trim().toUpperCase();
     return ['OPEN', 'CLOSED', 'CANCELLED'].includes(status) ? status : 'CLOSED';
 }
-
 function deriveHeaderStatus(items) {
     const statuses = items.map(item => normalizeLineStatus(item.line_status));
     const hasOpen = statuses.includes('OPEN');
     const hasClosed = statuses.includes('CLOSED');
     const allCancelled = statuses.length > 0 && statuses.every(status => status === 'CANCELLED');
-
-    if (allCancelled) return 'CANCELLED';
-    if (hasOpen && hasClosed) return 'PARTIAL';
-    if (hasOpen) return 'OPEN';
+    if (allCancelled)
+        return 'CANCELLED';
+    if (hasOpen && hasClosed)
+        return 'PARTIAL';
+    if (hasOpen)
+        return 'OPEN';
     return 'CLOSED';
 }
-
 exports.createPurchaseOrder = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
-
         const { po_no, manual_no, supplier_id, po_date, items } = req.body;
         const normalizedItems = items.map(item => ({
             ...item,
             line_status: normalizeLineStatus(item.line_status)
         }));
-
         let total = 0;
         items.forEach(i => total += (Number(i.qty) || 0) * (Number(i.rate) || 0));
-
         const po = await req.propertyDb.models.purchase_orders.create({
             outlet_id,
             po_no,
@@ -44,7 +41,6 @@ exports.createPurchaseOrder = async (req, res) => {
             status: deriveHeaderStatus(normalizedItems),
             created_by: user_id
         }, { transaction: t });
-
         for (const i of normalizedItems) {
             const amount = (Number(i.qty) || 0) * (Number(i.rate) || 0);
             const tax = Number(i.tax) || 0;
@@ -74,7 +70,6 @@ exports.createPurchaseOrder = async (req, res) => {
             type: 'INFO',
             entity_id: po.id
         }, { transaction: t });
-
         await audit.log({
             req,
             module: 'PURCHASE_ORDER',
@@ -83,58 +78,35 @@ exports.createPurchaseOrder = async (req, res) => {
             recordId: po.id,
             newData: req.body
         });
-
-
-
         await t.commit();
         res.json({ success: true, message: 'Purchase order created' });
-
-
-
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.getPurchaseOrderReport = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
-
-        const {
-            from_date,
-            to_date,
-            supplier_id,
-            status,
-            search
-        } = req.query;
-
+        const { from_date, to_date, supplier_id, status, search } = req.query;
         const where = { outlet_id };
-
-
         if (from_date && to_date) {
             where.po_date = {
                 [Op.between]: [from_date, to_date]
             };
         }
-
-
         if (supplier_id) {
             where.supplier_id = supplier_id;
         }
-
-
         if (status) {
             where.status = status;
         }
-
-
         if (search) {
             where.po_no = {
                 [Op.iLike]: `%${search}%`
             };
         }
-
         const data = await req.propertyDb.models.purchase_orders.findAll({
             where,
             attributes: [
@@ -156,50 +128,39 @@ exports.getPurchaseOrderReport = async (req, res) => {
             ],
             order: [['po_date', 'DESC']]
         });
-
         res.json({
             success: true,
             data
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({
             success: false,
             message: err.message
         });
     }
 };
-
-
-
 exports.getPurchaseOrderDetails = async (req, res) => {
     try {
-
-        const po = await req.propertyDb.models.purchase_orders.findByPk(
-            req.params.id,
-            {
-                include: [
-                    {
-                        model: req.propertyDb.models.purchase_order_items,
-                        as: 'items'
-                    }
-                ]
-            }
-        );
-
+        const po = await req.propertyDb.models.purchase_orders.findByPk(req.params.id, {
+            include: [
+                {
+                    model: req.propertyDb.models.purchase_order_items,
+                    as: 'items'
+                }
+            ]
+        });
         res.json({ success: true, data: po });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 };
-
 exports.getPoByDate = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { date } = req.query;
         const normalizedDate = normalizeDateKey(date);
-
         const data = await req.propertyDb.models.purchase_orders.findAll({
             where: {
                 outlet_id,
@@ -210,36 +171,28 @@ exports.getPoByDate = async (req, res) => {
             },
             attributes: ['id', 'po_no']
         });
-
         res.json({ success: true, data });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 };
-
 exports.getPurchaseOrderForPrint = async (req, res) => {
     try {
-
-        const po = await req.propertyDb.models.purchase_orders.findByPk(
-            req.params.id,
-            {
-                include: [
-                    {
-                        model: req.propertyDb.models.purchase_order_items,
-                        as: 'items'
-                    },
-                    {
-                        model: req.propertyDb.models.supplier_master,
-                        as: 'supplier'
-                    }
-                ]
-            }
-        );
-
+        const po = await req.propertyDb.models.purchase_orders.findByPk(req.params.id, {
+            include: [
+                {
+                    model: req.propertyDb.models.purchase_order_items,
+                    as: 'items'
+                },
+                {
+                    model: req.propertyDb.models.supplier_master,
+                    as: 'supplier'
+                }
+            ]
+        });
         if (!po)
             return res.status(404).json({ success: false });
-
         await audit.log({
             req,
             module: 'PURCHASE_ORDER',
@@ -247,55 +200,42 @@ exports.getPurchaseOrderForPrint = async (req, res) => {
             table: 'purchase_orders',
             recordId: po.id
         });
-
         res.json({
             success: true,
             data: po
         });
-
-    } catch (err) {
-
+    }
+    catch (err) {
         res.status(500).json({
             success: false,
             message: err.message
         });
-
     }
 };
 exports.modifyPurchaseOrder = async (req, res) => {
-
     const t = await req.propertyDb.transaction();
-
     try {
-
         const po = await req.propertyDb.models.purchase_orders.findByPk(req.params.id);
-
         if (!po)
             return res.status(404).json({ success: false });
-
         const { supplier_id, items } = req.body;
         const normalizedItems = items.map(item => ({
             ...item,
             line_status: normalizeLineStatus(item.line_status)
         }));
-
         let total = 0;
-
         for (const i of items) {
             total += (Number(i.qty) || 0) * (Number(i.rate) || 0);
         }
-
         await po.update({
             supplier_id,
             total_amount: total,
             status: deriveHeaderStatus(normalizedItems)
         }, { transaction: t });
-
         await req.propertyDb.models.purchase_order_items.destroy({
             where: { po_id: po.id },
             transaction: t
         });
-
         for (const i of normalizedItems) {
             const amount = (Number(i.qty) || 0) * (Number(i.rate) || 0);
             const tax = Number(i.tax) || 0;
@@ -317,7 +257,6 @@ exports.modifyPurchaseOrder = async (req, res) => {
                 line_status: i.line_status
             }, { transaction: t });
         }
-
         await audit.log({
             req,
             module: 'PURCHASE_ORDER',
@@ -325,7 +264,6 @@ exports.modifyPurchaseOrder = async (req, res) => {
             table: 'purchase_orders',
             recordId: po.id
         });
-
         await req.propertyDb.models.system_notifications.create({
             outlet_id: req.user.outlet_id,
             module: 'PURCHASE',
@@ -334,27 +272,20 @@ exports.modifyPurchaseOrder = async (req, res) => {
             type: 'WARNING',
             entity_id: po.id
         }, { transaction: t });
-
         await t.commit();
-
         res.json({
             success: true,
             message: 'Purchase order updated'
         });
-
-    } catch (err) {
-
+    }
+    catch (err) {
         await t.rollback();
-
         res.status(500).json({
             success: false,
             message: err.message
         });
-
     }
 };
-
-
 exports.listPurchaseOrders = async (req, res) => {
     try {
         const data = await req.propertyDb.models.purchase_orders.findAll({
@@ -366,42 +297,33 @@ exports.listPurchaseOrders = async (req, res) => {
             },
             order: [['created_at', 'DESC']]
         });
-
         res.json({ success: true, data });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({
             success: false,
             message: err.message
         });
     }
 };
-
 exports.getPurchaseOrder = async (req, res) => {
-    const po = await req.propertyDb.models.purchase_orders.findByPk(
-        req.params.id,
-        {
-            include: [
-                {
-                    model: req.propertyDb.models.purchase_order_items,
-                    as: 'items'
-                }
-            ]
-        }
-    );
-
-    if (!po) return res.status(404).json({ success: false });
-
+    const po = await req.propertyDb.models.purchase_orders.findByPk(req.params.id, {
+        include: [
+            {
+                model: req.propertyDb.models.purchase_order_items,
+                as: 'items'
+            }
+        ]
+    });
+    if (!po)
+        return res.status(404).json({ success: false });
     res.json({ success: true, data: po });
 };
-
 exports.updatePurchaseOrder = async (req, res) => {
     const po = await req.propertyDb.models.purchase_orders.findByPk(req.params.id);
     if (!po || po.status !== 'OPEN')
         return res.status(400).json({ success: false, message: 'PO locked' });
-
     await po.update(req.body);
-
     await audit.log({
         req,
         module: 'PURCHASE_ORDER',
@@ -409,18 +331,12 @@ exports.updatePurchaseOrder = async (req, res) => {
         table: 'purchase_orders',
         recordId: po.id
     });
-
     res.json({ success: true });
 };
 exports.closePurchaseOrder = async (req, res) => {
     const po = await req.propertyDb.models.purchase_orders.findByPk(req.params.id);
-
     await po.update({ status: 'CLOSED' });
-    await req.propertyDb.models.purchase_order_items.update(
-        { line_status: 'CLOSED' },
-        { where: { po_id: po.id, line_status: 'OPEN' } }
-    );
-
+    await req.propertyDb.models.purchase_order_items.update({ line_status: 'CLOSED' }, { where: { po_id: po.id, line_status: 'OPEN' } });
     await audit.log({
         req,
         module: 'PURCHASE_ORDER',
@@ -428,23 +344,18 @@ exports.closePurchaseOrder = async (req, res) => {
         table: 'purchase_orders',
         recordId: po.id
     });
-
     res.json({ success: true });
 };
-
 exports.cancelPurchaseOrder = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const po = await req.propertyDb.models.purchase_orders.findByPk(req.params.id, {
             transaction: t
         });
-
         if (!po) {
             await t.rollback();
             return res.status(404).json({ success: false, message: 'PO not found' });
         }
-
         if (['CLOSED', 'CANCELLED'].includes(String(po.status || '').toUpperCase())) {
             await t.rollback();
             return res.status(400).json({
@@ -452,14 +363,8 @@ exports.cancelPurchaseOrder = async (req, res) => {
                 message: 'Only open or partial purchase orders can be cancelled'
             });
         }
-
-        await req.propertyDb.models.purchase_order_items.update(
-            { line_status: 'CANCELLED' },
-            { where: { po_id: po.id, line_status: 'OPEN' }, transaction: t }
-        );
-
+        await req.propertyDb.models.purchase_order_items.update({ line_status: 'CANCELLED' }, { where: { po_id: po.id, line_status: 'OPEN' }, transaction: t });
         await po.update({ status: 'CANCELLED' }, { transaction: t });
-
         await audit.log({
             req,
             module: 'PURCHASE_ORDER',
@@ -467,26 +372,22 @@ exports.cancelPurchaseOrder = async (req, res) => {
             table: 'purchase_orders',
             recordId: po.id
         });
-
         await t.commit();
         res.json({ success: true, message: 'Purchase order cancelled' });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, message: err.message });
     }
 };
-
 const emailService = require('../../services/email.service');
-
 exports.sendPoEmail = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id;
         const { to_email, po_no, vendor_name, total_amount, items, pdf_base64, pdf_filename } = req.body;
-
         if (!to_email) {
             return res.status(400).json({ success: false, message: 'Recipient email address is required.' });
         }
-
         let attachments = [];
         if (pdf_base64) {
             attachments.push({
@@ -494,7 +395,6 @@ exports.sendPoEmail = async (req, res) => {
                 content: Buffer.from(pdf_base64, 'base64')
             });
         }
-
         const formattedItems = (items || []).map(i => `
             <tr>
                 <td style="padding: 8px; border: 1px solid #ddd;">${i.item_name || i.itemName || 'Item'}</td>
@@ -504,7 +404,6 @@ exports.sendPoEmail = async (req, res) => {
                 <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">₹${Number(i.total || 0).toFixed(2)}</td>
             </tr>
         `).join('');
-
         const htmlContent = `
             <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
                 <h2>Purchase Order: ${po_no || 'Draft'}</h2>
@@ -528,7 +427,6 @@ exports.sendPoEmail = async (req, res) => {
                 <p style="margin-top: 30px; font-size: 12px; color: #777;">Sent via Store POS System</p>
             </div>
         `;
-
         const sent = await emailService.sendMail({
             db: req.propertyDb,
             outlet_id,
@@ -538,13 +436,14 @@ exports.sendPoEmail = async (req, res) => {
             html: htmlContent,
             attachments
         });
-
         if (sent) {
             res.json({ success: true, message: `Purchase Order emailed successfully to ${to_email}!` });
-        } else {
+        }
+        else {
             res.status(400).json({ success: false, message: 'SMTP settings not configured or inactive. Please check Email Configuration.' });
         }
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[PO EMAIL ERROR]', err);
         res.status(500).json({ success: false, message: err.message });
     }

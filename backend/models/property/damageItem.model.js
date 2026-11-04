@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const DamageItem = sequelize.define('damage_items', {
         damage_id: DataTypes.INTEGER,
@@ -10,7 +12,6 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'damage_items',
         timestamps: false
     });
-
     DamageItem.associate = (models) => {
         DamageItem.belongsTo(models.damage_headers, {
             foreignKey: 'damage_id',
@@ -21,6 +22,6 @@ module.exports = (sequelize, DataTypes) => {
             as: 'item'
         });
     };
-
     return DamageItem;
 };
+exports.default = module.exports;

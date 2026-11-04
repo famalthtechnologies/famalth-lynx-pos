@@ -1,83 +1,79 @@
-const crypto = require("crypto");
-const fs = require("fs");
-const path = require("path");
-const { spawn } = require("child_process");
-
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.decryptAndUnzip = decryptAndUnzip;
+const crypto_1 = __importDefault(require("crypto"));
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const child_process_1 = require("child_process");
 const ALGORITHM = "aes-256-cbc";
 const SECRET = process.env.BACKUP_SECRET || "my_super_secret_key";
-
 function getKey() {
-    return crypto.createHash("sha256").update(SECRET).digest();
+    return crypto_1.default.createHash("sha256").update(SECRET).digest();
 }
-
 /**
  * Reads the prepended IV, decrypts the file, and extracts the ZIP
  */
-function decryptAndUnzip(encFilePath, zipFilePath, extractDir = path.dirname(zipFilePath)) {
+function decryptAndUnzip(encFilePath, zipFilePath, extractDir = path_1.default.dirname(zipFilePath)) {
     return new Promise((resolve, reject) => {
         console.log("[DECRYPT] Initiating backup decryption sequence...");
-
         const key = getKey();
-        fs.mkdirSync(extractDir, { recursive: true });
-
+        fs_1.default.mkdirSync(extractDir, { recursive: true });
         // 1. Safely extract exactly 16 bytes for the IV before streaming
         let fd;
         let iv = Buffer.alloc(16);
         try {
-            fd = fs.openSync(encFilePath, 'r');
-            const bytesRead = fs.readSync(fd, iv, 0, 16, 0);
-            fs.closeSync(fd);
-
+            fd = fs_1.default.openSync(encFilePath, 'r');
+            const bytesRead = fs_1.default.readSync(fd, iv, 0, 16, 0);
+            fs_1.default.closeSync(fd);
             if (bytesRead !== 16) {
                 return reject(new Error("File is too small or corrupted; missing 16-byte IV."));
             }
-        } catch (err) {
+        }
+        catch (err) {
             if (fd !== undefined) {
-                try { fs.closeSync(fd); } catch (e) { }
+                try {
+                    fs_1.default.closeSync(fd);
+                }
+                catch (e) { }
             }
             return reject(new Error(`Failed to read IV from backup: ${err.message}`));
         }
-
         // 2. Initialize the Decipher with the key and extracted IV
-        const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-
+        const decipher = crypto_1.default.createDecipheriv(ALGORITHM, key, iv);
         // 3. Create streams, strictly starting at byte 16 (skipping the IV)
-        const readStream = fs.createReadStream(encFilePath, { start: 16 });
-        const writeStream = fs.createWriteStream(zipFilePath);
-
+        const readStream = fs_1.default.createReadStream(encFilePath, { start: 16 });
+        const writeStream = fs_1.default.createWriteStream(zipFilePath);
         // Catch individual stream errors to prevent unhandled process crashes
         readStream.on("error", (err) => reject(new Error(`Read stream error: ${err.message}`)));
         writeStream.on("error", (err) => reject(new Error(`Write stream error: ${err.message}`)));
         decipher.on("error", (err) => reject(new Error(`Decryption failed (Corrupt file): ${err.message}`)));
-
         readStream
             .pipe(decipher)
             .pipe(writeStream)
             .on("finish", () => {
-                console.log("[DECRYPT] Payload decrypted to ZIP successfully.");
-                console.log("[DECRYPT] Extracting archive contents...");
-
-                const extract = spawn("tar", ["-xf", zipFilePath, "-C", extractDir]);
-                let errorOutput = "";
-
-                extract.stderr.on("data", (data) => {
-                    errorOutput += data.toString();
-                });
-
-                extract.on("error", (err) => {
-                    reject(new Error(`Failed to spawn tar extraction process: ${err.message}`));
-                });
-
-                extract.on("close", (code) => {
-                    if (code === 0) {
-                        console.log("[DECRYPT] SQL payload extracted successfully.");
-                        resolve(path.join(extractDir, "backup.sql"));
-                    } else {
-                        reject(new Error(`Archive extraction failed (Exit Code ${code}). Details: ${errorOutput.trim()}`));
-                    }
-                });
+            console.log("[DECRYPT] Payload decrypted to ZIP successfully.");
+            console.log("[DECRYPT] Extracting archive contents...");
+            const extract = (0, child_process_1.spawn)("tar", ["-xf", zipFilePath, "-C", extractDir]);
+            let errorOutput = "";
+            extract.stderr.on("data", (data) => {
+                errorOutput += data.toString();
             });
+            extract.on("error", (err) => {
+                reject(new Error(`Failed to spawn tar extraction process: ${err.message}`));
+            });
+            extract.on("close", (code) => {
+                if (code === 0) {
+                    console.log("[DECRYPT] SQL payload extracted successfully.");
+                    resolve(path_1.default.join(extractDir, "backup.sql"));
+                }
+                else {
+                    reject(new Error(`Archive extraction failed (Exit Code ${code}). Details: ${errorOutput.trim()}`));
+                }
+            });
+        });
     });
 }
-
-module.exports = { decryptAndUnzip };
+exports.default = { decryptAndUnzip };

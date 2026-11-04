@@ -1,13 +1,33 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteThirdPartyOrders = exports.getThirdPartyOrders = exports.getPluginLogs = exports.executePluginHook = exports.deployDeveloperPlugin = exports.savePluginConfig = exports.togglePlugin = exports.uninstallPlugin = exports.installPlugin = exports.getInstalledPlugins = exports.getMarketplaceCatalog = void 0;
+exports.searchCommunityPlugins = exports.deleteThirdPartyOrders = exports.getThirdPartyOrders = exports.getPluginLogs = exports.executePluginHook = exports.deployDeveloperPlugin = exports.savePluginConfig = exports.togglePlugin = exports.deleteDeveloperPlugin = exports.uninstallPlugin = exports.installPlugin = exports.getInstalledPlugins = exports.getMarketplaceCatalog = void 0;
 const pluginService = require('../services/plugin_manager.service');
 const defaultDb = require('../db/models');
 function getDb(req) {
     return req.propertyDb || defaultDb;
 }
 function resolveOutletId(req) {
-    return Number(req?.user?.outlet_id) || Number(req?.query?.outletId) || Number(req?.body?.outletId) || 0;
+    const fromUser = Number(req?.user?.outlet_id || req?.user?.outletId);
+    if (fromUser)
+        return fromUser;
+    const fromHeader = Number(req?.headers?.['x-outlet-id'] || req?.headers?.['outlet_id']);
+    if (fromHeader)
+        return fromHeader;
+    const fromQueryOrBody = Number(req?.query?.outletId || req?.query?.outlet_id || req?.body?.outletId || req?.body?.outlet_id);
+    if (fromQueryOrBody)
+        return fromQueryOrBody;
+    // Decode token if req.user was not populated by upstream middleware
+    try {
+        const token = req?.headers?.authorization?.split(' ')[1];
+        if (token) {
+            const jwt = require('../utils/jwt.util');
+            const data = jwt.verify(token);
+            if (data?.outlet_id || data?.outletId)
+                return Number(data.outlet_id || data.outletId);
+        }
+    }
+    catch (_) { }
+    return 0;
 }
 const getMarketplaceCatalog = async (req, res) => {
     try {
@@ -250,13 +270,7 @@ const searchCommunityPlugins = async (req, res) => {
         const outletId = resolveOutletId(req);
         const { q, search, limit, offset } = req.query;
         const searchQuery = String(q || search || '');
-        const data = await pluginService.searchCommunityPlugins(
-            getDb(req),
-            outletId,
-            searchQuery,
-            Number(limit || 20),
-            Number(offset || 0)
-        );
+        const data = await pluginService.searchCommunityPlugins(getDb(req), outletId, searchQuery, Number(limit || 20), Number(offset || 0));
         return res.json({
             success: true,
             data
@@ -276,7 +290,6 @@ module.exports = {
     getInstalledPlugins: exports.getInstalledPlugins,
     installPlugin: exports.installPlugin,
     uninstallPlugin: exports.uninstallPlugin,
-    deleteDeveloperPlugin: exports.deleteDeveloperPlugin,
     togglePlugin: exports.togglePlugin,
     savePluginConfig: exports.savePluginConfig,
     deployDeveloperPlugin: exports.deployDeveloperPlugin,
@@ -284,6 +297,7 @@ module.exports = {
     getPluginLogs: exports.getPluginLogs,
     getThirdPartyOrders: exports.getThirdPartyOrders,
     deleteThirdPartyOrders: exports.deleteThirdPartyOrders,
-    searchCommunityPlugins: exports.searchCommunityPlugins
+    searchCommunityPlugins: exports.searchCommunityPlugins,
+    deleteDeveloperPlugin: exports.deleteDeveloperPlugin
 };
 exports.default = module.exports;

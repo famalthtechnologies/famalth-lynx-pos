@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const purchase_order = sequelize.define('purchase_orders', {
         outlet_id: DataTypes.INTEGER,
@@ -14,26 +15,21 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     purchase_order.associate = (models) => {
         purchase_order.hasMany(models.purchase_order_items, {
             foreignKey: 'po_id',
             as: 'items'
         });
     };
-
     purchase_order.associate = (models) => {
-
         purchase_order.belongsTo(models.supplier_master, {
             foreignKey: 'supplier_id',
             as: 'supplier'
         });
-
         purchase_order.hasMany(models.purchase_order_items, {
             foreignKey: 'po_id',
             as: 'items'
         });
     };
-
     return purchase_order;
 };

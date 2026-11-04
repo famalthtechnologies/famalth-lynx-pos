@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const VoucherLine = sequelize.define('voucher_lines', {
         id: {
@@ -41,6 +43,6 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'voucher_lines',
         timestamps: false
     });
-
     return VoucherLine;
 };
+exports.default = module.exports;

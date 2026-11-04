@@ -1,22 +1,15 @@
-const {
-    normalizeCustomerIdentity,
-    resolveCustomerKey,
-    getOutletConfig,
-    getCustomerBalance,
-    isConfigActive
-} = require('../../services/loyalty.service');
-
+"use strict";
+const { normalizeCustomerIdentity, resolveCustomerKey, getOutletConfig, getCustomerBalance, isConfigActive } = require('../../services/loyalty.service');
 function toAmount(value, fallback = 0) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
 }
-
 function toWhole(value, fallback = 0) {
     const parsed = Number(value);
-    if (!Number.isFinite(parsed)) return fallback;
+    if (!Number.isFinite(parsed))
+        return fallback;
     return Math.max(0, Math.floor(parsed));
 }
-
 exports.getConfig = async (req, res) => {
     try {
         const row = await req.propertyDb.models.loyalty_master_config.findOne({
@@ -24,7 +17,6 @@ exports.getConfig = async (req, res) => {
         });
         const config = await getOutletConfig(req.propertyDb, req.user.outlet_id);
         const now = new Date();
-
         res.json({
             success: true,
             data: {
@@ -34,11 +26,11 @@ exports.getConfig = async (req, res) => {
                 current_date: now.toISOString()
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.saveConfig = async (req, res) => {
     const transaction = await req.propertyDb.transaction();
     try {
@@ -53,7 +45,6 @@ exports.saveConfig = async (req, res) => {
             point_expiry_days: toWhole(req.body.point_expiry_days, 90),
             updated_by: req.user.id
         };
-
         if (payload.earning_ratio <= 0) {
             return res.status(400).json({
                 success: false,
@@ -66,31 +57,29 @@ exports.saveConfig = async (req, res) => {
                 message: 'Redemption value must be greater than 0.'
             });
         }
-
         const existing = await req.propertyDb.models.loyalty_master_config.findOne({
             where: { outlet_id: req.user.outlet_id },
             transaction
         });
-
         let saved;
         if (existing) {
             saved = await existing.update(payload, { transaction });
-        } else {
+        }
+        else {
             saved = await req.propertyDb.models.loyalty_master_config.create({
                 outlet_id: req.user.outlet_id,
                 created_by: req.user.id,
                 ...payload
             }, { transaction });
         }
-
         await transaction.commit();
         res.json({ success: true, data: saved });
-    } catch (error) {
+    }
+    catch (error) {
         await transaction.rollback();
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getCustomerSummary = async (req, res) => {
     try {
         const config = await getOutletConfig(req.propertyDb, req.user.outlet_id);
@@ -109,13 +98,7 @@ exports.getCustomerSummary = async (req, res) => {
                 }
             });
         }
-
-        const balance = await getCustomerBalance(
-            req.propertyDb,
-            req.user.outlet_id,
-            identity
-        );
-
+        const balance = await getCustomerBalance(req.propertyDb, req.user.outlet_id, identity);
         res.json({
             success: true,
             data: {
@@ -127,7 +110,8 @@ exports.getCustomerSummary = async (req, res) => {
                 active_now: isConfigActive(config, new Date())
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };

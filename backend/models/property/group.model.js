@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const Group = sequelize.define('item_groups', {
         id: {
@@ -21,6 +23,6 @@ module.exports = (sequelize, DataTypes) => {
         timestamps: true,
         underscored: true
     });
-
     return Group;
 };
+exports.default = module.exports;

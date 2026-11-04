@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const TaxGroupComponent = sequelize.define('tax_group_components', {
         id: {
@@ -40,13 +41,11 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     TaxGroupComponent.associate = (models) => {
         TaxGroupComponent.belongsTo(models.tax_groups, {
             foreignKey: 'tax_group_id',
             as: 'tax_group'
         });
     };
-
     return TaxGroupComponent;
 };

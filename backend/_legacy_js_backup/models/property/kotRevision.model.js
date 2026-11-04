@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const KotRevision = sequelize.define('kot_revisions', {
         id: {
@@ -31,7 +32,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     KotRevision.associate = (models) => {
         KotRevision.belongsTo(models.kot_headers, {
             foreignKey: 'kot_header_id',
@@ -42,6 +42,5 @@ module.exports = (sequelize, DataTypes) => {
             as: 'user'
         });
     };
-
     return KotRevision;
 };

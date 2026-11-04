@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const Brand = sequelize.define('brands', {
         id: {
@@ -21,6 +22,5 @@ module.exports = (sequelize, DataTypes) => {
         timestamps: true,
         underscored: true
     });
-
     return Brand;
 };

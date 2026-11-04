@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const CapitalAsset = sequelize.define('capital_assets', {
         id: {
@@ -43,6 +44,5 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     return CapitalAsset;
 };

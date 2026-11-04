@@ -1,20 +1,17 @@
+"use strict";
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
-
 exports.getStockTransferReport = async (req, res) => {
     try {
         const { from_date, to_date, search = '' } = req.query;
         const reqOutlet = req.query.outlet_id || req.query.outletId;
         const scope = await resolveOutletScope(req, reqOutlet);
-
         if (!from_date || !to_date) {
             return res.status(400).json({
                 success: false,
                 message: 'from_date and to_date required'
             });
         }
-
-        const [rows] = await req.propertyDb.query(
-            `
+        const [rows] = await req.propertyDb.query(`
             SELECT
                 sl.ref_no,
                 MIN(sl.txn_date) AS transfer_date,
@@ -43,22 +40,20 @@ exports.getStockTransferReport = async (req, res) => {
               )
             GROUP BY sl.ref_no
             ORDER BY transfer_date DESC, sl.ref_no DESC
-            `,
-            {
-                replacements: {
-                    outletIds: scope.outletIds,
-                    from_date,
-                    to_date,
-                    search: search ? `%${search}%` : ''
-                }
+            `, {
+            replacements: {
+                outletIds: scope.outletIds,
+                from_date,
+                to_date,
+                search: search ? `%${search}%` : ''
             }
-        );
-
+        });
         res.json({
             success: true,
             data: rows
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error(err);
         res.status(500).json({
             success: false,

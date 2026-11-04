@@ -10,6 +10,7 @@ const master_1 = __importDefault(require("../../models/master"));
 const dataDoctor_service_1 = __importDefault(require("../../services/dataDoctor.service"));
 const socketHub_service_1 = require("../../services/socketHub.service");
 const migrationSchemaExtractor_1 = require("../../utils/migrationSchemaExtractor");
+const emailService_1 = require("../../modules/emailService");
 const { MasterTenant, MasterOutlet, SupportAgent, SupportTicket, TicketMessage, DiagnosticQueryAuditLog, } = (0, master_1.default)(propertyDb_1.default);
 class SupportConsoleController {
     /**
@@ -135,26 +136,22 @@ class SupportConsoleController {
                 const plain = t.toJSON();
                 const msgs = plain.messages || [];
                 const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
-
                 const isClosed = plain.status === 'RESOLVED' || plain.status === 'CLOSED';
-
+                // Count only unread messages from client that support has NOT yet read
                 let unseenCount = 0;
                 if (!isClosed) {
                     unseenCount = msgs.filter((m) => m.sender_type === 'CLIENT_OUTLET' && m.is_read_by_support !== true).length;
                 }
-
                 const isUnseen = !isClosed && (unseenCount > 0);
-
                 const resolvedOutletCode = plain.outlet?.outlet_code || plain.client_telemetry?.outletCode || plain.tenant?.client_code || `OUTLET#${plain.outlet_id}`;
                 const resolvedEmail = plain.client_email || plain.client_telemetry?.email || plain.tenant?.contact_email || '';
                 const resolvedPhone = plain.client_telemetry?.phone || plain.tenant?.contact_phone || '';
-
                 return {
                     ...plain,
                     outlet_code: resolvedOutletCode,
                     contact_email: resolvedEmail,
                     contact_phone: resolvedPhone,
-                    tenant_name: plain.tenant?.legal_name || plain.outlet?.outlet_name || 'Retail Outlet',
+                    tenant_name: plain.tenant?.legal_name || plain.outlet?.outlet_name || 'Retail Store',
                     has_unseen: isUnseen,
                     unseen_count: unseenCount,
                     last_message: lastMsg,
@@ -174,17 +171,9 @@ class SupportConsoleController {
     static async getTicketDetails(req, res) {
         try {
             const id = String(req.params.id);
-
             // Automatically mark client messages as read by support
-            await TicketMessage.update(
-                { is_read_by_support: true },
-                { where: { ticket_id: id, sender_type: 'CLIENT_OUTLET', is_read_by_support: false } }
-            );
-            await SupportTicket.update(
-                { last_read_by_support_at: new Date() },
-                { where: { id } }
-            );
-
+            await TicketMessage.update({ is_read_by_support: true }, { where: { ticket_id: id, sender_type: 'CLIENT_OUTLET', is_read_by_support: false } });
+            await SupportTicket.update({ last_read_by_support_at: new Date() }, { where: { id } });
             const ticket = await SupportTicket.findByPk(id, {
                 include: [
                     { model: MasterTenant, as: 'tenant' },
@@ -205,12 +194,10 @@ class SupportConsoleController {
             if (!ticket) {
                 return res.status(404).json({ success: false, message: 'Ticket not found.' });
             }
-
             const plain = ticket.toJSON();
             const resolvedOutletCode = plain.outlet?.outlet_code || plain.client_telemetry?.outletCode || plain.tenant?.client_code || `OUTLET#${plain.outlet_id}`;
             const resolvedEmail = plain.client_email || plain.client_telemetry?.email || plain.tenant?.contact_email || '';
             const resolvedPhone = plain.client_telemetry?.phone || plain.tenant?.contact_phone || '';
-
             return res.json({
                 success: true,
                 data: {
@@ -237,7 +224,6 @@ class SupportConsoleController {
             if (!ticket) {
                 return res.status(404).json({ success: false, message: 'Ticket not found.' });
             }
-
             // If ticket is resolved/closed, conversation is locked!
             if (ticket.status === 'RESOLVED' || ticket.status === 'CLOSED') {
                 return res.status(400).json({
@@ -245,9 +231,7 @@ class SupportConsoleController {
                     message: 'Ticket is closed. Conversation is locked. Customer must open a new ticket.',
                 });
             }
-
             const isSupportStaff = sender_type === 'SUPPORT_STAFF';
-
             const newMsg = await TicketMessage.create({
                 ticket_id: ticket.id,
                 sender_type: sender_type || 'SUPPORT_STAFF',
@@ -273,7 +257,7 @@ class SupportConsoleController {
         }
     }
     /**
-     * 5. Resolve Ticket Outlet-Wise
+     * 5. Resolve / Close Ticket Outlet-Wise
      */
     static async resolveTicket(req, res) {
         try {
@@ -292,13 +276,8 @@ class SupportConsoleController {
             ticket.resolution_summary = resolution_summary || 'Resolved via Central Control Desk.';
             ticket.resolved_at = new Date();
             await ticket.save();
-
             // Mark all messages as read
-            await TicketMessage.update(
-                { is_read_by_support: true },
-                { where: { ticket_id: ticket.id } }
-            );
-
+            await TicketMessage.update({ is_read_by_support: true }, { where: { ticket_id: ticket.id } });
             // Decrement agent active ticket load
             if (ticket.assigned_agent_id) {
                 const agent = await SupportAgent.findByPk(ticket.assigned_agent_id);
@@ -307,11 +286,9 @@ class SupportConsoleController {
                     await agent.save();
                 }
             }
-
             const plain = ticket.toJSON();
             const resolvedOutletCode = plain.outlet?.outlet_code || plain.client_telemetry?.outletCode || plain.tenant?.client_code || `OUTLET#${plain.outlet_id}`;
             const resolvedEmail = plain.client_email || plain.client_telemetry?.email || plain.tenant?.contact_email || '';
-
             // Add system message
             const closeMsg = await TicketMessage.create({
                 ticket_id: ticket.id,
@@ -321,31 +298,27 @@ class SupportConsoleController {
                 is_read_by_support: true,
             });
             (0, socketHub_service_1.broadcastTicketMessage)(ticket.id, closeMsg);
-
             // Direct Email dispatch if requested
             if (req.body.send_email) {
                 const toEmail = (req.body.recipient_email || resolvedEmail || '').trim();
                 if (toEmail) {
                     const emailSubject = req.body.email_subject || `Support Ticket #${ticket.ticket_number} Resolved: ${ticket.subject}`;
                     const emailBody = req.body.email_body || `Dear Customer (${resolvedOutletCode}),\n\nYour support ticket #${ticket.ticket_number} ("${ticket.subject}") has been marked as RESOLVED by Central Support.\n\nResolution Summary:\n${ticket.resolution_summary}\n\nThank you for choosing FAMALTH LYNX,\nFAMALTH LYNX Enterprise Support Team`;
-
                     const htmlContent = `
-                        <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
-                          <div style="background-color: #10b981; padding: 16px 20px; border-radius: 6px; color: #ffffff;">
-                            <h2 style="margin: 0; font-size: 18px; font-weight: 600;">FAMALTH LYNX Support - Issue Resolved</h2>
-                            <p style="margin: 4px 0 0 0; font-size: 13px; color: #dcfce7;">Ticket #${ticket.ticket_number} • Outlet: ${resolvedOutletCode}</p>
-                          </div>
-                          <div style="padding: 24px 8px; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${emailBody}</div>
-                          <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; color: #64748b; font-size: 12px;">
-                            <p style="margin: 0; font-weight: 600;">Central Support Desk & Control Automation</p>
-                            <p style="margin: 4px 0 0 0;">This email was sent directly from the Central Support System.</p>
-                          </div>
-                        </div>
-                    `;
-
+            <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+              <div style="background-color: #10b981; padding: 16px 20px; border-radius: 6px; color: #ffffff;">
+                <h2 style="margin: 0; font-size: 18px; font-weight: 600;">FAMALTH LYNX Support - Issue Resolved</h2>
+                <p style="margin: 4px 0 0 0; font-size: 13px; color: #dcfce7;">Ticket #${ticket.ticket_number} • Outlet: ${resolvedOutletCode}</p>
+              </div>
+              <div style="padding: 24px 8px; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${emailBody}</div>
+              <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; color: #64748b; font-size: 12px;">
+                <p style="margin: 0; font-weight: 600;">Central Support Desk & Control Automation</p>
+                <p style="margin: 4px 0 0 0;">This email was sent directly from the Central Support System.</p>
+              </div>
+            </div>
+          `;
                     try {
-                        const { sendEmail } = require('../../modules/emailService');
-                        await sendEmail(toEmail, emailSubject, htmlContent);
+                        await (0, emailService_1.sendEmail)(toEmail, emailSubject, htmlContent);
                         const emailMsg = await TicketMessage.create({
                             ticket_id: ticket.id,
                             sender_type: 'SYSTEM_BOT',
@@ -354,12 +327,12 @@ class SupportConsoleController {
                             is_read_by_support: true,
                         });
                         (0, socketHub_service_1.broadcastTicketMessage)(ticket.id, emailMsg);
-                    } catch (mailErr) {
+                    }
+                    catch (mailErr) {
                         console.warn('[EMAIL WARNING] Failed to send resolution email:', mailErr.message);
                     }
                 }
             }
-
             return res.json({
                 success: true,
                 message: 'Ticket closed successfully.',
@@ -375,7 +348,6 @@ class SupportConsoleController {
             return res.status(500).json({ success: false, message: err.message });
         }
     }
-
     /**
      * 5b. Direct Email Sender (Dispatches directly via Central Mail Service)
      */
@@ -383,45 +355,37 @@ class SupportConsoleController {
         try {
             const id = String(req.params.id);
             const { to, subject, message } = req.body;
-
             if (!to || !to.trim()) {
                 return res.status(400).json({ success: false, message: 'Recipient email address is required.' });
             }
-
             const ticket = await SupportTicket.findByPk(id, {
                 include: [
                     { model: MasterTenant, as: 'tenant' },
                     { model: MasterOutlet, as: 'outlet' },
                 ],
             });
-
             if (!ticket) {
                 return res.status(404).json({ success: false, message: 'Ticket not found.' });
             }
-
             const plain = ticket.toJSON();
             const resolvedOutletCode = plain.outlet?.outlet_code || plain.client_telemetry?.outletCode || plain.tenant?.client_code || `OUTLET#${plain.outlet_id}`;
             const emailSubject = (subject || `Support Ticket #${ticket.ticket_number}: ${ticket.subject}`).trim();
             const emailBody = (message || '').trim();
-
             const htmlContent = `
-                <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
-                  <div style="background-color: #0284c7; padding: 16px 20px; border-radius: 6px; color: #ffffff;">
-                    <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.8px; opacity: 0.9; margin-bottom: 4px;">Famalth Lynx Enterprise Support</div>
-                    <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Support Desk Response</h2>
-                    <p style="margin: 4px 0 0 0; font-size: 13px; color: #e0f2fe;">Ticket #${ticket.ticket_number} • Outlet: ${resolvedOutletCode}</p>
-                  </div>
-                  <div style="padding: 24px 8px; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${emailBody}</div>
-                  <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; color: #64748b; font-size: 12px;">
-                    <p style="margin: 0; font-weight: 600;">Famalth Lynx Central Support & Operations</p>
-                    <p style="margin: 4px 0 0 0;">This communication was sent directly from the Famalth Lynx Control System.</p>
-                  </div>
-                </div>
-            `;
-
-            const { sendEmail } = require('../../modules/emailService');
-            await sendEmail(to.trim(), emailSubject, htmlContent);
-
+        <div style="font-family: Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background-color: #ffffff;">
+          <div style="background-color: #0284c7; padding: 16px 20px; border-radius: 6px; color: #ffffff;">
+            <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.8px; opacity: 0.9; margin-bottom: 4px;">Famalth Lynx Enterprise Support</div>
+            <h2 style="margin: 0; font-size: 18px; font-weight: 600;">Support Desk Response</h2>
+            <p style="margin: 4px 0 0 0; font-size: 13px; color: #e0f2fe;">Ticket #${ticket.ticket_number} • Outlet: ${resolvedOutletCode}</p>
+          </div>
+          <div style="padding: 24px 8px; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${emailBody}</div>
+          <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; color: #64748b; font-size: 12px;">
+            <p style="margin: 0; font-weight: 600;">Famalth Lynx Central Support & Operations</p>
+            <p style="margin: 4px 0 0 0;">This communication was sent directly from the Famalth Lynx Control System.</p>
+          </div>
+        </div>
+      `;
+            await (0, emailService_1.sendEmail)(to.trim(), emailSubject, htmlContent);
             const sysMsg = await TicketMessage.create({
                 ticket_id: ticket.id,
                 sender_type: 'SYSTEM_BOT',
@@ -429,14 +393,13 @@ class SupportConsoleController {
                 message: `✉ Email sent directly to ${to.trim()} with subject "${emailSubject}"`,
                 is_read_by_support: true,
             });
-
             (0, socketHub_service_1.broadcastTicketMessage)(ticket.id, sysMsg);
-
             return res.json({
                 success: true,
                 message: `Email sent successfully to ${to.trim()}`,
             });
-        } catch (err) {
+        }
+        catch (err) {
             console.error('sendTicketEmail error:', err);
             return res.status(500).json({ success: false, message: `Failed to send email: ${err.message}` });
         }
@@ -565,19 +528,18 @@ class SupportConsoleController {
                     order: [['is_online', 'DESC'], ['active_ticket_count', 'ASC']],
                 });
             }
-            const enrichedAgents = await Promise.all(
-                agents.map(async (agent) => {
-                    const plain = agent.toJSON();
-                    const liveActiveCount = await SupportTicket.count({
-                        where: {
-                            assigned_agent_id: plain.id,
-                            status: { [sequelize_1.Op.in]: ['OPEN', 'IN_PROGRESS', 'ASSIGNED'] },
-                        },
-                    });
-                    plain.active_ticket_count = liveActiveCount;
-                    return plain;
-                })
-            );
+            // Recalculate live active ticket load for each agent
+            const enrichedAgents = await Promise.all(agents.map(async (agent) => {
+                const plain = agent.toJSON();
+                const liveActiveCount = await SupportTicket.count({
+                    where: {
+                        assigned_agent_id: plain.id,
+                        status: { [sequelize_1.Op.in]: ['OPEN', 'IN_PROGRESS', 'ASSIGNED'] },
+                    },
+                });
+                plain.active_ticket_count = liveActiveCount;
+                return plain;
+            }));
             return res.json({ success: true, data: enrichedAgents });
         }
         catch (err) {
@@ -606,10 +568,8 @@ class SupportConsoleController {
      */
     static async getSystemSchema(req, res) {
         try {
-            const activeDb = req.propertyDb || propertyDb;
-            const extractor = require('../../utils/migrationSchemaExtractor');
-            const extractFunc = extractor.extractSchemaFromDatabase || extractor.extractSchemaFromMigrations;
-            const schema = await extractFunc(activeDb);
+            const activeDb = req.propertyDb || propertyDb_1.default;
+            const schema = await (0, migrationSchemaExtractor_1.extractSchemaFromDatabase)(activeDb);
             return res.json({
                 success: true,
                 message: `Database schema successfully extracted (${schema.totalTables} tables, ${schema.totalColumns} columns).`,

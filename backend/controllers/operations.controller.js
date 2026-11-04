@@ -1,9 +1,9 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const operationsService = require('../services/operations.service');
-
 function resolveOutletId(req) {
     return Number(req?.user?.outlet_id) || 0;
 }
-
 exports.getHealthSnapshot = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -12,7 +12,8 @@ exports.getHealthSnapshot = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[OPERATIONS HEALTH CONTROLLER ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -20,7 +21,6 @@ exports.getHealthSnapshot = async (req, res) => {
         });
     }
 };
-
 exports.getReorderAlerts = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -29,7 +29,8 @@ exports.getReorderAlerts = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[OPERATIONS REORDER CONTROLLER ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -37,7 +38,6 @@ exports.getReorderAlerts = async (req, res) => {
         });
     }
 };
-
 exports.getExpiryAlerts = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -47,7 +47,8 @@ exports.getExpiryAlerts = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[OPERATIONS EXPIRY CONTROLLER ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -55,3 +56,5 @@ exports.getExpiryAlerts = async (req, res) => {
         });
     }
 };
+module.exports = exports;
+exports.default = exports;

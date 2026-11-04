@@ -1,8 +1,8 @@
+"use strict";
 /**
  * LYNX AUTOMATE - Workflow Automation Engine Service
  * Rule-based workflow automation: Triggers (Sale complete, Low stock, Overdue payment) -> Actions (Send WhatsApp, Generate Draft PO, Notify Owner).
  */
-
 const defaultRules = [
     {
         id: 'RULE_WHATSAPP_BILL',
@@ -41,13 +41,10 @@ const defaultRules = [
         description: 'Sends automated evening business performance report (Sales, Cash, UPI, Gross Margin) to the store owner.'
     }
 ];
-
 let rulesStore = [...defaultRules];
-
 async function getWorkflowRules(propertyDb, outletId = 0) {
     return rulesStore;
 }
-
 async function toggleWorkflowRule(propertyDb, outletId = 0, ruleId, isActive) {
     const rule = rulesStore.find(r => r.id === ruleId);
     if (rule) {
@@ -55,11 +52,9 @@ async function toggleWorkflowRule(propertyDb, outletId = 0, ruleId, isActive) {
     }
     return rulesStore;
 }
-
 async function executeWorkflowTrigger(propertyDb, outletId = 0, triggerType, payload = {}) {
     const matchingRules = rulesStore.filter(r => r.trigger === triggerType && r.isActive);
     const executionLogs = [];
-
     for (const rule of matchingRules) {
         try {
             if (rule.action === 'SEND_WHATSAPP_RECEIPT') {
@@ -68,20 +63,23 @@ async function executeWorkflowTrigger(propertyDb, outletId = 0, triggerType, pay
                     status: 'SUCCESS',
                     detail: `WhatsApp invoice receipt queued for phone ${payload.phone || 'Customer'}`
                 });
-            } else if (rule.action === 'CREATE_DRAFT_PO') {
+            }
+            else if (rule.action === 'CREATE_DRAFT_PO') {
                 executionLogs.push({
                     ruleId: rule.id,
                     status: 'SUCCESS',
                     detail: `Auto draft Purchase Order created for ${payload.itemName || 'Low Stock Items'}`
                 });
-            } else {
+            }
+            else {
                 executionLogs.push({
                     ruleId: rule.id,
                     status: 'SUCCESS',
                     detail: `Workflow action ${rule.action} executed successfully.`
                 });
             }
-        } catch (err) {
+        }
+        catch (err) {
             executionLogs.push({
                 ruleId: rule.id,
                 status: 'FAILED',
@@ -89,13 +87,11 @@ async function executeWorkflowTrigger(propertyDb, outletId = 0, triggerType, pay
             });
         }
     }
-
     return {
         triggeredCount: matchingRules.length,
         executionLogs
     };
 }
-
 module.exports = {
     getWorkflowRules,
     toggleWorkflowRule,

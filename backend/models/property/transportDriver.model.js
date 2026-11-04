@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const TransportDriver = sequelize.define('transport_drivers', {
         id: {
@@ -27,7 +29,7 @@ module.exports = (sequelize, DataTypes) => {
         },
         status: {
             type: DataTypes.STRING(30),
-            defaultValue: 'AVAILABLE'
+            defaultValue: 'AVAILABLE' // 'AVAILABLE', 'BOOKED', 'ON_LEAVE'
         },
         current_vehicle_id: {
             type: DataTypes.INTEGER,
@@ -43,7 +45,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     TransportDriver.associate = (models) => {
         if (models.transport_vehicles) {
             TransportDriver.belongsTo(models.transport_vehicles, {
@@ -58,6 +59,6 @@ module.exports = (sequelize, DataTypes) => {
             });
         }
     };
-
     return TransportDriver;
 };
+exports.default = module.exports;

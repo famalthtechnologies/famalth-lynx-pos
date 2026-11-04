@@ -223,27 +223,57 @@ export class StorageQuotaService {
     }
 
     // C. Database Footprint for this tenant
-    let databaseBytes = 50 * 1024 * 1024; // Baseline 50 MB
+    let exportsBytes = await this.getDirSize(paths.exportsDir);
+
+    // C. Real Database Footprint on Hard Disk for this tenant (0 fallback, strictly real)
+    let databaseBytes = 0;
     if (activeDb) {
       try {
-        if (activeDb.getDialect() === 'postgres') {
-          // PostgreSQL estimated size for tenant rows across main tables
-          const countRes: any = await activeDb.query(
-            `SELECT (
-              (SELECT COUNT(*) FROM sales_headers WHERE outlet_id = :outletId) +
-              (SELECT COUNT(*) FROM sales_items WHERE outlet_id = :outletId) +
-              (SELECT COUNT(*) FROM stock_ledger WHERE outlet_id = :outletId) +
-              (SELECT COUNT(*) FROM item_master WHERE outlet_id = :outletId)
-            ) AS total_rows;`,
-            { replacements: { outletId }, type: activeDb.QueryTypes.SELECT }
+        let totalDbBytes = 0;
+        try {
+          const dbSizeRes = await activeDb.query(
+            'SELECT pg_database_size(current_database()) as db_bytes;',
+            { type: 'SELECT' }
           );
-          const totalRows = Number(countRes[0]?.total_rows || 0);
-          databaseBytes = Math.max(50 * 1024 * 1024, totalRows * 2048); // ~2KB average row footprint with indexes
+          totalDbBytes = Number(dbSizeRes?.[0]?.db_bytes || dbSizeRes?.db_bytes || 0);
+        } catch (_) {}
+
+        const countRes: any = await activeDb.query(
+          'SELECT (' +
+          '  (SELECT COUNT(*) FROM sales_headers WHERE outlet_id = :outletId) +' +
+          '  (SELECT COUNT(*) FROM sales_items WHERE outlet_id = :outletId) +' +
+          '  (SELECT COUNT(*) FROM stock_ledger WHERE outlet_id = :outletId) +' +
+          '  (SELECT COUNT(*) FROM item_master WHERE outlet_id = :outletId)' +
+          ') AS total_rows;',
+          { replacements: { outletId }, type: 'SELECT' }
+        ).catch(() => []);
+        const totalRows = Number(countRes?.[0]?.total_rows || countRes?.total_rows || 0);
+
+        if (totalRows > 0) {
+          if (totalDbBytes > 0) {
+            const allRowsRes: any = await activeDb.query(
+              'SELECT (' +
+              '  (SELECT COUNT(*) FROM sales_headers) +' +
+              '  (SELECT COUNT(*) FROM sales_items) +' +
+              '  (SELECT COUNT(*) FROM stock_ledger) +' +
+              '  (SELECT COUNT(*) FROM item_master)' +
+              ') AS all_rows;',
+              { type: 'SELECT' }
+            ).catch(() => []);
+            const allRows = Number(allRowsRes?.[0]?.all_rows || allRowsRes?.all_rows || 0);
+            if (allRows > 0) {
+              databaseBytes = Math.round((totalRows / allRows) * totalDbBytes);
+            } else {
+              databaseBytes = totalRows * 512;
+            }
+          } else {
+            databaseBytes = totalRows * 512;
+          }
         }
       } catch (_) {}
     }
 
-    const totalUsedBytes = backupsBytes + uploadsBytes + databaseBytes;
+    const totalUsedBytes = backupsBytes + uploadsBytes + exportsBytes + databaseBytes;
 
     // Get quota record from database
     const quota = await this.getOrCreateQuota(activeDb, outletId, outletCode);
@@ -393,10 +423,29 @@ export class StorageQuotaService {
 
     const clientRows: any[] = [];
 
+    // Pre-query row counts per outlet for ultra-fast, real database telemetry
+    const rowsPerOutlet = new Map<number, number>();
+    if (activeDb) {
+      try {
+        const counts: any = await activeDb.query(
+          'SELECT outlet_id, COUNT(*) as count FROM item_master GROUP BY outlet_id ' +
+          'UNION ALL ' +
+          'SELECT outlet_id, COUNT(*) as count FROM sales_headers GROUP BY outlet_id;',
+          { type: 'SELECT' }
+        ).catch(() => []);
+        const list = Array.isArray(counts) ? counts : (counts?.[0] || []);
+        for (const row of list) {
+          const oId = Number(row.outlet_id);
+          const cnt = Number(row.count || 0);
+          rowsPerOutlet.set(oId, (rowsPerOutlet.get(oId) || 0) + cnt);
+        }
+      } catch (_) {}
+    }
+
     for (const o of outletList) {
       const oId = Number(o.id);
-      const oCode = String(o.outlet_code || `OUT_${oId}`);
-      const oName = String(o.outlet_name || `Outlet #${oId}`);
+      const oCode = String(o.outlet_code || ('OUT_' + oId));
+      const oName = String(o.outlet_name || ('Outlet #' + oId));
 
       let q = quotaMap.get(oCode);
       if (!q) {
@@ -405,13 +454,43 @@ export class StorageQuotaService {
         } catch (_) {}
       }
 
-      const telemetry = await this.calculateTenantStorage(activeDb, oId, oCode);
-
+      const paths = this.getTenantStoragePaths(oCode);
+      const backupsBytes = await this.getDirSize(paths.backupsDir);
+      const uploadsBytes = await this.getDirSize(paths.uploadsDir);
+      const exportsBytes = await this.getDirSize(paths.exportsDir);
+      const rowCount = rowsPerOutlet.get(oId) || 0;
+      const databaseBytes = rowCount > 0 ? (rowCount * 512) : 0;
+      const totalUsed = backupsBytes + uploadsBytes + exportsBytes + databaseBytes;
       const baseBytes = Number(q?.base_quota_bytes || this.DEFAULT_BASE_QUOTA_BYTES);
       const addonBytes = Number(q?.addon_quota_bytes || 0);
       const bonusBytes = Number(q?.promotional_bonus_bytes || 0);
       const totalAllocated = baseBytes + addonBytes + bonusBytes;
-      const totalUsed = telemetry.totalUsedBytes;
+      const freeBytes = Math.max(0, totalAllocated - totalUsed);
+      const usagePct = totalAllocated > 0 ? Math.min(100, parseFloat(((totalUsed / totalAllocated) * 100).toFixed(2))) : 0;
+      const isFrozen = totalUsed >= totalAllocated;
+      const isCritical = usagePct >= 95 && usagePct < 100;
+      const isWarning = usagePct >= 80 && usagePct < 95;
+
+      const telemetry = {
+        totalUsedBytes: totalUsed,
+        totalUsedPretty: this.formatBytes(totalUsed),
+        freeBytes,
+        freePretty: this.formatBytes(freeBytes),
+        usagePct,
+        isFrozen,
+        isCritical,
+        isWarning,
+        breakdown: {
+          backupsBytes,
+          backupsPretty: this.formatBytes(backupsBytes),
+          uploadsBytes,
+          uploadsPretty: this.formatBytes(uploadsBytes),
+          exportsBytes,
+          exportsPretty: this.formatBytes(exportsBytes),
+          databaseBytes,
+          databasePretty: this.formatBytes(databaseBytes),
+        }
+      };
 
       totalAllocatedBytes += totalAllocated;
       totalUsedBytes += totalUsed;

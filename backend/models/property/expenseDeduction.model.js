@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const ExpenseDeduction = sequelize.define('expense_deductions', {
         id: {
@@ -27,12 +29,11 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'expense_deductions',
         timestamps: false
     });
-
     ExpenseDeduction.associate = (models) => {
         ExpenseDeduction.belongsTo(models.expenses, {
             foreignKey: 'expense_id'
         });
     };
-
     return ExpenseDeduction;
 };
+exports.default = module.exports;

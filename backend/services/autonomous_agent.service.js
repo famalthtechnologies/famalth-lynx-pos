@@ -1,8 +1,13 @@
+"use strict";
 /**
  * LYNX AI AGENT - Autonomous Business Operating System Service
  * Proactive business anomaly detection, automated proposal generation, owner 1-click approval cards, and audit trails.
  */
-
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getProposals = getProposals;
+exports.approveProposal = approveProposal;
+exports.rejectProposal = rejectProposal;
+exports.getAuditLogs = getAuditLogs;
 let proposalsStore = [
     {
         id: 'PROP_AUTO_REORDER_RICE',
@@ -38,7 +43,6 @@ let proposalsStore = [
         createdAt: new Date().toISOString()
     }
 ];
-
 let auditLogsStore = [
     {
         id: 'LOG_001',
@@ -48,19 +52,15 @@ let auditLogsStore = [
         impact: 'Increased safety buffer by +5 units for peak weekend demand.'
     }
 ];
-
 async function getProposals(propertyDb, outletId = 0) {
     return proposalsStore;
 }
-
 async function approveProposal(propertyDb, outletId = 0, proposalId) {
     const proposal = proposalsStore.find(p => p.id === proposalId);
     if (!proposal) {
         throw new Error('Proposal not found');
     }
-
     proposal.status = 'APPROVED';
-
     const logEntry = {
         id: `LOG_${Date.now()}`,
         actionTitle: proposal.title,
@@ -68,31 +68,25 @@ async function approveProposal(propertyDb, outletId = 0, proposalId) {
         timestamp: new Date().toISOString(),
         impact: proposal.expectedImpact
     };
-
     auditLogsStore.unshift(logEntry);
-
     return {
         success: true,
         proposal,
         auditLog: logEntry
     };
 }
-
 async function rejectProposal(propertyDb, outletId = 0, proposalId) {
     const proposal = proposalsStore.find(p => p.id === proposalId);
     if (!proposal) {
         throw new Error('Proposal not found');
     }
-
     proposal.status = 'REJECTED';
     return { success: true, proposal };
 }
-
 async function getAuditLogs(propertyDb, outletId = 0) {
     return auditLogsStore;
 }
-
-module.exports = {
+exports.default = {
     getProposals,
     approveProposal,
     rejectProposal,

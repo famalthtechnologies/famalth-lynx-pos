@@ -1,282 +1,312 @@
-const communityService = require('../services/community.service');
-
-exports.createConversation = async (req, res) => {
-  try {
-    const conversation = await communityService.createConversation(req.propertyDb, req.body);
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('new_channel', conversation);
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
     }
-    return res.status(201).json({ success: true, data: conversation });
-  } catch (error) {
-    console.error('[COMMUNITY CREATE CONVERSATION ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.discoverConversations = async (req, res) => {
-  try {
-    const { q, state } = req.query;
-    const channels = await communityService.discoverConversations(req.propertyDb, {
-      query: q || '',
-      state: state || '',
-    });
-    return res.json({ success: true, data: channels });
-  } catch (error) {
-    console.error('[COMMUNITY DISCOVER CHANNELS ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getMerchants = async (req, res) => {
-  try {
-    const { q, city } = req.query;
-    const merchants = await communityService.getRegisteredMerchants(req.propertyDb, {
-      query: q || '',
-      city: city || '',
-    });
-    return res.json({ success: true, data: merchants });
-  } catch (error) {
-    console.error('[COMMUNITY GET MERCHANTS ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getConversations = async (req, res) => {
-  try {
-    const { city, merchant_id } = req.query;
-    const conversations = await communityService.getConversations(req.propertyDb, {
-      city: city || 'Dehradun',
-      merchantId: merchant_id || '',
-    });
-    return res.json({ success: true, data: conversations });
-  } catch (error) {
-    console.error('[COMMUNITY GET CONVERSATIONS ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getMessages = async (req, res) => {
-  try {
-    const { conversation_id, merchant_id } = req.query;
-    if (!conversation_id) {
-      return res.status(400).json({ success: false, message: 'conversation_id is required' });
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.createConversation = createConversation;
+exports.discoverConversations = discoverConversations;
+exports.getMerchants = getMerchants;
+exports.getConversations = getConversations;
+exports.getMessages = getMessages;
+exports.sendMessage = sendMessage;
+exports.deleteForEveryone = deleteForEveryone;
+exports.editMessage = editMessage;
+exports.deleteForMe = deleteForMe;
+exports.blockUser = blockUser;
+exports.unblockUser = unblockUser;
+exports.getBlockedUsers = getBlockedUsers;
+exports.exitChannel = exitChannel;
+exports.joinChannel = joinChannel;
+exports.clearConversation = clearConversation;
+const communityService = __importStar(require("../services/community.service"));
+async function createConversation(req, res) {
+    try {
+        const conversation = await communityService.createConversation(req.propertyDb, req.body);
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('new_channel', conversation);
+        }
+        return res.status(201).json({ success: true, data: conversation });
     }
-    const messages = await communityService.getMessages(req.propertyDb, {
-      conversationId: conversation_id,
-      merchantId: merchant_id || '',
-    });
-    return res.json({ success: true, data: messages });
-  } catch (error) {
-    console.error('[COMMUNITY GET MESSAGES ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.sendMessage = async (req, res) => {
-  try {
-    const message = await communityService.sendMessage(req.propertyDb, req.body);
-
-    // Live socket broadcast
-    const io = req.app.get('io');
-    if (io && req.body.conversation_id) {
-      io.to(req.body.conversation_id).emit('new_message', message);
+    catch (error) {
+        console.error('[COMMUNITY CREATE CONVERSATION ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
-
-    return res.status(201).json({ success: true, data: message });
-  } catch (error) {
-    console.error('[COMMUNITY SEND MESSAGE ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.deleteForEveryone = async (req, res) => {
-  try {
-    const { message_id, sender_id } = req.body;
-    if (!message_id || !sender_id) {
-      return res.status(400).json({ success: false, message: 'message_id and sender_id are required' });
+}
+async function discoverConversations(req, res) {
+    try {
+        const { q, state } = req.query;
+        const channels = await communityService.discoverConversations(req.propertyDb, {
+            query: q || '',
+            state: state || '',
+        });
+        return res.json({ success: true, data: channels });
     }
-
-    const message = await communityService.deleteForEveryone(req.propertyDb, {
-      messageId: message_id,
-      senderId: sender_id,
-    });
-
-    const io = req.app.get('io');
-    if (io && message.conversation_id) {
-      io.to(message.conversation_id).emit('message_deleted_for_everyone', {
-        message_id,
-        conversation_id: message.conversation_id,
-      });
+    catch (error) {
+        console.error('[COMMUNITY DISCOVER CHANNELS ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
-
-    return res.json({ success: true, message: 'Message deleted for everyone', data: message });
-  } catch (error) {
-    console.error('[COMMUNITY DELETE FOR EVERYONE ERROR]:', error.message);
-    const status = error.message.includes('expired') ? 400 : error.message.includes('own') ? 403 : 500;
-    return res.status(status).json({ success: false, message: error.message });
-  }
-};
-
-exports.deleteForMe = async (req, res) => {
-  try {
-    const { message_id, user_id } = req.body;
-    if (!message_id || !user_id) {
-      return res.status(400).json({ success: false, message: 'message_id and user_id are required' });
+}
+async function getMerchants(req, res) {
+    try {
+        const { q, city, merchant_id, limit, offset } = req.query;
+        const merchants = await communityService.getRegisteredMerchants(req.propertyDb, {
+            query: q || '',
+            city: city || '',
+            merchantId: merchant_id || req.user?.outlet_code || '',
+            limit: limit ? Number(limit) : undefined,
+            offset: offset ? Number(offset) : undefined,
+        });
+        return res.json({ success: true, data: merchants });
     }
-
-    await communityService.deleteForMe(req.propertyDb, {
-      messageId: message_id,
-      userId: user_id,
-    });
-
-    return res.json({ success: true, message: 'Message deleted from your view' });
-  } catch (error) {
-    console.error('[COMMUNITY DELETE FOR ME ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.blockUser = async (req, res) => {
-  try {
-    const { user_id, blocked_user_id } = req.body;
-    if (!user_id || !blocked_user_id) {
-      return res.status(400).json({ success: false, message: 'user_id and blocked_user_id are required' });
+    catch (error) {
+        console.error('[COMMUNITY GET MERCHANTS ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
-
-    await communityService.blockUser(req.propertyDb, {
-      userId: user_id,
-      blockedUserId: blocked_user_id,
-    });
-
-    return res.json({ success: true, message: 'Merchant blocked successfully' });
-  } catch (error) {
-    console.error('[COMMUNITY BLOCK ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.unblockUser = async (req, res) => {
-  try {
-    const { user_id, blocked_user_id } = req.body;
-    if (!user_id || !blocked_user_id) {
-      return res.status(400).json({ success: false, message: 'user_id and blocked_user_id are required' });
+}
+async function getConversations(req, res) {
+    try {
+        const { city, merchant_id } = req.query;
+        const conversations = await communityService.getConversations(req.propertyDb, {
+            city: city || 'Dehradun',
+            merchantId: merchant_id || '',
+        });
+        return res.json({ success: true, data: conversations });
     }
-
-    await communityService.unblockUser(req.propertyDb, {
-      userId: user_id,
-      blockedUserId: blocked_user_id,
-    });
-
-    return res.json({ success: true, message: 'Merchant unblocked successfully' });
-  } catch (error) {
-    console.error('[COMMUNITY UNBLOCK ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.getBlockedUsers = async (req, res) => {
-  try {
-    const { user_id } = req.query;
-    if (!user_id) {
-      return res.status(400).json({ success: false, message: 'user_id is required' });
+    catch (error) {
+        console.error('[COMMUNITY GET CONVERSATIONS ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
-
-    const blockedList = await communityService.getBlockedUsers(req.propertyDb, {
-      userId: user_id,
-    });
-
-    return res.json({ success: true, data: blockedList });
-  } catch (error) {
-    console.error('[COMMUNITY GET BLOCKED ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.exitChannel = async (req, res) => {
-  try {
-    const { channel_id, user_id } = req.body;
-    if (!channel_id || !user_id) {
-      return res.status(400).json({ success: false, message: 'channel_id and user_id are required' });
+}
+async function getMessages(req, res) {
+    try {
+        const { conversation_id, merchant_id } = req.query;
+        if (!conversation_id) {
+            return res.status(400).json({ success: false, message: 'conversation_id is required' });
+        }
+        const messages = await communityService.getMessages(req.propertyDb, {
+            conversationId: conversation_id,
+            merchantId: merchant_id || '',
+        });
+        return res.json({ success: true, data: messages });
     }
-
-    await communityService.exitChannel(req.propertyDb, {
-      channelId: channel_id,
-      userId: user_id,
-    });
-
-    return res.json({ success: true, message: 'Exited community channel successfully' });
-  } catch (error) {
-    console.error('[COMMUNITY EXIT CHANNEL ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.editMessage = async (req, res) => {
-  try {
-    const { message_id, content, sender_id } = req.body;
-    const msgId = req.params.id || message_id;
-    if (!msgId || !content) {
-      return res.status(400).json({ success: false, message: 'message_id and content are required' });
+    catch (error) {
+        console.error('[COMMUNITY GET MESSAGES ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
-
-    const updated = await communityService.editMessage(req.propertyDb, {
-      messageId: msgId,
-      senderId: sender_id || req.user?.outlet_code || req.user?.id,
-      content,
-    });
-
-    const socketService = req.app.get('socketService');
-    if (socketService) {
-      socketService.emitToCommunity(updated.conversation_id, 'community:message_edited', {
-        message_id: msgId,
-        conversation_id: updated.conversation_id,
-        content,
-      });
+}
+async function sendMessage(req, res) {
+    try {
+        const message = await communityService.sendMessage(req.propertyDb, req.body);
+        const io = req.app.get('io');
+        if (io && req.body.conversation_id) {
+            io.to(req.body.conversation_id).emit('new_message', message);
+        }
+        return res.status(201).json({ success: true, data: message });
     }
-
-    return res.json({ success: true, message: 'Message edited successfully', data: updated });
-  } catch (error) {
-    console.error('[COMMUNITY EDIT MESSAGE ERROR]:', error.message);
-    const status = error.message.includes('expired') ? 400 : error.message.includes('own') ? 403 : 500;
-    return res.status(status).json({ success: false, message: error.message });
-  }
-};
-
-exports.joinChannel = async (req, res) => {
-  try {
-    const { channel_id, user_id } = req.body;
-    if (!channel_id || !user_id) {
-      return res.status(400).json({ success: false, message: 'channel_id and user_id are required' });
+    catch (error) {
+        console.error('[COMMUNITY SEND MESSAGE ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
-
-    await communityService.joinChannel(req.propertyDb, {
-      channelId: channel_id,
-      userId: user_id,
-    });
-
-    return res.json({ success: true, message: 'Joined community channel successfully' });
-  } catch (error) {
-    console.error('[COMMUNITY JOIN CHANNEL ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-exports.clearConversation = async (req, res) => {
-  try {
-    const { conversation_id, user_id } = req.body;
-    if (!conversation_id || !user_id) {
-      return res.status(400).json({ success: false, message: 'conversation_id and user_id are required' });
+}
+async function deleteForEveryone(req, res) {
+    try {
+        const { message_id, sender_id } = req.body;
+        if (!message_id || !sender_id) {
+            return res.status(400).json({ success: false, message: 'message_id and sender_id are required' });
+        }
+        const message = await communityService.deleteForEveryone(req.propertyDb, {
+            messageId: message_id,
+            senderId: sender_id,
+        });
+        const io = req.app.get('io');
+        if (io && message.conversation_id) {
+            io.to(message.conversation_id).emit('message_deleted_for_everyone', {
+                message_id,
+                conversation_id: message.conversation_id,
+            });
+        }
+        return res.json({ success: true, message: 'Message deleted for everyone', data: message });
     }
-
-    await communityService.clearConversation(req.propertyDb, {
-      conversationId: conversation_id,
-      userId: user_id,
-    });
-
-    return res.json({ success: true, message: 'Chat cleared successfully' });
-  } catch (error) {
-    console.error('[COMMUNITY CLEAR CONVERSATION ERROR]:', error.message);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
+    catch (error) {
+        console.error('[COMMUNITY DELETE FOR EVERYONE ERROR]:', error.message);
+        const status = error.message.includes('expired') ? 400 : error.message.includes('own') ? 403 : 500;
+        return res.status(status).json({ success: false, message: error.message });
+    }
+}
+async function editMessage(req, res) {
+    try {
+        const { message_id, content, sender_id } = req.body;
+        const msgId = req.params.id || message_id;
+        if (!msgId || !content) {
+            return res.status(400).json({ success: false, message: 'message_id and content are required' });
+        }
+        const updated = await communityService.editMessage(req.propertyDb, {
+            messageId: msgId,
+            senderId: sender_id || req.user?.outlet_code || req.user?.id,
+            content,
+        });
+        const socketService = req.app.get('socketService');
+        if (socketService) {
+            socketService.emitToCommunity(updated.conversation_id, 'community:message_edited', {
+                message_id: msgId,
+                conversation_id: updated.conversation_id,
+                content,
+            });
+        }
+        return res.json({ success: true, message: 'Message edited successfully', data: updated });
+    }
+    catch (error) {
+        console.error('[COMMUNITY EDIT MESSAGE ERROR]:', error.message);
+        const status = error.message.includes('expired') ? 400 : error.message.includes('own') ? 403 : 500;
+        return res.status(status).json({ success: false, message: error.message });
+    }
+}
+async function deleteForMe(req, res) {
+    try {
+        const { message_id, user_id } = req.body;
+        if (!message_id || !user_id) {
+            return res.status(400).json({ success: false, message: 'message_id and user_id are required' });
+        }
+        await communityService.deleteForMe(req.propertyDb, {
+            messageId: message_id,
+            userId: user_id,
+        });
+        return res.json({ success: true, message: 'Message deleted from your view' });
+    }
+    catch (error) {
+        console.error('[COMMUNITY DELETE FOR ME ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+}
+async function blockUser(req, res) {
+    try {
+        const { user_id, blocked_user_id } = req.body;
+        if (!user_id || !blocked_user_id) {
+            return res.status(400).json({ success: false, message: 'user_id and blocked_user_id are required' });
+        }
+        await communityService.blockUser(req.propertyDb, {
+            userId: user_id,
+            blockedUserId: blocked_user_id,
+        });
+        return res.json({ success: true, message: 'Merchant blocked successfully' });
+    }
+    catch (error) {
+        console.error('[COMMUNITY BLOCK ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+}
+async function unblockUser(req, res) {
+    try {
+        const { user_id, blocked_user_id } = req.body;
+        if (!user_id || !blocked_user_id) {
+            return res.status(400).json({ success: false, message: 'user_id and blocked_user_id are required' });
+        }
+        await communityService.unblockUser(req.propertyDb, {
+            userId: user_id,
+            blockedUserId: blocked_user_id,
+        });
+        return res.json({ success: true, message: 'Merchant unblocked successfully' });
+    }
+    catch (error) {
+        console.error('[COMMUNITY UNBLOCK ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+}
+async function getBlockedUsers(req, res) {
+    try {
+        const { user_id } = req.query;
+        if (!user_id) {
+            return res.status(400).json({ success: false, message: 'user_id is required' });
+        }
+        const blockedList = await communityService.getBlockedUsers(req.propertyDb, {
+            userId: user_id,
+        });
+        return res.json({ success: true, data: blockedList });
+    }
+    catch (error) {
+        console.error('[COMMUNITY GET BLOCKED ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+}
+async function exitChannel(req, res) {
+    try {
+        const { channel_id, user_id } = req.body;
+        if (!channel_id || !user_id) {
+            return res.status(400).json({ success: false, message: 'channel_id and user_id are required' });
+        }
+        await communityService.exitChannel(req.propertyDb, {
+            channelId: channel_id,
+            userId: user_id,
+        });
+        return res.json({ success: true, message: 'Exited community channel successfully' });
+    }
+    catch (error) {
+        console.error('[COMMUNITY EXIT CHANNEL ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+}
+async function joinChannel(req, res) {
+    try {
+        const { channel_id, user_id } = req.body;
+        if (!channel_id || !user_id) {
+            return res.status(400).json({ success: false, message: 'channel_id and user_id are required' });
+        }
+        await communityService.joinChannel(req.propertyDb, {
+            channelId: channel_id,
+            userId: user_id,
+        });
+        return res.json({ success: true, message: 'Joined community channel successfully' });
+    }
+    catch (error) {
+        console.error('[COMMUNITY JOIN CHANNEL ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+}
+async function clearConversation(req, res) {
+    try {
+        const { conversation_id, user_id } = req.body;
+        if (!conversation_id || !user_id) {
+            return res.status(400).json({ success: false, message: 'conversation_id and user_id are required' });
+        }
+        await communityService.clearConversation(req.propertyDb, {
+            conversationId: conversation_id,
+            userId: user_id,
+        });
+        return res.json({ success: true, message: 'Chat cleared successfully' });
+    }
+    catch (error) {
+        console.error('[COMMUNITY CLEAR CONVERSATION ERROR]:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+}

@@ -1,20 +1,21 @@
+"use strict";
 /**
  * LYNX GROW - Recommendation & Customer Intelligence Service
  * Handles basket analysis, cross-sell/upsell recommendations, and customer buying insights.
  */
-
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getCartRecommendations = getCartRecommendations;
+exports.getCustomerInsights = getCustomerInsights;
 async function getCartRecommendations(propertyDb, outletId = 0, itemIds = [], itemCodes = []) {
-    if (!propertyDb) return [];
-
+    if (!propertyDb)
+        return [];
     try {
         const cleanIds = (Array.isArray(itemIds) ? itemIds : [])
             .map(id => Number(id))
             .filter(id => !isNaN(id) && id > 0);
-            
         const cleanCodes = (Array.isArray(itemCodes) ? itemCodes : [])
             .map(c => String(c).trim())
             .filter(c => c.length > 0);
-
         // 1. Co-occurrence basket analysis query
         if (cleanIds.length > 0 || cleanCodes.length > 0) {
             const coRes = await propertyDb.query(`
@@ -39,14 +40,13 @@ async function getCartRecommendations(propertyDb, outletId = 0, itemIds = [], it
                 ORDER BY co_purchase_count DESC, si.item_name ASC
                 LIMIT 6
             `, {
-                replacements: { 
-                    outletId, 
+                replacements: {
+                    outletId,
                     cleanIds: cleanIds.length > 0 ? cleanIds : [-1],
                     cleanCodes: cleanCodes.length > 0 ? cleanCodes : ['__NONE__']
                 },
                 type: propertyDb.QueryTypes.SELECT
             });
-
             if (coRes && coRes.length > 0) {
                 return coRes.map(r => ({
                     id: r.item_id,
@@ -58,7 +58,6 @@ async function getCartRecommendations(propertyDb, outletId = 0, itemIds = [], it
                 }));
             }
         }
-
         // 2. Fallback: Top-selling active items in store
         const topRes = await propertyDb.query(`
             SELECT 
@@ -80,22 +79,20 @@ async function getCartRecommendations(propertyDb, outletId = 0, itemIds = [], it
             replacements: { outletId },
             type: propertyDb.QueryTypes.SELECT
         });
-
         return (topRes || []).map(r => ({
             id: r.item_id,
             item_code: r.item_code,
-            item_name: r.item_name,
+            itemName: r.item_name,
             rate: parseFloat(r.rate || 0),
-            item_group: r.item_group || '',
+            itemGroup: r.item_group || '',
             reason: 'Top Selling Store Popular'
         }));
-
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[LYNX GROW RECOMMENDATION ERROR]:', error.message);
         return [];
     }
 }
-
 async function getCustomerInsights(propertyDb, outletId = 0, customerId = null, phone = '') {
     const defaultInsights = {
         customerId: customerId || null,
@@ -109,13 +106,11 @@ async function getCustomerInsights(propertyDb, outletId = 0, customerId = null, 
         favoriteItems: [],
         suggestedOffer: 'Welcome Offer: 5% Off Next Purchase'
     };
-
-    if (!propertyDb) return defaultInsights;
-
+    if (!propertyDb)
+        return defaultInsights;
     try {
         const cleanPhone = (phone || '').trim();
         const cleanId = Number(customerId) || 0;
-
         // Query customer sales history
         const sales = await propertyDb.query(`
             SELECT 
@@ -137,21 +132,19 @@ async function getCustomerInsights(propertyDb, outletId = 0, customerId = null, 
             replacements: { outletId, cleanId, cleanPhone },
             type: propertyDb.QueryTypes.SELECT
         });
-
         if (!sales || sales.length === 0) {
             return defaultInsights;
         }
-
         const totalOrders = sales.length;
         const totalSpent = sales.reduce((sum, s) => sum + parseFloat(s.net_amount || 0), 0);
         const averageOrderValue = totalOrders > 0 ? (totalSpent / totalOrders) : 0;
         const latestSaleDate = new Date(sales[0].sale_date);
-        const daysSinceLastPurchase = Math.floor((new Date() - latestSaleDate) / (1000 * 60 * 60 * 24));
-
+        const daysSinceLastPurchase = Math.floor((new Date().getTime() - latestSaleDate.getTime()) / (1000 * 60 * 60 * 24));
         let churnRisk = 'LOW';
-        if (daysSinceLastPurchase > 60) churnRisk = 'HIGH';
-        else if (daysSinceLastPurchase > 30) churnRisk = 'MEDIUM';
-
+        if (daysSinceLastPurchase > 60)
+            churnRisk = 'HIGH';
+        else if (daysSinceLastPurchase > 30)
+            churnRisk = 'MEDIUM';
         // Query favorite items purchased by customer
         const saleIds = sales.map(s => s.id);
         const favRes = await propertyDb.query(`
@@ -168,16 +161,16 @@ async function getCustomerInsights(propertyDb, outletId = 0, customerId = null, 
             replacements: { saleIds: saleIds.length > 0 ? saleIds : [-1] },
             type: propertyDb.QueryTypes.SELECT
         });
-
         let suggestedOffer = 'Standard Loyalty Perk: Earn 1 Point per ₹100 spent';
         if (churnRisk === 'HIGH') {
             suggestedOffer = 'Re-engagement Special: 10% Off to welcome customer back!';
-        } else if (churnRisk === 'MEDIUM') {
+        }
+        else if (churnRisk === 'MEDIUM') {
             suggestedOffer = 'VIP Reminder: 5% Bonus Points on next bill!';
-        } else if (totalSpent > 10000) {
+        }
+        else if (totalSpent > 10000) {
             suggestedOffer = 'High-Value VIP: Free Express Home Delivery + Premium Perk';
         }
-
         return {
             customerId: cleanId || null,
             phone: sales[0].customer_phone || cleanPhone,
@@ -194,14 +187,13 @@ async function getCustomerInsights(propertyDb, outletId = 0, customerId = null, 
             })),
             suggestedOffer
         };
-
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[LYNX GROW CUSTOMER INSIGHTS ERROR]:', error.message);
         return defaultInsights;
     }
 }
-
-module.exports = {
+exports.default = {
     getCartRecommendations,
     getCustomerInsights
 };

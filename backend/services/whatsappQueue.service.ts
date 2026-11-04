@@ -13,7 +13,7 @@ export async function queueUtilityInvoiceAlert(db: any, saleId: any, outletId: a
 
     // Normalize phone number (Meta requires country code, e.g. clean spaces, dashes)
     const normalizedPhone = recipientPhone.replace(/[^0-9+]/g, '');
-    if (normalizedPhone.length < 10) return;
+    if (normalizedPhone.length < 7) return;
 
     // 1. Fetch WhatsApp Configuration for this outlet
     const config = await db.models.whatsapp_configurations.findOne({

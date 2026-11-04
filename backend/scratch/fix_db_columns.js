@@ -1,16 +1,14 @@
+"use strict";
 const db = require('../db/models');
-
 async function fixDb() {
     try {
         await db.authenticate();
         console.log('Connected to database.');
-
         console.log('Adding kds_dismissed to kot_headers...');
         await db.query(`
             ALTER TABLE kot_headers ADD COLUMN IF NOT EXISTS kds_dismissed BOOLEAN DEFAULT FALSE;
         `);
         console.log('kds_dismissed added.');
-
         console.log('Adding columns to sales_headers...');
         await db.query(`
             ALTER TABLE sales_headers 
@@ -23,12 +21,12 @@ async function fixDb() {
               ADD COLUMN IF NOT EXISTS credit_note_amount DECIMAL(12, 2) DEFAULT 0.00;
         `);
         console.log('sales_headers columns added successfully.');
-
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error fixing database schema:', err);
-    } finally {
+    }
+    finally {
         process.exit(0);
     }
 }
-
 fixDb();

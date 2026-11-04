@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('outlet_settings', {
         outlet_id: {
@@ -16,3 +18,4 @@ module.exports = (sequelize, DataTypes) => {
         indexes: [{ unique: true, fields: ['outlet_id'] }]
     });
 };
+exports.default = module.exports;

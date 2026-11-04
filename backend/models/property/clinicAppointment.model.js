@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     if (sequelize && typeof sequelize.query === 'function') {
         sequelize.query(`
@@ -5,9 +7,8 @@ module.exports = (sequelize, DataTypes) => {
             ADD COLUMN IF NOT EXISTS attended_by_doctor_name VARCHAR(150);
             ALTER TABLE clinic_appointments
             ADD COLUMN IF NOT EXISTS attended_by_doctor_id INTEGER;
-        `).catch(() => {});
+        `).catch(() => { });
     }
-
     const ClinicAppointment = sequelize.define('clinic_appointments', {
         attended_by_doctor_id: {
             type: DataTypes.INTEGER,
@@ -199,7 +200,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     ClinicAppointment.associate = (models) => {
         ClinicAppointment.belongsTo(models.outlets, {
             foreignKey: 'outlet_id',
@@ -218,6 +218,6 @@ module.exports = (sequelize, DataTypes) => {
             });
         }
     };
-
     return ClinicAppointment;
 };
+exports.default = module.exports;

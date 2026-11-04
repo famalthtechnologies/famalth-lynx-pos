@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const WhatsappTemplate = sequelize.define('whatsapp_templates', {
         id: {
@@ -70,13 +71,11 @@ module.exports = (sequelize, DataTypes) => {
             { unique: true, fields: ['outlet_id', 'template_name', 'language'] }
         ]
     });
-
     WhatsappTemplate.associate = (models) => {
         WhatsappTemplate.hasMany(models.whatsapp_campaigns, {
             foreignKey: 'template_id',
             as: 'campaigns'
         });
     };
-
     return WhatsappTemplate;
 };

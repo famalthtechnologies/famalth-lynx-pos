@@ -17,6 +17,10 @@ const BACKUP_BASE_DIR = path_1.default.join(canonicalRootDir, 'backups');
 function getBackupSearchRoots() {
     const current = process.cwd();
     const roots = [
+        path_1.default.join(canonicalRootDir, 'backend', 'storage'),
+        path_1.default.join(canonicalRootDir, 'storage'),
+        path_1.default.join(current, 'backend', 'storage'),
+        path_1.default.join(current, 'storage'),
         BACKUP_BASE_DIR,
         path_1.default.join(canonicalRootDir, 'backend', 'backups'),
         path_1.default.join(current, 'backups'),
@@ -92,12 +96,13 @@ class TenantBackupService {
      * 1. Get Enterprise Storage Usage and Backup Status
      */
     static async getStorageStats(activeDb, outletCode, isSuperAdmin = false) {
-        let totalDiskBytes = 100 * 1024 * 1024 * 1024; // 100GB default fallback
-        let totalFreeBytes = 50 * 1024 * 1024 * 1024;
-        let totalUsedBytes = totalDiskBytes - totalFreeBytes;
+        const diskRoot = path_1.default.parse(canonicalRootDir).root || process.cwd();
+        let totalDiskBytes = 0;
+        let totalFreeBytes = 0;
+        let totalUsedBytes = 0;
         try {
             if (promises_1.default.statfs) {
-                const stat = await promises_1.default.statfs(canonicalRootDir);
+                const stat = await promises_1.default.statfs(diskRoot);
                 const bsize = stat.bsize || 4096;
                 totalDiskBytes = Number(stat.blocks) * bsize;
                 totalFreeBytes = Number(stat.bavail || stat.bfree) * bsize;
@@ -105,6 +110,16 @@ class TenantBackupService {
             }
         }
         catch (_) { }
+        if (totalDiskBytes === 0) {
+            try {
+                const stat = await promises_1.default.statfs(canonicalRootDir);
+                const bsize = stat.bsize || 4096;
+                totalDiskBytes = Number(stat.blocks) * bsize;
+                totalFreeBytes = Number(stat.bavail || stat.bfree) * bsize;
+                totalUsedBytes = totalDiskBytes - totalFreeBytes;
+            }
+            catch (_) { }
+        }
         // Backups directory audit
         const backupAllowed = ['.fambak', '.posbak', '.enc', '.zip', '.sql', '.gz'];
         let backupDirData;
@@ -113,12 +128,19 @@ class TenantBackupService {
             const clientFiles = [];
             let clientSize = 0;
             for (const root of getBackupSearchRoots()) {
-                const outletSubdir = path_1.default.join(root, 'outlets', outletCode);
-                const subData = await getDirectorySizeAndFiles(outletSubdir, ['.fambak', '.posbak', '.zip', '.gz']);
-                for (const sf of subData.files) {
-                    if (!clientFiles.some(f => f.name === sf.name)) {
-                        clientFiles.push(sf);
-                        clientSize += sf.size;
+                const candidateSubdirs = [
+                    path_1.default.join(root, 'outlets', outletCode, 'backups'),
+                    path_1.default.join(root, 'outlets', outletCode),
+                ];
+                for (const outletSubdir of candidateSubdirs) {
+                    if (fs_1.default.existsSync(outletSubdir)) {
+                        const subData = await getDirectorySizeAndFiles(outletSubdir, ['.fambak', '.posbak', '.zip', '.gz']);
+                        for (const sf of subData.files) {
+                            if (!clientFiles.some(f => f.name === sf.name)) {
+                                clientFiles.push(sf);
+                                clientSize += sf.size;
+                            }
+                        }
                     }
                 }
                 // Also check any tenant posbak in root matching tenant_backup_<outletCode>

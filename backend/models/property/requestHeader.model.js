@@ -1,5 +1,6 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
-
     const RequestHeader = sequelize.define('request_headers', {
         request_no: DataTypes.STRING,
         department: DataTypes.STRING,
@@ -20,13 +21,12 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     RequestHeader.associate = (models) => {
         RequestHeader.hasMany(models.request_items, {
             foreignKey: 'request_id',
             as: 'items'
         });
     };
-
     return RequestHeader;
 };
+exports.default = module.exports;

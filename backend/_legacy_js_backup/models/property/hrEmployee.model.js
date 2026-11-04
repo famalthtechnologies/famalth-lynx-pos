@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const HrEmployee = sequelize.define('hr_employees', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -38,7 +39,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     HrEmployee.associate = (models) => {
         HrEmployee.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
         HrEmployee.belongsTo(models.hr_pay_structures, { foreignKey: 'pay_structure_id', as: 'payStructure' });
@@ -50,6 +50,5 @@ module.exports = (sequelize, DataTypes) => {
         HrEmployee.hasMany(models.hr_sales_commissions, { foreignKey: 'employee_id', as: 'commissions' });
         HrEmployee.hasMany(models.hr_leave_balances, { foreignKey: 'employee_id', as: 'leaveBalances' });
     };
-
     return HrEmployee;
 };

@@ -1,8 +1,8 @@
+"use strict";
 /**
  * FAMALTH LYNX ECOSYSTEM - Open Developer APIs & Webhooks Service
  * Enables third-party software, hardware peripherals, and developer integrations.
  */
-
 let webhooksStore = [
     {
         id: 'WH_001',
@@ -19,7 +19,6 @@ let webhooksStore = [
         createdAt: new Date().toISOString()
     }
 ];
-
 let apiKeysStore = [
     {
         id: 'KEY_001',
@@ -29,7 +28,6 @@ let apiKeysStore = [
         permissions: ['read_catalog', 'write_sales', 'read_inventory']
     }
 ];
-
 async function getEcosystemInfo() {
     return {
         ecosystemName: 'FAMALTH LYNX Open Business Ecosystem',
@@ -52,16 +50,13 @@ async function getEcosystemInfo() {
         documentationUrl: 'https://docs.famalthlynx.io/api/v1'
     };
 }
-
 async function getWebhooks(propertyDb, outletId = 0) {
     return webhooksStore;
 }
-
 async function registerWebhook(propertyDb, outletId = 0, topic, targetUrl) {
     if (!topic || !targetUrl) {
         throw new Error('Topic and targetUrl are required');
     }
-
     const newWebhook = {
         id: `WH_${Date.now()}`,
         topic,
@@ -69,15 +64,12 @@ async function registerWebhook(propertyDb, outletId = 0, topic, targetUrl) {
         status: 'ACTIVE',
         createdAt: new Date().toISOString()
     };
-
     webhooksStore.push(newWebhook);
     return newWebhook;
 }
-
 async function getApiKeys(propertyDb, outletId = 0) {
     return apiKeysStore;
 }
-
 async function generateApiKey(propertyDb, outletId = 0, keyName) {
     const key = `lynx_live_sk_${Math.random().toString(36).substring(2, 15)}${Math.random().toString(36).substring(2, 15)}`;
     const newKeyEntry = {
@@ -87,11 +79,9 @@ async function generateApiKey(propertyDb, outletId = 0, keyName) {
         createdAt: new Date().toISOString(),
         permissions: ['read_catalog', 'write_sales', 'read_inventory']
     };
-
     apiKeysStore.push(newKeyEntry);
     return newKeyEntry;
 }
-
 module.exports = {
     getEcosystemInfo,
     getWebhooks,

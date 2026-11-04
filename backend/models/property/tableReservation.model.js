@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const TableReservation = sequelize.define('table_reservations', {
         id: {
@@ -63,13 +65,12 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     TableReservation.associate = (models) => {
         TableReservation.belongsTo(models.restaurant_tables, {
             foreignKey: 'table_id',
             as: 'table'
         });
     };
-
     return TableReservation;
 };
+exports.default = module.exports;

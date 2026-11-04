@@ -1,29 +1,31 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.pushQrToUsbMobile = exports.getUsbConnectedDevices = exports.saveGatewaysConfig = exports.getGatewaysConfig = void 0;
 const MpesaService = require('../../services/mpesa.service');
-
 function safeParseJson(data, defaultVal = {}) {
-    if (!data) return defaultVal;
-    if (typeof data === 'object') return data;
+    if (!data)
+        return defaultVal;
+    if (typeof data === 'object')
+        return data;
     if (typeof data === 'string') {
         try {
             return JSON.parse(data);
-        } catch (e) {
+        }
+        catch (e) {
             return defaultVal;
         }
     }
     return defaultVal;
 }
-
-exports.getGatewaysConfig = async (req, res) => {
+const getGatewaysConfig = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const settings = await req.propertyDb.models.system_settings.findOne({
             where: { outlet_id }
         });
-
         const propInfo = req.propertyDb.models.property_info ? await req.propertyDb.models.property_info.findOne({
             where: { outlet_id }
         }).catch(() => null) : null;
-
         const custom = safeParseJson(settings?.custom_settings);
         const gateways = safeParseJson(custom.payment_gateways);
         const mpesa = safeParseJson(gateways.mpesa || custom.mpesa);
@@ -33,30 +35,25 @@ exports.getGatewaysConfig = async (req, res) => {
         const square = safeParseJson(gateways.square);
         const paypal = safeParseJson(gateways.paypal);
         const india_pos = safeParseJson(gateways.india_pos);
-
         const resolvedUpiId = upi.upi_id || propInfo?.upi_id || settings?.merchant_upi_id || '';
         const resolvedPayeeName = upi.payee_name || propInfo?.upi_payee_name || propInfo?.legal_name || propInfo?.property_name || '';
         const resolvedPrintUpiQr = upi.print_upi_qr ?? propInfo?.print_upi_qr ?? true;
         const resolvedUpiEnabled = upi.enabled !== undefined ? Boolean(upi.enabled) : Boolean(resolvedUpiId || true);
-
         // Razorpay (check custom_settings or root fallback)
         const isRazorpayRoot = settings?.payment_gateway_provider === 'RAZORPAY';
         const razorpayKeyId = razorpay.key_id || (isRazorpayRoot ? (settings?.payment_gateway_api_key || '') : '');
         const razorpayHasSecret = Boolean(razorpay.key_secret || (isRazorpayRoot && settings?.payment_gateway_secret_key));
         const razorpayEnabled = razorpay.enabled !== undefined ? Boolean(razorpay.enabled) : Boolean(isRazorpayRoot && settings?.enable_payment_gateway);
-
         // Stripe
         const isStripeRoot = settings?.payment_gateway_provider === 'STRIPE';
         const stripePub = stripe.publishable_key || (isStripeRoot ? (settings?.payment_gateway_api_key || '') : '');
         const stripeHasSecret = Boolean(stripe.secret_key || (isStripeRoot && settings?.payment_gateway_secret_key));
         const stripeEnabled = stripe.enabled !== undefined ? Boolean(stripe.enabled) : Boolean(isStripeRoot && settings?.enable_payment_gateway);
-
         // M-Pesa
         const mpesaShortcode = mpesa.shortcode || '';
         const mpesaKey = mpesa.consumer_key || '';
         const mpesaHasCreds = Boolean(mpesa.consumer_key && mpesa.consumer_secret && mpesa.passkey);
         const mpesaEnabled = Boolean(mpesa.enabled);
-
         res.json({
             success: true,
             data: {
@@ -128,38 +125,26 @@ exports.getGatewaysConfig = async (req, res) => {
                 }
             }
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[GATEWAYS CONFIG ERROR]', err);
         res.status(500).json({ success: false, message: 'Failed to load payment gateways config' });
     }
 };
-
-exports.saveGatewaysConfig = async (req, res) => {
+exports.getGatewaysConfig = getGatewaysConfig;
+const saveGatewaysConfig = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
-        const {
-            settlement_mode,
-            active_methods,
-            upi,
-            mpesa,
-            stripe,
-            razorpay,
-            square,
-            paypal,
-            india_pos
-        } = req.body;
-
+        const { settlement_mode, active_methods, upi, mpesa, stripe, razorpay, square, paypal, india_pos } = req.body;
         let settings = await req.propertyDb.models.system_settings.findOne({
             where: { outlet_id }
         });
-
         if (!settings) {
             settings = await req.propertyDb.models.system_settings.create({
                 outlet_id,
                 custom_settings: {}
             });
         }
-
         const currentCustom = safeParseJson(settings.custom_settings);
         const prevGateways = safeParseJson(currentCustom.payment_gateways);
         const prevMpesa = safeParseJson(currentCustom.mpesa || prevGateways.mpesa);
@@ -169,15 +154,15 @@ exports.saveGatewaysConfig = async (req, res) => {
         const prevPaypal = safeParseJson(prevGateways.paypal);
         const prevUpi = safeParseJson(prevGateways.upi);
         const prevIndiaPos = safeParseJson(prevGateways.india_pos);
-
         // Helper to resolve secrets without overwriting existing on masked submission
         const resolveSecret = (incoming, existing) => {
-            if (incoming === undefined) return existing || '';
+            if (incoming === undefined)
+                return existing || '';
             const str = String(incoming).trim();
-            if (str.includes('***')) return existing || '';
+            if (str.includes('***'))
+                return existing || '';
             return str;
         };
-
         // 1. Process M-Pesa
         const updatedMpesa = mpesa ? {
             enabled: Boolean(mpesa.enabled),
@@ -189,7 +174,6 @@ exports.saveGatewaysConfig = async (req, res) => {
             passkey: resolveSecret(mpesa.passkey, prevMpesa.passkey),
             updated_at: new Date().toISOString()
         } : prevMpesa;
-
         // 2. Process UPI
         const updatedUpi = upi ? {
             enabled: Boolean(upi.enabled ?? true),
@@ -198,7 +182,6 @@ exports.saveGatewaysConfig = async (req, res) => {
             print_upi_qr: upi.print_upi_qr ?? true,
             updated_at: new Date().toISOString()
         } : prevUpi;
-
         // 3. Process Stripe
         const updatedStripe = stripe ? {
             enabled: Boolean(stripe.enabled),
@@ -207,7 +190,6 @@ exports.saveGatewaysConfig = async (req, res) => {
             secret_key: resolveSecret(stripe.secret_key, prevStripe.secret_key),
             updated_at: new Date().toISOString()
         } : prevStripe;
-
         // 4. Process Razorpay
         const updatedRazorpay = razorpay ? {
             enabled: Boolean(razorpay.enabled),
@@ -216,7 +198,6 @@ exports.saveGatewaysConfig = async (req, res) => {
             key_secret: resolveSecret(razorpay.key_secret, prevRazorpay.key_secret),
             updated_at: new Date().toISOString()
         } : prevRazorpay;
-
         // 5. Process Square
         const updatedSquare = square ? {
             enabled: Boolean(square.enabled),
@@ -226,7 +207,6 @@ exports.saveGatewaysConfig = async (req, res) => {
             access_token: resolveSecret(square.access_token, prevSquare.access_token),
             updated_at: new Date().toISOString()
         } : prevSquare;
-
         // 6. Process PayPal
         const updatedPaypal = paypal ? {
             enabled: Boolean(paypal.enabled),
@@ -235,7 +215,6 @@ exports.saveGatewaysConfig = async (req, res) => {
             client_secret: resolveSecret(paypal.client_secret, prevPaypal.client_secret),
             updated_at: new Date().toISOString()
         } : prevPaypal;
-
         // 7. Process India Smart POS Card Machine (PineLabs / Ezetap / Mosambee)
         const updatedIndiaPos = india_pos ? {
             enabled: Boolean(india_pos.enabled),
@@ -245,7 +224,6 @@ exports.saveGatewaysConfig = async (req, res) => {
             auto_push: india_pos.auto_push ?? prevIndiaPos.auto_push ?? true,
             updated_at: new Date().toISOString()
         } : prevIndiaPos;
-
         const updatedGateways = {
             upi: updatedUpi,
             mpesa: updatedMpesa,
@@ -256,16 +234,13 @@ exports.saveGatewaysConfig = async (req, res) => {
             india_pos: updatedIndiaPos,
             updated_at: new Date().toISOString()
         };
-
         const newCustomSettings = {
             ...currentCustom,
             payment_gateways: updatedGateways,
             mpesa: updatedMpesa
         };
-
         settings.set('custom_settings', newCustomSettings);
         settings.changed('custom_settings', true);
-
         if (settlement_mode) {
             settings.set('restaurant_settlement_mode', settlement_mode);
         }
@@ -276,28 +251,31 @@ exports.saveGatewaysConfig = async (req, res) => {
         if (updatedUpi.upi_id !== undefined) {
             settings.set('merchant_upi_id', updatedUpi.upi_id);
         }
-
         // Sync root columns
         if (req.body.enable_payment_gateway !== undefined) {
             settings.set('enable_payment_gateway', Boolean(req.body.enable_payment_gateway));
-        } else if (updatedRazorpay.enabled || updatedStripe.enabled || updatedSquare.enabled || updatedPaypal.enabled || updatedMpesa.enabled || updatedIndiaPos.enabled) {
+        }
+        else if (updatedRazorpay.enabled || updatedStripe.enabled || updatedSquare.enabled || updatedPaypal.enabled || updatedMpesa.enabled || updatedIndiaPos.enabled) {
             settings.set('enable_payment_gateway', true);
-        } else {
+        }
+        else {
             settings.set('enable_payment_gateway', false);
         }
-
         if (updatedRazorpay.enabled) {
             settings.set('payment_gateway_provider', 'RAZORPAY');
-            if (updatedRazorpay.key_id) settings.set('payment_gateway_api_key', updatedRazorpay.key_id);
-            if (updatedRazorpay.key_secret) settings.set('payment_gateway_secret_key', updatedRazorpay.key_secret);
-        } else if (updatedStripe.enabled) {
-            settings.set('payment_gateway_provider', 'STRIPE');
-            if (updatedStripe.publishable_key) settings.set('payment_gateway_api_key', updatedStripe.publishable_key);
-            if (updatedStripe.secret_key) settings.set('payment_gateway_secret_key', updatedStripe.secret_key);
+            if (updatedRazorpay.key_id)
+                settings.set('payment_gateway_api_key', updatedRazorpay.key_id);
+            if (updatedRazorpay.key_secret)
+                settings.set('payment_gateway_secret_key', updatedRazorpay.key_secret);
         }
-
+        else if (updatedStripe.enabled) {
+            settings.set('payment_gateway_provider', 'STRIPE');
+            if (updatedStripe.publishable_key)
+                settings.set('payment_gateway_api_key', updatedStripe.publishable_key);
+            if (updatedStripe.secret_key)
+                settings.set('payment_gateway_secret_key', updatedStripe.secret_key);
+        }
         await settings.save();
-
         // Bi-directional sync with property_info
         if (req.propertyDb.models.property_info) {
             const propInfo = await req.propertyDb.models.property_info.findOne({
@@ -305,15 +283,18 @@ exports.saveGatewaysConfig = async (req, res) => {
             });
             if (propInfo) {
                 const propUpdates = {};
-                if (updatedUpi.upi_id !== undefined) propUpdates.upi_id = updatedUpi.upi_id;
+                if (updatedUpi.upi_id !== undefined)
+                    propUpdates.upi_id = updatedUpi.upi_id;
                 if (updatedUpi.payee_name !== undefined && updatedUpi.payee_name !== '') {
                     propUpdates.upi_payee_name = updatedUpi.payee_name;
                 }
-                if (updatedUpi.print_upi_qr !== undefined) propUpdates.print_upi_qr = updatedUpi.print_upi_qr;
+                if (updatedUpi.print_upi_qr !== undefined)
+                    propUpdates.print_upi_qr = updatedUpi.print_upi_qr;
                 if (Object.keys(propUpdates).length > 0) {
                     await propInfo.update(propUpdates).catch((e) => console.warn('Could not sync to property_info:', e.message));
                 }
-            } else if (updatedUpi.upi_id || updatedUpi.payee_name) {
+            }
+            else if (updatedUpi.upi_id || updatedUpi.payee_name) {
                 await req.propertyDb.models.property_info.create({
                     outlet_id,
                     property_name: 'Store',
@@ -323,29 +304,29 @@ exports.saveGatewaysConfig = async (req, res) => {
                 }).catch((e) => console.warn('Could not create property_info:', e.message));
             }
         }
-
         res.json({
             success: true,
             message: 'Global payment gateways & settlement rules updated successfully!'
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[SAVE GATEWAYS CONFIG ERROR]', err);
         res.status(500).json({ success: false, message: 'Failed to save payment gateways config: ' + err.message });
     }
 };
-
+exports.saveGatewaysConfig = saveGatewaysConfig;
 const getUsbConnectedDevices = async (req, res) => {
     try {
         const { exec } = require('child_process');
         const { promisify } = require('util');
         const execAsync = promisify(exec);
-
         let devices = [];
         try {
             const { stdout } = await execAsync('adb devices -l', { timeout: 3000 });
-            const lines = (stdout || '').split('\n').map(l => l.trim()).filter(Boolean);
+            const lines = (stdout || '').split('\n').map((l) => l.trim()).filter(Boolean);
             for (const line of lines) {
-                if (line.startsWith('List of devices') || line.startsWith('* daemon')) continue;
+                if (line.startsWith('List of devices') || line.startsWith('* daemon'))
+                    continue;
                 const parts = line.split(/\s+/);
                 if (parts.length >= 2) {
                     const id = parts[0];
@@ -356,56 +337,48 @@ const getUsbConnectedDevices = async (req, res) => {
                     devices.push({ id, status, model });
                 }
             }
-        } catch (adbErr) {
+        }
+        catch (adbErr) {
             // adb not installed or error, devices list remains empty
         }
-
         return res.json({
             success: true,
             adb_available: true,
             connected: devices.length > 0,
             devices
         });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, message: err.message, devices: [] });
     }
 };
-
+exports.getUsbConnectedDevices = getUsbConnectedDevices;
 const pushQrToUsbMobile = async (req, res) => {
     try {
         const { exec } = require('child_process');
         const { promisify } = require('util');
         const execAsync = promisify(exec);
-
         const outlet_id = req.user.outlet_id;
         const { amount, order_no, txn_note, device_id, action = 'INTENT' } = req.body;
-
         if (!amount || Number(amount) <= 0) {
             return res.status(400).json({ success: false, message: 'Valid payment amount is required' });
         }
-
         const settings = await req.propertyDb.models.system_settings.findOne({ where: { outlet_id } });
         const propInfo = req.propertyDb.models.property_info
             ? await req.propertyDb.models.property_info.findOne({ where: { outlet_id } }).catch(() => null)
             : null;
-
         const custom = safeParseJson(settings?.custom_settings);
         const gateways = safeParseJson(custom.payment_gateways);
         const upi = safeParseJson(gateways.upi);
-
         const upiId = req.body.upi_id || upi.upi_id || propInfo?.upi_id || settings?.merchant_upi_id || '';
         const payeeName = req.body.payee_name || upi.payee_name || propInfo?.upi_payee_name || propInfo?.legal_name || propInfo?.property_name || 'POS Merchant';
-
         if (!upiId) {
             return res.status(400).json({ success: false, message: 'UPI ID is not configured in Payment Gateways.' });
         }
-
         const note = txn_note || `Bill ${order_no || Date.now()}`;
         const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${Number(amount).toFixed(2)}&cu=INR&tn=${encodeURIComponent(note)}`;
-
         let adbPushed = false;
         let adbMessage = 'No USB device detected';
-
         try {
             const devArg = device_id ? `-s ${device_id} ` : '';
             if (action === 'BROWSER') {
@@ -413,15 +386,16 @@ const pushQrToUsbMobile = async (req, res) => {
                 await execAsync(`adb ${devArg}shell am start -a android.intent.action.VIEW -d "${qrUrl}"`, { timeout: 4000 });
                 adbPushed = true;
                 adbMessage = 'Payment QR webpage opened on connected mobile browser';
-            } else {
+            }
+            else {
                 await execAsync(`adb ${devArg}shell am start -a android.intent.action.VIEW -d "${upiUri}"`, { timeout: 4000 });
                 adbPushed = true;
                 adbMessage = 'UPI payment prompt popped up on connected mobile!';
             }
-        } catch (adbErr) {
+        }
+        catch (adbErr) {
             adbMessage = 'USB adb push attempt: ' + (adbErr.message || adbErr);
         }
-
         try {
             const { getSocketHub } = require('../../services/socketHub.service');
             const io = getSocketHub();
@@ -436,10 +410,10 @@ const pushQrToUsbMobile = async (req, res) => {
                     timestamp: new Date().toISOString()
                 });
             }
-        } catch (sockErr) {
+        }
+        catch (sockErr) {
             // ignore
         }
-
         return res.json({
             success: true,
             usb_pushed: adbPushed,
@@ -449,15 +423,22 @@ const pushQrToUsbMobile = async (req, res) => {
             payee_name: payeeName,
             amount: Number(amount).toFixed(2)
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[PUSH USB QR ERROR]', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 };
-
+exports.pushQrToUsbMobile = pushQrToUsbMobile;
 module.exports = {
     getGatewaysConfig: exports.getGatewaysConfig,
     saveGatewaysConfig: exports.saveGatewaysConfig,
-    getUsbConnectedDevices,
-    pushQrToUsbMobile
+    getUsbConnectedDevices: exports.getUsbConnectedDevices,
+    pushQrToUsbMobile: exports.pushQrToUsbMobile
+};
+exports.default = {
+    getGatewaysConfig: exports.getGatewaysConfig,
+    saveGatewaysConfig: exports.saveGatewaysConfig,
+    getUsbConnectedDevices: exports.getUsbConnectedDevices,
+    pushQrToUsbMobile: exports.pushQrToUsbMobile
 };

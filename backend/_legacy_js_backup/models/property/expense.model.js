@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const Expense = sequelize.define('expenses', {
         id: {
@@ -68,7 +69,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     Expense.associate = (models) => {
         Expense.belongsTo(models.outlets, {
             foreignKey: 'outlet_id',
@@ -93,6 +93,5 @@ module.exports = (sequelize, DataTypes) => {
             onDelete: 'CASCADE'
         });
     };
-
     return Expense;
 };

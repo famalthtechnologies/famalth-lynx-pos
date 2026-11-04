@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const CustomerDrawProgress = sequelize.define('customer_draw_progress', {
         id: {
@@ -38,13 +39,11 @@ module.exports = (sequelize, DataTypes) => {
             }
         ]
     });
-
     CustomerDrawProgress.associate = (models) => {
         CustomerDrawProgress.belongsTo(models.lucky_draw_campaigns, {
             foreignKey: 'campaign_id',
             as: 'campaign'
         });
     };
-
     return CustomerDrawProgress;
 };

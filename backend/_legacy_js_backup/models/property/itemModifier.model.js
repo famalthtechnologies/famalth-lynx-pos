@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const ItemModifier = sequelize.define('item_modifiers', {
         id: {
@@ -31,13 +32,11 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     ItemModifier.associate = (models) => {
         ItemModifier.belongsTo(models.item_master, {
             foreignKey: 'item_master_id',
             as: 'item'
         });
     };
-
     return ItemModifier;
 };

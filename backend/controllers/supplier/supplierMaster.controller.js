@@ -1,13 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const audit = require('../../services/audit.service');
-
 const { Op } = require('sequelize');
-
 function mapVendorPayload(body = {}) {
-    const supplier_name = String(
-        body.supplier_name ?? body.vendor_name ?? ''
-    ).trim();
+    const supplier_name = String(body.supplier_name ?? body.vendor_name ?? '').trim();
     const address = String(body.address ?? '').trim();
-
     return {
         supplier_code: String(body.supplier_code ?? '').trim(),
         supplier_name,
@@ -21,7 +18,6 @@ function mapVendorPayload(body = {}) {
         tax_country_code: String(body.tax_country_code ?? 'IN').trim() || null
     };
 }
-
 function normalizeSupplierPayload(body = {}) {
     const rawOpening = body.opening_balance !== undefined && body.opening_balance !== null
         ? parseFloat(body.opening_balance)
@@ -41,12 +37,10 @@ function normalizeSupplierPayload(body = {}) {
         as_of_date: body.as_of_date || null
     };
 }
-
 async function syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening = 0, asOfDate = null) {
-    if (!req.propertyDb || !req.propertyDb.models) return;
-
+    if (!req.propertyDb || !req.propertyDb.models)
+        return;
     const diff = Number((newOpening - oldOpening).toFixed(2));
-
     // 1. Manage supplier_bills (Opening Bill)
     if (req.propertyDb.models.supplier_bills) {
         try {
@@ -54,7 +48,6 @@ async function syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening 
             const existingBill = await req.propertyDb.models.supplier_bills.findOne({
                 where: { outlet_id, supplier_id: supplier.id, bill_no: billNo }
             });
-
             if (newOpening > 0) {
                 if (existingBill) {
                     const paid = Number(existingBill.paid_amount || 0);
@@ -64,7 +57,8 @@ async function syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening 
                         status: newStatus,
                         bill_date: asOfDate || existingBill.bill_date || new Date()
                     });
-                } else {
+                }
+                else {
                     await req.propertyDb.models.supplier_bills.create({
                         outlet_id,
                         supplier_id: supplier.id,
@@ -76,18 +70,20 @@ async function syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening 
                         remarks: 'Opening Balance on Vendor Creation'
                     });
                 }
-            } else if (existingBill && newOpening <= 0) {
+            }
+            else if (existingBill && newOpening <= 0) {
                 if (Number(existingBill.paid_amount || 0) === 0) {
                     await existingBill.destroy();
-                } else {
+                }
+                else {
                     await existingBill.update({ bill_amount: 0, status: 'PAID' });
                 }
             }
-        } catch (billErr) {
+        }
+        catch (billErr) {
             console.warn('[SUPPLIER BILL SYNC WARN]', billErr.message);
         }
     }
-
     // 2. Manage Chart of Accounts
     if (req.propertyDb.models.chart_of_accounts) {
         try {
@@ -104,7 +100,7 @@ async function syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening 
                     { account_code: '4001', account_name: 'Retail Sales Revenue', group_name: 'Sales Income', nature: 'REVENUE', is_system: true },
                     { account_code: '5001', account_name: 'Purchases (Cost of Goods Sold)', group_name: 'Direct Expenses', nature: 'EXPENSE', is_system: true },
                 ];
-                const seeds = DEFAULT_COA_SEEDS.map(s => ({
+                const seeds = DEFAULT_COA_SEEDS.map((s) => ({
                     ...s,
                     outlet_id,
                     opening_debit: 0.00,
@@ -114,20 +110,19 @@ async function syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening 
                 }));
                 await req.propertyDb.models.chart_of_accounts.bulkCreate(seeds);
             }
-
             // Vendor Sub-Account
             const vendorAccCode = `2001-${supplier.supplier_code || supplier.id}`;
             let vendorAcc = await req.propertyDb.models.chart_of_accounts.findOne({
                 where: { outlet_id, account_code: vendorAccCode }
             });
-
             if (vendorAcc) {
                 await vendorAcc.update({
                     account_name: `${supplier.supplier_name} (Vendor)`,
                     opening_credit: newOpening,
                     current_balance: Number((Number(vendorAcc.current_balance || 0) + diff).toFixed(2))
                 });
-            } else if (newOpening > 0) {
+            }
+            else if (newOpening > 0) {
                 await req.propertyDb.models.chart_of_accounts.create({
                     outlet_id,
                     account_code: vendorAccCode,
@@ -141,7 +136,6 @@ async function syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening 
                     is_active: true
                 });
             }
-
             if (diff !== 0) {
                 // Update Master Sundry Creditors (Account 2001)
                 const creditorAcc = await req.propertyDb.models.chart_of_accounts.findOne({
@@ -155,7 +149,6 @@ async function syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening 
                         current_balance: newCurrentBalance
                     });
                 }
-
                 // Balance Equity: Account 3001 (Proprietor Capital) / 3100
                 const equityAcc = await req.propertyDb.models.chart_of_accounts.findOne({
                     where: {
@@ -170,27 +163,23 @@ async function syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening 
                     });
                 }
             }
-        } catch (coaErr) {
+        }
+        catch (coaErr) {
             console.warn('[COA SYNC WARN]', coaErr.message);
         }
     }
 }
-
 exports.createSupplier = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
-
         const payload = normalizeSupplierPayload(req.body);
-
         if (!payload.supplier_name) {
             return res.status(400).json({ success: false, message: 'Vendor name is required' });
         }
-
         if (!payload.address) {
             return res.status(400).json({ success: false, message: 'Address is required' });
         }
-
         const supplier = await req.propertyDb.models.supplier_master.create({
             outlet_id,
             supplier_code: payload.supplier_code,
@@ -206,12 +195,10 @@ exports.createSupplier = async (req, res) => {
             opening_balance: payload.opening_balance,
             is_active: true
         });
-
         // Sync opening balance to supplier_bills and Chart of Accounts
         if (payload.opening_balance > 0) {
             await syncVendorToCoa(req, outlet_id, supplier, payload.opening_balance, 0, payload.as_of_date);
         }
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -223,46 +210,38 @@ exports.createSupplier = async (req, res) => {
             outlet_id,
             user_id
         });
-
         res.json({ success: true, data: supplier });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.canImportSuppliers = async (req, res) => {
     const outlet_id = req.user.outlet_id;
-
     const count = await req.propertyDb.models.supplier_master.count({
         where: { outlet_id }
     });
-
     res.json({
         success: true,
         canImport: count === 0
     });
 };
-
 exports.bulkImportSuppliers = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
         const suppliers = req.body;
-
         const count = await req.propertyDb.models.supplier_master.count({
             where: { outlet_id }
         });
-
         if (count > 0) {
             return res.status(400).json({
                 success: false,
                 message: 'Import allowed only on first setup'
             });
         }
-        const formatted = suppliers.map(row => ({
+        const formatted = suppliers.map((row) => ({
             outlet_id,
             supplier_code: normalizeSupplierPayload(row).supplier_code,
             supplier_name: normalizeSupplierPayload(row).supplier_name,
@@ -275,12 +254,9 @@ exports.bulkImportSuppliers = async (req, res) => {
             tax_country_code: normalizeSupplierPayload(row).tax_country_code,
             is_active: true
         }));
-
-
         await req.propertyDb.models.supplier_master.bulkCreate(formatted, {
             transaction: t
         });
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -292,100 +268,79 @@ exports.bulkImportSuppliers = async (req, res) => {
             outlet_id,
             user_id
         });
-
         await t.commit();
-
         res.json({
             success: true,
             message: 'Suppliers imported successfully'
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.getSuppliers = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { q, activeOnly, active_only, all } = req.query;
-
         const where = {
             outlet_id
         };
-
         const fetchAll = all === 'true' || all === true || activeOnly === 'false' || activeOnly === false || active_only === 'false' || active_only === false;
         if (!fetchAll) {
             where.is_active = true;
         }
-
         if (q && q.trim() !== '') {
             const search = q.trim();
             const digits = search.replace(/[^\d]/g, '');
             const parsedNum = digits ? parseInt(digits, 10) : null;
-
             const searchConditions = [
                 { supplier_code: { [Op.iLike]: `%${search}%` } },
                 { supplier_name: { [Op.iLike]: `%${search}%` } },
                 { phone: { [Op.iLike]: `%${search}%` } },
                 { gstin: { [Op.iLike]: `%${search}%` } }
             ];
-
             if (parsedNum !== null) {
                 searchConditions.push({ supplier_code: { [Op.iLike]: `%${parsedNum}%` } });
                 searchConditions.push({ supplier_code: { [Op.iLike]: `%sup${parsedNum}%` } });
             }
-
             where[Op.or] = searchConditions;
         }
-
         const suppliers = await req.propertyDb.models.supplier_master.findAll({
             where,
             order: [['id', 'DESC']]
         });
-
         res.json({ success: true, data: suppliers });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.updateSupplier = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
         const id = req.params.id;
-
         const supplier = await req.propertyDb.models.supplier_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!supplier) {
             return res.status(404).json({ success: false });
         }
-
         const oldData = supplier.toJSON();
-
         const payload = normalizeSupplierPayload({
             ...supplier.toJSON(),
             ...req.body
         });
-
         if (!payload.supplier_name) {
             return res.status(400).json({ success: false, message: 'Vendor name is required' });
         }
-
         if (!payload.address) {
             return res.status(400).json({ success: false, message: 'Address is required' });
         }
-
         const isActiveVal = req.body.is_active !== undefined ? (req.body.is_active === true || req.body.is_active === 'true') : supplier.is_active;
-
         const oldOpening = parseFloat(oldData.opening_balance || 0) || 0;
         const newOpening = payload.opening_balance;
-
         await supplier.update({
             supplier_code: payload.supplier_code,
             supplier_name: payload.supplier_name,
@@ -400,10 +355,8 @@ exports.updateSupplier = async (req, res) => {
             opening_balance: payload.opening_balance,
             is_active: isActiveVal
         });
-
         // Sync opening balance changes to supplier_bills and Chart of Accounts
         await syncVendorToCoa(req, outlet_id, supplier, newOpening, oldOpening, payload.as_of_date);
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -415,30 +368,24 @@ exports.updateSupplier = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, data: supplier });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.toggleSupplierStatus = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const id = req.params.id;
-
         const supplier = await req.propertyDb.models.supplier_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!supplier) {
             return res.status(404).json({ success: false, message: 'Supplier not found' });
         }
-
         const newStatus = !supplier.is_active;
         await supplier.update({ is_active: newStatus });
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -450,30 +397,24 @@ exports.toggleSupplierStatus = async (req, res) => {
             outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, data: supplier, message: `Supplier status changed to ${newStatus ? 'Active' : 'Inactive'}` });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.deleteSupplier = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
         const id = req.params.id;
-
         const supplier = await req.propertyDb.models.supplier_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!supplier) {
             return res.status(404).json({ success: false });
         }
-
         await supplier.update({ is_active: false });
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -485,58 +426,54 @@ exports.deleteSupplier = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, message: 'Supplier deactivated' });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.getNextSupplierCode = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
-
         const suppliers = await req.propertyDb.models.supplier_master.findAll({
             where: { outlet_id },
             attributes: ['supplier_code']
         });
-
         const usedCodes = new Set();
         let maxNum = 0;
-
         for (const row of suppliers) {
             const code = String(row.supplier_code || '').trim();
-            if (!code) continue;
+            if (!code)
+                continue;
             usedCodes.add(code.toUpperCase());
-
             const match = code.match(/(\d+)$/);
             if (match) {
                 const num = parseInt(match[1], 10);
                 if (Number.isFinite(num) && num > maxNum) {
                     maxNum = num;
                 }
-            } else {
+            }
+            else {
                 const digits = parseInt(code.replace(/[^\d]/g, '')) || 0;
                 if (digits > maxNum) {
                     maxNum = digits;
                 }
             }
         }
-
         let nextNum = maxNum + 1;
         let nextCode = `sup${nextNum}`;
         while (usedCodes.has(nextCode.toUpperCase())) {
             nextNum += 1;
             nextCode = `sup${nextNum}`;
         }
-
         res.json({
             success: true,
             data: nextCode,
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
+module.exports = exports;
+exports.default = exports;

@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const PaymentMethod = sequelize.define('payment_methods', {
         id: {
@@ -23,6 +24,5 @@ module.exports = (sequelize, DataTypes) => {
         underscored: true,
         tableName: 'payment_methods'
     });
-
     return PaymentMethod;
 };

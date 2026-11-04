@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const EmailTemplate = sequelize.define('email_templates', {
         id: {
@@ -31,6 +32,5 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     return EmailTemplate;
 };

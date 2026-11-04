@@ -1,28 +1,24 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const { Op } = require('sequelize');
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
-
 exports.getSupplierPaymentsReport = async (req, res) => {
     try {
         const reqOutlet = req.query.outlet_id || req.query.outletId;
         const scope = await resolveOutletScope(req, reqOutlet);
         const { fromDate, toDate, supplierId, paymentMode, search } = req.query;
-
         const where = { ...scope.outletWhere };
-
         if (supplierId && supplierId !== 'ALL' && supplierId !== 'null' && supplierId !== '') {
             where.supplier_id = Number(supplierId);
         }
-
         if (paymentMode && paymentMode !== 'ALL' && paymentMode !== '') {
             where.payment_mode = paymentMode;
         }
-
         if (fromDate && toDate) {
             where.payment_date = {
                 [Op.between]: [fromDate, toDate]
             };
         }
-
         if (search && search.trim() !== '') {
             const searchVal = `%${search.trim()}%`;
             where[Op.or] = [
@@ -30,7 +26,6 @@ exports.getSupplierPaymentsReport = async (req, res) => {
                 { '$bill.bill_no$': { [Op.iLike]: searchVal } }
             ];
         }
-
         const payments = await req.propertyDb.models.supplier_payments.findAll({
             where,
             include: [
@@ -50,10 +45,8 @@ exports.getSupplierPaymentsReport = async (req, res) => {
                 ['id', 'DESC']
             ]
         });
-
         const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
         const totalCreditAdjusted = payments.reduce((sum, p) => sum + Number(p.credit_adjusted || 0), 0);
-
         res.json({
             success: true,
             summary: {
@@ -63,7 +56,8 @@ exports.getSupplierPaymentsReport = async (req, res) => {
             },
             data: payments
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error(err);
         res.status(500).json({
             success: false,
@@ -71,3 +65,5 @@ exports.getSupplierPaymentsReport = async (req, res) => {
         });
     }
 };
+module.exports = exports;
+exports.default = exports;

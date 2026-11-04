@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const WhatsappCampaign = sequelize.define('whatsapp_campaigns', {
         id: {
@@ -31,7 +33,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     WhatsappCampaign.associate = (models) => {
         WhatsappCampaign.belongsTo(models.whatsapp_templates, {
             foreignKey: 'template_id',
@@ -42,6 +43,6 @@ module.exports = (sequelize, DataTypes) => {
             as: 'logs'
         });
     };
-
     return WhatsappCampaign;
 };
+exports.default = module.exports;

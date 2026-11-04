@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const EmailConfig = sequelize.define('email_configurations', {
         id: {
@@ -67,6 +69,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     return EmailConfig;
 };
+exports.default = module.exports;

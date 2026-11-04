@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const ItemModifier = sequelize.define('item_modifiers', {
         id: {
@@ -45,7 +47,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     ItemModifier.associate = (models) => {
         ItemModifier.belongsTo(models.item_master, {
             foreignKey: 'item_master_id',
@@ -56,6 +57,6 @@ module.exports = (sequelize, DataTypes) => {
             as: 'inventory_item'
         });
     };
-
     return ItemModifier;
 };
+exports.default = module.exports;

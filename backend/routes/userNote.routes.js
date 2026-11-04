@@ -1,9 +1,13 @@
-const router = require('express').Router();
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const router = express_1.default.Router();
 const auth = require('../middlewares/auth.middleware');
 const notesCtrl = require('../controllers/notes/userNote.controller');
-
 router.use(auth);
-
 router.get('/', notesCtrl.getNotes);
 router.post('/', notesCtrl.createNote);
 router.post('/:id/copy', notesCtrl.copyNote);
@@ -13,5 +17,5 @@ router.put('/:id/trash', notesCtrl.moveToTrash);
 router.put('/:id/restore', notesCtrl.restoreNote);
 router.delete('/:id/permanent', notesCtrl.permanentDelete);
 router.delete('/trash/empty', notesCtrl.emptyTrash);
-
 module.exports = router;
+exports.default = router;

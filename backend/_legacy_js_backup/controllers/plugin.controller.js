@@ -1,9 +1,8 @@
+"use strict";
 const pluginService = require('../services/plugin_manager.service');
-
 function resolveOutletId(req) {
     return Number(req?.user?.outlet_id) || 0;
 }
-
 exports.getMarketplaceCatalog = async (req, res) => {
     try {
         const data = await pluginService.getMarketplaceCatalog();
@@ -11,7 +10,8 @@ exports.getMarketplaceCatalog = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[PLUGIN MARKETPLACE CONTROLLER ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -19,7 +19,6 @@ exports.getMarketplaceCatalog = async (req, res) => {
         });
     }
 };
-
 exports.getInstalledPlugins = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -28,7 +27,8 @@ exports.getInstalledPlugins = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[INSTALLED PLUGINS CONTROLLER ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -36,7 +36,6 @@ exports.getInstalledPlugins = async (req, res) => {
         });
     }
 };
-
 exports.installPlugin = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -46,7 +45,8 @@ exports.installPlugin = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[INSTALL PLUGIN ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -54,7 +54,6 @@ exports.installPlugin = async (req, res) => {
         });
     }
 };
-
 exports.togglePlugin = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -65,7 +64,8 @@ exports.togglePlugin = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[TOGGLE PLUGIN ERROR]:', error.message);
         return res.status(500).json({
             success: false,

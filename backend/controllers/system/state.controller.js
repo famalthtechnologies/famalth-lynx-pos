@@ -1,6 +1,9 @@
-const { Op } = require('sequelize');
-
-const INDIAN_STATES = [
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.deleteState = exports.createState = exports.getStates = exports.UAE_EMIRATES = exports.CANADA_PROVINCES = exports.UK_REGIONS = exports.KENYA_COUNTIES = exports.US_STATES = exports.INDIAN_STATES = void 0;
+exports.normalizeCountryCode = normalizeCountryCode;
+const sequelize_1 = require("sequelize");
+exports.INDIAN_STATES = [
     'Andaman and Nicobar Islands',
     'Andhra Pradesh',
     'Arunachal Pradesh',
@@ -38,8 +41,7 @@ const INDIAN_STATES = [
     'Uttarakhand',
     'West Bengal'
 ];
-
-const US_STATES = [
+exports.US_STATES = [
     'Alabama',
     'Alaska',
     'Arizona',
@@ -95,8 +97,7 @@ const US_STATES = [
     'Wisconsin',
     'Wyoming'
 ];
-
-const KENYA_COUNTIES = [
+exports.KENYA_COUNTIES = [
     'Baringo',
     'Bomet',
     'Bungoma',
@@ -145,8 +146,7 @@ const KENYA_COUNTIES = [
     'Wajir',
     'West Pokot'
 ];
-
-const UK_REGIONS = [
+exports.UK_REGIONS = [
     'East Midlands',
     'East of England',
     'Greater London',
@@ -160,8 +160,7 @@ const UK_REGIONS = [
     'West Midlands',
     'Yorkshire and the Humber'
 ];
-
-const CANADA_PROVINCES = [
+exports.CANADA_PROVINCES = [
     'Alberta',
     'British Columbia',
     'Manitoba',
@@ -176,8 +175,7 @@ const CANADA_PROVINCES = [
     'Saskatchewan',
     'Yukon'
 ];
-
-const UAE_EMIRATES = [
+exports.UAE_EMIRATES = [
     'Abu Dhabi',
     'Ajman',
     'Dubai',
@@ -186,31 +184,41 @@ const UAE_EMIRATES = [
     'Sharjah',
     'Umm Al-Quwain'
 ];
-
 function normalizeCountryCode(countryRaw) {
     const c = (countryRaw || '').toString().trim().toUpperCase();
-    if (!c) return '';
-    if (c === 'US' || c === 'USA' || c === 'UNITED STATES' || c === 'UNITED STATES OF AMERICA') return 'US';
-    if (c === 'IN' || c === 'IND' || c === 'INDIA') return 'IN';
-    if (c === 'KE' || c === 'KEN' || c === 'KENYA') return 'KE';
-    if (c === 'GB' || c === 'UK' || c === 'UNITED KINGDOM' || c === 'GREAT BRITAIN') return 'GB';
-    if (c === 'AE' || c === 'UAE' || c === 'UNITED ARAB EMIRATES') return 'AE';
-    if (c === 'CA' || c === 'CAN' || c === 'CANADA') return 'CA';
-    if (c === 'AU' || c === 'AUS' || c === 'AUSTRALIA') return 'AU';
-    if (c === 'TZ' || c === 'TZA' || c === 'TANZANIA') return 'TZ';
-    if (c === 'UG' || c === 'UGA' || c === 'UGANDA') return 'UG';
-    if (c === 'RW' || c === 'RWA' || c === 'RWANDA') return 'RW';
-    if (c === 'ZA' || c === 'ZAF' || c === 'SOUTH AFRICA') return 'ZA';
-    if (c === 'NG' || c === 'NGA' || c === 'NIGERIA') return 'NG';
+    if (!c)
+        return '';
+    if (c === 'US' || c === 'USA' || c === 'UNITED STATES' || c === 'UNITED STATES OF AMERICA')
+        return 'US';
+    if (c === 'IN' || c === 'IND' || c === 'INDIA')
+        return 'IN';
+    if (c === 'KE' || c === 'KEN' || c === 'KENYA')
+        return 'KE';
+    if (c === 'GB' || c === 'UK' || c === 'UNITED KINGDOM' || c === 'GREAT BRITAIN')
+        return 'GB';
+    if (c === 'AE' || c === 'UAE' || c === 'UNITED ARAB EMIRATES')
+        return 'AE';
+    if (c === 'CA' || c === 'CAN' || c === 'CANADA')
+        return 'CA';
+    if (c === 'AU' || c === 'AUS' || c === 'AUSTRALIA')
+        return 'AU';
+    if (c === 'TZ' || c === 'TZA' || c === 'TANZANIA')
+        return 'TZ';
+    if (c === 'UG' || c === 'UGA' || c === 'UGANDA')
+        return 'UG';
+    if (c === 'RW' || c === 'RWA' || c === 'RWANDA')
+        return 'RW';
+    if (c === 'ZA' || c === 'ZAF' || c === 'SOUTH AFRICA')
+        return 'ZA';
+    if (c === 'NG' || c === 'NGA' || c === 'NIGERIA')
+        return 'NG';
     return c;
 }
-
 const getStates = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id;
         const requestedRaw = (req.query.country_code || req.query.country || '').toString().trim();
         const countryCode = normalizeCountryCode(requestedRaw);
-
         const customStates = await req.propertyDb.models.custom_states.findAll({
             where: {
                 outlet_id,
@@ -218,34 +226,34 @@ const getStates = async (req, res) => {
             },
             order: [['state_name', 'ASC']]
         });
-
         let basePresetStates = [];
         if (countryCode === 'US') {
-            basePresetStates = US_STATES;
-        } else if (countryCode === 'IN') {
-            basePresetStates = INDIAN_STATES;
-        } else if (countryCode === 'KE') {
-            basePresetStates = KENYA_COUNTIES;
-        } else if (countryCode === 'GB') {
-            basePresetStates = UK_REGIONS;
-        } else if (countryCode === 'CA') {
-            basePresetStates = CANADA_PROVINCES;
-        } else if (countryCode === 'AE') {
-            basePresetStates = UAE_EMIRATES;
+            basePresetStates = exports.US_STATES;
         }
-
+        else if (countryCode === 'IN') {
+            basePresetStates = exports.INDIAN_STATES;
+        }
+        else if (countryCode === 'KE') {
+            basePresetStates = exports.KENYA_COUNTIES;
+        }
+        else if (countryCode === 'GB') {
+            basePresetStates = exports.UK_REGIONS;
+        }
+        else if (countryCode === 'CA') {
+            basePresetStates = exports.CANADA_PROVINCES;
+        }
+        else if (countryCode === 'AE') {
+            basePresetStates = exports.UAE_EMIRATES;
+        }
         const stateSet = new Set(basePresetStates);
-
         // Filter custom states matching the country code
         customStates
             .filter((s) => {
-                const sCountry = normalizeCountryCode(s.country_code);
-                return !countryCode || sCountry === countryCode;
-            })
+            const sCountry = normalizeCountryCode(s.country_code);
+            return !countryCode || sCountry === countryCode;
+        })
             .forEach((s) => stateSet.add(s.state_name));
-
         const stateNames = Array.from(stateSet).sort();
-
         res.json({
             success: true,
             country_code: countryCode || 'US',
@@ -253,34 +261,31 @@ const getStates = async (req, res) => {
             states: stateNames,
             custom_records: customStates
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error fetching states:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
+exports.getStates = getStates;
 const createState = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id;
         const { state_name, state_code, country_code } = req.body;
-
         const cleanName = (state_name || '').toString().trim();
         const cleanCountry = normalizeCountryCode(country_code) || 'US';
         const cleanCode = state_code ? state_code.toString().trim() : null;
-
         if (!cleanName) {
             return res.status(400).json({ success: false, message: 'State / Region name is required' });
         }
-
         // Check if already exists in custom_states
         let state = await req.propertyDb.models.custom_states.findOne({
             where: {
                 outlet_id,
                 country_code: cleanCountry,
-                state_name: { [Op.iLike]: cleanName }
+                state_name: { [sequelize_1.Op.iLike]: cleanName }
             }
         });
-
         if (state) {
             if (!state.is_active) {
                 await state.update({ is_active: true, state_code: cleanCode || state.state_code });
@@ -291,7 +296,6 @@ const createState = async (req, res) => {
                 data: state
             });
         }
-
         state = await req.propertyDb.models.custom_states.create({
             outlet_id,
             country_code: cleanCountry,
@@ -300,47 +304,57 @@ const createState = async (req, res) => {
             is_custom: true,
             is_active: true
         });
-
         res.json({
             success: true,
             message: `Custom region/state "${cleanName}" saved successfully in database`,
             data: state
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error creating custom state:', err);
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
+exports.createState = createState;
 const deleteState = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
-
         const state = await req.propertyDb.models.custom_states.findOne({
             where: { id, outlet_id }
         });
-
         if (!state) {
             return res.status(404).json({ success: false, message: 'State not found' });
         }
-
         await state.destroy();
         res.json({ success: true, message: 'Custom state deleted successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-module.exports = {
-    INDIAN_STATES,
-    US_STATES,
-    KENYA_COUNTIES,
-    UK_REGIONS,
-    CANADA_PROVINCES,
-    UAE_EMIRATES,
+exports.deleteState = deleteState;
+exports.default = {
+    INDIAN_STATES: exports.INDIAN_STATES,
+    US_STATES: exports.US_STATES,
+    KENYA_COUNTIES: exports.KENYA_COUNTIES,
+    UK_REGIONS: exports.UK_REGIONS,
+    CANADA_PROVINCES: exports.CANADA_PROVINCES,
+    UAE_EMIRATES: exports.UAE_EMIRATES,
     normalizeCountryCode,
-    getStates,
-    createState,
-    deleteState
+    getStates: exports.getStates,
+    createState: exports.createState,
+    deleteState: exports.deleteState
+};
+module.exports = {
+    INDIAN_STATES: exports.INDIAN_STATES,
+    US_STATES: exports.US_STATES,
+    KENYA_COUNTIES: exports.KENYA_COUNTIES,
+    UK_REGIONS: exports.UK_REGIONS,
+    CANADA_PROVINCES: exports.CANADA_PROVINCES,
+    UAE_EMIRATES: exports.UAE_EMIRATES,
+    normalizeCountryCode,
+    getStates: exports.getStates,
+    createState: exports.createState,
+    deleteState: exports.deleteState
 };

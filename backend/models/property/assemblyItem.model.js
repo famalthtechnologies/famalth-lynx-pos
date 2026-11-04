@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const AssemblyItem = sequelize.define('assembly_items', {
         id: {
@@ -38,7 +40,6 @@ module.exports = (sequelize, DataTypes) => {
         underscored: true,
         tableName: 'assembly_items'
     });
-
     AssemblyItem.associate = (models) => {
         AssemblyItem.belongsTo(models.assembly_headers, {
             foreignKey: 'assembly_id',
@@ -49,6 +50,6 @@ module.exports = (sequelize, DataTypes) => {
             as: 'component_item'
         });
     };
-
     return AssemblyItem;
 };
+exports.default = module.exports;

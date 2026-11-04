@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const HrSalaryRevision = sequelize.define('hr_salary_revisions', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -15,11 +16,9 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     HrSalaryRevision.associate = (models) => {
         HrSalaryRevision.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
         HrSalaryRevision.belongsTo(models.hr_employees, { foreignKey: 'employee_id', as: 'employee' });
     };
-
     return HrSalaryRevision;
 };

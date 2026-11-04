@@ -90,13 +90,11 @@ router.post('/provider/retention-purge', authMiddleware, backupManagement_contro
 router.get('/storage-quota', authMiddleware, outletMiddleware, backupManagement_controller_1.default.getStorageQuota);
 // 18. 1-Click monthly storage add-on upgrade
 router.post('/storage-quota/upgrade', authMiddleware, outletMiddleware, backupManagement_controller_1.default.upgradeStorageQuota);
-
 // 19. Admin Console: Enterprise Storage Overview
 router.get('/admin/storage-overview', authMiddleware, backupManagement_controller_1.default.getAdminStorageOverview);
 // 20. Admin Console: Manually grant/modify storage for client outlet
 router.post('/admin/modify-storage', authMiddleware, backupManagement_controller_1.default.adminModifyStorage);
 // 21. Automatic recurring storage addition on payment success
 router.post('/storage-quota/payment-success', authMiddleware, backupManagement_controller_1.default.processStoragePaymentSuccess);
-
 exports.default = router;
 module.exports = router;

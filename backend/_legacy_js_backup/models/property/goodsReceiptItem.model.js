@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const goods_receipt_items = sequelize.define('goods_receipt_items', {
         grn_id: DataTypes.INTEGER,
@@ -21,12 +22,10 @@ module.exports = (sequelize, DataTypes) => {
         timestamps: false
     });
     goods_receipt_items.associate = (models) => {
-
         goods_receipt_items.belongsTo(models.goods_receipts, {
             foreignKey: 'grn_id',
             as: 'grn'
         });
-
     };
     return goods_receipt_items;
 };

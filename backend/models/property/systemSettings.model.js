@@ -1,90 +1,75 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('system_settings', {
         outlet_id: {
             type: DataTypes.INTEGER,
             allowNull: false
         },
-
         auto_reorder: {
             type: DataTypes.BOOLEAN,
             defaultValue: true
         },
-
         outlet_max_discount_percent: {
             type: DataTypes.DECIMAL(5, 2),
             defaultValue: 100.00
         },
-
         is_cloud_enabled: {
             type: DataTypes.BOOLEAN,
             defaultValue: false
         },
-
         allow_negative_stock: {
             type: DataTypes.BOOLEAN,
             defaultValue: false
         },
-
         damage_approval_required: {
             type: DataTypes.BOOLEAN,
             defaultValue: true
         },
-
         enable_audit_log: {
             type: DataTypes.BOOLEAN,
             defaultValue: true
         },
-
         auto_print_on_save: {
             type: DataTypes.BOOLEAN,
             defaultValue: false
         },
-
         enable_item_images_in_sales: {
             type: DataTypes.BOOLEAN,
             defaultValue: false
         },
-
         print_mode: {
             type: DataTypes.STRING(30),
             defaultValue: 'PRINT_DIALOG'
         },
-
         default_printer_name: {
             type: DataTypes.STRING(255),
             defaultValue: ''
         },
-
         default_printer_url: {
             type: DataTypes.STRING(500),
             defaultValue: ''
         },
-
         billing_country: {
             type: DataTypes.STRING(80),
             defaultValue: 'India'
         },
-
         time_zone: {
             type: DataTypes.STRING(100),
             defaultValue: 'Asia/Kolkata'
         },
-
         billing_tax_mode: {
             type: DataTypes.STRING(30),
             defaultValue: 'CGST_SGST'
         },
-
         bill_format: {
             type: DataTypes.STRING(20),
             defaultValue: 'A4'
         },
-
         default_charges: {
             type: DataTypes.JSONB,
             defaultValue: []
         },
-
         voucher_rules: {
             type: DataTypes.JSONB,
             defaultValue: []
@@ -267,3 +252,4 @@ module.exports = (sequelize, DataTypes) => {
         indexes: [{ unique: true, fields: ['outlet_id'] }]
     });
 };
+exports.default = module.exports;

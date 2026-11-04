@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.injectFamalthLynxFooter = injectFamalthLynxFooter;
 exports.sendEmail = sendEmail;
 exports.sendOtpEmail = sendOtpEmail;
 exports.sendPasswordResetEmail = sendPasswordResetEmail;
@@ -260,15 +261,11 @@ function injectFamalthLynxFooter(htmlContent, recipientEmail) {
     const appBaseUrl = process.env.APP_URL || process.env.PUBLIC_URL || 'http://localhost:5000';
     const emailParam = encodeURIComponent(recipientEmail || '');
     const unsubscribeUrl = `${appBaseUrl}/api/v1/unsubscribe?email=${emailParam}`;
-
     // Prevent duplicate injection
-    if (
-        htmlContent.includes('unsubscribe-footer-famalth-lynx') ||
-        (htmlContent.includes('Dehradun, Uttarakhand 248001') && htmlContent.includes('unsubscribe'))
-    ) {
+    if (htmlContent.includes('unsubscribe-footer-famalth-lynx') ||
+        (htmlContent.includes('Dehradun, Uttarakhand 248001') && htmlContent.includes('unsubscribe'))) {
         return htmlContent;
     }
-
     const footerHtml = `
       <div class="unsubscribe-footer-famalth-lynx" style="margin-top: 36px; padding: 24px 16px 16px 16px; text-align: center; color: #5f6368; font-size: 11.5px; line-height: 1.6; font-family: 'Google Sans', Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; border-top: 1px solid #e8eaed; max-width: 600px; margin-left: auto; margin-right: auto;">
         <p style="margin: 0 0 6px 0; color: #5f6368;">
@@ -283,28 +280,22 @@ function injectFamalthLynxFooter(htmlContent, recipientEmail) {
         </p>
       </div>
     `;
-
     if (htmlContent.includes('</body>')) {
         return htmlContent.replace('</body>', `${footerHtml}</body>`);
     }
-
     return `${htmlContent}\n${footerHtml}`;
 }
-exports.injectFamalthLynxFooter = injectFamalthLynxFooter;
-
 /**
  * Core function to send any generic email
  */
 async function sendEmail(to, subject, htmlContent, attachments) {
     // Automatically guarantee Google-style Famalth Lynx footer & unsubscribe link in EVERY email
     htmlContent = injectFamalthLynxFooter(htmlContent, to);
-
     const emailUser = process.env.EMAIL_USER || process.env.EMAIL_ID || (configManager_1.default ? configManager_1.default.emailId : null);
     const emailPass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD || (configManager_1.default ? configManager_1.default.emailPass : null);
     const emailHost = process.env.EMAIL_HOST || 'smtp.gmail.com';
     const emailPort = Number(process.env.EMAIL_PORT) || 587;
     const fromSender = process.env.EMAIL_FROM || `"Famalth Lynx" <${emailUser}>`;
-
     const secEnv = (process.env.EMAIL_SECURITY || process.env.EMAIL_SECURE_MODE || '').toString().trim().toUpperCase();
     const isSecureBool = process.env.EMAIL_SECURE === 'true' || process.env.EMAIL_SECURE === '1' || emailPort === 465 || secEnv === 'SSL';
     const secProtocolStr = isSecureBool ? 'SSL (465)' : (secEnv === 'NONE' ? 'NONE (25)' : 'STARTTLS (587)');
@@ -331,7 +322,7 @@ async function sendEmail(to, subject, htmlContent, attachments) {
             throw new Error("EMAIL_PROVIDER is set to RESEND, but RESEND_API_KEY is missing in environment variables.");
         }
         console.log(`[EMAIL MODE] Sending strictly via Resend API to ${to}...`);
-        return await sendViaResendApi(process.env.RESEND_API_KEY, to, subject, htmlContent, attachments);
+        return await sendViaResendApi(process.env.RESEND_API_KEY, to, subject, htmlContent);
     }
     // MODE 3: STANDARD SMTP ONLY (Does NOT request Resend API or OAuth2)
     if (isSmtpMode) {

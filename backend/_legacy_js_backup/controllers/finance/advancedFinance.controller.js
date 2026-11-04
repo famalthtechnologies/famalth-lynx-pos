@@ -1,44 +1,16 @@
+"use strict";
 const { Op, Sequelize } = require('sequelize');
 const { getNextNumber } = require('../../services/numbering.service');
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
 const { isBankPayment, isBankPaymentMethod, getDefaultBankAccount, creditBankBalance, debitBankBalance } = require('../../services/bankAccount.service');
-const {
-    createLedgerEntry,
-    updateLedgerEntry,
-    getOpeningBalanceForDate,
-    upsertOpeningBalance,
-    roundAmount,
-    dateKey,
-    startOfDay,
-    recalculateLedgerBalances
-} = require('../../services/cashLedger.service');
-const {
-    refreshSaleOutstanding,
-    getRepaymentTotal,
-    resolvePaymentStatus,
-    extractInitialPaid
-} = require('../../services/salesFinance.service');
-
-async function createAutoAccountingVoucher({
-    req,
-    outlet_id,
-    created_by,
-    voucher_type,
-    voucher_date,
-    payment_mode,
-    reference_no,
-    narration,
-    total_amount,
-    debit_account_name,
-    debit_account_type = 'GENERAL',
-    credit_account_name,
-    credit_account_type = 'GENERAL',
-    transaction
-}) {
+const { createLedgerEntry, updateLedgerEntry, getOpeningBalanceForDate, upsertOpeningBalance, roundAmount, dateKey, startOfDay, recalculateLedgerBalances } = require('../../services/cashLedger.service');
+const { refreshSaleOutstanding, getRepaymentTotal, resolvePaymentStatus, extractInitialPaid } = require('../../services/salesFinance.service');
+async function createAutoAccountingVoucher({ req, outlet_id, created_by, voucher_type, voucher_date, payment_mode, reference_no, narration, total_amount, debit_account_name, debit_account_type = 'GENERAL', credit_account_name, credit_account_type = 'GENERAL', transaction }) {
     let autoNo;
     try {
         autoNo = await getNextNumber(req.propertyDb, outlet_id, voucher_type);
-    } catch (_) {
+    }
+    catch (_) {
         const prefixMap = { CONTRA: 'CN', PAYMENT: 'PV', RECEIPT: 'RV', JOURNAL: 'JV', SALES: 'SV', PURCHASE: 'PV' };
         const count = await req.propertyDb.models.accounting_vouchers.count({
             where: { outlet_id, voucher_type },
@@ -46,10 +18,8 @@ async function createAutoAccountingVoucher({
         });
         autoNo = `${prefixMap[voucher_type] || 'VC'}-${String(count + 1).padStart(4, '0')}`;
     }
-
     const vDate = voucher_date || new Date().toISOString().split('T')[0];
     const amountVal = Number(total_amount || 0);
-
     const header = await req.propertyDb.models.accounting_vouchers.create({
         outlet_id,
         voucher_no: autoNo,
@@ -63,7 +33,6 @@ async function createAutoAccountingVoucher({
         status: 'POSTED',
         created_by
     }, { transaction });
-
     const detailRows = [
         {
             voucher_id: header.id,
@@ -84,18 +53,14 @@ async function createAutoAccountingVoucher({
             particulars: narration ? String(narration).trim() : null
         }
     ];
-
     await req.propertyDb.models.voucher_lines.bulkCreate(detailRows, { transaction });
-
     return header;
 }
-
 async function updateSaleLedgerOutstanding({ db, outlet_id, sale, balance, transaction }) {
     try {
         const balNum = typeof balance === 'object' && balance !== null
             ? Number(balance.balanceDue ?? balance.balance ?? 0)
             : Number(balance || 0);
-
         const saleEntries = await db.models.cash_ledger.findAll({
             where: {
                 outlet_id,
@@ -114,10 +79,12 @@ async function updateSaleLedgerOutstanding({ db, outlet_id, sale, balance, trans
                 if (!updatedNotes.includes('(Settled / Paid)')) {
                     updatedNotes = `${updatedNotes} (Settled / Paid)`.trim();
                 }
-            } else {
+            }
+            else {
                 if (/outstanding\s+[0-9]+(?:\.[0-9]+)?/i.test(updatedNotes)) {
                     updatedNotes = updatedNotes.replace(/outstanding\s+[0-9]+(?:\.[0-9]+)?/gi, `outstanding ${balNum.toFixed(2)}`);
-                } else {
+                }
+                else {
                     updatedNotes = `${updatedNotes} - outstanding ${balNum.toFixed(2)}`.trim();
                 }
             }
@@ -126,54 +93,50 @@ async function updateSaleLedgerOutstanding({ db, outlet_id, sale, balance, trans
                 notes: updatedNotes
             }, { transaction });
         }
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error updating sale ledger outstanding:', err);
     }
 }
-
 function parseDateOnly(value, fallback = null) {
-    if (!value) return fallback;
+    if (!value)
+        return fallback;
     let date;
     if (typeof value === 'string') {
         const trimmed = value.trim();
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
         if (match) {
-            date = new Date(
-                Number(match[1]),
-                Number(match[2]) - 1,
-                Number(match[3])
-            );
-        } else {
+            date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+        }
+        else {
             date = new Date(trimmed);
         }
-    } else {
+    }
+    else {
         date = new Date(value);
     }
-    if (Number.isNaN(date.getTime())) return fallback;
+    if (Number.isNaN(date.getTime()))
+        return fallback;
     date.setHours(0, 0, 0, 0);
     return date;
 }
-
 function endOfDay(value) {
     const date = parseDateOnly(value, new Date());
     date.setHours(23, 59, 59, 999);
     return date;
 }
-
 function toAmount(value) {
     return roundAmount(value);
 }
-
 function buildCustomerMatch(search) {
-    if (!search) return null;
+    if (!search)
+        return null;
     const cleanPhone = String(search).replace(/\D/g, '').trim();
     const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
-
     const orConditions = [
         { customer_name: { [Op.iLike]: `%${search}%` } },
         { customer_gstin: { [Op.iLike]: `%${search}%` } }
     ];
-
     if (last10.length >= 7) {
         orConditions.push({
             customer_phone: {
@@ -183,13 +146,12 @@ function buildCustomerMatch(search) {
                 ]
             }
         });
-    } else {
+    }
+    else {
         orConditions.push({ customer_phone: { [Op.iLike]: `%${search}%` } });
     }
-
     return { [Op.or]: orConditions };
 }
-
 function normalizeCustomerIdentity(payload = {}) {
     return {
         customer_name: String(payload.customer_name || '').trim(),
@@ -197,7 +159,6 @@ function normalizeCustomerIdentity(payload = {}) {
         customer_gstin: String(payload.customer_gstin || '').trim().toUpperCase()
     };
 }
-
 function buildCustomerExactMatch(identity = {}) {
     if (identity.customer_phone) {
         return { customer_phone: identity.customer_phone };
@@ -210,60 +171,52 @@ function buildCustomerExactMatch(identity = {}) {
     }
     return null;
 }
-
 function ensureCustomerIdentity(identity = {}) {
     if (!identity.customer_phone && !identity.customer_gstin && !identity.customer_name) {
         throw new Error('Customer selection is required to store or use advance balance');
     }
 }
-
 function buildCustomerKey(sale) {
     const phone = String(sale.customer_phone || '').trim();
     const gstin = String(sale.customer_gstin || '').trim().toUpperCase();
     const name = String(sale.customer_name || '').trim().toLowerCase();
     return phone || gstin || name || `walkin-${sale.id}`;
 }
-
 function getCustomerLabel(sale) {
     return String(sale.customer_name || sale.customer_phone || 'Walk-in Customer').trim() || 'Walk-in Customer';
 }
-
 function getCustomerLabelFromIdentity(identity = {}) {
     return String(identity.customer_name || identity.customer_phone || 'Walk-in Customer').trim() || 'Walk-in Customer';
 }
-
 function formatIncomeNotes(source, note) {
     const cleanedSource = String(source || '').trim();
     const cleanedNote = String(note || '').trim();
-    if (!cleanedSource && !cleanedNote) return null;
-    if (!cleanedNote) return `SOURCE:${cleanedSource}`;
+    if (!cleanedSource && !cleanedNote)
+        return null;
+    if (!cleanedNote)
+        return `SOURCE:${cleanedSource}`;
     return `SOURCE:${cleanedSource}\nNOTE:${cleanedNote}`;
 }
-
 async function findLinkedLedgerEntry(db, outlet_id, reference_type, reference_id, transaction) {
     return db.models.cash_ledger.findOne({
         where: { outlet_id, reference_type, reference_id: String(reference_id) },
         transaction
     });
 }
-
 function calculateExpenseAmounts({ amount, isTaxInclusive, taxes = [], deductions = [] }) {
     const totalTaxPercent = taxes.reduce((sum, t) => sum + Number(t.tax_percentage || t.tax_percent || 0), 0);
-
     let baseAmount = 0;
     let totalTaxAmount = 0;
-
     if (isTaxInclusive) {
         baseAmount = amount / (1 + (totalTaxPercent / 100));
         totalTaxAmount = amount - baseAmount;
-    } else {
+    }
+    else {
         baseAmount = amount;
         totalTaxAmount = baseAmount * (totalTaxPercent / 100);
     }
-
     baseAmount = Math.round(baseAmount * 100) / 100;
     totalTaxAmount = Math.round(totalTaxAmount * 100) / 100;
-
     let calculatedTaxes = [];
     if (totalTaxPercent > 0) {
         let remainingTax = totalTaxAmount;
@@ -272,7 +225,8 @@ function calculateExpenseAmounts({ amount, isTaxInclusive, taxes = [], deduction
             const percent = Number(tax.tax_percentage || tax.tax_percent || 0);
             if (index === taxes.length - 1) {
                 taxAmt = remainingTax;
-            } else {
+            }
+            else {
                 taxAmt = Math.round((totalTaxAmount * (percent / totalTaxPercent)) * 100) / 100;
                 remainingTax -= taxAmt;
             }
@@ -283,7 +237,6 @@ function calculateExpenseAmounts({ amount, isTaxInclusive, taxes = [], deduction
             });
         });
     }
-
     let totalDeductionAmount = 0;
     const calculatedDeductions = deductions.map((ded) => {
         const percent = Number(ded.deduction_percentage || ded.deduction_percent || 0);
@@ -295,12 +248,9 @@ function calculateExpenseAmounts({ amount, isTaxInclusive, taxes = [], deduction
             deduction_amount: dedAmt
         };
     });
-
     totalDeductionAmount = Math.round(totalDeductionAmount * 100) / 100;
-
     const grossAmount = isTaxInclusive ? amount : (baseAmount + totalTaxAmount);
     const netPayableAmount = Math.round((grossAmount - totalDeductionAmount) * 100) / 100;
-
     return {
         base_amount: baseAmount,
         total_tax_amount: totalTaxAmount,
@@ -310,7 +260,6 @@ function calculateExpenseAmounts({ amount, isTaxInclusive, taxes = [], deduction
         deductions: calculatedDeductions
     };
 }
-
 async function ensureExpenseDuplicateFree({ req, payment_date, category_id, net_payable_amount, invoice_ref_no, expense_note = null, vendor_id = null, excludeId = null, transaction }) {
     const where = {
         outlet_id: req.user.outlet_id,
@@ -318,21 +267,20 @@ async function ensureExpenseDuplicateFree({ req, payment_date, category_id, net_
         category_id,
         net_payable_amount: toAmount(net_payable_amount)
     };
-
     if (invoice_ref_no) {
         where.invoice_ref_no = invoice_ref_no;
-    } else {
+    }
+    else {
         where.vendor_id = vendor_id || null;
         where.expense_note = expense_note || null;
         where.invoice_ref_no = null;
     }
-
-    if (excludeId) where.id = { [Op.ne]: excludeId };
-
+    if (excludeId)
+        where.id = { [Op.ne]: excludeId };
     const existing = await req.propertyDb.models.expenses.findOne({ where, transaction });
-    if (existing) throw new Error('Duplicate expense entry already exists for the same date, category, amount, vendor and note');
+    if (existing)
+        throw new Error('Duplicate expense entry already exists for the same date, category, amount, vendor and note');
 }
-
 async function ensureRepaymentDuplicateFree({ req, sale_id, payment_date, amount, payment_mode, reference_no, excludeId = null, transaction }) {
     if (reference_no && String(reference_no).trim().length > 0) {
         const where = {
@@ -340,17 +288,17 @@ async function ensureRepaymentDuplicateFree({ req, sale_id, payment_date, amount
             sale_id,
             reference_no: String(reference_no).trim()
         };
-        if (excludeId) where.id = { [Op.ne]: excludeId };
+        if (excludeId)
+            where.id = { [Op.ne]: excludeId };
         const existing = await req.propertyDb.models.customer_repayments.findOne({ where, transaction });
-        if (existing) throw new Error(`Repayment with reference '${reference_no}' already exists`);
+        if (existing)
+            throw new Error(`Repayment with reference '${reference_no}' already exists`);
     }
 }
-
 function isWaiveOffMode(paymentMode) {
     const mode = String(paymentMode || '').trim().toUpperCase();
     return mode === 'WAIVEOFF' || mode === 'WRITEOFF' || mode === 'WRITE_OFF' || mode === 'WAIVE_OFF';
 }
-
 async function getSaleOrFail(req, saleId, transaction) {
     const sale = await req.propertyDb.models.sales_headers.findOne({
         where: {
@@ -362,11 +310,10 @@ async function getSaleOrFail(req, saleId, transaction) {
         },
         transaction
     });
-
-    if (!sale) throw new Error('Credit bill not found');
+    if (!sale)
+        throw new Error('Credit bill not found');
     return sale;
 }
-
 function buildLedgerWhere(outlet_id, query) {
     const where = { outlet_id };
     const fromDate = parseDateOnly(query.from_date);
@@ -376,17 +323,16 @@ function buildLedgerWhere(outlet_id, query) {
         .trim()
         .toUpperCase();
     const search = String(query.search || '').trim();
-
     if (fromDate || toDate) {
         where.txn_date = {};
-        if (fromDate) where.txn_date[Op.gte] = dateKey(fromDate);
-        if (toDate) where.txn_date[Op.lte] = dateKey(toDate);
+        if (fromDate)
+            where.txn_date[Op.gte] = dateKey(fromDate);
+        if (toDate)
+            where.txn_date[Op.lte] = dateKey(toDate);
     }
-
-    if (paymentMethod && paymentMethod !== 'ALL') where.payment_method = paymentMethod;
-
+    if (paymentMethod && paymentMethod !== 'ALL')
+        where.payment_method = paymentMethod;
     const conditions = [];
-
     if (type && type !== 'ALL') {
         if (type === 'SUBSCRIPTION') {
             conditions.push({
@@ -398,18 +344,19 @@ function buildLedgerWhere(outlet_id, query) {
                     }
                 ]
             });
-        } else if (type === 'OUTSTANDING') {
+        }
+        else if (type === 'OUTSTANDING') {
             conditions.push({
                 [Op.or]: [
                     { transaction_type: { [Op.in]: ['SALE_CREDIT', 'SUBSCRIPTION_SETTLEMENT_CREDIT', 'SUBSCRIPTION_SETTLEMENT_PARTIAL'] } },
                     { notes: { [Op.iLike]: '%outstanding%' } }
                 ]
             });
-        } else {
+        }
+        else {
             where.transaction_type = type;
         }
     }
-
     if (search) {
         conditions.push({
             [Op.or]: [
@@ -419,19 +366,15 @@ function buildLedgerWhere(outlet_id, query) {
             ]
         });
     }
-
     if (conditions.length > 0) {
         where[Op.and] = conditions;
     }
-
     return where;
 }
-
 function buildDailyLedgerGroups(entries, openingMap, startingOpening) {
     const groups = [];
     let current = null;
     let carry = startingOpening;
-
     for (const entry of entries) {
         const key = dateKey(entry.txn_date);
         if (!current || current.date !== key) {
@@ -440,7 +383,6 @@ function buildDailyLedgerGroups(entries, openingMap, startingOpening) {
                 carry = current.closing_balance;
                 groups.push(current);
             }
-
             current = {
                 date: key,
                 opening_balance: openingMap.get(key) ?? carry,
@@ -448,7 +390,6 @@ function buildDailyLedgerGroups(entries, openingMap, startingOpening) {
                 entries: []
             };
         }
-
         current.entries.push({
             id: entry.id,
             txn_date: entry.txn_date,
@@ -465,15 +406,12 @@ function buildDailyLedgerGroups(entries, openingMap, startingOpening) {
             notes: entry.notes || ''
         });
     }
-
     if (current) {
         current.closing_balance = current.entries[current.entries.length - 1].balance;
         groups.push(current);
     }
-
     return groups;
 }
-
 function serializeLedgerEntry(entry) {
     return {
         id: entry.id,
@@ -491,10 +429,8 @@ function serializeLedgerEntry(entry) {
         notes: entry.notes || ''
     };
 }
-
 exports.createIncome = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const income_date = dateKey(req.body.income_date || new Date());
         const source = String(req.body.source || req.body.category || '').trim();
@@ -503,10 +439,10 @@ exports.createIncome = async (req, res) => {
         const payment_method = String(req.body.payment_mode || 'CASH').trim().toUpperCase();
         const reference_no = String(req.body.reference_no || '').trim() || null;
         const note = String(req.body.note || '').trim() || null;
-
-        if (!source) throw new Error('Income source is required');
-        if (amount <= 0) throw new Error('Income amount must be greater than 0');
-
+        if (!source)
+            throw new Error('Income source is required');
+        if (amount <= 0)
+            throw new Error('Income amount must be greater than 0');
         let autoVoucher = null;
         try {
             autoVoucher = await createAutoAccountingVoucher({
@@ -525,12 +461,11 @@ exports.createIncome = async (req, res) => {
                 credit_account_type: 'INCOME',
                 transaction: t
             });
-        } catch (vErr) {
+        }
+        catch (vErr) {
             console.error('Error auto-creating income voucher:', vErr);
         }
-
         const finalRefNo = autoVoucher ? autoVoucher.voucher_no : (reference_no && reference_no.startsWith('RV-') ? reference_no : `RV-${reference_no || 'INC'}`);
-
         const entry = await createLedgerEntry({
             db: req.propertyDb,
             outlet_id: req.user.outlet_id,
@@ -545,7 +480,6 @@ exports.createIncome = async (req, res) => {
             created_by: req.user.id,
             transaction: t
         });
-
         await t.commit();
         res.json({
             success: true,
@@ -554,17 +488,16 @@ exports.createIncome = async (req, res) => {
                 voucher_no: finalRefNo
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         if (t && !t.finished) {
             await t.rollback();
         }
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.updateIncome = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const entry = await req.propertyDb.models.cash_ledger.findOne({
             where: {
@@ -574,9 +507,8 @@ exports.updateIncome = async (req, res) => {
             },
             transaction: t
         });
-
-        if (!entry) throw new Error('Income entry not found');
-
+        if (!entry)
+            throw new Error('Income entry not found');
         const income_date = dateKey(req.body.income_date || entry.txn_date);
         const source = String(req.body.source || req.body.category || '').trim();
         const amount = toAmount(req.body.amount ?? entry.amount_in);
@@ -584,10 +516,10 @@ exports.updateIncome = async (req, res) => {
         const payment_method = String(req.body.payment_mode || entry.payment_method || 'CASH').trim().toUpperCase();
         const reference_no = String(req.body.reference_no ?? entry.reference_no ?? '').trim() || null;
         const note = String(req.body.note ?? entry.notes ?? '').trim() || null;
-
-        if (!source) throw new Error('Income source is required');
-        if (amount <= 0) throw new Error('Income amount must be greater than 0');
-
+        if (!source)
+            throw new Error('Income source is required');
+        if (amount <= 0)
+            throw new Error('Income amount must be greater than 0');
         await updateLedgerEntry({
             db: req.propertyDb,
             entryId: entry.id,
@@ -605,15 +537,14 @@ exports.updateIncome = async (req, res) => {
             },
             transaction: t
         });
-
         await t.commit();
         res.json({ success: true });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.getIncomeReport = async (req, res) => {
     try {
         const where = {
@@ -622,8 +553,10 @@ exports.getIncomeReport = async (req, res) => {
         };
         if (req.query.from_date || req.query.to_date) {
             where.txn_date = {};
-            if (req.query.from_date) where.txn_date[Op.gte] = dateKey(req.query.from_date);
-            if (req.query.to_date) where.txn_date[Op.lte] = dateKey(req.query.to_date);
+            if (req.query.from_date)
+                where.txn_date[Op.gte] = dateKey(req.query.from_date);
+            if (req.query.to_date)
+                where.txn_date[Op.lte] = dateKey(req.query.to_date);
         }
         if (req.query.search) {
             where[Op.or] = [
@@ -632,30 +565,25 @@ exports.getIncomeReport = async (req, res) => {
                 { notes: { [Op.iLike]: `%${req.query.search}%` } }
             ];
         }
-
         const data = await req.propertyDb.models.cash_ledger.findAll({
             where,
             order: [['txn_date', 'DESC'], ['id', 'DESC']]
         });
-
         const totalAmount = data.reduce((sum, entry) => sum + toAmount(entry.amount_in), 0);
         res.json({
             success: true,
             summary: { totalAmount, totalCount: data.length },
             data: data.map(serializeLedgerEntry)
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createWithdrawal = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
-        const withdrawal_date = dateKey(
-            req.body.withdrawal_date || req.body.txn_date || new Date()
-        );
+        const withdrawal_date = dateKey(req.body.withdrawal_date || req.body.txn_date || new Date());
         const purpose = String(req.body.purpose || req.body.category || '').trim();
         const amount = toAmount(req.body.amount);
         const payment_method = String(req.body.payment_mode || 'CASH')
@@ -663,10 +591,10 @@ exports.createWithdrawal = async (req, res) => {
             .toUpperCase();
         const reference_no = String(req.body.reference_no || '').trim() || null;
         const note = String(req.body.note || '').trim() || null;
-
-        if (!purpose) throw new Error('Withdrawal purpose is required');
-        if (amount <= 0) throw new Error('Withdrawal amount must be greater than 0');
-
+        if (!purpose)
+            throw new Error('Withdrawal purpose is required');
+        if (amount <= 0)
+            throw new Error('Withdrawal amount must be greater than 0');
         let autoVoucher = null;
         try {
             autoVoucher = await createAutoAccountingVoucher({
@@ -685,12 +613,11 @@ exports.createWithdrawal = async (req, res) => {
                 credit_account_type: 'ASSET',
                 transaction: t
             });
-        } catch (vErr) {
+        }
+        catch (vErr) {
             console.error('Error auto-creating withdrawal voucher:', vErr);
         }
-
         const finalRefNo = autoVoucher ? autoVoucher.voucher_no : (reference_no && reference_no.startsWith('CN-') ? reference_no : `CN-${reference_no || 'WTH'}`);
-
         const entry = await createLedgerEntry({
             db: req.propertyDb,
             outlet_id: req.user.outlet_id,
@@ -705,7 +632,6 @@ exports.createWithdrawal = async (req, res) => {
             created_by: req.user.id,
             transaction: t
         });
-
         await t.commit();
         res.json({
             success: true,
@@ -714,17 +640,16 @@ exports.createWithdrawal = async (req, res) => {
                 voucher_no: finalRefNo
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         if (t && !t.finished) {
             await t.rollback();
         }
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.updateWithdrawal = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const entry = await req.propertyDb.models.cash_ledger.findOne({
             where: {
@@ -734,27 +659,20 @@ exports.updateWithdrawal = async (req, res) => {
             },
             transaction: t
         });
-
-        if (!entry) throw new Error('Withdrawal entry not found');
-
+        if (!entry)
+            throw new Error('Withdrawal entry not found');
         const withdrawal_date = dateKey(req.body.withdrawal_date || entry.txn_date);
-        const purpose = String(
-            req.body.purpose || req.body.category || entry.party_name || ''
-        ).trim();
+        const purpose = String(req.body.purpose || req.body.category || entry.party_name || '').trim();
         const amount = toAmount(req.body.amount ?? entry.amount_out);
-        const payment_method = String(
-            req.body.payment_mode || entry.payment_method || 'CASH'
-        )
+        const payment_method = String(req.body.payment_mode || entry.payment_method || 'CASH')
             .trim()
             .toUpperCase();
-        const reference_no = String(
-            req.body.reference_no ?? entry.reference_no ?? ''
-        ).trim() || null;
+        const reference_no = String(req.body.reference_no ?? entry.reference_no ?? '').trim() || null;
         const note = String(req.body.note ?? entry.notes ?? '').trim() || null;
-
-        if (!purpose) throw new Error('Withdrawal purpose is required');
-        if (amount <= 0) throw new Error('Withdrawal amount must be greater than 0');
-
+        if (!purpose)
+            throw new Error('Withdrawal purpose is required');
+        if (amount <= 0)
+            throw new Error('Withdrawal amount must be greater than 0');
         await updateLedgerEntry({
             db: req.propertyDb,
             entryId: entry.id,
@@ -772,15 +690,14 @@ exports.updateWithdrawal = async (req, res) => {
             },
             transaction: t
         });
-
         await t.commit();
         res.json({ success: true });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.getWithdrawalReport = async (req, res) => {
     try {
         const where = {
@@ -789,8 +706,10 @@ exports.getWithdrawalReport = async (req, res) => {
         };
         if (req.query.from_date || req.query.to_date) {
             where.txn_date = {};
-            if (req.query.from_date) where.txn_date[Op.gte] = dateKey(req.query.from_date);
-            if (req.query.to_date) where.txn_date[Op.lte] = dateKey(req.query.to_date);
+            if (req.query.from_date)
+                where.txn_date[Op.gte] = dateKey(req.query.from_date);
+            if (req.query.to_date)
+                where.txn_date[Op.lte] = dateKey(req.query.to_date);
         }
         if (req.query.search) {
             where[Op.or] = [
@@ -799,26 +718,23 @@ exports.getWithdrawalReport = async (req, res) => {
                 { notes: { [Op.iLike]: `%${req.query.search}%` } }
             ];
         }
-
         const data = await req.propertyDb.models.cash_ledger.findAll({
             where,
             order: [['txn_date', 'DESC'], ['id', 'DESC']]
         });
-
         const totalAmount = data.reduce((sum, entry) => sum + toAmount(entry.amount_out), 0);
         res.json({
             success: true,
             summary: { totalAmount, totalCount: data.length },
             data: data.map(serializeLedgerEntry)
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createExpense = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         let autoVoucher = null;
         const amount = toAmount(req.body.amount);
@@ -832,36 +748,27 @@ exports.createExpense = async (req, res) => {
         const payment_method = String(req.body.payment_method || req.body.payment_mode || 'CASH').trim();
         const expense_note = req.body.expense_note || req.body.note || null;
         const status = req.body.status || 'Paid';
-
-        if (!category_id) throw new Error('Category is required');
-        if (amount <= 0) throw new Error('Amount must be greater than 0');
-
+        if (!category_id)
+            throw new Error('Category is required');
+        if (amount <= 0)
+            throw new Error('Amount must be greater than 0');
         const categoryRow = await req.propertyDb.models.expense_categories.findOne({
             where: { id: category_id, outlet_id: req.user.outlet_id },
             transaction: t
         });
-        if (!categoryRow) throw new Error('Category not found');
-
-        const {
-            base_amount,
-            total_tax_amount,
-            total_deduction_amount,
+        if (!categoryRow)
+            throw new Error('Category not found');
+        const { base_amount, total_tax_amount, total_deduction_amount, net_payable_amount, taxes: calculatedTaxes, deductions: calculatedDeductions } = calculateExpenseAmounts({ amount, isTaxInclusive: is_tax_inclusive, taxes, deductions });
+        await ensureExpenseDuplicateFree({
+            req,
+            payment_date,
+            category_id,
             net_payable_amount,
-            taxes: calculatedTaxes,
-            deductions: calculatedDeductions
-        } = calculateExpenseAmounts({ amount, isTaxInclusive: is_tax_inclusive, taxes, deductions });
-
-        await ensureExpenseDuplicateFree({ 
-            req, 
-            payment_date, 
-            category_id, 
-            net_payable_amount, 
-            invoice_ref_no, 
+            invoice_ref_no,
             expense_note,
             vendor_id,
-            transaction: t 
+            transaction: t
         });
-
         const expense = await req.propertyDb.models.expenses.create({
             outlet_id: req.user.outlet_id,
             vendor_id,
@@ -878,31 +785,22 @@ exports.createExpense = async (req, res) => {
             status,
             created_by: req.user.id
         }, { transaction: t });
-
         if (calculatedTaxes.length > 0) {
-            await req.propertyDb.models.expense_taxes.bulkCreate(
-                calculatedTaxes.map(tax => ({
-                    expense_id: expense.id,
-                    tax_name: tax.tax_name,
-                    tax_percentage: tax.tax_percentage,
-                    tax_amount: tax.tax_amount
-                })),
-                { transaction: t }
-            );
+            await req.propertyDb.models.expense_taxes.bulkCreate(calculatedTaxes.map(tax => ({
+                expense_id: expense.id,
+                tax_name: tax.tax_name,
+                tax_percentage: tax.tax_percentage,
+                tax_amount: tax.tax_amount
+            })), { transaction: t });
         }
-
         if (calculatedDeductions.length > 0) {
-            await req.propertyDb.models.expense_deductions.bulkCreate(
-                calculatedDeductions.map(ded => ({
-                    expense_id: expense.id,
-                    deduction_type: ded.deduction_type,
-                    deduction_percentage: ded.deduction_percentage,
-                    deduction_amount: ded.deduction_amount
-                })),
-                { transaction: t }
-            );
+            await req.propertyDb.models.expense_deductions.bulkCreate(calculatedDeductions.map(ded => ({
+                expense_id: expense.id,
+                deduction_type: ded.deduction_type,
+                deduction_percentage: ded.deduction_percentage,
+                deduction_amount: ded.deduction_amount
+            })), { transaction: t });
         }
-
         if (status === 'Paid') {
             try {
                 autoVoucher = await createAutoAccountingVoucher({
@@ -921,12 +819,11 @@ exports.createExpense = async (req, res) => {
                     credit_account_type: 'ASSET',
                     transaction: t
                 });
-            } catch (vErr) {
+            }
+            catch (vErr) {
                 console.error('Error auto-creating expense voucher:', vErr);
             }
-
             const finalVNo = autoVoucher ? autoVoucher.voucher_no : (invoice_ref_no && invoice_ref_no.startsWith('PV-') ? invoice_ref_no : `PV-${expense.id.slice(0, 8)}`);
-
             await createLedgerEntry({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -943,7 +840,6 @@ exports.createExpense = async (req, res) => {
                 transaction: t
             });
         }
-
         await t.commit();
         res.json({
             success: true,
@@ -952,25 +848,23 @@ exports.createExpense = async (req, res) => {
                 voucher_no: autoVoucher ? autoVoucher.voucher_no : null
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         if (t && !t.finished) {
             await t.rollback();
         }
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.updateExpense = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const expense = await req.propertyDb.models.expenses.findOne({
             where: { id: req.params.id, outlet_id: req.user.outlet_id },
             transaction: t
         });
-
-        if (!expense) throw new Error('Expense entry not found');
-
+        if (!expense)
+            throw new Error('Expense entry not found');
         const amount = toAmount(req.body.amount ?? (expense.is_tax_inclusive ? (Number(expense.base_amount) + Number(expense.total_tax_amount)) : expense.base_amount));
         const is_tax_inclusive = req.body.is_tax_inclusive !== undefined ? (req.body.is_tax_inclusive === true || req.body.is_tax_inclusive === 'true') : expense.is_tax_inclusive;
         const taxes = req.body.taxes || [];
@@ -982,34 +876,24 @@ exports.updateExpense = async (req, res) => {
         const payment_method = req.body.payment_method || req.body.payment_mode || expense.payment_method;
         const expense_note = req.body.expense_note !== undefined ? req.body.expense_note : expense.expense_note;
         const status = req.body.status || expense.status;
-
         const categoryRow = await req.propertyDb.models.expense_categories.findOne({
             where: { id: category_id, outlet_id: req.user.outlet_id },
             transaction: t
         });
-        if (!categoryRow) throw new Error('Category not found');
-
-        const {
-            base_amount,
-            total_tax_amount,
-            total_deduction_amount,
+        if (!categoryRow)
+            throw new Error('Category not found');
+        const { base_amount, total_tax_amount, total_deduction_amount, net_payable_amount, taxes: calculatedTaxes, deductions: calculatedDeductions } = calculateExpenseAmounts({ amount, isTaxInclusive: is_tax_inclusive, taxes, deductions });
+        await ensureExpenseDuplicateFree({
+            req,
+            payment_date,
+            category_id,
             net_payable_amount,
-            taxes: calculatedTaxes,
-            deductions: calculatedDeductions
-        } = calculateExpenseAmounts({ amount, isTaxInclusive: is_tax_inclusive, taxes, deductions });
-
-        await ensureExpenseDuplicateFree({ 
-            req, 
-            payment_date, 
-            category_id, 
-            net_payable_amount, 
-            invoice_ref_no, 
+            invoice_ref_no,
             expense_note,
             vendor_id,
             excludeId: expense.id,
-            transaction: t 
+            transaction: t
         });
-
         await expense.update({
             vendor_id,
             category_id,
@@ -1024,7 +908,6 @@ exports.updateExpense = async (req, res) => {
             expense_note,
             status
         }, { transaction: t });
-
         await req.propertyDb.models.expense_taxes.destroy({
             where: { expense_id: expense.id },
             transaction: t
@@ -1033,31 +916,22 @@ exports.updateExpense = async (req, res) => {
             where: { expense_id: expense.id },
             transaction: t
         });
-
         if (calculatedTaxes.length > 0) {
-            await req.propertyDb.models.expense_taxes.bulkCreate(
-                calculatedTaxes.map(tax => ({
-                    expense_id: expense.id,
-                    tax_name: tax.tax_name,
-                    tax_percentage: tax.tax_percentage,
-                    tax_amount: tax.tax_amount
-                })),
-                { transaction: t }
-            );
+            await req.propertyDb.models.expense_taxes.bulkCreate(calculatedTaxes.map(tax => ({
+                expense_id: expense.id,
+                tax_name: tax.tax_name,
+                tax_percentage: tax.tax_percentage,
+                tax_amount: tax.tax_amount
+            })), { transaction: t });
         }
-
         if (calculatedDeductions.length > 0) {
-            await req.propertyDb.models.expense_deductions.bulkCreate(
-                calculatedDeductions.map(ded => ({
-                    expense_id: expense.id,
-                    deduction_type: ded.deduction_type,
-                    deduction_percentage: ded.deduction_percentage,
-                    deduction_amount: ded.deduction_amount
-                })),
-                { transaction: t }
-            );
+            await req.propertyDb.models.expense_deductions.bulkCreate(calculatedDeductions.map(ded => ({
+                expense_id: expense.id,
+                deduction_type: ded.deduction_type,
+                deduction_percentage: ded.deduction_percentage,
+                deduction_amount: ded.deduction_amount
+            })), { transaction: t });
         }
-
         const ledgerEntry = await findLinkedLedgerEntry(req.propertyDb, req.user.outlet_id, 'EXPENSE', expense.id, t);
         if (status === 'Paid') {
             if (ledgerEntry) {
@@ -1074,7 +948,8 @@ exports.updateExpense = async (req, res) => {
                     },
                     transaction: t
                 });
-            } else {
+            }
+            else {
                 await createLedgerEntry({
                     db: req.propertyDb,
                     outlet_id: req.user.outlet_id,
@@ -1091,7 +966,8 @@ exports.updateExpense = async (req, res) => {
                     transaction: t
                 });
             }
-        } else {
+        }
+        else {
             if (ledgerEntry) {
                 await ledgerEntry.destroy({ transaction: t });
                 await recalculateLedgerBalances({
@@ -1102,18 +978,16 @@ exports.updateExpense = async (req, res) => {
                 });
             }
         }
-
         await t.commit();
         res.json({ success: true, data: expense });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.createRepayment = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const sale_id = Number(req.body.sale_id);
         const payment_date = dateKey(req.body.payment_date || new Date());
@@ -1121,13 +995,12 @@ exports.createRepayment = async (req, res) => {
         const payment_mode = String(req.body.payment_mode || 'CASH').trim().toUpperCase();
         const reference_no = String(req.body.reference_no || '').trim() || null;
         const note = String(req.body.note || '').trim() || null;
-
-        if (!Number.isFinite(sale_id) || sale_id <= 0) throw new Error('Sale id is required');
-        if (amount <= 0) throw new Error('Repayment amount must be greater than 0');
-
+        if (!Number.isFinite(sale_id) || sale_id <= 0)
+            throw new Error('Sale id is required');
+        if (amount <= 0)
+            throw new Error('Repayment amount must be greater than 0');
         const sale = await getSaleOrFail(req, sale_id, t);
         const waiveOff = isWaiveOffMode(payment_mode);
-
         let autoVoucher = null;
         if (!waiveOff) {
             try {
@@ -1147,33 +1020,27 @@ exports.createRepayment = async (req, res) => {
                     credit_account_type: 'RECEIVABLE',
                     transaction: t
                 });
-            } catch (vErr) {
+            }
+            catch (vErr) {
                 console.error('Error auto-creating repayment voucher:', vErr);
             }
         }
-
         const repaymentVoucherNo = sale ? sale.sale_no : (reference_no || 'REC');
-
         const repaymentTotal = await getRepaymentTotal({ db: req.propertyDb, sale_id, transaction: t });
         const parsedInitial = extractInitialPaid(sale);
         const initialPaid = parsedInitial !== null
             ? parsedInitial
             : Math.max(0, toAmount(sale.amount_paid) - repaymentTotal);
         const available = Math.max(0, toAmount(sale.net_amount) - initialPaid - repaymentTotal);
-
         // Always auto-adjust excess payment against other outstanding bills first, then advance
         const adjustExtra = true;
-
         let currentBillRepayment = null;
         let balance = 0;
-
         if (amount > available + 0.009 && adjustExtra) {
             const applyToCurrent = available;
             let extraAmount = roundAmount(amount - applyToCurrent);
-
             if (applyToCurrent > 0) {
                 await ensureRepaymentDuplicateFree({ req, sale_id, payment_date, amount: applyToCurrent, payment_mode, reference_no, transaction: t });
-
                 currentBillRepayment = await req.propertyDb.models.customer_repayments.create({
                     outlet_id: req.user.outlet_id,
                     sale_id,
@@ -1185,7 +1052,6 @@ exports.createRepayment = async (req, res) => {
                     created_by: req.user.id,
                     updated_by: req.user.id
                 }, { transaction: t });
-
                 await createLedgerEntry({
                     db: req.propertyDb,
                     outlet_id: req.user.outlet_id,
@@ -1204,23 +1070,23 @@ exports.createRepayment = async (req, res) => {
                     created_by: req.user.id,
                     transaction: t
                 });
-
                 balance = await refreshSaleOutstanding({ db: req.propertyDb, sale, transaction: t });
                 await updateSaleLedgerOutstanding({ db: req.propertyDb, outlet_id: req.user.outlet_id, sale, balance, transaction: t });
-            } else {
+            }
+            else {
                 balance = 0;
             }
-
             // Find details of the customer to match other credit bills
             const customer_phone = sale.customer_phone;
             const customer_name = sale.customer_name;
             const customer_gstin = sale.customer_gstin;
-
             const orConditions = [];
-            if (customer_phone) orConditions.push({ customer_phone: String(customer_phone).trim() });
-            if (customer_gstin) orConditions.push({ customer_gstin: String(customer_gstin).trim().toUpperCase() });
-            if (customer_name) orConditions.push({ customer_name: String(customer_name).trim() });
-
+            if (customer_phone)
+                orConditions.push({ customer_phone: String(customer_phone).trim() });
+            if (customer_gstin)
+                orConditions.push({ customer_gstin: String(customer_gstin).trim().toUpperCase() });
+            if (customer_name)
+                orConditions.push({ customer_name: String(customer_name).trim() });
             let otherSales = [];
             if (orConditions.length > 0) {
                 otherSales = await req.propertyDb.models.sales_headers.findAll({
@@ -1237,14 +1103,13 @@ exports.createRepayment = async (req, res) => {
                     transaction: t
                 });
             }
-
             const otherRepaymentsCreated = [];
             for (const otherSale of otherSales) {
-                if (extraAmount <= 0.009) break;
-
+                if (extraAmount <= 0.009)
+                    break;
                 const applyAmount = Math.min(extraAmount, toAmount(otherSale.balance_due));
-                if (applyAmount <= 0.009) continue;
-
+                if (applyAmount <= 0.009)
+                    continue;
                 const otherRepayment = await req.propertyDb.models.customer_repayments.create({
                     outlet_id: req.user.outlet_id,
                     sale_id: otherSale.id,
@@ -1256,9 +1121,7 @@ exports.createRepayment = async (req, res) => {
                     created_by: req.user.id,
                     updated_by: req.user.id
                 }, { transaction: t });
-
                 otherRepaymentsCreated.push(otherRepayment);
-
                 await createLedgerEntry({
                     db: req.propertyDb,
                     outlet_id: req.user.outlet_id,
@@ -1277,12 +1140,10 @@ exports.createRepayment = async (req, res) => {
                     created_by: req.user.id,
                     transaction: t
                 });
-
                 const otherBal = await refreshSaleOutstanding({ db: req.propertyDb, sale: otherSale, transaction: t });
                 await updateSaleLedgerOutstanding({ db: req.propertyDb, outlet_id: req.user.outlet_id, sale: otherSale, balance: otherBal, transaction: t });
                 extraAmount = roundAmount(extraAmount - applyAmount);
             }
-
             let advanceCreated = null;
             if (extraAmount > 0) {
                 const identity = {
@@ -1290,7 +1151,6 @@ exports.createRepayment = async (req, res) => {
                     customer_phone: customer_phone || null,
                     customer_gstin: customer_gstin || null
                 };
-
                 advanceCreated = await req.propertyDb.models.customer_advances.create({
                     outlet_id: req.user.outlet_id,
                     source_sale_id: null,
@@ -1306,7 +1166,6 @@ exports.createRepayment = async (req, res) => {
                     created_by: req.user.id,
                     updated_by: req.user.id
                 }, { transaction: t });
-
                 await createLedgerEntry({
                     db: req.propertyDb,
                     outlet_id: req.user.outlet_id,
@@ -1323,7 +1182,6 @@ exports.createRepayment = async (req, res) => {
                     transaction: t
                 });
             }
-
             await t.commit();
             res.json({
                 success: true,
@@ -1335,9 +1193,9 @@ exports.createRepayment = async (req, res) => {
                     voucher_no: repaymentVoucherNo
                 }
             });
-        } else {
+        }
+        else {
             await ensureRepaymentDuplicateFree({ req, sale_id, payment_date, amount, payment_mode, reference_no, transaction: t });
-
             const repayment = await req.propertyDb.models.customer_repayments.create({
                 outlet_id: req.user.outlet_id,
                 sale_id,
@@ -1349,7 +1207,6 @@ exports.createRepayment = async (req, res) => {
                 created_by: req.user.id,
                 updated_by: req.user.id
             }, { transaction: t });
-
             await createLedgerEntry({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -1368,10 +1225,8 @@ exports.createRepayment = async (req, res) => {
                 created_by: req.user.id,
                 transaction: t
             });
-
             balance = await refreshSaleOutstanding({ db: req.propertyDb, sale, transaction: t });
             await updateSaleLedgerOutstanding({ db: req.propertyDb, outlet_id: req.user.outlet_id, sale, balance, transaction: t });
-
             // Auto credit default bank account if paid by bank/card/upi/electronic payment method
             const isBankRepay = await isBankPaymentMethod({ db: req.propertyDb, method: payment_mode });
             if (!waiveOff && isBankRepay) {
@@ -1393,7 +1248,6 @@ exports.createRepayment = async (req, res) => {
                         status: 'POSTED',
                         created_by: req.user.id
                     }, { transaction: t });
-
                     await req.propertyDb.models.voucher_lines.bulkCreate([
                         {
                             voucher_id: vHeader.id,
@@ -1414,31 +1268,29 @@ exports.createRepayment = async (req, res) => {
                             particulars: `Credit Settlement for #${sale.sale_no}`
                         }
                     ], { transaction: t });
-                } catch (vErr) {
+                }
+                catch (vErr) {
                     console.error('Error auto posting repayment voucher:', vErr);
                 }
             }
-
             await t.commit();
             res.json({ success: true, data: { repayment, balance, voucher_no: repaymentVoucherNo } });
         }
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.updateRepayment = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const repayment = await req.propertyDb.models.customer_repayments.findOne({
             where: { id: req.params.id, outlet_id: req.user.outlet_id },
             transaction: t
         });
-
-        if (!repayment) throw new Error('Repayment entry not found');
-
+        if (!repayment)
+            throw new Error('Repayment entry not found');
         const sale = await getSaleOrFail(req, repayment.sale_id, t);
         const payment_date = dateKey(req.body.payment_date || repayment.payment_date);
         const amount = toAmount(req.body.amount ?? repayment.amount);
@@ -1446,7 +1298,6 @@ exports.updateRepayment = async (req, res) => {
         const reference_no = String(req.body.reference_no ?? repayment.reference_no ?? '').trim() || null;
         const note = String(req.body.note ?? repayment.note ?? '').trim() || null;
         const waiveOff = isWaiveOffMode(payment_mode);
-
         await ensureRepaymentDuplicateFree({ req, sale_id: repayment.sale_id, payment_date, amount, payment_mode, reference_no, excludeId: repayment.id, transaction: t });
         const repaymentTotal = await getRepaymentTotal({ db: req.propertyDb, sale_id: repayment.sale_id, exclude_repayment_id: repayment.id, transaction: t });
         const parsedInitial = extractInitialPaid(sale);
@@ -1454,12 +1305,10 @@ exports.updateRepayment = async (req, res) => {
             ? parsedInitial
             : Math.max(0, toAmount(sale.amount_paid) - repaymentTotal);
         const available = Math.max(0, toAmount(sale.net_amount) - initialPaid - repaymentTotal);
-        if (amount > available + 0.009) throw new Error(`Repayment exceeds outstanding balance. Available amount is ${available.toFixed(2)}`);
-
+        if (amount > available + 0.009)
+            throw new Error(`Repayment exceeds outstanding balance. Available amount is ${available.toFixed(2)}`);
         await repayment.update({ payment_date, amount, payment_mode, reference_no, note, updated_by: req.user.id }, { transaction: t });
-
-        const ledgerEntry =
-            await findLinkedLedgerEntry(req.propertyDb, req.user.outlet_id, waiveOff ? 'WAIVE_OFF' : 'REPAYMENT', repayment.id, t) ||
+        const ledgerEntry = await findLinkedLedgerEntry(req.propertyDb, req.user.outlet_id, waiveOff ? 'WAIVE_OFF' : 'REPAYMENT', repayment.id, t) ||
             await findLinkedLedgerEntry(req.propertyDb, req.user.outlet_id, waiveOff ? 'REPAYMENT' : 'WAIVE_OFF', repayment.id, t);
         if (ledgerEntry) {
             await updateLedgerEntry({
@@ -1482,32 +1331,28 @@ exports.updateRepayment = async (req, res) => {
                 transaction: t
             });
         }
-
         const balance = await refreshSaleOutstanding({ db: req.propertyDb, sale, transaction: t });
         await t.commit();
         res.json({ success: true, data: { repayment, balance } });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.createAdvance = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const identity = normalizeCustomerIdentity(req.body);
         ensureCustomerIdentity(identity);
-
         const advance_date = dateKey(req.body.advance_date || new Date());
         const amount = toAmount(req.body.amount);
         const payment_mode = String(req.body.payment_mode || 'CASH').trim().toUpperCase();
         const reference_no = String(req.body.reference_no || '').trim() || null;
         const note = String(req.body.note || '').trim() || null;
         const source_sale_id = Number(req.body.source_sale_id) || null;
-
-        if (amount <= 0) throw new Error('Advance amount must be greater than 0');
-
+        if (amount <= 0)
+            throw new Error('Advance amount must be greater than 0');
         const advance = await req.propertyDb.models.customer_advances.create({
             outlet_id: req.user.outlet_id,
             source_sale_id,
@@ -1523,7 +1368,6 @@ exports.createAdvance = async (req, res) => {
             created_by: req.user.id,
             updated_by: req.user.id
         }, { transaction: t });
-
         await createLedgerEntry({
             db: req.propertyDb,
             outlet_id: req.user.outlet_id,
@@ -1539,27 +1383,25 @@ exports.createAdvance = async (req, res) => {
             created_by: req.user.id,
             transaction: t
         });
-
         const isBankAdv = await isBankPaymentMethod({ db: req.propertyDb, method: payment_mode });
         if (isBankAdv) {
             try {
                 await creditBankBalance({ db: req.propertyDb, outlet_id: req.user.outlet_id, amount, transaction: t });
-            } catch (bErr) {
+            }
+            catch (bErr) {
                 console.error('Error crediting bank for customer advance:', bErr);
             }
         }
-
         await t.commit();
         res.json({ success: true, data: advance });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.updateAdvance = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const advance = await req.propertyDb.models.customer_advances.findOne({
             where: {
@@ -1568,34 +1410,26 @@ exports.updateAdvance = async (req, res) => {
             },
             transaction: t
         });
-
-        if (!advance) throw new Error('Advance entry not found');
-
+        if (!advance)
+            throw new Error('Advance entry not found');
         const identity = normalizeCustomerIdentity({
             customer_name: req.body.customer_name ?? advance.customer_name,
             customer_phone: req.body.customer_phone ?? advance.customer_phone,
             customer_gstin: req.body.customer_gstin ?? advance.customer_gstin
         });
         ensureCustomerIdentity(identity);
-
         const advance_date = dateKey(req.body.advance_date || advance.advance_date || new Date());
         const amount = toAmount(req.body.amount ?? advance.original_amount);
         const payment_mode = String(req.body.payment_mode || advance.payment_mode || 'CASH').trim().toUpperCase();
         const reference_no = String(req.body.reference_no ?? advance.reference_no ?? '').trim() || null;
         const note = String(req.body.note ?? advance.note ?? '').trim() || null;
-
-        if (amount <= 0) throw new Error('Advance amount must be greater than 0');
-
-        const utilized = Math.max(
-            0,
-            toAmount(advance.original_amount) - toAmount(advance.available_amount)
-        );
+        if (amount <= 0)
+            throw new Error('Advance amount must be greater than 0');
+        const utilized = Math.max(0, toAmount(advance.original_amount) - toAmount(advance.available_amount));
         if (amount + 0.009 < utilized) {
             throw new Error(`Advance amount cannot be less than already used amount ${utilized.toFixed(2)}`);
         }
-
         const available_amount = toAmount(amount - utilized);
-
         await advance.update({
             customer_name: identity.customer_name || null,
             customer_phone: identity.customer_phone || null,
@@ -1608,14 +1442,7 @@ exports.updateAdvance = async (req, res) => {
             note,
             updated_by: req.user.id
         }, { transaction: t });
-
-        const ledgerEntry = await findLinkedLedgerEntry(
-            req.propertyDb,
-            req.user.outlet_id,
-            'ADVANCE',
-            advance.id,
-            t
-        );
+        const ledgerEntry = await findLinkedLedgerEntry(req.propertyDb, req.user.outlet_id, 'ADVANCE', advance.id, t);
         if (ledgerEntry) {
             await updateLedgerEntry({
                 db: req.propertyDb,
@@ -1635,18 +1462,16 @@ exports.updateAdvance = async (req, res) => {
                 transaction: t
             });
         }
-
         await t.commit();
         res.json({ success: true, data: advance });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.refundAdvance = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const advance = await req.propertyDb.models.customer_advances.findOne({
             where: {
@@ -1655,26 +1480,22 @@ exports.refundAdvance = async (req, res) => {
             },
             transaction: t
         });
-
-        if (!advance) throw new Error('Advance entry not found');
-
+        if (!advance)
+            throw new Error('Advance entry not found');
         const amount = toAmount(req.body.amount);
         const payment_mode = String(req.body.payment_mode || 'CASH').trim().toUpperCase();
         const reference_no = String(req.body.reference_no || '').trim() || null;
         const note = String(req.body.note || '').trim() || null;
-
-        if (amount <= 0) throw new Error('Refund amount must be greater than 0');
+        if (amount <= 0)
+            throw new Error('Refund amount must be greater than 0');
         if (amount > toAmount(advance.available_amount)) {
             throw new Error(`Refund amount cannot exceed available advance of ${advance.available_amount}`);
         }
-
         const newAvailable = toAmount(advance.available_amount - amount);
-
         await advance.update({
             available_amount: newAvailable,
             updated_by: req.user.id
         }, { transaction: t });
-
         await createLedgerEntry({
             db: req.propertyDb,
             outlet_id: req.user.outlet_id,
@@ -1690,43 +1511,38 @@ exports.refundAdvance = async (req, res) => {
             created_by: req.user.id,
             transaction: t
         });
-
         // Append refund details directly to the advance note!
         const refundNote = `(Refunded Rs. ${amount.toFixed(2)})`;
-        const updatedNote = advance.note 
+        const updatedNote = advance.note
             ? `${advance.note} ${refundNote}`.trim()
             : refundNote;
-
         await advance.update({
             note: updatedNote,
             updated_by: req.user.id
         }, { transaction: t });
-
         await t.commit();
         res.json({ success: true, data: advance });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.applyAdvance = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const identity = normalizeCustomerIdentity(req.body);
         ensureCustomerIdentity(identity);
-
         const sale_id = Number(req.body.sale_id);
         const payment_date = dateKey(req.body.payment_date || new Date());
         const amount = toAmount(req.body.amount);
         const payment_mode = String(req.body.payment_mode || 'ADVANCE').trim().toUpperCase();
         const reference_no = String(req.body.reference_no || '').trim() || null;
         const note = String(req.body.note || '').trim() || null;
-
-        if (!Number.isFinite(sale_id) || sale_id <= 0) throw new Error('Sale id is required');
-        if (amount <= 0) throw new Error('Advance apply amount must be greater than 0');
-
+        if (!Number.isFinite(sale_id) || sale_id <= 0)
+            throw new Error('Sale id is required');
+        if (amount <= 0)
+            throw new Error('Advance apply amount must be greater than 0');
         const sale = await getSaleOrFail(req, sale_id, t);
         const where = {
             outlet_id: req.user.outlet_id,
@@ -1738,18 +1554,14 @@ exports.applyAdvance = async (req, res) => {
             order: [['advance_date', 'ASC'], ['id', 'ASC']],
             transaction: t
         });
-
-        const available = advances.reduce(
-            (sum, advance) => sum + toAmount(advance.available_amount),
-            0
-        );
+        const available = advances.reduce((sum, advance) => sum + toAmount(advance.available_amount), 0);
         if (amount > available + 0.009) {
             throw new Error(`Advance exceeds available balance. Available amount is ${available.toFixed(2)}`);
         }
-
         let remaining = amount;
         for (const advance of advances) {
-            if (remaining <= 0.009) break;
+            if (remaining <= 0.009)
+                break;
             const currentAvailable = toAmount(advance.available_amount);
             const used = remaining > currentAvailable ? currentAvailable : remaining;
             await advance.update({
@@ -1758,7 +1570,6 @@ exports.applyAdvance = async (req, res) => {
             }, { transaction: t });
             remaining = toAmount(remaining - used);
         }
-
         await req.propertyDb.models.customer_repayments.create({
             outlet_id: req.user.outlet_id,
             sale_id,
@@ -1770,7 +1581,6 @@ exports.applyAdvance = async (req, res) => {
             created_by: req.user.id,
             updated_by: req.user.id
         }, { transaction: t });
-
         await createLedgerEntry({
             db: req.propertyDb,
             outlet_id: req.user.outlet_id,
@@ -1786,51 +1596,49 @@ exports.applyAdvance = async (req, res) => {
             created_by: req.user.id,
             transaction: t
         });
-
         const balance = await refreshSaleOutstanding({ db: req.propertyDb, sale, transaction: t });
         await t.commit();
         res.json({ success: true, data: { balance, applied_amount: amount } });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.listRepayments = async (req, res) => {
     try {
         const where = { outlet_id: req.user.outlet_id };
-        if (req.query.sale_id) where.sale_id = Number(req.query.sale_id);
+        if (req.query.sale_id)
+            where.sale_id = Number(req.query.sale_id);
         if (req.query.from_date || req.query.to_date) {
             where.payment_date = {};
-            if (req.query.from_date) where.payment_date[Op.gte] = dateKey(req.query.from_date);
-            if (req.query.to_date) where.payment_date[Op.lte] = dateKey(req.query.to_date);
+            if (req.query.from_date)
+                where.payment_date[Op.gte] = dateKey(req.query.from_date);
+            if (req.query.to_date)
+                where.payment_date[Op.lte] = dateKey(req.query.to_date);
         }
-
         const data = await req.propertyDb.models.customer_repayments.findAll({
             where,
             include: [{
-                model: req.propertyDb.models.sales_headers,
-                as: 'sale',
-                attributes: ['id', 'sale_no', 'customer_name', 'customer_phone', 'net_amount', 'amount_paid', 'balance_due']
-            }],
+                    model: req.propertyDb.models.sales_headers,
+                    as: 'sale',
+                    attributes: ['id', 'sale_no', 'customer_name', 'customer_phone', 'net_amount', 'amount_paid', 'balance_due']
+                }],
             order: [['payment_date', 'DESC'], ['id', 'DESC']]
         });
-
         res.json({ success: true, data });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.setOpeningBalance = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const balance_date = dateKey(req.body.balance_date || new Date());
         const opening_balance = toAmount(req.body.opening_balance);
         const payment_mode = String(req.body.payment_mode || req.body.payment_method || 'CASH').trim().toUpperCase();
         const note = String(req.body.note || '').trim() || null;
-
         const openingRow = await upsertOpeningBalance({
             db: req.propertyDb,
             outlet_id: req.user.outlet_id,
@@ -1840,7 +1648,6 @@ exports.setOpeningBalance = async (req, res) => {
             user_id: req.user.id,
             transaction: t
         });
-
         let autoVoucher = null;
         try {
             autoVoucher = await createAutoAccountingVoucher({
@@ -1859,20 +1666,12 @@ exports.setOpeningBalance = async (req, res) => {
                 credit_account_type: 'EQUITY',
                 transaction: t
             });
-        } catch (vErr) {
+        }
+        catch (vErr) {
             console.error('Error auto-creating opening deposit voucher:', vErr);
         }
-
         const voucherNo = autoVoucher ? autoVoucher.voucher_no : `OPN-${balance_date}`;
-
-        const existingLedgerEntry = await findLinkedLedgerEntry(
-            req.propertyDb,
-            req.user.outlet_id,
-            'OPENING_DEPOSIT',
-            String(openingRow.id),
-            t
-        );
-
+        const existingLedgerEntry = await findLinkedLedgerEntry(req.propertyDb, req.user.outlet_id, 'OPENING_DEPOSIT', String(openingRow.id), t);
         const ledgerValues = {
             txn_date: balance_date,
             reference_type: 'OPENING_DEPOSIT',
@@ -1885,7 +1684,6 @@ exports.setOpeningBalance = async (req, res) => {
             adjustment_amount: 0,
             notes: note || `Opening deposit added on ${balance_date}`
         };
-
         if (existingLedgerEntry) {
             await updateLedgerEntry({
                 db: req.propertyDb,
@@ -1894,7 +1692,8 @@ exports.setOpeningBalance = async (req, res) => {
                 values: ledgerValues,
                 transaction: t
             });
-        } else {
+        }
+        else {
             await createLedgerEntry({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -1904,33 +1703,33 @@ exports.setOpeningBalance = async (req, res) => {
                 ...ledgerValues
             });
         }
-
         await t.commit();
         res.json({ success: true, data: { balance_date, opening_balance, payment_mode, note, voucher_no: voucherNo } });
-    } catch (error) {
+    }
+    catch (error) {
         if (t && !t.finished) {
             await t.rollback();
         }
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.getOpeningBalances = async (req, res) => {
     try {
         const where = { outlet_id: req.user.outlet_id };
         if (req.query.date) {
             where.balance_date = dateKey(req.query.date);
-        } else if (req.query.from_date || req.query.to_date) {
-            where.balance_date = {};
-            if (req.query.from_date) where.balance_date[Op.gte] = dateKey(req.query.from_date);
-            if (req.query.to_date) where.balance_date[Op.lte] = dateKey(req.query.to_date);
         }
-
+        else if (req.query.from_date || req.query.to_date) {
+            where.balance_date = {};
+            if (req.query.from_date)
+                where.balance_date[Op.gte] = dateKey(req.query.from_date);
+            if (req.query.to_date)
+                where.balance_date[Op.lte] = dateKey(req.query.to_date);
+        }
         const rows = await req.propertyDb.models.daily_opening_balances.findAll({
             where,
             order: [['balance_date', 'DESC'], ['id', 'DESC']]
         });
-
         const rowIds = rows.map(r => String(r.id));
         const ledgerEntries = rowIds.length > 0 ? await req.propertyDb.models.cash_ledger.findAll({
             where: {
@@ -1939,12 +1738,10 @@ exports.getOpeningBalances = async (req, res) => {
                 reference_id: { [Op.in]: rowIds }
             }
         }) : [];
-
         const ledgerMap = new Map();
         ledgerEntries.forEach(l => {
             ledgerMap.set(String(l.reference_id), l);
         });
-
         const formattedRows = rows.map(r => {
             const json = r.toJSON();
             const linkedLedger = ledgerMap.get(String(r.id));
@@ -1952,20 +1749,18 @@ exports.getOpeningBalances = async (req, res) => {
             json.payment_mode = linkedLedger ? linkedLedger.payment_method : 'CASH';
             return json;
         });
-
         const targetDate = req.query.date || req.query.from_date || new Date();
         const carriedOpening = await getOpeningBalanceForDate({
             db: req.propertyDb,
             outlet_id: req.user.outlet_id,
             balanceDate: targetDate
         });
-
         res.json({ success: true, summary: { carried_opening_balance: carriedOpening }, data: formattedRows });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getExpenseReport = async (req, res) => {
     try {
         console.log("--- getExpenseReport Hit ---");
@@ -1979,8 +1774,10 @@ exports.getExpenseReport = async (req, res) => {
         }
         if (req.query.from_date || req.query.to_date) {
             where.payment_date = {};
-            if (req.query.from_date) where.payment_date[Op.gte] = req.query.from_date;
-            if (req.query.to_date) where.payment_date[Op.lte] = req.query.to_date;
+            if (req.query.from_date)
+                where.payment_date[Op.gte] = req.query.from_date;
+            if (req.query.to_date)
+                where.payment_date[Op.lte] = req.query.to_date;
         }
         if (req.query.category_id) {
             where.category_id = req.query.category_id;
@@ -1988,9 +1785,7 @@ exports.getExpenseReport = async (req, res) => {
         if (req.query.category) {
             where['$category.category_name$'] = { [Op.iLike]: `%${req.query.category}%` };
         }
-
         console.log("getExpenseReport query where:", where);
-
         const data = await req.propertyDb.models.expenses.findAll({
             where,
             include: [
@@ -2002,9 +1797,7 @@ exports.getExpenseReport = async (req, res) => {
             order: [['payment_date', 'DESC'], ['created_at', 'DESC']],
             logging: (sql) => console.log("SQL QUERY:", sql)
         });
-
         console.log("getExpenseReport query returned count:", data.length);
-
         const expenseIds = data.map(e => String(e.id));
         const ledgerEntries = expenseIds.length > 0 ? await req.propertyDb.models.cash_ledger.findAll({
             where: {
@@ -2013,32 +1806,29 @@ exports.getExpenseReport = async (req, res) => {
                 reference_id: { [Op.in]: expenseIds }
             }
         }) : [];
-
         const ledgerMap = new Map();
         ledgerEntries.forEach(l => {
             ledgerMap.set(String(l.reference_id), l.reference_no);
         });
-
         const formattedData = data.map(e => {
             const json = e.toJSON();
             json.voucher_no = ledgerMap.get(String(e.id)) || (e.invoice_ref_no && e.invoice_ref_no.startsWith('PV-') ? e.invoice_ref_no : null);
             return json;
         });
-
         const totalAmount = data.reduce((sum, entry) => sum + Number(entry.net_payable_amount || 0), 0);
-        res.json({ 
-            success: true, 
-            summary: { 
-                totalAmount: Math.round(totalAmount * 100) / 100, 
-                totalCount: data.length 
-            }, 
-            data: formattedData 
+        res.json({
+            success: true,
+            summary: {
+                totalAmount: Math.round(totalAmount * 100) / 100,
+                totalCount: data.length
+            },
+            data: formattedData
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.deleteExpense = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
@@ -2046,8 +1836,8 @@ exports.deleteExpense = async (req, res) => {
             where: { id: req.params.id, outlet_id: req.user.outlet_id },
             transaction: t
         });
-        if (!expense) throw new Error('Expense not found');
-
+        if (!expense)
+            throw new Error('Expense not found');
         const ledgerEntry = await findLinkedLedgerEntry(req.propertyDb, req.user.outlet_id, 'EXPENSE', expense.id, t);
         if (ledgerEntry) {
             await ledgerEntry.destroy({ transaction: t });
@@ -2058,17 +1848,15 @@ exports.deleteExpense = async (req, res) => {
                 transaction: t
             });
         }
-
         await expense.destroy({ transaction: t });
-
         await t.commit();
         res.json({ success: true });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.getExpenseCategories = async (req, res) => {
     try {
         const categories = await req.propertyDb.models.expense_categories.findAll({
@@ -2076,23 +1864,20 @@ exports.getExpenseCategories = async (req, res) => {
             order: [['category_name', 'ASC']]
         });
         res.json({ success: true, data: categories });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createExpenseCategory = async (req, res) => {
     try {
         const category_name = String(req.body.category_name || '').trim();
-        if (!category_name) throw new Error('Category name is required');
-
+        if (!category_name)
+            throw new Error('Category name is required');
         const [category, created] = await req.propertyDb.models.expense_categories.findOrCreate({
             where: {
                 outlet_id: req.user.outlet_id,
-                category_name: Sequelize.where(
-                    Sequelize.fn('lower', Sequelize.col('category_name')),
-                    category_name.toLowerCase()
-                )
+                category_name: Sequelize.where(Sequelize.fn('lower', Sequelize.col('category_name')), category_name.toLowerCase())
             },
             defaults: {
                 outlet_id: req.user.outlet_id,
@@ -2101,17 +1886,15 @@ exports.createExpenseCategory = async (req, res) => {
                 is_active: true
             }
         });
-
         if (!created && !category.is_active) {
             await category.update({ is_active: true });
         }
-
         res.json({ success: true, data: category });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.getTaxesMaster = async (req, res) => {
     try {
         const taxes = await req.propertyDb.models.taxes_master.findAll({
@@ -2119,24 +1902,21 @@ exports.getTaxesMaster = async (req, res) => {
             order: [['tax_name', 'ASC']]
         });
         res.json({ success: true, data: taxes });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createTaxesMaster = async (req, res) => {
     try {
         const tax_name = String(req.body.tax_name || '').trim();
         const default_rate = Number(req.body.default_rate || 0);
-        if (!tax_name) throw new Error('Tax name is required');
-
+        if (!tax_name)
+            throw new Error('Tax name is required');
         const [tax, created] = await req.propertyDb.models.taxes_master.findOrCreate({
             where: {
                 outlet_id: req.user.outlet_id,
-                tax_name: Sequelize.where(
-                    Sequelize.fn('lower', Sequelize.col('tax_name')),
-                    tax_name.toLowerCase()
-                )
+                tax_name: Sequelize.where(Sequelize.fn('lower', Sequelize.col('tax_name')), tax_name.toLowerCase())
             },
             defaults: {
                 outlet_id: req.user.outlet_id,
@@ -2145,33 +1925,30 @@ exports.createTaxesMaster = async (req, res) => {
                 is_editable: true
             }
         });
-
         if (!created) {
             await tax.update({ default_rate });
         }
-
         res.json({ success: true, data: tax });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.getExpenseAnalytics = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const allOutlets = req.query.all_outlets === 'true' && req.user.role === 'ADMIN';
-
         const where = {};
         if (!allOutlets) {
             where.outlet_id = outlet_id;
         }
-
         if (req.query.from_date || req.query.to_date) {
             where.payment_date = {};
-            if (req.query.from_date) where.payment_date[Op.gte] = req.query.from_date;
-            if (req.query.to_date) where.payment_date[Op.lte] = req.query.to_date;
+            if (req.query.from_date)
+                where.payment_date[Op.gte] = req.query.from_date;
+            if (req.query.to_date)
+                where.payment_date[Op.lte] = req.query.to_date;
         }
-
         const expenses = await req.propertyDb.models.expenses.findAll({
             where,
             include: [
@@ -2182,15 +1959,12 @@ exports.getExpenseAnalytics = async (req, res) => {
             ],
             bypassOutletFilter: allOutlets
         });
-
         let totalInputTaxPaid = 0;
         let totalTdsDeducted = 0;
         let totalTcsCollected = 0;
-
         const taxBreakdown = {};
         const categoryBreakdown = {};
         const vendorSpend = {};
-
         expenses.forEach(exp => {
             if (exp.taxes) {
                 exp.taxes.forEach(t => {
@@ -2200,47 +1974,42 @@ exports.getExpenseAnalytics = async (req, res) => {
                     taxBreakdown[name] = (taxBreakdown[name] || 0) + amount;
                 });
             }
-
             if (exp.deductions) {
                 exp.deductions.forEach(d => {
                     const amount = Number(d.deduction_amount || 0);
                     if (d.deduction_type === 'TDS') {
                         totalTdsDeducted += amount;
-                    } else if (d.deduction_type === 'TCS') {
+                    }
+                    else if (d.deduction_type === 'TCS') {
                         totalTcsCollected += amount;
                     }
                 });
             }
-
             const catName = exp.category ? exp.category.category_name : 'Uncategorized';
             categoryBreakdown[catName] = (categoryBreakdown[catName] || 0) + Number(exp.base_amount || 0);
-
             let vendorName = exp.vendor ? exp.vendor.supplier_name : 'Direct Cash';
             if (!exp.vendor && exp.expense_note) {
                 if (exp.expense_note.startsWith('Paid To: ')) {
                     vendorName = exp.expense_note.split(' | ')[0].substring(9);
-                } else if (exp.expense_note.startsWith('Paid To Staff: ')) {
+                }
+                else if (exp.expense_note.startsWith('Paid To Staff: ')) {
                     vendorName = exp.expense_note.split(' | ')[0].substring(15);
                 }
             }
             vendorSpend[vendorName] = (vendorSpend[vendorName] || 0) + Number(exp.net_payable_amount || 0);
         });
-
         const taxPieData = Object.keys(taxBreakdown).map(name => ({
             name,
             value: Math.round(taxBreakdown[name] * 100) / 100
         }));
-
         const categoryBarData = Object.keys(categoryBreakdown).map(name => ({
             category: name,
             amount: Math.round(categoryBreakdown[name] * 100) / 100
         })).sort((a, b) => b.amount - a.amount);
-
         const allVendorsSpend = Object.keys(vendorSpend).map(name => ({
             vendor: name,
             amount: Math.round(vendorSpend[name] * 100) / 100
         })).sort((a, b) => b.amount - a.amount);
-
         res.json({
             success: true,
             summary: {
@@ -2254,29 +2023,26 @@ exports.getExpenseAnalytics = async (req, res) => {
             vendorSpend: allVendorsSpend,
             expenses: expenses
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getLedgerReport = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const where = buildLedgerWhere(outlet_id, req.query);
         const fromDate = parseDateOnly(req.query.from_date, new Date());
         const toDate = parseDateOnly(req.query.to_date, fromDate);
-
         const entries = await req.propertyDb.models.cash_ledger.findAll({
             where,
             order: [['txn_date', 'ASC'], ['id', 'ASC']]
         });
-
         let openingBalance = await getOpeningBalanceForDate({
             db: req.propertyDb,
             outlet_id,
             balanceDate: fromDate
         });
-
         const depositTotal = entries
             .filter((entry) => String(entry.transaction_type || '').toUpperCase() === 'OPENING_DEPOSIT')
             .reduce((sum, entry) => sum + toAmount(entry.amount_in), 0);
@@ -2303,7 +2069,6 @@ exports.getLedgerReport = async (req, res) => {
             acc[key].count += 1;
             return acc;
         }, {});
-
         const openingRows = await req.propertyDb.models.daily_opening_balances.findAll({
             where: {
                 outlet_id,
@@ -2313,15 +2078,14 @@ exports.getLedgerReport = async (req, res) => {
         });
         const daily = buildDailyLedgerGroups(entries, new Map(), openingBalance)
             .map((group) => ({
-                ...group,
-                date: dateKey(group.date),
-                entries: group.entries.map((entry) => ({
-                    ...entry,
-                    txn_date: dateKey(entry.txn_date)
-                }))
+            ...group,
+            date: dateKey(group.date),
+            entries: group.entries.map((entry) => ({
+                ...entry,
+                txn_date: dateKey(entry.txn_date)
             }))
+        }))
             .reverse();
-
         res.json({
             success: true,
             summary: { openingBalance, depositTotal, totalIn, totalOut, closingBalance },
@@ -2330,11 +2094,11 @@ exports.getLedgerReport = async (req, res) => {
             openings: openingRows,
             data: entries.map(serializeLedgerEntry)
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getPaymentFlowReport = async (req, res) => {
     try {
         const where = buildLedgerWhere(req.user.outlet_id, req.query);
@@ -2350,16 +2114,15 @@ exports.getPaymentFlowReport = async (req, res) => {
             order: [['transaction_type', 'ASC']]
         });
         res.json({ success: true, data });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getCreditReport = async (req, res) => {
     try {
         const reqOutlet = req.query.outlet_id || req.query.outletId;
         const scope = await resolveOutletScope(req, reqOutlet);
-
         const where = {
             status: 'COMPLETED',
             is_latest: true,
@@ -2367,10 +2130,9 @@ exports.getCreditReport = async (req, res) => {
             sale_no: { [Op.notILike]: 'DRAFT-%' },
             ...scope.outletWhere
         };
-
         const customerMatch = buildCustomerMatch(String(req.query.customer || req.query.search || '').trim());
-        if (customerMatch) Object.assign(where, customerMatch);
-
+        if (customerMatch)
+            Object.assign(where, customerMatch);
         const sales = await req.propertyDb.models.sales_headers.findAll({
             where,
             include: [{ model: req.propertyDb.models.customer_repayments, as: 'repayments', required: false }],
@@ -2379,18 +2141,17 @@ exports.getCreditReport = async (req, res) => {
         });
         const advanceWhere = { ...scope.outletWhere };
         const customerAdvanceMatch = buildCustomerMatch(String(req.query.customer || req.query.search || '').trim());
-        if (customerAdvanceMatch) Object.assign(advanceWhere, customerAdvanceMatch);
+        if (customerAdvanceMatch)
+            Object.assign(advanceWhere, customerAdvanceMatch);
         const advances = await req.propertyDb.models.customer_advances.findAll({
             where: advanceWhere,
             order: [['advance_date', 'ASC'], ['id', 'ASC']],
             bypassOutletFilter: true
         });
-
         const customers = new Map();
         let totalOutstanding = 0;
         let totalCreditBills = 0;
         let totalAdvance = 0;
-
         for (const sale of sales) {
             const repaymentTotal = (sale.repayments || []).reduce((sum, payment) => sum + toAmount(payment.amount), 0);
             const parsedInitial = extractInitialPaid(sale);
@@ -2400,13 +2161,12 @@ exports.getCreditReport = async (req, res) => {
             const totalPaid = toAmount(initialPaid + repaymentTotal);
             const balanceDue = Math.max(0, toAmount(sale.net_amount) - totalPaid);
             const isCreditBill = balanceDue > 0.009;
-            if (!isCreditBill) continue;
-
+            if (!isCreditBill)
+                continue;
             // Exclude delivery orders that are not credit payment
             if (sale.order_type === 'DELIVERY' && sale.payment_mode !== 'CREDIT') {
                 continue;
             }
-
             totalCreditBills += 1;
             totalOutstanding += balanceDue;
             const key = buildCustomerKey(sale);
@@ -2422,7 +2182,6 @@ exports.getCreditReport = async (req, res) => {
                     advances: []
                 });
             }
-
             const customer = customers.get(key);
             if (!customer.customer_address && sale.customer_address) {
                 customer.customer_address = sale.customer_address;
@@ -2448,7 +2207,6 @@ exports.getCreditReport = async (req, res) => {
                 }))
             });
         }
-
         for (const advance of advances) {
             const key = buildCustomerKey(advance);
             if (!customers.has(key)) {
@@ -2478,16 +2236,11 @@ exports.getCreditReport = async (req, res) => {
             });
             totalAdvance += availableAmount;
         }
-
         for (const customer of customers.values()) {
             customer.total_advance = roundAmount(customer.total_advance || 0);
             customer.advances = Array.isArray(customer.advances) ? customer.advances : [];
         }
-
-        const resultCustomers = Array.from(customers.values()).filter(
-            (c) => c.total_outstanding > 0.009 || c.total_advance > 0.009
-        );
-
+        const resultCustomers = Array.from(customers.values()).filter((c) => c.total_outstanding > 0.009 || c.total_advance > 0.009);
         res.json({
             success: true,
             summary: {
@@ -2498,11 +2251,11 @@ exports.getCreditReport = async (req, res) => {
             },
             data: resultCustomers
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getDeliveryReport = async (req, res) => {
     try {
         const where = {
@@ -2513,8 +2266,10 @@ exports.getDeliveryReport = async (req, res) => {
         };
         if (req.query.from_date || req.query.to_date) {
             where.sale_date = {};
-            if (req.query.from_date) where.sale_date[Op.gte] = parseDateOnly(req.query.from_date);
-            if (req.query.to_date) where.sale_date[Op.lte] = endOfDay(req.query.to_date);
+            if (req.query.from_date)
+                where.sale_date[Op.gte] = parseDateOnly(req.query.from_date);
+            if (req.query.to_date)
+                where.sale_date[Op.lte] = endOfDay(req.query.to_date);
         }
         if (req.query.search) {
             where[Op.or] = [
@@ -2523,24 +2278,22 @@ exports.getDeliveryReport = async (req, res) => {
                 { customer_phone: { [Op.iLike]: `%${req.query.search}%` } }
             ];
         }
-
         const sales = await req.propertyDb.models.sales_headers.findAll({ where, order: [['sale_date', 'DESC'], ['id', 'DESC']] });
         const data = sales
             .map((sale) => ({
-                sale_id: sale.id,
-                date: sale.sale_date,
-                bill_no: sale.sale_no,
-                customer_name: getCustomerLabel(sale),
-                customer_phone: sale.customer_phone || '',
-                // net_amount already includes round_off_amount - do not subtract again
-                amount: toAmount(sale.net_amount),
-                paid_amount: toAmount(sale.amount_paid),
-                outstanding: toAmount(sale.balance_due),
-                payment_mode: String(sale.payment_mode || '').trim().toUpperCase(),
-                payment_status: resolvePaymentStatus(sale.amount_paid, toAmount(sale.net_amount), sale.payment_mode)
-            }))
+            sale_id: sale.id,
+            date: sale.sale_date,
+            bill_no: sale.sale_no,
+            customer_name: getCustomerLabel(sale),
+            customer_phone: sale.customer_phone || '',
+            // net_amount already includes round_off_amount - do not subtract again
+            amount: toAmount(sale.net_amount),
+            paid_amount: toAmount(sale.amount_paid),
+            outstanding: toAmount(sale.balance_due),
+            payment_mode: String(sale.payment_mode || '').trim().toUpperCase(),
+            payment_status: resolvePaymentStatus(sale.amount_paid, toAmount(sale.net_amount), sale.payment_mode)
+        }))
             .filter((row) => !req.query.status || row.payment_status === String(req.query.status).toUpperCase());
-
         res.json({
             success: true,
             summary: {
@@ -2550,17 +2303,16 @@ exports.getDeliveryReport = async (req, res) => {
             },
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getExpiryReport = async (req, res) => {
     try {
         const alertDays = Number(req.query.alert_days || 7);
         const status = String(req.query.status || 'ALL').trim().toUpperCase();
         const search = String(req.query.search || '').trim().toLowerCase();
-
         const stockRows = await req.propertyDb.models.stock_ledger.findAll({
             where: { outlet_id: req.user.outlet_id },
             attributes: [
@@ -2570,7 +2322,6 @@ exports.getExpiryReport = async (req, res) => {
             group: ['item_code'],
             raw: true
         });
-
         const positiveStock = new Map();
         for (const row of stockRows) {
             const qty = toAmount(row.stock_qty);
@@ -2578,7 +2329,6 @@ exports.getExpiryReport = async (req, res) => {
                 positiveStock.set(String(row.item_code || ''), qty);
             }
         }
-
         const itemCodes = Array.from(positiveStock.keys());
         if (itemCodes.length === 0) {
             return res.json({
@@ -2591,21 +2341,19 @@ exports.getExpiryReport = async (req, res) => {
                 data: []
             });
         }
-
         const rows = await req.propertyDb.models.goods_receipt_items.findAll({
             where: {
                 expiry_date: { [Op.ne]: null },
                 item_code: { [Op.in]: itemCodes }
             },
             include: [{
-                model: req.propertyDb.models.goods_receipts,
-                as: 'grn',
-                where: { outlet_id: req.user.outlet_id },
-                attributes: ['grn_no', 'receipt_date']
-            }],
+                    model: req.propertyDb.models.goods_receipts,
+                    as: 'grn',
+                    where: { outlet_id: req.user.outlet_id },
+                    attributes: ['grn_no', 'receipt_date']
+                }],
             order: [['item_code', 'ASC'], ['id', 'DESC']]
         });
-
         const latestByItem = new Map();
         for (const row of rows) {
             const key = String(row.item_code || '');
@@ -2613,29 +2361,27 @@ exports.getExpiryReport = async (req, res) => {
                 latestByItem.set(key, row);
             }
         }
-
         const today = startOfDay(new Date());
         const data = Array.from(latestByItem.values())
             .map((row) => {
-                const expiryDate = parseDateOnly(row.expiry_date);
-                const daysLeft = Math.floor((expiryDate - today) / (1000 * 60 * 60 * 24));
-                const expiryState = daysLeft < 0 ? 'EXPIRED' : daysLeft <= alertDays ? 'NEAR_EXPIRY' : 'SAFE';
-                return {
-                    id: row.id,
-                    item_code: row.item_code,
-                    item_name: row.item_name,
-                    qty: positiveStock.get(String(row.item_code || '')) ?? 0,
-                    unit: row.unit || '',
-                    expiry_date: row.expiry_date,
-                    days_left: daysLeft,
-                    status: expiryState,
-                    grn_no: row.grn?.grn_no || '',
-                    receipt_date: row.grn?.receipt_date || null
-                };
-            })
+            const expiryDate = parseDateOnly(row.expiry_date);
+            const daysLeft = Math.floor((expiryDate - today) / (1000 * 60 * 60 * 24));
+            const expiryState = daysLeft < 0 ? 'EXPIRED' : daysLeft <= alertDays ? 'NEAR_EXPIRY' : 'SAFE';
+            return {
+                id: row.id,
+                item_code: row.item_code,
+                item_name: row.item_name,
+                qty: positiveStock.get(String(row.item_code || '')) ?? 0,
+                unit: row.unit || '',
+                expiry_date: row.expiry_date,
+                days_left: daysLeft,
+                status: expiryState,
+                grn_no: row.grn?.grn_no || '',
+                receipt_date: row.grn?.receipt_date || null
+            };
+        })
             .filter((row) => !search || row.item_name.toLowerCase().includes(search) || row.item_code.toLowerCase().includes(search))
             .filter((row) => status === 'ALL' || row.status === status);
-
         res.json({
             success: true,
             summary: {
@@ -2645,14 +2391,13 @@ exports.getExpiryReport = async (req, res) => {
             },
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.adjustBulkRepayment = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const { customer_name, customer_phone, customer_gstin, payment_date, payment_mode, reference_no, note } = req.body;
         const totalAmount = toAmount(req.body.amount);
@@ -2660,20 +2405,19 @@ exports.adjustBulkRepayment = async (req, res) => {
         const paymentMode = String(payment_mode || 'CASH').trim().toUpperCase();
         const referenceNo = String(reference_no || '').trim() || null;
         const repaymentNote = String(note || '').trim() || null;
-
         if (totalAmount <= 0) {
             throw new Error('Repayment amount must be greater than 0');
         }
-
         if (!customer_phone && !customer_gstin && !customer_name) {
             throw new Error('Customer identification (phone, GSTIN, or name) is required');
         }
-
         const orConditions = [];
-        if (customer_phone) orConditions.push({ customer_phone: String(customer_phone).trim() });
-        if (customer_gstin) orConditions.push({ customer_gstin: String(customer_gstin).trim().toUpperCase() });
-        if (customer_name) orConditions.push({ customer_name: String(customer_name).trim() });
-
+        if (customer_phone)
+            orConditions.push({ customer_phone: String(customer_phone).trim() });
+        if (customer_gstin)
+            orConditions.push({ customer_gstin: String(customer_gstin).trim().toUpperCase() });
+        if (customer_name)
+            orConditions.push({ customer_name: String(customer_name).trim() });
         const sales = await req.propertyDb.models.sales_headers.findAll({
             where: {
                 outlet_id: req.user.outlet_id,
@@ -2686,23 +2430,19 @@ exports.adjustBulkRepayment = async (req, res) => {
             order: [['sale_date', 'ASC'], ['id', 'ASC']],
             transaction: t
         });
-
         let remainingAmount = totalAmount;
         const repaymentsCreated = [];
-
         for (const sale of sales) {
-            if (remainingAmount <= 0) break;
-
+            if (remainingAmount <= 0)
+                break;
             const outstanding = toAmount(sale.balance_due);
-            if (outstanding <= 0) continue;
-
+            if (outstanding <= 0)
+                continue;
             // Exclude delivery orders that are not credit payment
             if (sale.order_type === 'DELIVERY' && sale.payment_mode !== 'CREDIT') {
                 continue;
             }
-
             const applyAmount = Math.min(remainingAmount, outstanding);
-
             await ensureRepaymentDuplicateFree({
                 req,
                 sale_id: sale.id,
@@ -2712,9 +2452,7 @@ exports.adjustBulkRepayment = async (req, res) => {
                 reference_no: referenceNo,
                 transaction: t
             });
-
             const waiveOff = isWaiveOffMode(paymentMode);
-
             const repayment = await req.propertyDb.models.customer_repayments.create({
                 outlet_id: req.user.outlet_id,
                 sale_id: sale.id,
@@ -2726,9 +2464,7 @@ exports.adjustBulkRepayment = async (req, res) => {
                 created_by: req.user.id,
                 updated_by: req.user.id
             }, { transaction: t });
-
             repaymentsCreated.push(repayment);
-
             await createLedgerEntry({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -2747,13 +2483,10 @@ exports.adjustBulkRepayment = async (req, res) => {
                 created_by: req.user.id,
                 transaction: t
             });
-
             const refreshResult = await refreshSaleOutstanding({ db: req.propertyDb, sale, transaction: t });
             await updateSaleLedgerOutstanding({ db: req.propertyDb, outlet_id: req.user.outlet_id, sale, balance: refreshResult, transaction: t });
-
             remainingAmount = roundAmount(remainingAmount - applyAmount);
         }
-
         let advanceCreated = null;
         if (remainingAmount > 0) {
             const identity = {
@@ -2761,7 +2494,6 @@ exports.adjustBulkRepayment = async (req, res) => {
                 customer_phone: customer_phone || null,
                 customer_gstin: customer_gstin || null
             };
-
             advanceCreated = await req.propertyDb.models.customer_advances.create({
                 outlet_id: req.user.outlet_id,
                 source_sale_id: null,
@@ -2777,7 +2509,6 @@ exports.adjustBulkRepayment = async (req, res) => {
                 created_by: req.user.id,
                 updated_by: req.user.id
             }, { transaction: t });
-
             await createLedgerEntry({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -2794,7 +2525,6 @@ exports.adjustBulkRepayment = async (req, res) => {
                 transaction: t
             });
         }
-
         await t.commit();
         res.json({
             success: true,
@@ -2803,34 +2533,31 @@ exports.adjustBulkRepayment = async (req, res) => {
             repayments: repaymentsCreated,
             excess_advance: advanceCreated
         });
-
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(400).json({ success: false, error: error.message });
     }
 };
-
 exports.getRecurringExpenses = async (req, res) => {
     try {
         const { processRecurringExpenses } = require('../../jobs/recurringExpensesJob');
         await processRecurringExpenses(req.propertyDb);
-
         const outlet_id = req.user?.outlet_id || 1;
         const items = await req.propertyDb.models.recurring_expenses.findAll({
             where: { outlet_id },
             order: [['id', 'DESC']]
         });
         res.json({ success: true, data: items });
-    } catch (e) {
+    }
+    catch (e) {
         res.status(500).json({ success: false, message: e.message });
     }
 };
-
 exports.createRecurringExpense = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 1;
         const { description, amount, frequency, expense_category_id, start_date, end_date, next_generation_date, remind_days_before } = req.body;
-        
         const todayStr = new Date().toISOString().split('T')[0];
         const record = await req.propertyDb.models.recurring_expenses.create({
             outlet_id,
@@ -2844,51 +2571,49 @@ exports.createRecurringExpense = async (req, res) => {
             remind_days_before: remind_days_before !== undefined ? (parseInt(remind_days_before, 10) || 7) : 7,
             is_active: true
         });
-
         // Immediately check & create reminder note if due
         try {
             const { processRecurringExpenses } = require('../../jobs/recurringExpensesJob');
             await processRecurringExpenses(req.propertyDb);
-        } catch (jobErr) {
+        }
+        catch (jobErr) {
             console.warn('[RECURRING EXPENSE CREATE] Warning running processRecurringExpenses:', jobErr.message);
         }
-
         res.json({ success: true, data: record });
-    } catch (e) {
+    }
+    catch (e) {
         res.status(500).json({ success: false, message: e.message });
     }
 };
-
 exports.updateRecurringExpense = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 1;
         const { id } = req.params;
         const record = await req.propertyDb.models.recurring_expenses.findOne({ where: { id, outlet_id } });
-        if (!record) return res.status(404).json({ success: false, message: 'Recurring expense not found' });
-
+        if (!record)
+            return res.status(404).json({ success: false, message: 'Recurring expense not found' });
         await record.update(req.body);
-
         try {
             const { processRecurringExpenses } = require('../../jobs/recurringExpensesJob');
             await processRecurringExpenses(req.propertyDb);
-        } catch (jobErr) {
+        }
+        catch (jobErr) {
             console.warn('[RECURRING EXPENSE UPDATE] Warning running processRecurringExpenses:', jobErr.message);
         }
-
         res.json({ success: true, data: record });
-    } catch (e) {
+    }
+    catch (e) {
         res.status(500).json({ success: false, message: e.message });
     }
 };
-
 exports.deleteRecurringExpense = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 1;
         const { id } = req.params;
         await req.propertyDb.models.recurring_expenses.destroy({ where: { id, outlet_id } });
         res.json({ success: true, message: 'Deleted successfully' });
-    } catch (e) {
+    }
+    catch (e) {
         res.status(500).json({ success: false, message: e.message });
     }
 };
-

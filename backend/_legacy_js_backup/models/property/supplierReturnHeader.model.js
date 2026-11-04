@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const SupplierReturnHeader = sequelize.define('supplier_return_headers', {
         return_no: DataTypes.STRING(30),
@@ -25,28 +26,23 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     SupplierReturnHeader.associate = (models) => {
         SupplierReturnHeader.belongsTo(models.supplier_master, {
             foreignKey: 'supplier_id',
             as: 'supplier'
         });
-
         SupplierReturnHeader.belongsTo(models.goods_receipts, {
             foreignKey: 'grn_id',
             as: 'grn'
         });
-
         SupplierReturnHeader.hasMany(models.supplier_return_items, {
             foreignKey: 'return_id',
             as: 'items'
         });
-
         SupplierReturnHeader.hasMany(models.supplier_return_refunds, {
             foreignKey: 'return_id',
             as: 'refunds'
         });
     };
-
     return SupplierReturnHeader;
 };

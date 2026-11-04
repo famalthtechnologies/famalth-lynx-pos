@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const DeliveryCustomer = sequelize.define('delivery_customers', {
         id: {
@@ -50,6 +51,5 @@ module.exports = (sequelize, DataTypes) => {
             }
         ]
     });
-
     return DeliveryCustomer;
 };

@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('user_notes', {
         id: {
@@ -57,3 +59,4 @@ module.exports = (sequelize, DataTypes) => {
         timestamps: true
     });
 };
+exports.default = module.exports;

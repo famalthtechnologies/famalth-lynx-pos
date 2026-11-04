@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const TableType = sequelize.define('table_types', {
         id: {
@@ -25,6 +27,6 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'table_types',
         timestamps: false
     });
-
     return TableType;
 };
+exports.default = module.exports;

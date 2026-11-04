@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('outlet_storage_quotas', {
         id: {

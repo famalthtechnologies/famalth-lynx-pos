@@ -1,57 +1,42 @@
+"use strict";
 const { Op } = require('sequelize');
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
-
 exports.getRequestReport = async (req, res) => {
     try {
         const reqOutlet = req.query.outlet_id || req.query.outletId;
         const scope = await resolveOutletScope(req, reqOutlet);
-
-        const {
-            from_date,
-            to_date,
-            status,
-            approval_status,
-            department,
-            search
-        } = req.query;
-
+        const { from_date, to_date, status, approval_status, department, search } = req.query;
         const where = { ...scope.outletWhere };
-
         // 🔒 Enforce user isolation if the user is not an ADMIN
         if (req.user.role !== 'ADMIN') {
             where.created_by = req.user.id;
-        } else if (req.query.created_by) {
+        }
+        else if (req.query.created_by) {
             where.created_by = req.query.created_by;
         }
-
         // 📅 Date filter
         if (from_date && to_date) {
             where.request_date = {
                 [Op.between]: [from_date, to_date]
             };
         }
-
         // 📌 Status filter
         if (status) {
             where.status = status;
         }
-
         if (approval_status) {
             where.approval_status = approval_status;
         }
-
         // 🏢 Department filter
         if (department) {
             where.department = department;
         }
-
         // 🔎 Search by request no
         if (search) {
             where.request_no = {
                 [Op.iLike]: `%${search}%`
             };
         }
-
         const headers = await req.propertyDb.models.request_headers.findAll({
             where,
             include: [
@@ -69,18 +54,14 @@ exports.getRequestReport = async (req, res) => {
             ],
             order: [['request_date', 'DESC']]
         });
-
         // 🔁 Format response grouped by header
         const formatted = headers.map(h => {
-
             let totalQty = 0;
             let totalAmount = 0;
-
             const items = h.items.map(i => {
                 const amount = Number(i.qty) * Number(i.rate);
                 totalQty += Number(i.qty);
                 totalAmount += amount;
-
                 return {
                     item_name: i.item_master?.item_name || '',
                     brand: i.item_master?.brand || '',
@@ -89,7 +70,6 @@ exports.getRequestReport = async (req, res) => {
                     amount
                 };
             });
-
             return {
                 id: h.id,
                 request_no: h.request_no,
@@ -105,14 +85,13 @@ exports.getRequestReport = async (req, res) => {
                 items
             };
         });
-
         res.json({
             success: true,
             count: formatted.length,
             data: formatted
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({
             success: false,
             message: err.message

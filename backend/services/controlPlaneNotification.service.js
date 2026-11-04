@@ -7,7 +7,6 @@ exports.ControlPlaneNotificationService = void 0;
 const emailService_1 = require("../modules/emailService");
 const subscriptionInvoicePdf_service_1 = require("./subscriptionInvoicePdf.service");
 const master_1 = __importDefault(require("../models/master"));
-
 class ControlPlaneNotificationService {
     /**
      * Helper to format currency
@@ -16,7 +15,6 @@ class ControlPlaneNotificationService {
         const num = Number(amount) || 0;
         return `${symbol}${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
-
     /**
      * Helper to safely extract recipient email
      */
@@ -27,10 +25,8 @@ class ControlPlaneNotificationService {
         }
         return null;
     }
-
     // In-memory daily cache to guarantee zero duplicate sends across rapid or concurrent calls
     static inMemoryDailyCache = new Map();
-
     /**
      * Universal Daily Email Guard:
      * Ensures that alert / automated notification emails are sent at most ONCE PER DAY per tenant.
@@ -38,24 +34,21 @@ class ControlPlaneNotificationService {
      */
     static canSendDailyNotification(tenant, notificationType) {
         const tenantId = String(tenant?.id || tenant?.client_code || '');
-        if (!tenantId) return true;
-
+        if (!tenantId)
+            return true;
         const now = Date.now();
         const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
         const memoryKey = `${tenantId}:${notificationType}:${todayStr}`;
-
         // 1. In-memory check: if sent today or within the last 20 hours
         const lastMemoryTimestamp = this.inMemoryDailyCache.get(memoryKey);
         if (lastMemoryTimestamp && (now - lastMemoryTimestamp) < 20 * 60 * 60 * 1000) {
             console.log(`⏳ [DAILY RATE LIMIT] ${notificationType} blocked for tenant ${tenant?.client_code || tenantId}. Already sent today in memory.`);
             return false;
         }
-
         // 2. Persistent database metadata check
         const meta = tenant?.custom_metadata || {};
         const dailyTracker = meta.daily_notifications || {};
         const record = dailyTracker[notificationType];
-
         if (record) {
             const isSameDay = record.date === todayStr;
             const isWithin20Hours = record.timestamp && (now - Number(record.timestamp)) < 20 * 60 * 60 * 1000;
@@ -64,31 +57,26 @@ class ControlPlaneNotificationService {
                 return false;
             }
         }
-
         return true;
     }
-
     /**
      * Records that a notification was sent today, persisting to memory and database
      */
     static async recordDailyNotificationSent(propertyDb, tenant, notificationType, extraData) {
         const tenantId = String(tenant?.id || '');
-        if (!tenantId) return;
-
+        if (!tenantId)
+            return;
         const now = Date.now();
         const todayStr = new Date().toISOString().slice(0, 10);
         const memoryKey = `${tenantId}:${notificationType}:${todayStr}`;
-
         // Record in memory immediately
         this.inMemoryDailyCache.set(memoryKey, now);
-
         // Prune entries older than 48 hours to prevent memory leaks
         for (const [k, ts] of this.inMemoryDailyCache.entries()) {
             if (now - ts > 48 * 60 * 60 * 1000) {
                 this.inMemoryDailyCache.delete(k);
             }
         }
-
         // Record in database custom_metadata
         try {
             const meta = tenant.custom_metadata ? JSON.parse(JSON.stringify(tenant.custom_metadata)) : {};
@@ -99,7 +87,6 @@ class ControlPlaneNotificationService {
                 iso: new Date().toISOString(),
                 ...(extraData || {}),
             };
-
             tenant.custom_metadata = meta;
             if (typeof tenant.changed === 'function') {
                 tenant.changed('custom_metadata', true);
@@ -107,22 +94,18 @@ class ControlPlaneNotificationService {
             if (typeof tenant.save === 'function') {
                 await tenant.save();
             }
-
             // Direct SQL update safeguard to ensure PostgreSQL JSONB writes immediately
             if (propertyDb && typeof propertyDb.query === 'function') {
-                await propertyDb.query(
-                    `UPDATE master_tenants SET custom_metadata = :meta WHERE id = :id`,
-                    {
-                        replacements: { meta: JSON.stringify(meta), id: tenantId },
-                        type: (propertyDb.QueryTypes || {}).UPDATE,
-                    }
-                ).catch((e) => console.warn('[DAILY TRACKER SQL SAVE WARNING]', e.message));
+                await propertyDb.query(`UPDATE master_tenants SET custom_metadata = :meta WHERE id = :id`, {
+                    replacements: { meta: JSON.stringify(meta), id: tenantId },
+                    type: (propertyDb.QueryTypes || {}).UPDATE,
+                }).catch((e) => console.warn('[DAILY TRACKER SQL SAVE WARNING]', e.message));
             }
-        } catch (err) {
+        }
+        catch (err) {
             console.error('[DAILY TRACKER RECORD ERROR]', err.message);
         }
     }
-
     /**
      * 1. On Assign RM: Send notification email introducing assigned RM
      */
@@ -133,7 +116,6 @@ class ControlPlaneNotificationService {
                 console.warn(`[NOTIFY RM] No valid recipient email found for tenant ${tenant?.legal_name || tenant?.id}. Email bypassed.`);
                 return false;
             }
-
             const clientName = tenant.legal_name || 'Valued Partner';
             const clientCode = tenant.client_code || '';
             const rmName = rm.full_name || rm.name || 'Account Specialist';
@@ -143,11 +125,11 @@ class ControlPlaneNotificationService {
             const cleanWa = rmWhatsApp.replace(/\+/g, '').replace(/ /g, '').replace(/-/g, '');
             const rmEmail = rm.email || 'care@famalth.com';
             const rmCode = rm.rm_code || '';
-
             const subject = `Dedicated Relationship Manager Assigned - ${clientName} (${clientCode})`;
             const html = `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
           <div style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); padding: 28px 24px; color: #ffffff; text-align: center;">
+            <div style="display: inline-block; background: rgba(255,255,255,0.22); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; margin-bottom: 8px;">PRIORITY ACCOUNT SUPPORT</div>
             <h1 style="margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px;">Dedicated Relationship Manager Assigned</h1>
             <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">Famalth Lynx Account Management & Priority Operations for ${clientName}</p>
           </div>
@@ -192,7 +174,6 @@ class ControlPlaneNotificationService {
           </div>
         </div>
       `;
-
             await (0, emailService_1.sendEmail)(recipient, subject, html);
             console.log(`✅ [NOTIFY RM] Assigned RM notification sent to ${recipient} for ${clientName}.`);
             return true;
@@ -202,7 +183,6 @@ class ControlPlaneNotificationService {
             return false;
         }
     }
-
     /**
      * 2. On Extend Expiry: Send confirmation of license validity extension
      */
@@ -211,17 +191,16 @@ class ControlPlaneNotificationService {
             const recipient = this.getRecipientEmail(tenant);
             if (!recipient)
                 return false;
-
             const clientName = tenant.legal_name || 'Valued Client';
             const clientCode = tenant.client_code || '';
             const validTillStr = targetValidTill instanceof Date
                 ? targetValidTill.toISOString().split('T')[0]
                 : String(targetValidTill).split('T')[0];
-
             const subject = `Software License Extended by +${daysExtended} Days - ${clientName} (${clientCode})`;
             const html = `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
           <div style="background: linear-gradient(135deg, #10b981 0%, #047857 100%); padding: 26px 24px; color: #ffffff; text-align: center;">
+            <div style="display: inline-block; background: rgba(255,255,255,0.22); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; margin-bottom: 8px;">SUBSCRIPTION EXTENDED</div>
             <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Software Expiry Extended</h1>
             <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">+${daysExtended} Days added to your Famalth Lynx subscription</p>
           </div>
@@ -259,7 +238,6 @@ class ControlPlaneNotificationService {
           </div>
         </div>
       `;
-
             await (0, emailService_1.sendEmail)(recipient, subject, html);
             console.log(`✅ [NOTIFY EXTENSION] Expiry extension email sent to ${recipient} for ${clientName}.`);
             return true;
@@ -269,7 +247,6 @@ class ControlPlaneNotificationService {
             return false;
         }
     }
-
     /**
      * 3. On 10 Days Before Expiry: Send renewal Tax Invoice with breakdown and optional PDF attachment
      */
@@ -278,12 +255,10 @@ class ControlPlaneNotificationService {
             const recipient = this.getRecipientEmail(tenant);
             if (!recipient)
                 return false;
-
             // Daily Email Guard: Send at most once per day per tenant
             if (!this.canSendDailyNotification(tenant, 'RENEWAL_10D')) {
                 return false;
             }
-
             const clientName = tenant.legal_name || 'Valued Client';
             const clientCode = tenant.client_code || '';
             const invNum = invoice.invoice_number || `INV-${Date.now()}`;
@@ -293,7 +268,6 @@ class ControlPlaneNotificationService {
             const totalAmount = Number(invoice.total_amount || (subtotal + taxAmount));
             const dueDate = invoice.due_date || license.next_payment_date || license.valid_till;
             const validTill = license.valid_till;
-
             const attachments = [];
             if (pdfBuffer && Buffer.isBuffer(pdfBuffer)) {
                 attachments.push({
@@ -302,14 +276,13 @@ class ControlPlaneNotificationService {
                     contentType: 'application/pdf',
                 });
             }
-
             const appBaseUrl = process.env.APP_URL || process.env.PUBLIC_URL || 'http://localhost:5000';
             const downloadUrl = `${appBaseUrl}/api/v1/control-plane/invoices/download/${tenant.id}`;
-
             const subject = `Upcoming License Renewal & Tax Invoice - ${clientName} (${invNum})`;
             const html = `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
           <div style="background: linear-gradient(135deg, #0284c7 0%, #1e40af 100%); padding: 26px 24px; color: #ffffff; text-align: center;">
+            <div style="display: inline-block; background: rgba(255,255,255,0.22); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; margin-bottom: 8px;">RENEWAL NOTICE</div>
             <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Upcoming Subscription Renewal</h1>
             <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">10 Days remaining until Famalth Lynx license expiry</p>
           </div>
@@ -355,7 +328,6 @@ class ControlPlaneNotificationService {
           </div>
         </div>
       `;
-
             await (0, emailService_1.sendEmail)(recipient, subject, html, attachments);
             console.log(`✅ [NOTIFY 10D INVOICE] 10-day renewal invoice email sent to ${recipient} for ${clientName}.`);
             await this.recordDailyNotificationSent(undefined, tenant, 'RENEWAL_10D', {
@@ -369,7 +341,6 @@ class ControlPlaneNotificationService {
             return false;
         }
     }
-
     /**
      * 4. On Expired: Send urgent license expiration notice
      */
@@ -378,12 +349,10 @@ class ControlPlaneNotificationService {
             const recipient = this.getRecipientEmail(tenant);
             if (!recipient)
                 return false;
-
             // Daily Email Guard: Send expired alert at most once per day per tenant
             if (!this.canSendDailyNotification(tenant, 'EXPIRED_ALERT')) {
                 return false;
             }
-
             const clientName = tenant.legal_name || 'Valued Client';
             const clientCode = tenant.client_code || '';
             const validTill = license.valid_till || 'Recently';
@@ -391,11 +360,11 @@ class ControlPlaneNotificationService {
             const subtotal = Number(license.subscription_amount || 4999.00);
             const taxRate = Number(license.tax_percentage || 18.00);
             const totalAmount = Number((subtotal * (1 + taxRate / 100)).toFixed(2));
-
             const subject = `Software Subscription Expired - ${clientName} (${clientCode})`;
             const html = `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #fecaca; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
           <div style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); padding: 26px 24px; color: #ffffff; text-align: center;">
+            <div style="display: inline-block; background: rgba(255,255,255,0.22); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; margin-bottom: 8px;">SUBSCRIPTION ALERT</div>
             <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Software Subscription Expired</h1>
             <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">Grace Period Active (${graceDays} Days Buffer Remaining)</p>
           </div>
@@ -436,7 +405,6 @@ class ControlPlaneNotificationService {
           </div>
         </div>
       `;
-
             await (0, emailService_1.sendEmail)(recipient, subject, html);
             console.log(`✅ [NOTIFY EXPIRED] Expiry alert email sent to ${recipient} for ${clientName}.`);
             await this.recordDailyNotificationSent(undefined, tenant, 'EXPIRED_ALERT', {
@@ -449,7 +417,6 @@ class ControlPlaneNotificationService {
             return false;
         }
     }
-
     /**
      * 5. On Kill Switch: Send notice when remote lock/suspend is activated or deactivated
      */
@@ -458,16 +425,15 @@ class ControlPlaneNotificationService {
             const recipient = this.getRecipientEmail(tenant);
             if (!recipient)
                 return false;
-
             const clientName = tenant.legal_name || targetName;
             const clientCode = tenant.client_code || '';
             const subject = isKillSwitched
                 ? `Remote Access Lock Applied to ${targetName} (${clientCode})`
                 : `Service Access Reactivated for ${targetName} (${clientCode})`;
-
             const html = `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid ${isKillSwitched ? '#fecaca' : '#bbf7d0'}; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
           <div style="background: ${isKillSwitched ? 'linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)' : 'linear-gradient(135deg, #10b981 0%, #047857 100%)'}; padding: 26px 24px; color: #ffffff; text-align: center;">
+            <div style="display: inline-block; background: rgba(255,255,255,0.22); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; margin-bottom: 8px;">${isKillSwitched ? 'SECURITY NOTICE' : 'SERVICE RESTORED'}</div>
             <h1 style="margin: 0; font-size: 20px; font-weight: 700;">${isKillSwitched ? 'Remote Lockout Activated' : 'Service Access Restored'}</h1>
             <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">Target: ${targetName}</p>
           </div>
@@ -495,7 +461,6 @@ class ControlPlaneNotificationService {
           </div>
         </div>
       `;
-
             await (0, emailService_1.sendEmail)(recipient, subject, html);
             console.log(`✅ [NOTIFY KILL-SWITCH] Kill switch notice (${isKillSwitched ? 'LOCKED' : 'UNLOCKED'}) sent to ${recipient} for ${targetName}.`);
             return true;
@@ -505,7 +470,6 @@ class ControlPlaneNotificationService {
             return false;
         }
     }
-
     /**
      * 6. On New Licenses Pricing / Quota Update: Send email detailing new plan terms
      */
@@ -514,23 +478,21 @@ class ControlPlaneNotificationService {
             const recipient = this.getRecipientEmail(tenant);
             if (!recipient)
                 return false;
-
             // Rate limit pricing notifications to max 1 per day per tenant to avoid spamming on successive edits
             if (!this.canSendDailyNotification(tenant, 'PRICING_UPDATED')) {
                 return false;
             }
-
             const clientName = tenant.legal_name || 'Valued Client';
             const clientCode = tenant.client_code || '';
             const subtotal = Number(license.subscription_amount || 4999.00);
             const taxRate = Number(license.tax_percentage || 18.00);
             const taxAmount = Number((subtotal * (taxRate / 100)).toFixed(2));
             const totalAmount = Number((subtotal + taxAmount).toFixed(2));
-
             const subject = `Subscription Plan & Quota Updated - ${clientName} (${clientCode})`;
             const html = `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
           <div style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); padding: 26px 24px; color: #ffffff; text-align: center;">
+            <div style="display: inline-block; background: rgba(255,255,255,0.22); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; margin-bottom: 8px;">PLAN UPDATED</div>
             <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Subscription Plan & Quota Updated</h1>
             <p style="margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;">Updated Quota Terms for ${clientName}</p>
           </div>
@@ -576,7 +538,6 @@ class ControlPlaneNotificationService {
           </div>
         </div>
       `;
-
             await (0, emailService_1.sendEmail)(recipient, subject, html);
             console.log(`✅ [NOTIFY PRICING] Pricing update email sent to ${recipient} for ${clientName}.`);
             await this.recordDailyNotificationSent(undefined, tenant, 'PRICING_UPDATED');
@@ -587,7 +548,6 @@ class ControlPlaneNotificationService {
             return false;
         }
     }
-
     /**
      * 7. On Customer Pay: Send confirmation email stating Payment Done and License increased by -- days
      */
@@ -598,7 +558,6 @@ class ControlPlaneNotificationService {
                 console.warn(`[NOTIFY PAYMENT] No valid recipient email found for tenant ${tenant?.legal_name || tenant?.id}. Email bypassed.`);
                 return false;
             }
-
             const clientName = tenant.legal_name || 'Valued Client';
             const clientCode = tenant.client_code || '';
             const numDays = Number(extendDays) || 0;
@@ -611,7 +570,7 @@ class ControlPlaneNotificationService {
                 year: 'numeric',
             });
             const invNum = invoice?.invoice_number || `INV-PAID-${Date.now().toString().slice(-6)}`;
-
+            // Attempt to generate Tax Invoice PDF with PAID status if buffer not provided
             let attachmentBuffer = pdfBuffer;
             if (!attachmentBuffer) {
                 try {
@@ -619,7 +578,6 @@ class ControlPlaneNotificationService {
                     const taxRate = Number(license.tax_percentage || 18.00);
                     const taxAmount = Number((subtotal * (taxRate / 100)).toFixed(2));
                     const totalAmount = Number((subtotal + taxAmount).toFixed(2));
-
                     attachmentBuffer = await (0, subscriptionInvoicePdf_service_1.generateSubscriptionInvoicePdf)({
                         invoiceNumber: invNum,
                         issueDate: invoice?.billing_period_start || new Date(),
@@ -656,7 +614,6 @@ class ControlPlaneNotificationService {
                     console.warn(`[NOTIFY PAYMENT] Could not attach PDF invoice: ${pdfErr.message}`);
                 }
             }
-
             const attachments = [];
             if (attachmentBuffer && Buffer.isBuffer(attachmentBuffer)) {
                 attachments.push({
@@ -665,15 +622,13 @@ class ControlPlaneNotificationService {
                     contentType: 'application/pdf',
                 });
             }
-
             const appBaseUrl = process.env.APP_URL || process.env.PUBLIC_URL || 'http://localhost:5000';
             const downloadUrl = `${appBaseUrl}/api/v1/control-plane/invoices/download/${tenant.id}`;
-
             const subject = `Payment Received — License Increased by +${numDays} Days - ${clientName} (${clientCode})`;
             const html = `
         <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.06);">
           <div style="background: linear-gradient(135deg, #059669 0%, #047857 100%); padding: 28px 24px; color: #ffffff; text-align: center;">
-            <div style="display: inline-block; background: rgba(255,255,255,0.22); padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; margin-bottom: 8px;">PAYMENT CONFIRMED • LICENSE EXTENDED</div>
+            <div style="display: inline-block; background: rgba(255,255,255,0.22); padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; margin-bottom: 8px;">PAYMENT CONFIRMED</div>
             <h1 style="margin: 0; font-size: 21px; font-weight: 700; letter-spacing: 0.3px;">Payment Done — License Increased by +${numDays} Days</h1>
             <p style="margin: 6px 0 0 0; font-size: 13.5px; opacity: 0.95;">Thank you for your payment, ${clientName}</p>
           </div>
@@ -739,7 +694,6 @@ class ControlPlaneNotificationService {
           </div>
         </div>
       `;
-
             await (0, emailService_1.sendEmail)(recipient, subject, html, attachments.length > 0 ? attachments : undefined);
             console.log(`✅ [NOTIFY PAYMENT] Payment received & license extended email sent to ${recipient} (+${numDays} days).`);
             return true;
@@ -749,7 +703,6 @@ class ControlPlaneNotificationService {
             return false;
         }
     }
-
     /**
      * Background Checker: Inspects all tenants, auto-dispatches 10-day renewal invoices & expiry alerts
      */
@@ -763,16 +716,13 @@ class ControlPlaneNotificationService {
                     { model: MasterLicense, as: 'licenses' },
                 ],
             });
-
             for (const t of tenants) {
                 const activeLicense = (t.licenses || [])[0];
                 if (!activeLicense || !activeLicense.valid_till)
                     continue;
-
                 const diffMs = new Date(activeLicense.valid_till).getTime() - Date.now();
                 const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
                 const meta = t.custom_metadata || {};
-
                 // 10-DAY RENEWAL INVOICE
                 if (daysLeft <= 10 && daysLeft >= 0) {
                     const vDate = new Date(activeLicense.valid_till);
@@ -782,12 +732,11 @@ class ControlPlaneNotificationService {
                     const taxRate = Number(activeLicense.tax_percentage || 18.00);
                     const taxAmount = Number((subtotal * (taxRate / 100)).toFixed(2));
                     const totalAmount = Number((subtotal + taxAmount).toFixed(2));
-
                     if (!invoice) {
                         invoice = await MasterInvoice.create({
                             tenant_id: t.id,
                             invoice_number: invoiceNumber,
-                            billing_period_start: activeLicense.valid_from || t.created_at,
+                            billing_period_start: activeLicense.valid_from || t.created_at || new Date(),
                             billing_period_end: activeLicense.valid_till,
                             due_date: activeLicense.next_payment_date || activeLicense.valid_till,
                             subtotal,
@@ -797,11 +746,9 @@ class ControlPlaneNotificationService {
                             status: activeLicense.payment_status === 'PAID' ? 'PAID' : 'ISSUED',
                         });
                     }
-
                     // Check if already dispatched for this invoice or sent today
                     const canSendRenewal = this.canSendDailyNotification(t, 'RENEWAL_10D');
                     const alreadySentForInvoice = meta.last_10d_invoice_email_sent_for === invoiceNumber;
-
                     if (canSendRenewal && !alreadySentForInvoice) {
                         let pdfBuffer;
                         try {
@@ -839,7 +786,6 @@ class ControlPlaneNotificationService {
                         catch (e) {
                             console.warn(`[INVOICE PDF GENERATION NOTICE] Proceeding without attachment: ${e.message}`);
                         }
-
                         const sent = await this.notifyRenewalInvoice(t, activeLicense, invoice, pdfBuffer);
                         if (sent) {
                             await this.recordDailyNotificationSent(propertyDb, t, 'RENEWAL_10D', {
@@ -850,7 +796,6 @@ class ControlPlaneNotificationService {
                         }
                     }
                 }
-
                 // ON EXPIRED: Daily Email Guard guarantees max 1 expired alert per day
                 if (daysLeft < 0) {
                     const canSendExpired = this.canSendDailyNotification(t, 'EXPIRED_ALERT');

@@ -1,60 +1,43 @@
+"use strict";
 const { processNotesReminders } = require('../../jobs/notesReminderJob');
-
 exports.getNotes = async (req, res) => {
     try {
         await processNotesReminders(req.propertyDb);
-
         const outlet_id = req.user?.outlet_id || 0;
         const search = req.query.q || '';
         const section = req.query.section || 'notes'; // notes, archive, trash
-
         let whereClause = `outlet_id = :outlet_id`;
         if (section === 'archive') {
             whereClause += ` AND is_archived = true AND (is_trashed = false OR is_trashed IS NULL)`;
-        } else if (section === 'trash') {
+        }
+        else if (section === 'trash') {
             whereClause += ` AND is_trashed = true`;
-        } else {
+        }
+        else {
             // Default active notes
             whereClause += ` AND (is_archived = false OR is_archived IS NULL) AND (is_trashed = false OR is_trashed IS NULL)`;
         }
-
         if (search.trim().length > 0) {
             whereClause += ` AND (title ILIKE :search OR content ILIKE :search)`;
         }
-
-        const notes = await req.propertyDb.query(
-            `SELECT * FROM user_notes WHERE ${whereClause} ORDER BY is_pinned DESC, id DESC`,
-            {
-                replacements: { outlet_id, search: `%${search.trim()}%` },
-                type: req.propertyDb.QueryTypes.SELECT
-            }
-        );
-
+        const notes = await req.propertyDb.query(`SELECT * FROM user_notes WHERE ${whereClause} ORDER BY is_pinned DESC, id DESC`, {
+            replacements: { outlet_id, search: `%${search.trim()}%` },
+            type: req.propertyDb.QueryTypes.SELECT
+        });
         res.json({ success: true, data: notes });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[USER NOTES CONTROLLER GET ERROR]:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.createNote = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 0;
         const user_id = req.user?.id || 1;
-
-        const {
-            title,
-            content,
-            color_hex,
-            is_pinned,
-            reminder_type,
-            reminder_date,
-            reminder_time
-        } = req.body;
-
+        const { title, content, color_hex, is_pinned, reminder_type, reminder_date, reminder_time } = req.body;
         const noteTitle = (title && title.trim().length > 0) ? title.trim() : 'New Note';
         const noteContent = content ? content.trim() : '';
-
         const [insertedRows] = await req.propertyDb.query(`
             INSERT INTO user_notes (outlet_id, user_id, title, content, color_hex, is_pinned, is_completed, is_archived, is_trashed, reminder_type, reminder_date, reminder_time, "createdAt", "updatedAt")
             VALUES (:outlet_id, :user_id, :title, :content, :color_hex, :is_pinned, false, false, false, :reminder_type, :reminder_date, :reminder_time, NOW(), NOW())
@@ -73,32 +56,27 @@ exports.createNote = async (req, res) => {
             },
             type: req.propertyDb.QueryTypes.INSERT
         });
-
         const newNote = insertedRows && insertedRows[0] ? insertedRows[0] : insertedRows;
         res.status(201).json({ success: true, data: newNote, message: 'Sticky Note created successfully.' });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[USER NOTES CREATE ERROR]:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.copyNote = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 0;
         const user_id = req.user?.id || 1;
         const id = Number(req.params.id);
-
         const [existing] = await req.propertyDb.query(`SELECT * FROM user_notes WHERE id = :id AND outlet_id = :outlet_id`, {
             replacements: { id, outlet_id },
             type: req.propertyDb.QueryTypes.SELECT
         });
-
         if (!existing) {
             return res.status(404).json({ success: false, message: 'Source note not found.' });
         }
-
         const copyTitle = existing.title ? `${existing.title} (Copy)` : 'New Note Copy';
-
         const [insertedRows] = await req.propertyDb.query(`
             INSERT INTO user_notes (outlet_id, user_id, title, content, color_hex, is_pinned, is_completed, is_archived, is_trashed, reminder_type, reminder_date, reminder_time, "createdAt", "updatedAt")
             VALUES (:outlet_id, :user_id, :title, :content, :color_hex, :is_pinned, false, false, false, :reminder_type, :reminder_date, :reminder_time, NOW(), NOW())
@@ -117,33 +95,19 @@ exports.copyNote = async (req, res) => {
             },
             type: req.propertyDb.QueryTypes.INSERT
         });
-
         const copiedNote = insertedRows && insertedRows[0] ? insertedRows[0] : insertedRows;
         res.status(201).json({ success: true, data: copiedNote, message: 'Note duplicated successfully.' });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[USER NOTES COPY ERROR]:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.updateNote = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 0;
         const id = Number(req.params.id);
-
-        const {
-            title,
-            content,
-            color_hex,
-            is_pinned,
-            is_completed,
-            is_archived,
-            is_trashed,
-            reminder_type,
-            reminder_date,
-            reminder_time
-        } = req.body;
-
+        const { title, content, color_hex, is_pinned, is_completed, is_archived, is_trashed, reminder_type, reminder_date, reminder_time } = req.body;
         const [updatedRows] = await req.propertyDb.query(`
             UPDATE user_notes
             SET title = COALESCE(:title, title),
@@ -177,20 +141,18 @@ exports.updateNote = async (req, res) => {
             },
             type: req.propertyDb.QueryTypes.UPDATE
         });
-
         const note = updatedRows && updatedRows[0] ? updatedRows[0] : updatedRows;
         res.json({ success: true, data: note, message: 'Sticky Note updated.' });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[USER NOTES UPDATE ERROR]:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.toggleArchive = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 0;
         const id = Number(req.params.id);
-
         const [updatedRows] = await req.propertyDb.query(`
             UPDATE user_notes
             SET is_archived = NOT COALESCE(is_archived, false),
@@ -201,19 +163,17 @@ exports.toggleArchive = async (req, res) => {
             replacements: { id, outlet_id },
             type: req.propertyDb.QueryTypes.UPDATE
         });
-
         const note = updatedRows && updatedRows[0] ? updatedRows[0] : updatedRows;
         res.json({ success: true, data: note });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.moveToTrash = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 0;
         const id = Number(req.params.id);
-
         const [updatedRows] = await req.propertyDb.query(`
             UPDATE user_notes
             SET is_trashed = true,
@@ -225,19 +185,17 @@ exports.moveToTrash = async (req, res) => {
             replacements: { id, outlet_id },
             type: req.propertyDb.QueryTypes.UPDATE
         });
-
         const note = updatedRows && updatedRows[0] ? updatedRows[0] : updatedRows;
         res.json({ success: true, data: note, message: 'Moved to Trash.' });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.restoreNote = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 0;
         const id = Number(req.params.id);
-
         const [updatedRows] = await req.propertyDb.query(`
             UPDATE user_notes
             SET is_trashed = false,
@@ -250,40 +208,36 @@ exports.restoreNote = async (req, res) => {
             replacements: { id, outlet_id },
             type: req.propertyDb.QueryTypes.UPDATE
         });
-
         const note = updatedRows && updatedRows[0] ? updatedRows[0] : updatedRows;
         res.json({ success: true, data: note, message: 'Note restored.' });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.permanentDelete = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 0;
         const id = Number(req.params.id);
-
         await req.propertyDb.query(`DELETE FROM user_notes WHERE id = :id AND outlet_id = :outlet_id`, {
             replacements: { id, outlet_id }
         });
-
         res.json({ success: true, message: 'Note deleted permanently.' });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[USER NOTES DELETE ERROR]:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.emptyTrash = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 0;
-
         await req.propertyDb.query(`DELETE FROM user_notes WHERE is_trashed = true AND outlet_id = :outlet_id`, {
             replacements: { outlet_id }
         });
-
         res.json({ success: true, message: 'Trash emptied successfully.' });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };

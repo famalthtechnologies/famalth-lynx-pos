@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const RecurringExpense = sequelize.define('recurring_expenses', {
         id: {
@@ -56,13 +58,12 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     RecurringExpense.associate = (models) => {
         RecurringExpense.belongsTo(models.expense_categories, {
             foreignKey: 'expense_category_id',
             as: 'category'
         });
     };
-
     return RecurringExpense;
 };
+exports.default = module.exports;

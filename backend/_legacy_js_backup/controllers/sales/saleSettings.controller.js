@@ -1,16 +1,16 @@
+"use strict";
 const Sequelize = require('sequelize');
-
 exports.listSaleSources = async (req, res) => {
     try {
         const sources = await req.propertyDb.models.sale_sources.findAll({
             order: [['is_system', 'DESC'], ['name', 'ASC']]
         });
         res.json({ success: true, data: sources });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createSaleSource = async (req, res) => {
     try {
         const { name, commission_rate, gst_rate_on_commission, tds_rate, tcs_rate } = req.body;
@@ -34,11 +34,11 @@ exports.createSaleSource = async (req, res) => {
             tcs_rate: parseFloat(tcs_rate || 0)
         });
         res.json({ success: true, data: created });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.updateSaleSource = async (req, res) => {
     try {
         const { id } = req.params;
@@ -50,10 +50,8 @@ exports.updateSaleSource = async (req, res) => {
         if (source.is_system) {
             return res.status(400).json({ success: false, message: 'System sources cannot be modified' });
         }
-        
         const trimmedName = name ? name.trim() : source.name;
         const nameChanged = trimmedName !== source.name;
-
         if (nameChanged) {
             // Check if any bills are made with this source name
             const usedInBills = await req.propertyDb.models.sales_headers.findOne({
@@ -62,7 +60,6 @@ exports.updateSaleSource = async (req, res) => {
             if (usedInBills) {
                 return res.status(400).json({ success: false, message: 'Cannot edit source name as it has already been used in sales' });
             }
-
             const existing = await req.propertyDb.models.sale_sources.findOne({
                 where: { name: trimmedName }
             });
@@ -70,7 +67,6 @@ exports.updateSaleSource = async (req, res) => {
                 return res.status(400).json({ success: false, message: 'Source name already exists' });
             }
         }
-
         await source.update({
             name: trimmedName,
             is_active: is_active !== undefined ? is_active : source.is_active,
@@ -80,11 +76,11 @@ exports.updateSaleSource = async (req, res) => {
             tcs_rate: tcs_rate !== undefined ? parseFloat(tcs_rate || 0) : source.tcs_rate
         });
         res.json({ success: true, data: source });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.deleteSaleSource = async (req, res) => {
     try {
         const { id } = req.params;
@@ -104,22 +100,22 @@ exports.deleteSaleSource = async (req, res) => {
         }
         await source.destroy();
         res.json({ success: true, message: 'Source deleted successfully' });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.listPaymentMethods = async (req, res) => {
     try {
         const methods = await req.propertyDb.models.payment_methods.findAll({
             order: [['is_system', 'DESC'], ['name', 'ASC']]
         });
         res.json({ success: true, data: methods });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createPaymentMethod = async (req, res) => {
     try {
         const { name } = req.body;
@@ -139,11 +135,11 @@ exports.createPaymentMethod = async (req, res) => {
             is_active: true
         });
         res.json({ success: true, data: created });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.updatePaymentMethod = async (req, res) => {
     try {
         const { id } = req.params;
@@ -176,11 +172,11 @@ exports.updatePaymentMethod = async (req, res) => {
             is_active: is_active !== undefined ? is_active : method.is_active
         });
         res.json({ success: true, data: method });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.deletePaymentMethod = async (req, res) => {
     try {
         const { id } = req.params;
@@ -200,7 +196,8 @@ exports.deletePaymentMethod = async (req, res) => {
         }
         await method.destroy();
         res.json({ success: true, message: 'Payment method deleted successfully' });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };

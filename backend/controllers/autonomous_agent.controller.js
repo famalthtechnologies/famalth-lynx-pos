@@ -1,9 +1,9 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const agentService = require('../services/autonomous_agent.service');
-
 function resolveOutletId(req) {
     return Number(req?.user?.outlet_id) || 0;
 }
-
 exports.getProposals = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -12,7 +12,8 @@ exports.getProposals = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[AUTONOMOUS AGENT CONTROLLER ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -20,7 +21,6 @@ exports.getProposals = async (req, res) => {
         });
     }
 };
-
 exports.approveProposal = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -30,7 +30,8 @@ exports.approveProposal = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[AUTONOMOUS AGENT APPROVE ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -38,7 +39,6 @@ exports.approveProposal = async (req, res) => {
         });
     }
 };
-
 exports.rejectProposal = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -48,7 +48,8 @@ exports.rejectProposal = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[AUTONOMOUS AGENT REJECT ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -56,7 +57,6 @@ exports.rejectProposal = async (req, res) => {
         });
     }
 };
-
 exports.getAuditLogs = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -65,7 +65,8 @@ exports.getAuditLogs = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[AUTONOMOUS AGENT AUDIT LOG ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -73,3 +74,5 @@ exports.getAuditLogs = async (req, res) => {
         });
     }
 };
+module.exports = exports;
+exports.default = exports;

@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('customer_loyalty_ledger', {
         outlet_id: {
@@ -51,3 +53,4 @@ module.exports = (sequelize, DataTypes) => {
         updatedAt: 'updated_at'
     });
 };
+exports.default = module.exports;

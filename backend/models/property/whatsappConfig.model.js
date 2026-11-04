@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('whatsapp_configurations', {
         id: {
@@ -43,3 +45,4 @@ module.exports = (sequelize, DataTypes) => {
         ]
     });
 };
+exports.default = module.exports;

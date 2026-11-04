@@ -1,15 +1,22 @@
-const cron = require('node-cron');
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.checkStartupCatchup = checkStartupCatchup;
+exports.startNightAuditJob = startNightAuditJob;
+const node_cron_1 = __importDefault(require("node-cron"));
 const nightAuditService = require('../services/nightAudit.service');
 const { getOutletTimeZone, toOutletDateYmd } = require('../utils/timezoneHelper');
-
 async function checkStartupCatchup(propertyDb) {
     try {
         console.log('🌙 Checking for missed Night Audits (system offline at 02:00 AM)...');
-        const outlets = await propertyDb.models.outlets.findAll({
+        const outlets = await propertyDb.models.outlets
+            .findAll({
             where: { is_active: true },
             bypassOutletFilter: true
-        }).catch(() => []);
-
+        })
+            .catch(() => []);
         for (const outlet of outlets) {
             try {
                 const outletTz = await getOutletTimeZone(outlet.id, propertyDb);
@@ -20,7 +27,6 @@ async function checkStartupCatchup(propertyDb) {
                         where: { outlet_id: outlet.id },
                         bypassOutletFilter: true
                     });
-
                     if (settings && settings.auto_night_audit_enabled) {
                         console.log(`⚠️ Missed Night Audit detected for outlet #${outlet.id} (Date: ${currentDay.business_date} < Today: ${todayStr}). Running catch-up audit...`);
                         const result = await nightAuditService.executeNightAudit(propertyDb, outlet.id, 1, {
@@ -29,39 +35,40 @@ async function checkStartupCatchup(propertyDb) {
                             notes: `System startup catch-up execution for missed 02:00 AM audit (${currentDay.business_date})`
                         });
                         console.log(`✅ Catch-up Night Audit completed for outlet #${outlet.id}:`, result.message);
-                    } else {
+                    }
+                    else {
                         console.log(`⚠️ Overdue business date detected for outlet #${outlet.id} (${currentDay.business_date}). Manual audit recommended via UI.`);
                     }
                 }
-            } catch (err) {
+            }
+            catch (err) {
                 console.error(`❌ Startup catch-up error for outlet #${outlet.id}:`, err.message);
             }
         }
-    } catch (e) {
+    }
+    catch (e) {
         console.error('❌ Failed to execute startup catch-up check:', e.message);
     }
 }
-
 function startNightAuditJob(propertyDb) {
     // Schedule cron job to run every night at 02:00 AM
-    cron.schedule('0 2 * * *', async () => {
+    node_cron_1.default.schedule('0 2 * * *', async () => {
         console.log('🌙 [CRON] Triggering automated Night Audit worker...');
         const { withDistributedLock } = require('../utils/distributedLock');
-
         await withDistributedLock(propertyDb, 'night_audit_job', async () => {
             try {
-                const outlets = await propertyDb.models.outlets.findAll({
+                const outlets = await propertyDb.models.outlets
+                    .findAll({
                     where: { is_active: true },
                     bypassOutletFilter: true
-                }).catch(() => []);
-
+                })
+                    .catch(() => []);
                 for (const outlet of outlets) {
                     try {
                         const settings = await propertyDb.models.system_settings.findOne({
                             where: { outlet_id: outlet.id },
                             bypassOutletFilter: true
                         });
-
                         if (settings && settings.auto_night_audit_enabled) {
                             console.log(`🌙 Running auto Night Audit for outlet #${outlet.id} (${outlet.name || 'Store'})...`);
                             const result = await nightAuditService.executeNightAudit(propertyDb, outlet.id, 1, {
@@ -71,22 +78,21 @@ function startNightAuditJob(propertyDb) {
                             });
                             console.log(`✅ Auto Night Audit completed for outlet #${outlet.id}:`, result.message);
                         }
-                    } catch (outletErr) {
+                    }
+                    catch (outletErr) {
                         console.error(`❌ Error running auto Night Audit for outlet #${outlet.id}:`, outletErr.message);
                     }
                 }
-            } catch (err) {
+            }
+            catch (err) {
                 console.error('❌ Failed to run Night Audit cron worker:', err.message);
             }
         });
     }, {
         timezone: process.env.TZ || 'Asia/Kolkata'
     });
-
     // Run startup catch-up check immediately
     checkStartupCatchup(propertyDb);
-
     console.log('🌙 Night Audit cron worker initialized (Scheduled for 02:00 AM daily + Startup Catch-up).');
 }
-
 module.exports = { startNightAuditJob, checkStartupCatchup };

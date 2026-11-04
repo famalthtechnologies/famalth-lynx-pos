@@ -1,5 +1,6 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
-
     const purchase_item = sequelize.define('purchase_order_items', {
         po_id: DataTypes.INTEGER,
         item_id: DataTypes.INTEGER,
@@ -22,13 +23,12 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'purchase_order_items',
         timestamps: false
     });
-
     purchase_item.associate = (models) => {
         purchase_item.belongsTo(models.purchase_orders, {
             foreignKey: 'po_id',
             as: 'purchase_order'
         });
     };
-
     return purchase_item;
 };
+exports.default = module.exports;

@@ -1,13 +1,9 @@
+"use strict";
 const audit = require('../../services/audit.service');
-
 const { Op } = require('sequelize');
-
 function mapVendorPayload(body = {}) {
-    const supplier_name = String(
-        body.supplier_name ?? body.vendor_name ?? ''
-    ).trim();
+    const supplier_name = String(body.supplier_name ?? body.vendor_name ?? '').trim();
     const address = String(body.address ?? '').trim();
-
     return {
         supplier_code: String(body.supplier_code ?? '').trim(),
         supplier_name,
@@ -21,7 +17,6 @@ function mapVendorPayload(body = {}) {
         tax_country_code: String(body.tax_country_code ?? 'IN').trim() || null
     };
 }
-
 function normalizeSupplierPayload(body = {}) {
     return {
         supplier_code: String(body.supplier_code || body.vendor_code || '').trim(),
@@ -36,22 +31,17 @@ function normalizeSupplierPayload(body = {}) {
         tax_country_code: String(body.tax_country_code || 'IN').trim().toUpperCase() || null
     };
 }
-
 exports.createSupplier = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
-
         const payload = normalizeSupplierPayload(req.body);
-
         if (!payload.supplier_name) {
             return res.status(400).json({ success: false, message: 'Vendor name is required' });
         }
-
         if (!payload.address) {
             return res.status(400).json({ success: false, message: 'Address is required' });
         }
-
         const supplier = await req.propertyDb.models.supplier_master.create({
             outlet_id,
             supplier_code: payload.supplier_code,
@@ -66,8 +56,6 @@ exports.createSupplier = async (req, res) => {
             tax_country_code: payload.tax_country_code,
             is_active: true
         });
-
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -79,39 +67,31 @@ exports.createSupplier = async (req, res) => {
             outlet_id,
             user_id
         });
-
         res.json({ success: true, data: supplier });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.canImportSuppliers = async (req, res) => {
     const outlet_id = req.user.outlet_id;
-
     const count = await req.propertyDb.models.supplier_master.count({
         where: { outlet_id }
     });
-
     res.json({
         success: true,
         canImport: count === 0
     });
 };
-
 exports.bulkImportSuppliers = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
         const suppliers = req.body;
-
         const count = await req.propertyDb.models.supplier_master.count({
             where: { outlet_id }
         });
-
         if (count > 0) {
             return res.status(400).json({
                 success: false,
@@ -131,12 +111,9 @@ exports.bulkImportSuppliers = async (req, res) => {
             tax_country_code: normalizeSupplierPayload(row).tax_country_code,
             is_active: true
         }));
-
-
         await req.propertyDb.models.supplier_master.bulkCreate(formatted, {
             transaction: t
         });
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -148,97 +125,77 @@ exports.bulkImportSuppliers = async (req, res) => {
             outlet_id,
             user_id
         });
-
         await t.commit();
-
         res.json({
             success: true,
             message: 'Suppliers imported successfully'
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.getSuppliers = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { q, activeOnly, active_only, all } = req.query;
-
         const where = {
             outlet_id
         };
-
         const fetchAll = all === 'true' || all === true || activeOnly === 'false' || activeOnly === false || active_only === 'false' || active_only === false;
         if (!fetchAll) {
             where.is_active = true;
         }
-
         if (q && q.trim() !== '') {
             const search = q.trim();
             const digits = search.replace(/[^\d]/g, '');
             const parsedNum = digits ? parseInt(digits, 10) : null;
-
             const searchConditions = [
                 { supplier_code: { [Op.iLike]: `%${search}%` } },
                 { supplier_name: { [Op.iLike]: `%${search}%` } },
                 { phone: { [Op.iLike]: `%${search}%` } },
                 { gstin: { [Op.iLike]: `%${search}%` } }
             ];
-
             if (parsedNum !== null) {
                 searchConditions.push({ supplier_code: { [Op.iLike]: `%${parsedNum}%` } });
                 searchConditions.push({ supplier_code: { [Op.iLike]: `%sup${parsedNum}%` } });
             }
-
             where[Op.or] = searchConditions;
         }
-
         const suppliers = await req.propertyDb.models.supplier_master.findAll({
             where,
             order: [['id', 'DESC']]
         });
-
         res.json({ success: true, data: suppliers });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.updateSupplier = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
         const id = req.params.id;
-
         const supplier = await req.propertyDb.models.supplier_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!supplier) {
             return res.status(404).json({ success: false });
         }
-
         const oldData = supplier.toJSON();
-
         const payload = normalizeSupplierPayload({
             ...supplier.toJSON(),
             ...req.body
         });
-
         if (!payload.supplier_name) {
             return res.status(400).json({ success: false, message: 'Vendor name is required' });
         }
-
         if (!payload.address) {
             return res.status(400).json({ success: false, message: 'Address is required' });
         }
-
         const isActiveVal = req.body.is_active !== undefined ? (req.body.is_active === true || req.body.is_active === 'true') : supplier.is_active;
-
         await supplier.update({
             supplier_code: payload.supplier_code,
             supplier_name: payload.supplier_name,
@@ -252,7 +209,6 @@ exports.updateSupplier = async (req, res) => {
             tax_country_code: payload.tax_country_code,
             is_active: isActiveVal
         });
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -264,30 +220,24 @@ exports.updateSupplier = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, data: supplier });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.toggleSupplierStatus = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const id = req.params.id;
-
         const supplier = await req.propertyDb.models.supplier_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!supplier) {
             return res.status(404).json({ success: false, message: 'Supplier not found' });
         }
-
         const newStatus = !supplier.is_active;
         await supplier.update({ is_active: newStatus });
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -299,30 +249,24 @@ exports.toggleSupplierStatus = async (req, res) => {
             outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, data: supplier, message: `Supplier status changed to ${newStatus ? 'Active' : 'Inactive'}` });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.deleteSupplier = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
         const id = req.params.id;
-
         const supplier = await req.propertyDb.models.supplier_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!supplier) {
             return res.status(404).json({ success: false });
         }
-
         await supplier.update({ is_active: false });
-
         await audit.log({
             req,
             module: 'SUPPLIER_MASTER',
@@ -334,58 +278,52 @@ exports.deleteSupplier = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, message: 'Supplier deactivated' });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.getNextSupplierCode = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
-
         const suppliers = await req.propertyDb.models.supplier_master.findAll({
             where: { outlet_id },
             attributes: ['supplier_code']
         });
-
         const usedCodes = new Set();
         let maxNum = 0;
-
         for (const row of suppliers) {
             const code = String(row.supplier_code || '').trim();
-            if (!code) continue;
+            if (!code)
+                continue;
             usedCodes.add(code.toUpperCase());
-
             const match = code.match(/(\d+)$/);
             if (match) {
                 const num = parseInt(match[1], 10);
                 if (Number.isFinite(num) && num > maxNum) {
                     maxNum = num;
                 }
-            } else {
+            }
+            else {
                 const digits = parseInt(code.replace(/[^\d]/g, '')) || 0;
                 if (digits > maxNum) {
                     maxNum = digits;
                 }
             }
         }
-
         let nextNum = maxNum + 1;
         let nextCode = `sup${nextNum}`;
         while (usedCodes.has(nextCode.toUpperCase())) {
             nextNum += 1;
             nextCode = `sup${nextNum}`;
         }
-
         res.json({
             success: true,
             data: nextCode,
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };

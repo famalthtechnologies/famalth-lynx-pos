@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const SupplierReturnRefund = sequelize.define('supplier_return_refunds', {
         return_id: DataTypes.INTEGER,
@@ -15,18 +17,16 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     SupplierReturnRefund.associate = (models) => {
         SupplierReturnRefund.belongsTo(models.supplier_return_headers, {
             foreignKey: 'return_id',
             as: 'return_header'
         });
-
         SupplierReturnRefund.belongsTo(models.supplier_master, {
             foreignKey: 'supplier_id',
             as: 'supplier'
         });
     };
-
     return SupplierReturnRefund;
 };
+exports.default = module.exports;

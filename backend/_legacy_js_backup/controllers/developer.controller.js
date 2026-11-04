@@ -1,9 +1,8 @@
+"use strict";
 const developerService = require('../services/developer.service');
-
 function resolveOutletId(req) {
     return Number(req?.user?.outlet_id) || 0;
 }
-
 exports.getEcosystemInfo = async (req, res) => {
     try {
         const data = await developerService.getEcosystemInfo();
@@ -11,7 +10,8 @@ exports.getEcosystemInfo = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[DEVELOPER ECOSYSTEM CONTROLLER ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -19,7 +19,6 @@ exports.getEcosystemInfo = async (req, res) => {
         });
     }
 };
-
 exports.getWebhooks = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -28,7 +27,8 @@ exports.getWebhooks = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[DEVELOPER WEBHOOKS CONTROLLER ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -36,7 +36,6 @@ exports.getWebhooks = async (req, res) => {
         });
     }
 };
-
 exports.registerWebhook = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -46,7 +45,8 @@ exports.registerWebhook = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[DEVELOPER REGISTER WEBHOOK ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -54,7 +54,6 @@ exports.registerWebhook = async (req, res) => {
         });
     }
 };
-
 exports.getApiKeys = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -63,7 +62,8 @@ exports.getApiKeys = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[DEVELOPER API KEYS CONTROLLER ERROR]:', error.message);
         return res.status(500).json({
             success: false,
@@ -71,7 +71,6 @@ exports.getApiKeys = async (req, res) => {
         });
     }
 };
-
 exports.generateApiKey = async (req, res) => {
     try {
         const outletId = resolveOutletId(req);
@@ -81,7 +80,8 @@ exports.generateApiKey = async (req, res) => {
             success: true,
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[DEVELOPER GENERATE API KEY ERROR]:', error.message);
         return res.status(500).json({
             success: false,

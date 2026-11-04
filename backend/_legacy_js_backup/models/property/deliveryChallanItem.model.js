@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const DeliveryChallanItem = sequelize.define('delivery_challan_items', {
         id: {
@@ -33,7 +34,6 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'delivery_challan_items',
         timestamps: false
     });
-
     DeliveryChallanItem.associate = (models) => {
         DeliveryChallanItem.belongsTo(models.delivery_challan_headers, {
             foreignKey: 'challan_id',
@@ -44,6 +44,5 @@ module.exports = (sequelize, DataTypes) => {
             as: 'item'
         });
     };
-
     return DeliveryChallanItem;
 };

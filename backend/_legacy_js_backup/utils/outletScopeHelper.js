@@ -1,5 +1,5 @@
+"use strict";
 const { Op } = require('sequelize');
-
 /**
  * Resolves outlet scoping for database queries.
  * - Single outlet (e.g. '1'): strictly restricts query to outlet_id = 1.
@@ -7,27 +7,24 @@ const { Op } = require('sequelize');
  * - null/undefined/'null': defaults strictly to the current session outlet (outlet_id = sessionOutletId).
  */
 async function getLinkedOutletIds(req, sessionOutletId) {
-    if (!sessionOutletId) return [];
-
+    if (!sessionOutletId)
+        return [];
     try {
         const models = req.propertyDb?.models;
-        if (!models || !models.outlets) return [sessionOutletId];
-
+        if (!models || !models.outlets)
+            return [sessionOutletId];
         const rawOutlets = await models.outlets.findAll({
             attributes: ['id', 'parent_outlet_id', 'is_master', 'outlet_role'],
             where: { is_active: true },
             bypassOutletFilter: true,
             raw: true
         });
-
         const currentOutlet = rawOutlets.find(o => Number(o.id) === Number(sessionOutletId));
-        if (!currentOutlet) return [Number(sessionOutletId)];
-
+        if (!currentOutlet)
+            return [Number(sessionOutletId)];
         const linkedSet = new Set();
         linkedSet.add(Number(sessionOutletId));
-
         const isCurrentMaster = Boolean(currentOutlet.is_master) || String(currentOutlet.is_master) === '1' || currentOutlet.outlet_role === 'MASTER';
-
         if (isCurrentMaster) {
             rawOutlets.forEach(o => {
                 const oid = Number(o.id);
@@ -37,14 +34,13 @@ async function getLinkedOutletIds(req, sessionOutletId) {
                 }
             });
         }
-
         return Array.from(linkedSet);
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error resolving linked outlet IDs:', err.message);
         return [sessionOutletId];
     }
 }
-
 /**
  * Resolves outlet scoping for database queries.
  * - queryOutletId: 'ALL', 'all', '-1', -1 -> returns scope for ALL linked outlets (e.g. outlet_id IN [1, 2]).
@@ -53,17 +49,12 @@ async function getLinkedOutletIds(req, sessionOutletId) {
  */
 async function resolveOutletScope(req, queryOutletId) {
     const sessionOutletId = Number(req.outlet?.id || req.user?.outlet_id || 0);
-
-    const isAll = (
-        queryOutletId === 'ALL' ||
+    const isAll = (queryOutletId === 'ALL' ||
         queryOutletId === 'all' ||
         queryOutletId === '-1' ||
         queryOutletId === -1 ||
-        queryOutletId === 'true'
-    );
-
+        queryOutletId === 'true');
     const linkedIds = await getLinkedOutletIds(req, sessionOutletId);
-
     if (isAll) {
         const outletIds = linkedIds.length > 0 ? linkedIds : (sessionOutletId ? [sessionOutletId] : []);
         const outlet_id = outletIds.length === 1 ? outletIds[0] : (outletIds.length > 1 ? { [Op.in]: outletIds } : sessionOutletId);
@@ -75,17 +66,13 @@ async function resolveOutletScope(req, queryOutletId) {
             outletIds
         };
     }
-
-    const hasSpecific = (
-        queryOutletId !== undefined &&
+    const hasSpecific = (queryOutletId !== undefined &&
         queryOutletId !== null &&
         queryOutletId !== '' &&
         queryOutletId !== 'null' &&
         queryOutletId !== 'undefined' &&
         queryOutletId !== '0' &&
-        queryOutletId !== 0
-    );
-
+        queryOutletId !== 0);
     let targetId = sessionOutletId;
     if (hasSpecific) {
         const parsed = Number(queryOutletId);
@@ -93,7 +80,6 @@ async function resolveOutletScope(req, queryOutletId) {
             targetId = parsed;
         }
     }
-
     return {
         isAll: false,
         targetOutletId: targetId,
@@ -102,7 +88,6 @@ async function resolveOutletScope(req, queryOutletId) {
         outletIds: [targetId]
     };
 }
-
 module.exports = {
     resolveOutletScope,
     getLinkedOutletIds

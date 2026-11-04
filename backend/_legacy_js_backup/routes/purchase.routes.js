@@ -1,10 +1,9 @@
+"use strict";
 const router = require('express').Router();
 const auth = require('../middlewares/auth.middleware');
 const license = require('../middlewares/license.middleware');
 const ctrl = require('../controllers/inventory/purchaseOrder.controller');
-
 router.use(auth, license('PURCHASE'));
-
 router.post('/', ctrl.createPurchaseOrder);
 router.get('/', ctrl.listPurchaseOrders);
 router.get('/by-date', ctrl.getPoByDate);
@@ -16,5 +15,4 @@ router.put('/:id', ctrl.updatePurchaseOrder);
 router.post('/send-email', ctrl.sendPoEmail);
 router.post('/:id/close', ctrl.closePurchaseOrder);
 router.post('/:id/cancel', ctrl.cancelPurchaseOrder);
-
 module.exports = router;

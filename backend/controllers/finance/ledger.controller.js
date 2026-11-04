@@ -1,10 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const { Op, Sequelize } = require('sequelize');
 const { createLedgerEntry } = require('../../services/cashLedger.service');
 const { isBankPayment, debitBankBalance } = require('../../services/bankAccount.service');
-
 exports.createExpense = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const outlet_id = req.user.outlet_id;
         const created_by = req.user.id;
@@ -20,17 +20,14 @@ exports.createExpense = async (req, res) => {
         const amount = Number(req.body.amount) || 0;
         const note = String(req.body.note || '').trim() || null;
         const payment_mode = String(req.body.payment_mode || req.body.payment_method || 'CASH').trim().toUpperCase();
-
         if (!category) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Category is required' });
         }
-
         if (amount <= 0) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
         }
-
         const expense = await req.propertyDb.models.expense_entries.create({
             outlet_id,
             expense_date,
@@ -39,7 +36,6 @@ exports.createExpense = async (req, res) => {
             note,
             created_by
         }, { transaction: t });
-
         await createLedgerEntry({
             db: req.propertyDb,
             outlet_id,
@@ -55,16 +51,15 @@ exports.createExpense = async (req, res) => {
             created_by,
             transaction: t
         });
-
         let bank = null;
         if (isBankPayment(payment_mode)) {
             try {
                 bank = await debitBankBalance({ db: req.propertyDb, outlet_id, amount, transaction: t });
-            } catch (bErr) {
+            }
+            catch (bErr) {
                 console.error('Error debiting bank for expense:', bErr);
             }
         }
-
         // Auto-Post Double-Entry Payment Voucher (PV)
         try {
             const count = await req.propertyDb.models.accounting_vouchers.count({
@@ -72,7 +67,6 @@ exports.createExpense = async (req, res) => {
                 transaction: t
             });
             const autoNo = `PV-${String(count + 1).padStart(4, '0')}`;
-
             const header = await req.propertyDb.models.accounting_vouchers.create({
                 outlet_id,
                 voucher_no: autoNo,
@@ -87,7 +81,6 @@ exports.createExpense = async (req, res) => {
                 status: 'POSTED',
                 created_by
             }, { transaction: t });
-
             await req.propertyDb.models.voucher_lines.bulkCreate([
                 {
                     voucher_id: header.id,
@@ -108,55 +101,49 @@ exports.createExpense = async (req, res) => {
                     particulars: `${isBankPayment(payment_mode) ? 'Bank' : 'Cash'} Outflow for Expense`
                 }
             ], { transaction: t });
-        } catch (vErr) {
+        }
+        catch (vErr) {
             console.error('Auto Voucher Posting Error:', vErr);
         }
-
         await t.commit();
-
         res.json({ success: true, data: expense });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getExpenseReport = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { from_date, to_date, category } = req.query;
         const where = { outlet_id };
-
         if (from_date && to_date) {
             where.expense_date = { [Op.between]: [from_date, to_date] };
         }
         if (category) {
             where.category = category;
         }
-
         const data = await req.propertyDb.models.expense_entries.findAll({
             where,
             order: [['expense_date', 'DESC'], ['id', 'DESC']]
         });
-
         const totalAmount = data.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-
         res.json({
             success: true,
             summary: { totalAmount },
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getLedgerReport = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { from_date, to_date, type } = req.query;
         const where = { outlet_id };
-
         if (from_date && to_date) {
             where.txn_date = {
                 [Op.between]: [
@@ -168,7 +155,6 @@ exports.getLedgerReport = async (req, res) => {
         if (type) {
             where.transaction_type = type;
         }
-
         // Auto-cleanup any legacy duplicate SALE_DISCOUNT_EXPENSE entries created for SUBSCRIPTION bills
         const duplicateSubDiscountEntries = await req.propertyDb.models.cash_ledger.findAll({
             where: {
@@ -184,12 +170,10 @@ exports.getLedgerReport = async (req, res) => {
             }
             await recalculateLedgerBalances({ db: req.propertyDb, outlet_id, fromDate: new Date(0) });
         }
-
         const entries = await req.propertyDb.models.cash_ledger.findAll({
             where,
             order: [['txn_date', 'ASC'], ['id', 'ASC']]
         });
-
         let openingBalance = 0;
         if (from_date) {
             const opening = await req.propertyDb.models.cash_ledger.findOne({
@@ -203,13 +187,11 @@ exports.getLedgerReport = async (req, res) => {
             });
             openingBalance = Number(opening?.balance) || 0;
         }
-
         const totalIn = entries.reduce((sum, entry) => sum + Number(entry.amount_in || 0), 0);
         const totalOut = entries.reduce((sum, entry) => sum + Number(entry.amount_out || 0), 0);
         const closingBalance = entries.length > 0
             ? Number(entries[entries.length - 1].balance || 0)
             : openingBalance;
-
         res.json({
             success: true,
             summary: {
@@ -220,17 +202,16 @@ exports.getLedgerReport = async (req, res) => {
             },
             data: entries
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getPaymentFlowReport = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { from_date, to_date } = req.query;
         const where = { outlet_id };
-
         if (from_date && to_date) {
             where.txn_date = {
                 [Op.between]: [
@@ -239,7 +220,6 @@ exports.getPaymentFlowReport = async (req, res) => {
                 ]
             };
         }
-
         const data = await req.propertyDb.models.cash_ledger.findAll({
             where,
             attributes: [
@@ -250,9 +230,11 @@ exports.getPaymentFlowReport = async (req, res) => {
             group: ['transaction_type'],
             order: [['transaction_type', 'ASC']]
         });
-
         res.json({ success: true, data });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+module.exports = exports;
+exports.default = exports;

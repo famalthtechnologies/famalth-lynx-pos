@@ -1,11 +1,9 @@
+"use strict";
 const propertyDb = require('../db/models');
-
 let selfHealed = false;
-
 module.exports = async (req, res, next) => {
     try {
         req.propertyDb = propertyDb;
-        
         if (!selfHealed) {
             selfHealed = true;
             try {
@@ -15,7 +13,6 @@ module.exports = async (req, res, next) => {
                         console.warn('⚠️ Model sync notice:', err.message);
                     }
                 });
-
                 // Dynamically ensure columns exist
                 await propertyDb.query(`
                     ALTER TABLE outlets ADD COLUMN IF NOT EXISTS business_module VARCHAR(50) DEFAULT 'ALL';
@@ -54,17 +51,17 @@ module.exports = async (req, res, next) => {
                     ALTER TABLE outlets ADD COLUMN IF NOT EXISTS supervisor_pin_type VARCHAR(50) DEFAULT 'STATIC';
                 `);
                 console.log('✅ Self-healed: Checked and added missing columns to tables');
-
                 const runMigrations = require('../utils/migrationRunner');
                 await runMigrations(propertyDb);
                 console.log('✅ Self-healed: Checked and ran database schema migrations');
-            } catch (healErr) {
+            }
+            catch (healErr) {
                 console.warn('⚠️ Self-healing column check warning:', healErr.message);
             }
         }
-        
         next();
-    } catch (err) {
+    }
+    catch (err) {
         console.error('DB Middleware Error:', err);
         res.status(500).json({
             success: false,

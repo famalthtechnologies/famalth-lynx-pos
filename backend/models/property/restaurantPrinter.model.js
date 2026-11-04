@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const RestaurantPrinter = sequelize.define('restaurant_printers', {
         id: {
@@ -33,6 +35,6 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'restaurant_printers',
         timestamps: false
     });
-
     return RestaurantPrinter;
 };
+exports.default = module.exports;

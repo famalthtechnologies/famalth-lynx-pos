@@ -51,6 +51,10 @@ exports.default = (sequelize) => {
             type: sequelize_1.DataTypes.DATE,
             allowNull: true,
         },
+        last_read_by_support_at: {
+            type: sequelize_1.DataTypes.DATE,
+            allowNull: true,
+        },
     }, {
         sequelize,
         tableName: 'support_tickets',

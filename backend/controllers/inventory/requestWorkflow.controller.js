@@ -1,36 +1,37 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.rejectRequest = exports.approveRequest = exports.getRequestDetails = exports.modifyRequest = exports.getRequestsByDate = exports.listRequests = exports.cancelRequest = exports.getNextRequestNo = exports.createRequest = void 0;
 const audit = require('../../services/audit.service');
 const { Op } = require('sequelize');
 const numberingHelper = require('./numberingSettingsV2.controller');
 const { normalizeDateKey } = require('../../utils/dateQuery');
-
 function normalizeLineStatus(value) {
     const status = String(value || 'CLOSED').trim().toUpperCase();
     return ['OPEN', 'CLOSED', 'CANCELLED'].includes(status) ? status : 'CLOSED';
 }
-
 function deriveHeaderStatus(items) {
     const statuses = items.map(item => normalizeLineStatus(item.line_status));
     const hasOpen = statuses.includes('OPEN');
     const hasClosed = statuses.includes('CLOSED');
     const allCancelled = statuses.length > 0 && statuses.every(status => status === 'CANCELLED');
-
-    if (allCancelled) return 'CANCELLED';
-    if (hasOpen && hasClosed) return 'PARTIAL';
-    if (hasOpen) return 'OPEN';
+    if (allCancelled)
+        return 'CANCELLED';
+    if (hasOpen && hasClosed)
+        return 'PARTIAL';
+    if (hasOpen)
+        return 'OPEN';
     return 'CLOSED';
 }
-
-exports.createRequest = async (req, res) => {
+const createRequest = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
-        const { department, request_date, open_request_no, items } = req.body;
+        const { department, request_date, open_request_no, items = [] } = req.body;
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
-        const normalizedItems = items.map(item => ({
+        const normalizedItems = items.map((item) => ({
             ...item,
             line_status: normalizeLineStatus(item.line_status)
         }));
-
         const header = await req.propertyDb.models.request_headers.create({
             request_no: open_request_no,
             department,
@@ -41,7 +42,6 @@ exports.createRequest = async (req, res) => {
             outlet_id,
             created_by: user_id
         }, { transaction: t });
-
         for (const it of normalizedItems) {
             await req.propertyDb.models.request_items.create({
                 request_id: header.id,
@@ -52,7 +52,6 @@ exports.createRequest = async (req, res) => {
                 line_status: it.line_status
             }, { transaction: t });
         }
-
         await req.propertyDb.models.system_notifications.create({
             outlet_id: req.user.outlet_id,
             module: 'REQUEST',
@@ -61,7 +60,6 @@ exports.createRequest = async (req, res) => {
             type: 'INFO',
             entity_id: header.id
         }, { transaction: t });
-
         await audit.log({
             req,
             module: 'request_item',
@@ -70,16 +68,16 @@ exports.createRequest = async (req, res) => {
             recordId: header.id,
             newData: header.toJSON()
         }, { transaction: t });
-
         await t.commit();
         res.json({ success: true, message: 'Request saved successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.getNextRequestNo = async (req, res) => {
+exports.createRequest = createRequest;
+const getNextRequestNo = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const date = req.query.date || new Date().toISOString();
@@ -89,21 +87,20 @@ exports.getNextRequestNo = async (req, res) => {
             date,
             outlet_id
         });
-
         if (!data) {
             return res.status(400).json({
                 success: false,
                 message: 'Request numbering not configured'
             });
         }
-
         res.json({ success: true, data: data.number });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.cancelRequest = async (req, res) => {
+exports.getNextRequestNo = getNextRequestNo;
+const cancelRequest = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const { id } = req.params;
@@ -112,27 +109,18 @@ exports.cancelRequest = async (req, res) => {
         const header = await req.propertyDb.models.request_headers.findOne({
             where: { id, outlet_id }
         });
-
         if (!header) {
             return res.status(404).json({ success: false });
         }
-
         if (['CLOSED', 'CANCELLED'].includes(String(header.status || '').toUpperCase())) {
             return res.status(400).json({
                 success: false,
                 message: 'Only open or partial requests can be cancelled'
             });
         }
-
         const oldData = header.toJSON();
-
-        await req.propertyDb.models.request_items.update(
-            { line_status: 'CANCELLED' },
-            { where: { request_id: header.id, line_status: 'OPEN' }, transaction: t }
-        );
-
+        await req.propertyDb.models.request_items.update({ line_status: 'CANCELLED' }, { where: { request_id: header.id, line_status: 'OPEN' }, transaction: t });
         await header.update({ status: 'CANCELLED' }, { transaction: t });
-
         await audit.log({
             req,
             module: 'REQUEST',
@@ -144,16 +132,16 @@ exports.cancelRequest = async (req, res) => {
             outlet_id,
             user_id
         });
-
         await t.commit();
         res.json({ success: true, message: 'Request cancelled' });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.listRequests = async (req, res) => {
+exports.cancelRequest = cancelRequest;
+const listRequests = async (req, res) => {
     try {
         const statusFilter = req.query.status;
         const data = await req.propertyDb.models.request_headers.findAll({
@@ -176,123 +164,94 @@ exports.listRequests = async (req, res) => {
             order: [['request_date', 'DESC'], ['id', 'DESC']]
         });
         res.json({ success: true, data });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 };
-
-exports.getRequestsByDate = async (req, res) => {
+exports.listRequests = listRequests;
+const getRequestsByDate = async (req, res) => {
     try {
-        const { date, from_date, to_date } = req.query;
+        const { date } = req.query;
         const outlet_id = req.user.outlet_id;
-
-        let dateClause = {};
-        if (from_date && to_date) {
-            const normFrom = normalizeDateKey(from_date) || from_date;
-            const normTo = normalizeDateKey(to_date) || to_date;
-            dateClause = { [Op.between]: [normFrom, normTo] };
-        } else if (date) {
-            const normalizedDate = normalizeDateKey(date) || date;
-            dateClause = normalizedDate;
-        }
-
-        const where = { outlet_id };
-        if (date || (from_date && to_date)) {
-            where.request_date = dateClause;
-        }
-
+        const normalizedDate = normalizeDateKey(date);
         const data = await req.propertyDb.models.request_headers.findAll({
-            where,
-            include: [
-                {
-                    model: req.propertyDb.models.request_items,
-                    as: 'items',
-                    attributes: ['id', 'qty', 'rate']
+            where: {
+                outlet_id,
+                request_date: normalizedDate || date,
+                approval_status: 'APPROVED',
+                status: {
+                    [Op.in]: ['OPEN', 'PARTIAL']
                 }
+            },
+            attributes: [
+                'id',
+                'request_no',
+                'department',
+                'request_date',
+                'status',
+                'approval_status'
             ],
-            order: [['created_at', 'DESC'], ['id', 'DESC']]
+            order: [['created_at', 'DESC']]
         });
-
-        const formatted = data.map((reqItem) => {
-            const json = reqItem.toJSON();
-            let total = 0;
-            if (Array.isArray(json.items)) {
-                total = json.items.reduce((sum, it) => sum + ((Number(it.qty) || 0) * (Number(it.rate) || 0)), 0);
-            }
-            json.total_amount = total;
-            return json;
-        });
-
-        res.json({
-            success: true,
-            data: formatted
-        });
-    } catch (err) {
+        res.json({ success: true, data });
+    }
+    catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 };
-
-exports.modifyRequest = async (req, res) => {
+exports.getRequestsByDate = getRequestsByDate;
+const modifyRequest = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const { id } = req.params;
-        const { department, items } = req.body;
+        const { department, items = [] } = req.body;
         const outlet_id = req.user.outlet_id;
-        const normalizedItems = items.map(item => ({
+        const normalizedItems = items.map((item) => ({
             ...item,
             line_status: normalizeLineStatus(item.line_status)
         }));
-
         const header = await req.propertyDb.models.request_headers.findOne({
             where: { id, outlet_id }
         });
-
         if (!header) {
             return res.status(404).json({ success: false });
         }
-
         if (header.status === 'CLOSED') {
             return res.status(400).json({
                 success: false,
                 message: 'Request closed'
             });
         }
-
         await header.update({
             department,
             status: deriveHeaderStatus(normalizedItems)
         }, { transaction: t });
-
         const existingItems = await req.propertyDb.models.request_items.findAll({
             where: { request_id: id },
             transaction: t
         });
-
-        const existingIds = existingItems.map(i => i.id);
-        const incomingIds = normalizedItems.map(i => i.id).filter(i => i);
-        const deleteIds = existingIds.filter(existingId => !incomingIds.includes(existingId));
-
+        const existingIds = existingItems.map((i) => i.id);
+        const incomingIds = normalizedItems.map((i) => i.id).filter((i) => i);
+        const deleteIds = existingIds.filter((existingId) => !incomingIds.includes(existingId));
         if (deleteIds.length > 0) {
             await req.propertyDb.models.request_items.destroy({
                 where: { id: deleteIds },
                 transaction: t
             });
         }
-
         for (const item of normalizedItems) {
             if (item.id) {
-                await req.propertyDb.models.request_items.update(
-                    {
-                        qty: item.qty,
-                        rate: item.rate,
-                        line_status: item.line_status
-                    },
-                    {
-                        where: { id: item.id },
-                        transaction: t
-                    }
-                );
-            } else {
+                await req.propertyDb.models.request_items.update({
+                    qty: item.qty,
+                    rate: item.rate,
+                    line_status: item.line_status
+                }, {
+                    where: { id: item.id },
+                    transaction: t
+                });
+            }
+            else {
                 await req.propertyDb.models.request_items.create({
                     request_id: id,
                     item_id: item.item_id,
@@ -303,7 +262,6 @@ exports.modifyRequest = async (req, res) => {
                 }, { transaction: t });
             }
         }
-
         await req.propertyDb.models.system_notifications.create({
             outlet_id: req.user.outlet_id,
             module: 'REQUEST',
@@ -312,16 +270,16 @@ exports.modifyRequest = async (req, res) => {
             type: 'WARNING',
             entity_id: id
         }, { transaction: t });
-
         await t.commit();
         res.json({ success: true, message: 'Request modified successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, message: err.message });
     }
 };
-
-exports.getRequestDetails = async (req, res) => {
+exports.modifyRequest = modifyRequest;
+const getRequestDetails = async (req, res) => {
     const { id } = req.params;
     const header = await req.propertyDb.models.request_headers.findOne({
         where: {
@@ -329,31 +287,28 @@ exports.getRequestDetails = async (req, res) => {
             outlet_id: req.user.outlet_id
         },
         include: [{
-            model: req.propertyDb.models.request_items,
-            as: 'items',
-            include: [{
-                model: req.propertyDb.models.item_master,
-                as: 'item_master',
-                attributes: ['item_name', 'brand', 'unit']
+                model: req.propertyDb.models.request_items,
+                as: 'items',
+                include: [{
+                        model: req.propertyDb.models.item_master,
+                        as: 'item_master',
+                        attributes: ['item_name', 'brand', 'unit']
+                    }]
             }]
-        }]
     });
-
     if (!header) {
         return res.status(404).json({ success: false, message: 'Not found' });
     }
-
     res.json({ success: true, data: header });
 };
-
-exports.approveRequest = async (req, res) => {
+exports.getRequestDetails = getRequestDetails;
+const approveRequest = async (req, res) => {
     if (req.user.role !== 'ADMIN') {
         return res.status(403).json({
             success: false,
             message: 'Only admin can approve requests'
         });
     }
-
     const t = await req.propertyDb.transaction();
     try {
         const header = await req.propertyDb.models.request_headers.findOne({
@@ -363,11 +318,9 @@ exports.approveRequest = async (req, res) => {
             },
             transaction: t
         });
-
         if (!header) {
             return res.status(404).json({ success: false, message: 'Request not found' });
         }
-
         await header.update({
             approval_status: 'APPROVED',
             approved_by: req.user.id,
@@ -376,7 +329,6 @@ exports.approveRequest = async (req, res) => {
             rejected_at: null,
             rejection_reason: null
         }, { transaction: t });
-
         await req.propertyDb.models.system_notifications.create({
             outlet_id: req.user.outlet_id,
             module: 'REQUEST',
@@ -385,7 +337,6 @@ exports.approveRequest = async (req, res) => {
             type: 'SUCCESS',
             entity_id: header.id
         }, { transaction: t });
-
         await audit.log({
             req,
             module: 'request_item',
@@ -394,34 +345,31 @@ exports.approveRequest = async (req, res) => {
             recordId: header.id,
             newData: { approval_status: 'APPROVED' }
         }, { transaction: t });
-
         await t.commit();
         res.json({ success: true, message: 'Request approved successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.rejectRequest = async (req, res) => {
+exports.approveRequest = approveRequest;
+const rejectRequest = async (req, res) => {
     if (req.user.role !== 'ADMIN') {
         return res.status(403).json({
             success: false,
             message: 'Only admin can reject requests'
         });
     }
-
     const t = await req.propertyDb.transaction();
     try {
         const rejectionReason = String(req.body.rejection_reason || '').trim();
-
         if (!rejectionReason) {
             return res.status(400).json({
                 success: false,
                 message: 'Rejection reason is required'
             });
         }
-
         const header = await req.propertyDb.models.request_headers.findOne({
             where: {
                 id: req.params.id,
@@ -429,11 +377,9 @@ exports.rejectRequest = async (req, res) => {
             },
             transaction: t
         });
-
         if (!header) {
             return res.status(404).json({ success: false, message: 'Request not found' });
         }
-
         await header.update({
             approval_status: 'REJECTED',
             rejected_by: req.user.id,
@@ -442,7 +388,6 @@ exports.rejectRequest = async (req, res) => {
             approved_by: null,
             approved_at: null
         }, { transaction: t });
-
         await req.propertyDb.models.system_notifications.create({
             outlet_id: req.user.outlet_id,
             module: 'REQUEST',
@@ -451,7 +396,6 @@ exports.rejectRequest = async (req, res) => {
             type: 'WARNING',
             entity_id: header.id
         }, { transaction: t });
-
         await audit.log({
             req,
             module: 'request_item',
@@ -463,11 +407,25 @@ exports.rejectRequest = async (req, res) => {
                 rejection_reason: rejectionReason
             }
         }, { transaction: t });
-
         await t.commit();
         res.json({ success: true, message: 'Request rejected successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
+exports.rejectRequest = rejectRequest;
+const requestWorkflowController = {
+    createRequest: exports.createRequest,
+    getNextRequestNo: exports.getNextRequestNo,
+    cancelRequest: exports.cancelRequest,
+    listRequests: exports.listRequests,
+    getRequestsByDate: exports.getRequestsByDate,
+    modifyRequest: exports.modifyRequest,
+    getRequestDetails: exports.getRequestDetails,
+    approveRequest: exports.approveRequest,
+    rejectRequest: exports.rejectRequest
+};
+module.exports = requestWorkflowController;
+exports.default = requestWorkflowController;

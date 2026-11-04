@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const HrLoanTransaction = sequelize.define('hr_loan_transactions', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -14,10 +16,9 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     HrLoanTransaction.associate = (models) => {
         HrLoanTransaction.belongsTo(models.hr_loans, { foreignKey: 'loan_id', as: 'loan' });
     };
-
     return HrLoanTransaction;
 };
+exports.default = module.exports;

@@ -1,5 +1,10 @@
-const router = require('express').Router();
-
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const router = express_1.default.Router();
 /**
  * GET /api/system/server-time
  *
@@ -12,26 +17,25 @@ const router = require('express').Router();
 router.get('/', async (req, res) => {
     try {
         // Prefer PostgreSQL time so it is independent of OS clock
-        const db = req.db; // injected by dbMiddleware
+        const db = req.db || req.propertyDb;
         if (db) {
             const [[{ now }]] = await db.query('SELECT NOW() AS now');
             return res.json({
                 success: true,
                 serverTime: new Date(now).toISOString(),
-                source: 'db',
+                source: 'db'
             });
         }
-    } catch (_) {
+    }
+    catch (_) {
         // fall through to Node fallback
     }
-
-    // Fallback: use Node's Date (still useful — at least it is the server OS time,
-    // not the client OS time)
-    res.json({
+    // Fallback: use Node's Date
+    return res.json({
         success: true,
         serverTime: new Date().toISOString(),
-        source: 'node',
+        source: 'node'
     });
 });
-
 module.exports = router;
+exports.default = router;

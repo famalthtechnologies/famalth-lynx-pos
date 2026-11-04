@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const AccountingVoucher = sequelize.define('accounting_vouchers', {
         id: {
@@ -59,6 +60,5 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     return AccountingVoucher;
 };

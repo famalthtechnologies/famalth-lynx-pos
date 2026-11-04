@@ -1,34 +1,27 @@
+"use strict";
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
-
 exports.getStockOutReport = async (req, res) => {
     try {
         const { from_date, to_date, type, department, item_id } = req.query;
         const reqOutlet = req.query.outlet_id || req.query.outletId;
         const scope = await resolveOutletScope(req, reqOutlet);
-
         if (!from_date || !to_date) {
             return res.status(400).json({
                 success: false,
                 message: 'from_date and to_date required'
             });
         }
-
         let departmentFilter = '';
         let itemFilter = '';
-
         if (department) {
             departmentFilter = 'AND ih.department = :department';
         }
-
         if (item_id) {
             itemFilter = 'AND im.id = :item_id';
         }
-
         // ================= SUMMARY REPORT =================
         if (type === 'summary') {
-
-            const [rows] = await req.propertyDb.query(
-                `
+            const [rows] = await req.propertyDb.query(`
                 SELECT
                     im.id,
                     im.item_name,
@@ -49,22 +42,17 @@ exports.getStockOutReport = async (req, res) => {
                   ${itemFilter}
                 GROUP BY im.id, im.item_name, im.brand, im.unit
                 ORDER BY im.item_name
-                `,
-                {
-                    replacements: { outletIds: scope.outletIds, from_date, to_date, department, item_id }
-                }
-            );
-
+                `, {
+                replacements: { outletIds: scope.outletIds, from_date, to_date, department, item_id }
+            });
             return res.json({
                 success: true,
                 type: 'summary',
                 data: rows
             });
         }
-
         // ================= DETAIL REPORT =================
-        const [rows] = await req.propertyDb.query(
-            `
+        const [rows] = await req.propertyDb.query(`
             SELECT
                 ih.issue_no,
                 ih.issue_date,
@@ -86,21 +74,16 @@ exports.getStockOutReport = async (req, res) => {
               ${departmentFilter}
               ${itemFilter}
             ORDER BY ih.issue_date DESC, ih.issue_no DESC
-            `,
-            {
-                replacements: { outletIds: scope.outletIds, from_date, to_date, department, item_id }
-            }
-        );
-
+            `, {
+            replacements: { outletIds: scope.outletIds, from_date, to_date, department, item_id }
+        });
         res.json({
             success: true,
             type: 'detail',
             data: rows
         });
-
-
-
-    } catch (err) {
+    }
+    catch (err) {
         console.error(err);
         res.status(500).json({
             success: false,

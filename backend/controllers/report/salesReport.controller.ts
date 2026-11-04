@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { toOutletDateYmd, getOutletDateBounds } = require('../../utils/timezoneHelper');
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
+const { normalizePhoneNumber, getPhoneSearchVariants } = require('../../utils/phone.util');
 
 const SALES_ZONES = [
     { key: 'MORNING', label: 'Morning', startHour: 5, endHour: 11 },
@@ -160,17 +161,16 @@ exports.getSalesReport = async (req: any, res: any) => {
         }
 
         if (search) {
-            const cleanPhone = String(search).replace(/\D/g, '').trim();
-            const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
+            const variants = getPhoneSearchVariants(search);
             const searchOr: any[] = [
                 { sale_no: { [Op.iLike]: `%${search}%` } },
                 { customer_name: { [Op.iLike]: `%${search}%` } },
                 { customer_phone: { [Op.iLike]: `%${search}%` } }
             ];
-            if (last10.length >= 7) {
+            if (variants.length > 0) {
                 searchOr.push({
                     customer_phone: {
-                        [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`]
+                        [Op.in]: variants
                     }
                 });
             }
@@ -218,17 +218,16 @@ exports.getSalesReport = async (req: any, res: any) => {
             };
         }
         if (search) {
-            const cleanPhone = String(search).replace(/\D/g, '').trim();
-            const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
+            const variants = getPhoneSearchVariants(search);
             const searchOr: any[] = [
                 { credit_note_no: { [Op.iLike]: `%${search}%` } },
                 { customer_name: { [Op.iLike]: `%${search}%` } },
                 { customer_phone: { [Op.iLike]: `%${search}%` } }
             ];
-            if (last10.length >= 7) {
+            if (variants.length > 0) {
                 searchOr.push({
                     customer_phone: {
-                        [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`]
+                        [Op.in]: variants
                     }
                 });
             }
@@ -291,9 +290,8 @@ exports.getSalesReport = async (req: any, res: any) => {
             const rawGstin = String(s.customer_gstin || '').trim();
             if (!rawGstin) {
                 if (s.customer_phone) {
-                    const cleanP = String(s.customer_phone).replace(/\D/g, '').trim();
-                    const last10 = cleanP.length > 10 ? cleanP.slice(-10) : cleanP;
-                    if (last10) phonesToLookup.add(last10);
+                    const normPhone = normalizePhoneNumber(s.customer_phone);
+                    if (normPhone) phonesToLookup.add(normPhone);
                 }
                 if (s.customer_name) {
                     namesToLookup.add(String(s.customer_name).trim().toUpperCase());
@@ -318,9 +316,8 @@ exports.getSalesReport = async (req: any, res: any) => {
                 });
                 for (const c of custRows) {
                     if (c.customer_phone) {
-                        const cleanP = String(c.customer_phone).replace(/\D/g, '').trim();
-                        const last10 = cleanP.length > 10 ? cleanP.slice(-10) : cleanP;
-                        if (last10) customerMasterByPhone.set(last10, c);
+                        const normPhone = normalizePhoneNumber(c.customer_phone);
+                        if (normPhone) customerMasterByPhone.set(normPhone, c);
                     }
                     if (c.customer_name) {
                         customerMasterByName.set(String(c.customer_name).trim().toUpperCase(), c);
@@ -342,9 +339,8 @@ exports.getSalesReport = async (req: any, res: any) => {
                 let resolvedGstin = String(sale.customer_gstin || '').trim().toUpperCase();
                 let resolvedAddress = String(sale.customer_address || '').trim();
                 if (!resolvedGstin) {
-                    const cleanP = String(sale.customer_phone || '').replace(/\D/g, '').trim();
-                    const last10 = cleanP.length > 10 ? cleanP.slice(-10) : cleanP;
-                    const matchCust = (last10 ? customerMasterByPhone.get(last10) : null) ||
+                    const normPhone = normalizePhoneNumber(sale.customer_phone);
+                    const matchCust = (normPhone ? customerMasterByPhone.get(normPhone) : null) ||
                         (sale.customer_name ? customerMasterByName.get(String(sale.customer_name).trim().toUpperCase()) : null);
                     if (matchCust && matchCust.customer_gstin) {
                         resolvedGstin = String(matchCust.customer_gstin).trim().toUpperCase();

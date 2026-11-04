@@ -1,10 +1,9 @@
+"use strict";
 const db = require('./db/models');
-
 (async () => {
-  try {
-    const t = await db.transaction();
-
-    const [explain] = await db.query(`
+    try {
+        const t = await db.transaction();
+        const [explain] = await db.query(`
       EXPLAIN (ANALYZE, BUFFERS)
       INSERT INTO sales_headers (
         outlet_id, sale_no, sale_date, customer_name, customer_phone,
@@ -20,12 +19,12 @@ const db = require('./db/models');
         true, true, NOW(), NOW()
       )
     `, { transaction: t });
-    console.log('EXPLAIN ANALYZE result:\n', explain.map(r => r['QUERY PLAN']).join('\n'));
-
-    await t.rollback();
-    process.exit(0);
-  } catch(e) {
-    console.error('ERROR:', e.message);
-    process.exit(1);
-  }
+        console.log('EXPLAIN ANALYZE result:\n', explain.map(r => r['QUERY PLAN']).join('\n'));
+        await t.rollback();
+        process.exit(0);
+    }
+    catch (e) {
+        console.error('ERROR:', e.message);
+        process.exit(1);
+    }
 })();

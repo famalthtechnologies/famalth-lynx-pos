@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('customer_loyalty_ledger', {
         outlet_id: {

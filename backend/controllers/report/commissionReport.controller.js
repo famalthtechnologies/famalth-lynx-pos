@@ -1,20 +1,18 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const { Op } = require('sequelize');
 const { getOutletDateBounds } = require('../../utils/timezoneHelper');
-
 function toNumber(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
 }
-
 function roundAmount(value) {
     return Number(toNumber(value).toFixed(2));
 }
-
 exports.getCommissionReport = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { from_date, to_date, sale_source } = req.query;
-
         const where = {
             outlet_id,
             status: 'COMPLETED',
@@ -26,7 +24,6 @@ exports.getCommissionReport = async (req, res) => {
                 { tds_amount: { [Op.gt]: 0 } }
             ]
         };
-
         const outletTz = req.outletTimeZone || 'Asia/Kolkata';
         if (from_date && to_date) {
             const { startDate, endDate } = req.getDateBounds ? req.getDateBounds(from_date, to_date) : getOutletDateBounds(from_date, to_date, outletTz);
@@ -36,16 +33,13 @@ exports.getCommissionReport = async (req, res) => {
                 };
             }
         }
-
         if (sale_source && sale_source !== 'ALL') {
             where.sale_source = sale_source;
         }
-
         const sales = await req.propertyDb.models.sales_headers.findAll({
             where,
             order: [['sale_date', 'DESC']]
         });
-
         // Compute summaries
         let totalSalesAmount = 0;
         let totalTaxableAmount = 0;
@@ -57,8 +51,7 @@ exports.getCommissionReport = async (req, res) => {
         let totalNetPayout = 0;
         let totalCommissionPercentageAmount = 0;
         let totalCommissionFixedAmount = 0;
-
-        const data = sales.map(sale => {
+        const data = sales.map((sale) => {
             const netAmount = toNumber(sale.net_amount);
             const taxableAmount = toNumber(sale.taxable_amount || sale.sub_total || sale.net_amount);
             const commAmount = toNumber(sale.commission_amount);
@@ -67,7 +60,6 @@ exports.getCommissionReport = async (req, res) => {
             const tdsAmount = toNumber(sale.tds_amount);
             const deductions = commAmount + commTaxAmount + tcsAmount + tdsAmount;
             const netPayout = toNumber(sale.net_payout);
-
             totalSalesAmount += netAmount;
             totalTaxableAmount += taxableAmount;
             totalCommission += commAmount;
@@ -78,7 +70,6 @@ exports.getCommissionReport = async (req, res) => {
             totalNetPayout += netPayout;
             totalCommissionPercentageAmount += toNumber(sale.commission_percentage_amount);
             totalCommissionFixedAmount += toNumber(sale.commission_fixed_amount);
-
             return {
                 id: sale.id,
                 sale_no: sale.sale_no,
@@ -103,7 +94,6 @@ exports.getCommissionReport = async (req, res) => {
                 commission_fixed_amount: toNumber(sale.commission_fixed_amount)
             };
         });
-
         res.json({
             success: true,
             summary: {
@@ -120,7 +110,10 @@ exports.getCommissionReport = async (req, res) => {
             },
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+module.exports = exports;
+exports.default = exports;

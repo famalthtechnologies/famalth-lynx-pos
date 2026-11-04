@@ -1,3 +1,4 @@
+"use strict";
 const router = require('express').Router();
 const auth = require('../middlewares/auth.middleware');
 const license = require('../middlewares/license.middleware');
@@ -8,40 +9,32 @@ const commissionRulesCtrl = require('../controllers/sales/commissionRules.contro
 const happyHourCtrl = require('../controllers/sales/happyHour.controller');
 const billValuePromoCtrl = require('../controllers/sales/billValuePromo.controller');
 const { getSubscriptionDraftOrdersToday } = require('../jobs/subscriptionDeliveryJob');
-
 router.use(auth, license('INVENTORY'));
-
 // Commission Rules
 router.get('/commission-rules', commissionRulesCtrl.listCommissionRules);
 router.post('/commission-rules', commissionRulesCtrl.createCommissionRule);
-
 // Happy Hours
 router.get('/happy-hours', happyHourCtrl.listHappyHours);
 router.post('/happy-hours', happyHourCtrl.createHappyHour);
 router.put('/happy-hours/:id', happyHourCtrl.updateHappyHour);
 router.delete('/happy-hours/:id', happyHourCtrl.deleteHappyHour);
-
 // Bill Value Promos
 router.get('/bill-value-promos', billValuePromoCtrl.listBillValuePromos);
 router.post('/bill-value-promos', billValuePromoCtrl.createBillValuePromo);
 router.put('/bill-value-promos/:id', billValuePromoCtrl.updateBillValuePromo);
 router.delete('/bill-value-promos/:id', billValuePromoCtrl.deleteBillValuePromo);
-
 router.put('/commission-rules/:id', commissionRulesCtrl.updateCommissionRule);
 router.delete('/commission-rules/:id', commissionRulesCtrl.deleteCommissionRule);
-
 // Sale Sources
 router.get('/sources', settingsCtrl.listSaleSources);
 router.post('/sources', settingsCtrl.createSaleSource);
 router.put('/sources/:id', settingsCtrl.updateSaleSource);
 router.delete('/sources/:id', settingsCtrl.deleteSaleSource);
-
 // Payment Methods
 router.get('/payment-methods', settingsCtrl.listPaymentMethods);
 router.post('/payment-methods', settingsCtrl.createPaymentMethod);
 router.put('/payment-methods/:id', settingsCtrl.updatePaymentMethod);
 router.delete('/payment-methods/:id', settingsCtrl.deletePaymentMethod);
-
 router.get('/next-sale-no', ctrl.getNextSaleNo);
 router.get('/subscription-drafts-today', getSubscriptionDraftOrdersToday);
 router.get('/customers', ctrl.listCustomers);
@@ -88,5 +81,4 @@ router.post('/', ctrl.createSale);
 router.get('/', ctrl.listSales);
 router.delete('/drafts/:id', ctrl.deleteDraft);
 router.get('/:id', ctrl.getSaleDetails);
-
 module.exports = router;

@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const BusinessDay = sequelize.define('business_day_status', {
         id: {
@@ -45,12 +47,11 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     BusinessDay.associate = (models) => {
         BusinessDay.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
         BusinessDay.belongsTo(models.users, { foreignKey: 'opened_by', as: 'openedByUser' });
         BusinessDay.belongsTo(models.users, { foreignKey: 'closed_by', as: 'closedByUser' });
     };
-
     return BusinessDay;
 };
+exports.default = module.exports;

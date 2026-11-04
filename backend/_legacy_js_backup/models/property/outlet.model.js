@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('outlets', {
         id: {
@@ -10,7 +11,6 @@ module.exports = (sequelize, DataTypes) => {
             unique: true,
             allowNull: false
         },
-
         outlet_name: {
             type: DataTypes.STRING(100),
             allowNull: false
@@ -50,7 +50,6 @@ module.exports = (sequelize, DataTypes) => {
             allowNull: true,
             defaultValue: 'STATIC'
         },
-
         is_active: {
             type: DataTypes.BOOLEAN,
             defaultValue: true
@@ -73,6 +72,5 @@ module.exports = (sequelize, DataTypes) => {
         timestamps: true,
         createdAt: 'created_at',
         updatedAt: 'updated_at'
-
     });
 };

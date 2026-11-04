@@ -1,10 +1,14 @@
+"use strict";
 /**
  * AI Registry Service - FAMALTH LYNX
  * Centralized schema, status filtering, screen action mapping, and system prompt generator.
  * Makes AI Navigation and Text-to-SQL extensible whenever new screens or tables are added in the future.
  */
-
-const SCREEN_NAVIGATION_REGISTRY = [
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.DATABASE_SCHEMA_REGISTRY = exports.SCREEN_NAVIGATION_REGISTRY = void 0;
+exports.getActionMappingList = getActionMappingList;
+exports.matchActionFromQuery = matchActionFromQuery;
+exports.SCREEN_NAVIGATION_REGISTRY = [
     {
         actionType: 'OPEN_NOTES',
         label: 'Open Sticky Notes',
@@ -288,8 +292,7 @@ const SCREEN_NAVIGATION_REGISTRY = [
         description: 'User manual and software video guides'
     }
 ];
-
-const DATABASE_SCHEMA_REGISTRY = `
+exports.DATABASE_SCHEMA_REGISTRY = `
 Schema definitions for Text-to-SQL translation:
 
 1. Table "sales_headers"
@@ -380,14 +383,12 @@ Schema definitions for Text-to-SQL translation:
     Columns: id (INTEGER, PK), outlet_id (INTEGER), property_name (VARCHAR), outlet_code (VARCHAR), address (TEXT), mobile (VARCHAR), email (VARCHAR)
     Info: Store profile, tax registration, and connected outlet configuration details.
 `;
-
 function getActionMappingList() {
-    return SCREEN_NAVIGATION_REGISTRY.map(s => `- "${s.actionType}" (${s.description})`).join('\n');
+    return exports.SCREEN_NAVIGATION_REGISTRY.map(s => `- "${s.actionType}" (${s.description})`).join('\n');
 }
-
 function matchActionFromQuery(query) {
     const q = (query || '').toLowerCase().trim();
-    for (const screen of SCREEN_NAVIGATION_REGISTRY) {
+    for (const screen of exports.SCREEN_NAVIGATION_REGISTRY) {
         for (const kw of screen.keywords) {
             if (q.includes(kw)) {
                 return {
@@ -399,10 +400,9 @@ function matchActionFromQuery(query) {
     }
     return { type: 'NONE' };
 }
-
-module.exports = {
-    SCREEN_NAVIGATION_REGISTRY,
-    DATABASE_SCHEMA_REGISTRY,
+exports.default = {
+    SCREEN_NAVIGATION_REGISTRY: exports.SCREEN_NAVIGATION_REGISTRY,
+    DATABASE_SCHEMA_REGISTRY: exports.DATABASE_SCHEMA_REGISTRY,
     getActionMappingList,
     matchActionFromQuery
 };

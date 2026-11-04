@@ -1,13 +1,11 @@
+"use strict";
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
-
 exports.getStockBalance = async (req, res) => {
     try {
         const reqOutlet = req.query.outlet_id || req.query.outletId;
         const scope = await resolveOutletScope(req, reqOutlet);
-
         let whereClause = 'WHERE im.outlet_id IN (:outletIds) AND im.is_active = TRUE';
         let replacements = { outletIds: scope.outletIds };
-
         const [rows] = await req.propertyDb.query(`
   SELECT
     im.item_name       AS name,
@@ -42,16 +40,13 @@ exports.getStockBalance = async (req, res) => {
     im.opening_balance
 
   ORDER BY im.item_name
-`,
-            { replacements });
-
-
+`, { replacements });
         res.json({
             success: true,
             data: rows
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         console.error(err);
         res.status(500).json({
             success: false,

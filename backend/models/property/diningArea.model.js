@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const DiningArea = sequelize.define('dining_areas', {
         id: {
@@ -25,6 +27,6 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'dining_areas',
         timestamps: false
     });
-
     return DiningArea;
 };
+exports.default = module.exports;

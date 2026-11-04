@@ -1,8 +1,8 @@
+"use strict";
 const db = require('./db/models');
-
 (async () => {
-  try {
-    const [fkSalesHeaders] = await db.query(`
+    try {
+        const [fkSalesHeaders] = await db.query(`
       SELECT
         tc.constraint_name, 
         kcu.column_name, 
@@ -18,9 +18,8 @@ const db = require('./db/models');
           AND ccu.table_schema = tc.table_schema
       WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = 'sales_headers';
     `);
-    console.log('FOREIGN KEYS on sales_headers:\n', JSON.stringify(fkSalesHeaders, null, 2));
-
-    const [fkCashLedger] = await db.query(`
+        console.log('FOREIGN KEYS on sales_headers:\n', JSON.stringify(fkSalesHeaders, null, 2));
+        const [fkCashLedger] = await db.query(`
       SELECT
         tc.constraint_name, 
         kcu.column_name, 
@@ -36,11 +35,11 @@ const db = require('./db/models');
           AND ccu.table_schema = tc.table_schema
       WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = 'cash_ledger';
     `);
-    console.log('FOREIGN KEYS on cash_ledger:\n', JSON.stringify(fkCashLedger, null, 2));
-
-    process.exit(0);
-  } catch(e) {
-    console.error('ERROR:', e.message);
-    process.exit(1);
-  }
+        console.log('FOREIGN KEYS on cash_ledger:\n', JSON.stringify(fkCashLedger, null, 2));
+        process.exit(0);
+    }
+    catch (e) {
+        console.error('ERROR:', e.message);
+        process.exit(1);
+    }
 })();

@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const AssemblyHeader = sequelize.define('assembly_headers', {
         id: {
@@ -51,7 +52,6 @@ module.exports = (sequelize, DataTypes) => {
         underscored: true,
         tableName: 'assembly_headers'
     });
-
     AssemblyHeader.associate = (models) => {
         AssemblyHeader.belongsTo(models.item_master, {
             foreignKey: 'parent_item_id',
@@ -66,6 +66,5 @@ module.exports = (sequelize, DataTypes) => {
             as: 'items'
         });
     };
-
     return AssemblyHeader;
 };

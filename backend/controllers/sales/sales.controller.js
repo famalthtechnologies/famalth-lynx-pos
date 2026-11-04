@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const audit = require('../../services/audit.service');
 const { insertLedger, batchInsertLedger } = require('../../services/stockLedger.service');
 const { createLedgerEntry, batchCreateLedgerEntries, recalculateLedgerBalances } = require('../../services/cashLedger.service');
@@ -6,26 +8,28 @@ const { applyLoyaltyOnCompletedSale } = require('../../services/loyalty.service'
 const { Op, fn, col, where: sqlWhere } = require('sequelize');
 const numberingHelper = require('../inventory/numberingSettingsV2.controller');
 const { normalizeDateKey } = require('../../utils/dateQuery');
-
 const resolveOutletId = async (req) => {
-    const rawId = req.body?.outlet_id || req.body?.outletCode || req.body?.outlet_code || 
-                  req.query?.outlet_id || req.query?.outletCode || req.query?.outlet_code ||
-                  req.user?.outlet_code || req.user?.outlet_id;
-    if (!rawId) return null;
-
+    const rawId = req.body?.outlet_id || req.body?.outletCode || req.body?.outlet_code ||
+        req.query?.outlet_id || req.query?.outletCode || req.query?.outlet_code ||
+        req.user?.outlet_code || req.user?.outlet_id;
+    if (!rawId)
+        return null;
     let resolvedId = null;
     if (typeof rawId === 'string' && isNaN(Number(rawId))) {
         const outlet = await req.propertyDb.models.outlets.findOne({
             where: { outlet_code: rawId }
         });
-        if (outlet) resolvedId = outlet.id;
-    } else {
-        const num = Number(rawId);
-        if (Number.isInteger(num)) resolvedId = num;
+        if (outlet)
+            resolvedId = outlet.id;
     }
-
+    else {
+        const num = Number(rawId);
+        if (Number.isInteger(num))
+            resolvedId = num;
+    }
     if (resolvedId) {
-        if (!req.user) req.user = {};
+        if (!req.user)
+            req.user = {};
         req.user.outlet_id = resolvedId;
         const { contextStorage } = require('../../utils/context');
         const store = contextStorage.getStore();
@@ -35,27 +39,25 @@ const resolveOutletId = async (req) => {
     }
     return resolvedId;
 };
-
+const { normalizePhoneNumber, getPhoneSearchVariants } = require('../../utils/phone.util');
 function normalizeCustomerIdentity(header = {}) {
-    let phone = String(header.customer_phone || '').replace(/\D/g, '').trim();
-    if (phone.length > 10) {
-        phone = phone.slice(-10);
-    }
+    const rawPhone = header.customer_phone || header.customerPhone || '';
     return {
-        // Keep digits-only for stable matching across UI formats like "+91 98..." / "098..." / "98-...".
-        customer_phone: phone,
-        customer_gstin: String(header.customer_gstin || '').trim().toUpperCase(),
-        customer_name: String(header.customer_name || '').trim()
+        customer_phone: normalizePhoneNumber(rawPhone),
+        customer_gstin: String(header.customer_gstin || header.customerGstin || '').trim().toUpperCase(),
+        customer_name: String(header.customer_name || header.customerName || '').trim()
     };
 }
-
 function buildCustomerScope(identity = {}) {
     if (identity.customer_phone) {
-        const phone = String(identity.customer_phone).replace(/\D/g, '').trim();
-        const last10 = phone.length > 10 ? phone.slice(-10) : phone;
+        const variants = getPhoneSearchVariants(identity.customer_phone);
+        const cleanDigits = String(identity.customer_phone).replace(/\D/g, '');
         return {
             customer_phone: {
-                [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`]
+                [Op.or]: [
+                    { [Op.in]: variants },
+                    ...(cleanDigits.length >= 6 ? [{ [Op.iLike]: `%${cleanDigits}%` }] : [])
+                ]
             }
         };
     }
@@ -67,14 +69,22 @@ function buildCustomerScope(identity = {}) {
     }
     return null;
 }
-
+    if (identity.customer_gstin) {
+        return { customer_gstin: identity.customer_gstin };
+    }
+    if (identity.customer_name) {
+        return { customer_name: identity.customer_name };
+    }
+    return null;
+}
 const getSharedOutletIds = async (req, outletId) => {
     const defaultIds = [Number(outletId)];
-    if (!outletId) return defaultIds;
+    if (!outletId)
+        return defaultIds;
     try {
         const models = req.propertyDb.models;
-        if (!models || !models.outlets) return defaultIds;
-
+        if (!models || !models.outlets)
+            return defaultIds;
         if (models.system_settings) {
             try {
                 const setting = await models.system_settings.findOne({
@@ -90,84 +100,77 @@ const getSharedOutletIds = async (req, outletId) => {
                 if (setting && setting.share_contact_info === false) {
                     return defaultIds;
                 }
-            } catch (_) {}
+            }
+            catch (_) { }
         }
-
         const outlets = await models.outlets.findAll({
             where: { is_active: true },
             bypassOutletFilter: true
         });
-
-        if (!outlets || outlets.length <= 1) return defaultIds;
-
+        if (!outlets || outlets.length <= 1)
+            return defaultIds;
         const currentOutlet = outlets.find(o => o.id === Number(outletId));
-        if (!currentOutlet) return defaultIds;
-
+        if (!currentOutlet)
+            return defaultIds;
         let masterId = null;
         if (currentOutlet.is_master || currentOutlet.outlet_role === 'MASTER') {
             masterId = currentOutlet.id;
-        } else if (currentOutlet.parent_outlet_id) {
+        }
+        else if (currentOutlet.parent_outlet_id) {
             masterId = Number(currentOutlet.parent_outlet_id);
         }
-
         if (masterId) {
             const family = outlets.filter(o => o.id === masterId || Number(o.parent_outlet_id) === masterId);
             return family.map(o => o.id);
         }
-
         return defaultIds;
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error resolving shared outlet IDs:', err.message);
         return defaultIds;
     }
 };
-
 function dateOnly(value) {
     const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return null;
+    if (Number.isNaN(d.getTime()))
+        return null;
     return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
-
 const { toOutletDateYmd } = require('../../utils/timezoneHelper');
-
 function formatDateLocalYmd(value, timeZone = 'Asia/Kolkata') {
-    if (!value) return null;
+    if (!value)
+        return null;
     return toOutletDateYmd(value, timeZone);
 }
-
 function dateOnlyString(value) {
     return formatDateLocalYmd(dateOnly(value));
 }
-
 function addDays(date, days) {
     const d = new Date(date);
     d.setDate(d.getDate() + Number(days || 0));
     return d;
 }
-
 function sameDate(a, b) {
     const da = dateOnly(a);
     const db = dateOnly(b);
-    if (!da || !db) return false;
+    if (!da || !db)
+        return false;
     return da.getTime() === db.getTime();
 }
-
 function toRoundedAmount(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
 }
-
 function isFreeBillRow(row = {}) {
     return row.is_scheme_free === true ||
         row.is_advance_free === true ||
         !!row.applied_happy_hour_id ||
         row._subscription_free === true;
 }
-
 function incrementSaleNo(saleNo) {
     const raw = String(saleNo || '').trim();
-    if (!raw) return raw;
-
+    if (!raw)
+        return raw;
     // Handle financial year postfix format like "-26/27", "-2025/26", "-26-27"
     const fyMatch = raw.match(/^(.*?)[^\d]?(\d+)(-\d{2}\/\d{2}|-\d{4}\/\d{2}|-\d{2}-\d{2})$/);
     if (fyMatch) {
@@ -178,12 +181,10 @@ function incrementSaleNo(saleNo) {
         const nextValue = String(Number(numeric) + 1).padStart(width, '0');
         return `${prefix}${nextValue}${postfix}`;
     }
-
     const match = raw.match(/^(.*?)(\d+)([^0-9]*)$/);
     if (!match) {
         return `${raw}-2`;
     }
-
     const prefix = match[1] || '';
     const numeric = match[2] || '0';
     const postfix = match[3] || '';
@@ -191,51 +192,43 @@ function incrementSaleNo(saleNo) {
     const nextValue = String(Number(numeric) + 1).padStart(width, '0');
     return `${prefix}${nextValue}${postfix}`;
 }
-
 function buildDraftSaleNo() {
     return `DRAFT-${Date.now()}`;
 }
-
 function encodePaymentReferenceFromLines(lines = []) {
     const normalized = (Array.isArray(lines) ? lines : [])
         .map((row) => ({
-            method: String(row.method || '').trim().toUpperCase(),
-            amount: toAmount(row.amount)
-        }))
+        method: String(row.method || '').trim().toUpperCase(),
+        amount: toAmount(row.amount)
+    }))
         .filter((row) => row.method && row.amount > 0);
     return `POSPAY:${JSON.stringify(normalized)}`;
 }
-
 function decodePaymentReferenceLines(rawReference) {
     const raw = String(rawReference || '').trim();
-    if (!raw.startsWith('POSPAY:')) return [];
+    if (!raw.startsWith('POSPAY:'))
+        return [];
     try {
         const parsed = JSON.parse(raw.substring(7));
-        if (!Array.isArray(parsed)) return [];
+        if (!Array.isArray(parsed))
+            return [];
         return parsed
             .map((row) => ({
-                method: String(row?.method || '').trim().toUpperCase(),
-                amount: toAmount(row?.amount)
-            }))
+            method: String(row?.method || '').trim().toUpperCase(),
+            amount: toAmount(row?.amount)
+        }))
             .filter((row) => row.method && row.amount > 0);
-    } catch (_) {
+    }
+    catch (_) {
         return [];
     }
 }
-
-function calculateTaxesForAmount({
-    taxMode,
-    taxType,
-    taxPercent,
-    taxableAmount
-}) {
+function calculateTaxesForAmount({ taxMode, taxType, taxPercent, taxableAmount }) {
     if (taxMode === 'NONE' || taxPercent <= 0 || taxableAmount <= 0) {
         return [];
     }
-
     const normalizedType = String(taxType || 'GST').trim().toUpperCase();
     const taxAmount = taxableAmount * taxPercent / 100;
-
     switch (normalizedType) {
         case 'VAT':
             return [
@@ -314,7 +307,6 @@ function calculateTaxesForAmount({
                     }
                 ];
             }
-
             const halfRate = taxPercent / 2;
             const halfAmount = taxAmount / 2;
             return [
@@ -344,19 +336,13 @@ function calculateTaxesForAmount({
         }
     }
 }
-
 function normalizeTaxBreakupEntry(entry = {}) {
     const code = String(entry.code || entry.tax_code || entry.label || '').trim().toUpperCase();
     const label = String(entry.label || code || '').trim();
     const taxType = String(entry.taxType || entry.tax_type || 'GST').trim().toUpperCase() || 'GST';
     const rate = toAmount(entry.rate);
-    const taxableAmount = toAmount(
-        entry.taxableAmount ?? entry.taxable_amount ?? entry.taxable ?? 0
-    );
-    const taxAmount = toAmount(
-        entry.taxAmount ?? entry.tax_amount ?? entry.amount ?? entry.tax ?? 0
-    );
-
+    const taxableAmount = toAmount(entry.taxableAmount ?? entry.taxable_amount ?? entry.taxable ?? 0);
+    const taxAmount = toAmount(entry.taxAmount ?? entry.tax_amount ?? entry.amount ?? entry.tax ?? 0);
     return {
         code: code || 'GST',
         label: label || code || 'GST',
@@ -369,13 +355,12 @@ function normalizeTaxBreakupEntry(entry = {}) {
         tax_amount: taxAmount
     };
 }
-
 function checkIsTaxInclusive(item, itemMeta) {
-    if (!item && !itemMeta) return false;
-    const taxType = String(
-        item?.tax_type || item?.taxType || item?.original_tax_type || itemMeta?.tax_type || itemMeta?.taxType || ''
-    ).trim().toUpperCase();
-    if (taxType.includes('INCLUSIVE')) return true;
+    if (!item && !itemMeta)
+        return false;
+    const taxType = String(item?.tax_type || item?.taxType || item?.original_tax_type || itemMeta?.tax_type || itemMeta?.taxType || '').trim().toUpperCase();
+    if (taxType.includes('INCLUSIVE'))
+        return true;
     const flags = [
         item?.isTaxInclusive,
         item?.is_tax_inclusive,
@@ -386,64 +371,55 @@ function checkIsTaxInclusive(item, itemMeta) {
     ];
     return flags.some(val => val === true || val === 'true' || val === 1 || val == '1' || String(val).toUpperCase() === 'YES');
 }
-
 function buildTaxCompliantFreeRow(row, itemMeta, taxMode) {
     const qty = toAmount(row.qty);
-    const resolvedRate = toAmount(
-        row.scheme_free_reference_rate ??
+    const resolvedRate = toAmount(row.scheme_free_reference_rate ??
         row.reference_rate ??
         row.original_rate ??
         row._scheme_source_rate ??
         row.item_rate ??
         itemMeta?.retail_sale_price ??
         itemMeta?.rate ??
-        row.rate
-    );
-    const taxType = String(
-        row.original_tax_type ??
+        row.rate);
+    const taxType = String(row.original_tax_type ??
         row.tax_type ??
         itemMeta?.tax_type ??
-        'GST'
-    ).trim().toUpperCase() || 'GST';
-    const taxPercent = toAmount(
-        row.original_tax_percent ??
+        'GST').trim().toUpperCase() || 'GST';
+    const taxPercent = toAmount(row.original_tax_percent ??
         row.tax_percent ??
         itemMeta?.tax_percent ??
-        0
-    );
-
+        0);
     const isTaxInclusive = checkIsTaxInclusive(row, itemMeta);
-
     const baseAmount = qty * resolvedRate;
     let taxableAmount = baseAmount;
     let taxAmount = 0;
     let lineTotal = baseAmount;
-
     if (isTaxInclusive) {
         if (taxPercent > 0) {
             taxableAmount = toAmount(baseAmount / (1 + (taxPercent / 100)));
             taxAmount = toAmount(baseAmount - taxableAmount);
-        } else {
+        }
+        else {
             taxableAmount = baseAmount;
             taxAmount = 0;
         }
         lineTotal = baseAmount;
-    } else {
+    }
+    else {
         if (taxPercent > 0) {
             taxAmount = toAmount(baseAmount * (taxPercent / 100));
-        } else {
+        }
+        else {
             taxAmount = 0;
         }
         lineTotal = toAmount(baseAmount + taxAmount);
     }
-
     const taxBreakup = calculateTaxesForAmount({
         taxMode,
         taxType: isTaxInclusive ? 'GST_INCLUSIVE' : 'GST',
         taxPercent,
         taxableAmount: taxableAmount
     });
-
     return {
         ...row,
         rate: resolvedRate,
@@ -466,73 +442,62 @@ function buildTaxCompliantFreeRow(row, itemMeta, taxMode) {
         applied_scheme_id: null
     };
 }
-
 function normalizeSchemeMode(value, fallback, allowed) {
     const normalized = String(value || '').trim().toUpperCase();
     return allowed.includes(normalized) ? normalized : fallback;
 }
-
 function normalizeUsageType(value, fallback = 'reusable') {
     const normalized = String(value || '').trim().toLowerCase();
     return normalized === 'single_use' ? 'single_use' : fallback;
 }
-
 function normalizeSelectedSchemes(selectedSchemes) {
-    if (!Array.isArray(selectedSchemes)) return [];
+    if (!Array.isArray(selectedSchemes))
+        return [];
     return selectedSchemes
         .map((scheme) => {
-            if (!scheme) return null;
-            if (typeof scheme === 'string') {
-                const label = scheme.trim();
-                if (!label) return null;
-                return {
-                    id: null,
-                    scheme_type: 'CUSTOM',
-                    scheme_name: label,
-                    scheme_value: 0,
-                    bonus_qty: 0,
-                    discount_amount: 0,
-                    notes: null,
-                    usage_type: 'reusable'
-                };
-            }
-
-            const schemeType = String(
-                scheme.scheme_type || scheme.type || scheme.schemeType || 'CUSTOM'
-            ).trim().toUpperCase();
-            const schemeName = String(
-                scheme.scheme_name || scheme.label || scheme.name || schemeType
-            ).trim();
-            const schemeId = Number(scheme.id ?? scheme.scheme_id ?? scheme.schemeId);
-
+        if (!scheme)
+            return null;
+        if (typeof scheme === 'string') {
+            const label = scheme.trim();
+            if (!label)
+                return null;
             return {
-                id: Number.isFinite(schemeId) && schemeId > 0 ? schemeId : null,
-                scheme_type: schemeType || 'CUSTOM',
-                scheme_name: schemeName || schemeType || 'CUSTOM',
-                scheme_value: toRoundedAmount(scheme.scheme_value ?? scheme.value ?? 0),
-                bonus_qty: toRoundedAmount(scheme.bonus_qty ?? scheme.bonusQty ?? 0),
-                discount_amount: toRoundedAmount(
-                    scheme.discount_amount ?? scheme.discountAmount ?? 0
-                ),
-                notes: scheme.notes ?? null,
-                usage_type: normalizeUsageType(scheme.usage_type ?? scheme.usageType)
+                id: null,
+                scheme_type: 'CUSTOM',
+                scheme_name: label,
+                scheme_value: 0,
+                bonus_qty: 0,
+                discount_amount: 0,
+                notes: null,
+                usage_type: 'reusable'
             };
-        })
+        }
+        const schemeType = String(scheme.scheme_type || scheme.type || scheme.schemeType || 'CUSTOM').trim().toUpperCase();
+        const schemeName = String(scheme.scheme_name || scheme.label || scheme.name || schemeType).trim();
+        const schemeId = Number(scheme.id ?? scheme.scheme_id ?? scheme.schemeId);
+        return {
+            id: Number.isFinite(schemeId) && schemeId > 0 ? schemeId : null,
+            scheme_type: schemeType || 'CUSTOM',
+            scheme_name: schemeName || schemeType || 'CUSTOM',
+            scheme_value: toRoundedAmount(scheme.scheme_value ?? scheme.value ?? 0),
+            bonus_qty: toRoundedAmount(scheme.bonus_qty ?? scheme.bonusQty ?? 0),
+            discount_amount: toRoundedAmount(scheme.discount_amount ?? scheme.discountAmount ?? 0),
+            notes: scheme.notes ?? null,
+            usage_type: normalizeUsageType(scheme.usage_type ?? scheme.usageType)
+        };
+    })
         .filter(Boolean);
 }
-
 function selectedSchemeIdentity(header = {}) {
     return normalizeCustomerIdentity(header);
 }
-
 function buildSchemeCustomerScope(identity = {}) {
     return buildCustomerScope(identity);
 }
-
 async function getConsumedSingleUseSchemeIds(req, identity) {
     const scope = buildSchemeCustomerScope(identity);
-    if (!scope) return new Set();
-
+    if (!scope)
+        return new Set();
     const rows = await req.propertyDb.models.sales_scheme_customers.findAll({
         where: {
             outlet_id: req.user.outlet_id,
@@ -542,43 +507,30 @@ async function getConsumedSingleUseSchemeIds(req, identity) {
         },
         attributes: ['scheme_id']
     });
-
-    return new Set(
-        rows
-            .map((row) => Number(row.scheme_id))
-            .filter((value) => Number.isFinite(value) && value > 0)
-    );
+    return new Set(rows
+        .map((row) => Number(row.scheme_id))
+        .filter((value) => Number.isFinite(value) && value > 0));
 }
-
-async function markSingleUseSchemesAsConsumed({
-    req,
-    header,
-    selectedSchemes,
-    appliedSchemeIds = [],
-    transaction
-}) {
+async function markSingleUseSchemesAsConsumed({ req, header, selectedSchemes, appliedSchemeIds = [], transaction }) {
     const identity = selectedSchemeIdentity(header);
     const scope = buildSchemeCustomerScope(identity);
-    if (!scope) return;
-
+    if (!scope)
+        return;
     const selectedSchemeIds = [
-        ...new Set(
-            (Array.isArray(selectedSchemes) ? selectedSchemes : [])
-                .map((scheme) => Number(scheme?.id ?? scheme?.scheme_id ?? scheme?.schemeId))
-                .filter((value) => Number.isFinite(value) && value > 0)
-        )
+        ...new Set((Array.isArray(selectedSchemes) ? selectedSchemes : [])
+            .map((scheme) => Number(scheme?.id ?? scheme?.scheme_id ?? scheme?.schemeId))
+            .filter((value) => Number.isFinite(value) && value > 0))
     ];
     const appliedIds = [
-        ...new Set(
-            (Array.isArray(appliedSchemeIds) ? appliedSchemeIds : [])
-                .map((value) => Number(value))
-                .filter((value) => Number.isFinite(value) && value > 0)
-        )
+        ...new Set((Array.isArray(appliedSchemeIds) ? appliedSchemeIds : [])
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value > 0))
     ];
-    if (!selectedSchemeIds.length || !appliedIds.length) return;
+    if (!selectedSchemeIds.length || !appliedIds.length)
+        return;
     const toConsumeIds = selectedSchemeIds.filter((id) => appliedIds.includes(id));
-    if (!toConsumeIds.length) return;
-
+    if (!toConsumeIds.length)
+        return;
     const schemeRows = await req.propertyDb.models.sales_schemes.findAll({
         where: {
             outlet_id: req.user.outlet_id,
@@ -586,15 +538,10 @@ async function markSingleUseSchemesAsConsumed({
         },
         attributes: ['id', 'repeat_mode']
     });
-    const oneTimeByConfig = new Set(
-        schemeRows
-            .filter(
-                (row) => String(row.repeat_mode || '').toUpperCase() === 'ONCE'
-            )
-            .map((row) => Number(row.id))
-            .filter((value) => Number.isFinite(value) && value > 0)
-    );
-
+    const oneTimeByConfig = new Set(schemeRows
+        .filter((row) => String(row.repeat_mode || '').toUpperCase() === 'ONCE')
+        .map((row) => Number(row.id))
+        .filter((value) => Number.isFinite(value) && value > 0));
     const rows = await req.propertyDb.models.sales_scheme_customers.findAll({
         where: {
             outlet_id: req.user.outlet_id,
@@ -604,39 +551,29 @@ async function markSingleUseSchemesAsConsumed({
         },
         attributes: ['id', 'scheme_id', 'usage_type', 'is_consumed']
     });
-
     const singleUseSchemeIds = [
-        ...new Set(
-            rows
-                .filter(
-                    (row) =>
-                        (normalizeUsageType(row.usage_type, 'reusable') === 'single_use' ||
-                            oneTimeByConfig.has(Number(row.scheme_id))) &&
-                        row.is_consumed !== true
-                )
-                .map((row) => Number(row.scheme_id))
-                .filter((value) => Number.isFinite(value) && value > 0)
-        )
+        ...new Set(rows
+            .filter((row) => (normalizeUsageType(row.usage_type, 'reusable') === 'single_use' ||
+            oneTimeByConfig.has(Number(row.scheme_id))) &&
+            row.is_consumed !== true)
+            .map((row) => Number(row.scheme_id))
+            .filter((value) => Number.isFinite(value) && value > 0))
     ];
-    if (!singleUseSchemeIds.length) return;
-
-    await req.propertyDb.models.sales_scheme_customers.update(
-        {
-            is_consumed: true,
-            is_active: false
+    if (!singleUseSchemeIds.length)
+        return;
+    await req.propertyDb.models.sales_scheme_customers.update({
+        is_consumed: true,
+        is_active: false
+    }, {
+        where: {
+            outlet_id: req.user.outlet_id,
+            scheme_id: { [Op.in]: singleUseSchemeIds },
+            is_active: true,
+            ...scope
         },
-        {
-            where: {
-                outlet_id: req.user.outlet_id,
-                scheme_id: { [Op.in]: singleUseSchemeIds },
-                is_active: true,
-                ...scope
-            },
-            transaction
-        }
-    );
+        transaction
+    });
 }
-
 function collectAppliedSchemeIds(header = {}, items = []) {
     const ids = new Set();
     for (const row of Array.isArray(items) ? items : []) {
@@ -645,34 +582,28 @@ function collectAppliedSchemeIds(header = {}, items = []) {
             ids.add(schemeId);
         }
     }
-
     const headerSchemeId = Number(header.scheme_id);
     const headerSchemeDiscount = toAmount(header.scheme_discount);
-    const headerSchemeUsageMode = String(
-        header.scheme_usage_mode || 'APPLY_NOW'
-    ).toUpperCase();
-    if (
-        Number.isFinite(headerSchemeId) &&
+    const headerSchemeUsageMode = String(header.scheme_usage_mode || 'APPLY_NOW').toUpperCase();
+    if (Number.isFinite(headerSchemeId) &&
         headerSchemeId > 0 &&
         headerSchemeDiscount > 0 &&
-        headerSchemeUsageMode === 'APPLY_NOW'
-    ) {
+        headerSchemeUsageMode === 'APPLY_NOW') {
         ids.add(headerSchemeId);
     }
-
     return Array.from(ids);
 }
-
 function buildCustomerOrConditions(identity = {}) {
     const conditions = [];
     if (identity.customer_phone) {
-        const phone = String(identity.customer_phone).replace(/\D/g, '').trim();
-        const last10 = phone.length > 10 ? phone.slice(-10) : phone;
-        conditions.push({
-            customer_phone: {
-                [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`]
-            }
-        });
+        const variants = getPhoneSearchVariants(identity.customer_phone);
+        if (variants.length > 0) {
+            conditions.push({
+                customer_phone: {
+                    [Op.in]: variants
+                }
+            });
+        }
     }
     if (identity.customer_gstin) {
         conditions.push({
@@ -690,11 +621,9 @@ function buildCustomerOrConditions(identity = {}) {
     }
     return conditions;
 }
-
 function customerDisplayName(identity = {}) {
     return identity.customer_name || identity.customer_phone || identity.customer_gstin || 'Walk-in Customer';
 }
-
 async function getActiveMilkSubscriptions(req, identity, itemId = null, asOfDate = new Date()) {
     const asOfDay = formatDateLocalYmd(asOfDate);
     const where = {
@@ -704,18 +633,16 @@ async function getActiveMilkSubscriptions(req, identity, itemId = null, asOfDate
         start_date: { [Op.lte]: asOfDay },
         end_date: { [Op.gte]: asOfDay }
     };
-
     const customerFilters = buildCustomerOrConditions(identity);
     if (customerFilters.length) {
         where[Op.or] = customerFilters;
-    } else {
+    }
+    else {
         return [];
     }
-
     if (itemId !== null && Number.isFinite(Number(itemId))) {
         where.item_id = Number(itemId);
     }
-
     return req.propertyDb.models.milk_subscriptions.findAll({
         where,
         include: [
@@ -725,18 +652,10 @@ async function getActiveMilkSubscriptions(req, identity, itemId = null, asOfDate
         order: [['start_date', 'DESC'], ['end_date', 'DESC'], ['id', 'DESC']]
     });
 }
-
-async function getSubscriptionConsumedQtyForDay(
-    req,
-    subscriptionId,
-    txnDate,
-    transaction = undefined,
-    itemId = null
-) {
+async function getSubscriptionConsumedQtyForDay(req, subscriptionId, txnDate, transaction = undefined, itemId = null) {
     const outlet_id = req.user?.outlet_id;
     const formattedYmd = formatDateLocalYmd(txnDate);
-    const [rows] = await req.propertyDb.query(
-        `
+    const [rows] = await req.propertyDb.query(`
 SELECT COALESCE(SUM(covered_qty), 0) AS covered_qty
 FROM milk_subscription_consumptions
 WHERE subscription_id = :subscription_id
@@ -744,26 +663,22 @@ WHERE subscription_id = :subscription_id
   AND txn_date = :txn_date
   ${Number.isFinite(Number(itemId)) && Number(itemId) > 0 ? 'AND item_id = :item_id' : ''}
   AND status <> 'CANCELLED'
-        `,
-        {
-            replacements: {
-                subscription_id: subscriptionId,
-                outlet_id: outlet_id || undefined,
-                txn_date: formattedYmd,
-                item_id: Number.isFinite(Number(itemId)) && Number(itemId) > 0
-                    ? Number(itemId)
-                    : undefined
-            },
-            transaction
-        }
-    );
+        `, {
+        replacements: {
+            subscription_id: subscriptionId,
+            outlet_id: outlet_id || undefined,
+            txn_date: formattedYmd,
+            item_id: Number.isFinite(Number(itemId)) && Number(itemId) > 0
+                ? Number(itemId)
+                : undefined
+        },
+        transaction
+    });
     const consumedQty = toRoundedAmount(rows?.[0]?.covered_qty);
     if (consumedQty > 0 || !outlet_id) {
         return consumedQty;
     }
-
-    const [fallbackRows] = await req.propertyDb.query(
-        `
+    const [fallbackRows] = await req.propertyDb.query(`
 SELECT COALESCE(SUM(si.qty), 0) AS covered_qty
 FROM sales_headers sh
 INNER JOIN sales_items si
@@ -773,39 +688,28 @@ WHERE sh.outlet_id = :outlet_id
   AND COALESCE(sh.is_deleted, FALSE) = FALSE
   AND sh.notes LIKE '%[SUBSCRIPTION_AUTO] subscription_id=' || :subscription_id || '%'
   ${Number.isFinite(Number(itemId)) && Number(itemId) > 0 ? 'AND si.item_id = :item_id' : ''}
-        `,
-        {
-            replacements: {
-                outlet_id,
-                subscription_id: String(subscriptionId),
-                start_date: `${formattedYmd} 00:00:00`,
-                end_date: `${formattedYmd} 23:59:59.999`,
-                item_id: Number.isFinite(Number(itemId)) && Number(itemId) > 0
-                    ? Number(itemId)
-                    : undefined
-            },
-            transaction
-        }
-    );
-
+        `, {
+        replacements: {
+            outlet_id,
+            subscription_id: String(subscriptionId),
+            start_date: `${formattedYmd} 00:00:00`,
+            end_date: `${formattedYmd} 23:59:59.999`,
+            item_id: Number.isFinite(Number(itemId)) && Number(itemId) > 0
+                ? Number(itemId)
+                : undefined
+        },
+        transaction
+    });
     return toRoundedAmount(fallbackRows?.[0]?.covered_qty);
 }
-
-async function getPendingCustomerItemReservedQtyForDay(
-    req,
-    identity,
-    itemId,
-    txnDate,
-    transaction = undefined,
-    options = {}
-) {
+async function getPendingCustomerItemReservedQtyForDay(req, identity, itemId, txnDate, transaction = undefined, options = {}) {
     const normalizedItemId = Number(itemId) || 0;
-    if (normalizedItemId <= 0) return 0;
-
+    if (normalizedItemId <= 0)
+        return 0;
     const normalizedIdentity = normalizeCustomerIdentity(identity || {});
     const whereCustomer = buildCustomerScope(normalizedIdentity);
-    if (!whereCustomer) return 0;
-
+    if (!whereCustomer)
+        return 0;
     const pendingOrders = await req.propertyDb.models.customer_orders.findAll({
         where: {
             outlet_id: req.user.outlet_id,
@@ -816,75 +720,62 @@ async function getPendingCustomerItemReservedQtyForDay(
         order: [['created_at', 'ASC'], ['id', 'ASC']],
         transaction
     });
-
-    if (!pendingOrders.length) return 0;
-
+    if (!pendingOrders.length)
+        return 0;
     const cutoffOrderId = Number(options?.excludeOrderId) || 0;
     const cutoffCreatedAt = options?.beforeCreatedAt ? new Date(options.beforeCreatedAt) : null;
     let reservedQty = 0;
-
     for (const order of pendingOrders) {
         const orderId = Number(order.id) || 0;
         if (cutoffOrderId > 0 && orderId === cutoffOrderId) {
             continue;
         }
-
         if (cutoffCreatedAt) {
             const createdAt = order.created_at ? new Date(order.created_at) : null;
-            if (!createdAt) continue;
-            if (createdAt > cutoffCreatedAt) continue;
+            if (!createdAt)
+                continue;
+            if (createdAt > cutoffCreatedAt)
+                continue;
             if (createdAt.getTime() === cutoffCreatedAt.getTime() && cutoffOrderId > 0 && orderId >= cutoffOrderId) {
                 continue;
             }
         }
-
         for (const row of Array.isArray(order.items) ? order.items : []) {
-            if (Number(row?.item_id) !== normalizedItemId) continue;
+            if (Number(row?.item_id) !== normalizedItemId)
+                continue;
             reservedQty += toRoundedAmount(row?.qty);
         }
     }
-
     return toRoundedAmount(reservedQty);
 }
-
-async function getCustomerItemConsumedQtyForDay(
-    req,
-    identity,
-    itemId,
-    txnDate,
-    transaction = undefined,
-    options = {}
-) {
+async function getCustomerItemConsumedQtyForDay(req, identity, itemId, txnDate, transaction = undefined, options = {}) {
     const normalizedItemId = Number(itemId) || 0;
-    if (normalizedItemId <= 0) return 0;
-
+    if (normalizedItemId <= 0)
+        return 0;
     const normalizedIdentity = normalizeCustomerIdentity(identity || {});
     const whereCustomer = buildCustomerScope(normalizedIdentity);
-    if (!whereCustomer) return 0;
-
+    if (!whereCustomer)
+        return 0;
     const params = {
         outlet_id: req.user.outlet_id,
         item_id: normalizedItemId,
         txn_date: formatDateLocalYmd(txnDate)
     };
-
     let customerWhere = '';
     if (normalizedIdentity.customer_phone) {
-        customerWhere = 'AND ms.customer_phone IN (:phone_last10, :phone_91, :phone_plus91, :phone_0)';
-        params.phone_last10 = normalizedIdentity.customer_phone;
-        params.phone_91 = `91${normalizedIdentity.customer_phone}`;
-        params.phone_plus91 = `+91${normalizedIdentity.customer_phone}`;
-        params.phone_0 = `0${normalizedIdentity.customer_phone}`;
-    } else if (normalizedIdentity.customer_gstin) {
+        const variants = getPhoneSearchVariants(normalizedIdentity.customer_phone);
+        customerWhere = 'AND ms.customer_phone IN (:phone_variants)';
+        params.phone_variants = variants.length > 0 ? variants : [normalizedIdentity.customer_phone];
+    }
+    else if (normalizedIdentity.customer_gstin) {
         customerWhere = 'AND ms.customer_gstin = :customer_gstin';
         params.customer_gstin = normalizedIdentity.customer_gstin;
-    } else if (normalizedIdentity.customer_name) {
+    }
+    else if (normalizedIdentity.customer_name) {
         customerWhere = 'AND ms.customer_name = :customer_name';
         params.customer_name = normalizedIdentity.customer_name;
     }
-
-    const [rows] = await req.propertyDb.query(
-        `
+    const [rows] = await req.propertyDb.query(`
 SELECT COALESCE(SUM(c.covered_qty), 0) AS covered_qty
 FROM milk_subscription_consumptions c
 JOIN milk_subscriptions ms
@@ -895,22 +786,12 @@ WHERE c.outlet_id = :outlet_id
   AND c.txn_date = :txn_date
   AND c.status <> 'CANCELLED'
   ${customerWhere}
-        `,
-        { replacements: params, transaction }
-    );
+        `, { replacements: params, transaction });
     const consumedQty = toRoundedAmount(rows?.[0]?.covered_qty);
-    const pendingReservedQty = await getPendingCustomerItemReservedQtyForDay(
-        req,
-        normalizedIdentity,
-        normalizedItemId,
-        txnDate,
-        transaction,
-        options
-    );
+    const pendingReservedQty = await getPendingCustomerItemReservedQtyForDay(req, normalizedIdentity, normalizedItemId, txnDate, transaction, options);
     if (consumedQty > 0 || pendingReservedQty > 0) {
         return consumedQty + pendingReservedQty;
     }
-
     const formattedYmd = formatDateLocalYmd(txnDate);
     let customerWhereFallback = '';
     const fallbackParams = {
@@ -921,21 +802,19 @@ WHERE c.outlet_id = :outlet_id
         subscription_note: '%[SUBSCRIPTION_AUTO]%'
     };
     if (normalizedIdentity.customer_phone) {
-        customerWhereFallback = 'AND sh.customer_phone IN (:phone_last10, :phone_91, :phone_plus91, :phone_0)';
-        fallbackParams.phone_last10 = normalizedIdentity.customer_phone;
-        fallbackParams.phone_91 = `91${normalizedIdentity.customer_phone}`;
-        fallbackParams.phone_plus91 = `+91${normalizedIdentity.customer_phone}`;
-        fallbackParams.phone_0 = `0${normalizedIdentity.customer_phone}`;
-    } else if (normalizedIdentity.customer_gstin) {
+        const variants = getPhoneSearchVariants(normalizedIdentity.customer_phone);
+        customerWhereFallback = 'AND sh.customer_phone IN (:phone_variants)';
+        fallbackParams.phone_variants = variants.length > 0 ? variants : [normalizedIdentity.customer_phone];
+    }
+    else if (normalizedIdentity.customer_gstin) {
         customerWhereFallback = 'AND sh.customer_gstin = :customer_gstin';
         fallbackParams.customer_gstin = normalizedIdentity.customer_gstin;
-    } else if (normalizedIdentity.customer_name) {
+    }
+    else if (normalizedIdentity.customer_name) {
         customerWhereFallback = 'AND sh.customer_name = :customer_name';
         fallbackParams.customer_name = normalizedIdentity.customer_name;
     }
-
-    const [fallbackRows] = await req.propertyDb.query(
-        `
+    const [fallbackRows] = await req.propertyDb.query(`
 SELECT COALESCE(SUM(si.qty), 0) AS covered_qty
 FROM sales_headers sh
 INNER JOIN sales_items si
@@ -946,16 +825,12 @@ WHERE sh.outlet_id = :outlet_id
   AND sh.notes LIKE :subscription_note
   AND si.item_id = :item_id
   ${customerWhereFallback}
-        `,
-        {
-            replacements: fallbackParams,
-            transaction
-        }
-    );
-
+        `, {
+        replacements: fallbackParams,
+        transaction
+    });
     return toRoundedAmount(fallbackRows?.[0]?.covered_qty) + pendingReservedQty;
 }
-
 async function loadSubscriptionConsumptionRows(req, subscription, transaction = undefined) {
     const consumedRows = await req.propertyDb.models.milk_subscription_consumptions.findAll({
         where: {
@@ -965,11 +840,9 @@ async function loadSubscriptionConsumptionRows(req, subscription, transaction = 
         order: [['txn_date', 'ASC'], ['id', 'ASC']],
         transaction
     });
-
     if (consumedRows.length > 0) {
         return consumedRows;
     }
-
     const autoSales = await req.propertyDb.models.sales_headers.findAll({
         where: {
             outlet_id: req.user.outlet_id,
@@ -988,46 +861,39 @@ async function loadSubscriptionConsumptionRows(req, subscription, transaction = 
         order: [['sale_date', 'ASC'], ['id', 'ASC']],
         transaction
     });
-
     const fallbackRows = [];
     for (const sale of autoSales) {
         const saleJson = sale.toJSON();
         const saleDate = saleJson.sale_date ? formatDateLocalYmd(saleJson.sale_date) : formatDateLocalYmd(new Date());
         for (const item of Array.isArray(saleJson.items) ? saleJson.items : []) {
             const coveredQty = toAmount(item.qty);
-            if (coveredQty <= 0) continue;
+            if (coveredQty <= 0)
+                continue;
             const rate = toAmount(item.rate);
             const netAmount = toAmount(item.net_amount || item.line_total);
-            fallbackRows.push(
-                req.propertyDb.models.milk_subscription_consumptions.build(
-                    {
-                        outlet_id: req.user.outlet_id,
-                        subscription_id: subscription.id,
-                        sale_id: saleJson.id,
-                        sale_no: saleJson.sale_no,
-                        txn_date: saleDate,
-                        item_id: item.item_id,
-                        item_name: item.item_name || subscription.item_name || '',
-                        cart_qty: coveredQty,
-                        covered_qty: coveredQty,
-                        excess_qty: 0,
-                        daily_allowed_qty: toAmount(subscription.daily_allowed_qty),
-                        rate,
-                        covered_amount: netAmount || (coveredQty * rate),
-                        excess_amount: 0,
-                        settlement_id: null,
-                        status: 'CONSUMED',
-                        created_by: saleJson.created_by || subscription.created_by || req.user.id
-                    },
-                    { isNewRecord: false }
-                )
-            );
+            fallbackRows.push(req.propertyDb.models.milk_subscription_consumptions.build({
+                outlet_id: req.user.outlet_id,
+                subscription_id: subscription.id,
+                sale_id: saleJson.id,
+                sale_no: saleJson.sale_no,
+                txn_date: saleDate,
+                item_id: item.item_id,
+                item_name: item.item_name || subscription.item_name || '',
+                cart_qty: coveredQty,
+                covered_qty: coveredQty,
+                excess_qty: 0,
+                daily_allowed_qty: toAmount(subscription.daily_allowed_qty),
+                rate,
+                covered_amount: netAmount || (coveredQty * rate),
+                excess_amount: 0,
+                settlement_id: null,
+                status: 'CONSUMED',
+                created_by: saleJson.created_by || subscription.created_by || req.user.id
+            }, { isNewRecord: false }));
         }
     }
-
     return fallbackRows;
 }
-
 async function allocateMilkSubscriptionCoverage({ req, header, items, transaction, pendingOrderContext = null }) {
     const identity = normalizeCustomerIdentity(header);
     const saleDate = header.sale_date || new Date();
@@ -1040,7 +906,6 @@ async function allocateMilkSubscriptionCoverage({ req, header, items, transactio
     let subscriptionItemId = 0;
     const inFlightConsumedByKey = new Map();
     const subscriptionCoveragesByKey = new Map();
-
     const addSubscriptionCoverage = (subscription, itemId, coveredQty, coveredAmount) => {
         const key = `${subscription.id}_${itemId}`;
         const existing = subscriptionCoveragesByKey.get(key) || {
@@ -1055,14 +920,11 @@ async function allocateMilkSubscriptionCoverage({ req, header, items, transactio
         subscriptionCoveragesByKey.set(key, existing);
         return existing;
     };
-
     const allSubscriptions = await getActiveMilkSubscriptions(req, identity, null, saleDate);
-
     for (const sourceRow of Array.isArray(items) ? items : []) {
         const itemId = Number(sourceRow.item_id) || 0;
         const qty = toAmount(sourceRow.qty);
-        const alreadyFree =
-            sourceRow.is_advance_free === true ||
+        const alreadyFree = sourceRow.is_advance_free === true ||
             sourceRow.is_scheme_free === true ||
             toAmount(sourceRow.rate) <= 0;
         if (alreadyFree) {
@@ -1073,13 +935,11 @@ async function allocateMilkSubscriptionCoverage({ req, header, items, transactio
             updatedItems.push(sourceRow);
             continue;
         }
-
         const subscriptions = allSubscriptions.filter(s => Number(s.item_id) === itemId);
         if (!subscriptions.length) {
             updatedItems.push(sourceRow);
             continue;
         }
-
         const rate = toAmount(sourceRow.rate);
         let remainingQty = qty;
         let sourceCoveredQty = 0;
@@ -1087,25 +947,13 @@ async function allocateMilkSubscriptionCoverage({ req, header, items, transactio
         let sourceSubscriptionId = 0;
         let sourceSubscriptionItemId = 0;
         let sourceItemName = sourceRow.item_name || '';
-
         for (const subscription of subscriptions) {
-            if (remainingQty <= 0) break;
-
-            const subscriptionAdvance = await findSubscriptionItemAdvance(
-                req,
-                subscription.id,
-                itemId,
-                transaction
-            );
+            if (remainingQty <= 0)
+                break;
+            const subscriptionAdvance = await findSubscriptionItemAdvance(req, subscription.id, itemId, transaction);
             const dailyLimit = toAmount(subscription.daily_allowed_qty);
             const usageKey = `${subscription.id}_${itemId}_${saleDateKey}`;
-            const consumedTodayFromDb = await getSubscriptionConsumedQtyForDay(
-                req,
-                subscription.id,
-                saleDate,
-                transaction,
-                itemId
-            );
+            const consumedTodayFromDb = await getSubscriptionConsumedQtyForDay(req, subscription.id, saleDate, transaction, itemId);
             const inFlightConsumed = toAmount(inFlightConsumedByKey.get(usageKey) || 0);
             const consumedToday = consumedTodayFromDb + inFlightConsumed;
             const remainingCoverage = Math.max(dailyLimit - consumedToday, 0);
@@ -1113,7 +961,6 @@ async function allocateMilkSubscriptionCoverage({ req, header, items, transactio
             if (coveredQty <= 0) {
                 continue;
             }
-
             const agreedRate = rate > 0 ? rate : toAmount(subscriptionAdvance?.rate || 0);
             const preTaxAmount = coveredQty * agreedRate;
             const taxPercent = toAmount(sourceRow.tax_percent || 0);
@@ -1134,7 +981,6 @@ async function allocateMilkSubscriptionCoverage({ req, header, items, transactio
             totalCoveredQty += coveredQty;
             addSubscriptionCoverage(subscription, itemId, coveredQty, coveredAmount);
             inFlightConsumedByKey.set(usageKey, inFlightConsumed + coveredQty);
-
             updatedItems.push({
                 ...sourceRow,
                 qty: coveredQty,
@@ -1172,7 +1018,6 @@ async function allocateMilkSubscriptionCoverage({ req, header, items, transactio
                 created_by: req.user.id
             });
         }
-
         if (remainingQty > 0) {
             updatedItems.push({
                 ...sourceRow,
@@ -1196,7 +1041,6 @@ async function allocateMilkSubscriptionCoverage({ req, header, items, transactio
             });
         }
     }
-
     return {
         items: updatedItems,
         consumptions: consumptionRows,
@@ -1208,7 +1052,6 @@ async function allocateMilkSubscriptionCoverage({ req, header, items, transactio
         isFreeAllocation: false
     };
 }
-
 async function collectPreSplitSubscriptionAllocation({ req, header, items, transaction }) {
     const identity = normalizeCustomerIdentity(header);
     const saleDate = header.sale_date || new Date();
@@ -1237,12 +1080,13 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
         subscriptionCoveragesByKey.set(key, existing);
         return existing;
     };
-
     for (const row of sourceItems) {
         const itemId = Number(row.item_id) || 0;
-        if (itemId <= 0) continue;
+        if (itemId <= 0)
+            continue;
         const qty = toAmount(row.qty);
-        if (qty <= 0) continue;
+        if (qty <= 0)
+            continue;
         const bucket = byItem.get(itemId) || {
             itemId,
             itemName: row.item_name || '',
@@ -1254,20 +1098,16 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
         bucket.cartQty += qty;
         if (row.is_advance_free === true) {
             bucket.freeQty += qty;
-        } else if (toAmount(row.rate) > 0) {
+        }
+        else if (toAmount(row.rate) > 0) {
             bucket.rate = toAmount(row.rate);
         }
         byItem.set(itemId, bucket);
     }
-
     for (const bucket of byItem.values()) {
-        if (bucket.freeQty <= 0) continue;
-        const subscriptions = await getActiveMilkSubscriptions(
-            req,
-            identity,
-            bucket.itemId,
-            saleDate
-        );
+        if (bucket.freeQty <= 0)
+            continue;
+        const subscriptions = await getActiveMilkSubscriptions(req, identity, bucket.itemId, saleDate);
         if (!subscriptions.length) {
             const globalSubscriptions = await req.propertyDb.models.milk_subscriptions.findAll({
                 where: {
@@ -1291,38 +1131,27 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
                     : false;
                 return samePhone || sameGstin || sameName;
             });
-
             if (matchingGlobal.length > 0) {
                 const targetOutlet = await req.propertyDb.models.outlets.findByPk(matchingGlobal[0].outlet_id);
                 const currentOutlet = await req.propertyDb.models.outlets.findByPk(req.user.outlet_id);
-                const err = new Error(
-                    `No active subscription found for free item "${bucket.itemName || 'Subscription item'}" at current outlet: ${currentOutlet?.outlet_name || req.user.outlet_id}. However, an active subscription was found at outlet: ${targetOutlet?.outlet_name || matchingGlobal[0].outlet_id}. Subscriptions are only valid at the outlet where they are subscribed.`
-                );
+                const err = new Error(`No active subscription found for free item "${bucket.itemName || 'Subscription item'}" at current outlet: ${currentOutlet?.outlet_name || req.user.outlet_id}. However, an active subscription was found at outlet: ${targetOutlet?.outlet_name || matchingGlobal[0].outlet_id}. Subscriptions are only valid at the outlet where they are subscribed.`);
                 err.status = 400;
                 throw err;
-            } else {
-                const err = new Error(
-                    `No active subscription found for free item "${bucket.itemName || 'Subscription item'}" for this customer.`
-                );
+            }
+            else {
+                const err = new Error(`No active subscription found for free item "${bucket.itemName || 'Subscription item'}" for this customer.`);
                 err.status = 400;
                 throw err;
             }
         }
-
         let chosenSubscription = null;
         let coveredQty = 0;
         let dailyLimit = 0;
         let agreedRate = 0;
         let subscriptionAdvance = null;
         let usageKey = '';
-
         for (const subscription of subscriptions) {
-            subscriptionAdvance = await findSubscriptionItemAdvance(
-                req,
-                subscription.id,
-                bucket.itemId,
-                transaction
-            );
+            subscriptionAdvance = await findSubscriptionItemAdvance(req, subscription.id, bucket.itemId, transaction);
             const isQuota = subscription.subscription_type === 'QUOTA_SERVICE' || Number(subscription.total_allowed_services) > 0;
             let remainingCoverage = 0;
             usageKey = `${subscription.id}_${bucket.itemId}_${saleDateKey}`;
@@ -1332,21 +1161,16 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
                 const inFlight = toAmount(inFlightConsumedByKey.get(usageKey) || 0);
                 remainingCoverage = Math.max(totalAllowed - (consumedSoFar + inFlight), 0);
                 dailyLimit = totalAllowed;
-            } else {
+            }
+            else {
                 dailyLimit = toAmount(subscription.daily_allowed_qty);
-                const consumedTodayFromDb = await getSubscriptionConsumedQtyForDay(
-                    req,
-                    subscription.id,
-                    saleDate,
-                    transaction,
-                    bucket.itemId
-                );
+                const consumedTodayFromDb = await getSubscriptionConsumedQtyForDay(req, subscription.id, saleDate, transaction, bucket.itemId);
                 const inFlightConsumed = toAmount(inFlightConsumedByKey.get(usageKey) || 0);
                 const consumedToday = consumedTodayFromDb + inFlightConsumed;
                 remainingCoverage = Math.max(dailyLimit - consumedToday, 0);
             }
-            if (remainingCoverage <= 0) continue;
-
+            if (remainingCoverage <= 0)
+                continue;
             chosenSubscription = subscription;
             agreedRate = toAmount(bucket.rate) > 0
                 ? toAmount(bucket.rate)
@@ -1354,16 +1178,12 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
             coveredQty = Math.min(bucket.freeQty, remainingCoverage);
             break;
         }
-
         if (!chosenSubscription || coveredQty <= 0) {
             const left = '0.00';
-            const err = new Error(
-                `${bucket.itemName || 'Subscription item'} daily free limit already used. Remaining free qty today: ${left}`
-            );
+            const err = new Error(`${bucket.itemName || 'Subscription item'} daily free limit already used. Remaining free qty today: ${left}`);
             err.status = 400;
             throw err;
         }
-
         const excessQty = Math.max(bucket.cartQty - coveredQty, 0);
         const taxPercent = bucket.taxPercent || 0;
         const preTaxAmount = coveredQty * agreedRate;
@@ -1378,13 +1198,11 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
             inFlightConsumedByKey.set(usageKey, toAmount(inFlightConsumedByKey.get(usageKey) || 0) + coveredQty);
             addSubscriptionCoverage(chosenSubscription, bucket.itemId, coveredQty, coveredAmount);
         }
-
         totalCoveredAmount += coveredAmount;
         totalCoveredQty += coveredQty;
         subscriptionId = subscriptionId || chosenSubscription.id;
         subscriptionItemId = subscriptionItemId || chosenSubscription.item_id;
         coveredSubscriptionItemIds.add(Number(bucket.itemId));
-
         consumptionRows.push({
             outlet_id: req.user.outlet_id,
             subscription_id: chosenSubscription.id,
@@ -1404,7 +1222,6 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
             created_by: req.user.id
         });
     }
-
     const normalizedItems = sourceItems.map((row) => {
         const itemId = Number(row?.item_id) || 0;
         if (row?.is_advance_free === true && coveredSubscriptionItemIds.has(itemId)) {
@@ -1417,7 +1234,6 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
         }
         return row;
     });
-
     return {
         items: normalizedItems,
         consumptions: consumptionRows,
@@ -1429,18 +1245,16 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
         isFreeAllocation: true
     };
 }
-
 function sumNumeric(rows, field) {
     return (rows || []).reduce((sum, row) => sum + toAmount(row[field]), 0);
 }
-
 function diffDaysInclusive(startDate, endDate) {
     const start = dateOnly(startDate);
     const end = dateOnly(endDate);
-    if (!start || !end || end < start) return 0;
+    if (!start || !end || end < start)
+        return 0;
     return Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
 }
-
 function buildSubscriptionMetrics(subscription, consumptions = []) {
     const cleanedRows = (Array.isArray(consumptions) ? consumptions : [])
         .filter((row) => String(row.status || '').toUpperCase() !== 'CANCELLED');
@@ -1451,7 +1265,6 @@ function buildSubscriptionMetrics(subscription, consumptions = []) {
     let consumedQty = 0;
     let consumedValue = 0;
     let lastPositiveRate = 0;
-
     for (const row of cleanedRows) {
         const txnDate = row.txn_date ? formatDateLocalYmd(row.txn_date) : null;
         const coveredQty = toAmount(row.covered_qty);
@@ -1467,12 +1280,10 @@ function buildSubscriptionMetrics(subscription, consumptions = []) {
             lastPositiveRate = effectiveRate;
         }
     }
-
     const bonusQty = toAmount(subscription?.bonus_qty);
     const discountAmount = sumNumeric(subscription?.schemes, 'discount_amount');
     const bonusValue = bonusQty * lastPositiveRate;
-    const isDiscountEligible =
-        (endDay && today && today.getTime() >= endDay.getTime()) ||
+    const isDiscountEligible = (endDay && today && today.getTime() >= endDay.getTime()) ||
         subscription?.status !== 'ACTIVE' ||
         subscription?.active_subscription !== true;
     const appliedDiscountAmount = isDiscountEligible ? discountAmount : 0;
@@ -1484,7 +1295,6 @@ function buildSubscriptionMetrics(subscription, consumptions = []) {
     const balanceDelta = Number((actualValue - prepaidValue).toFixed(2));
     const creditedAmount = balanceDelta < 0 ? Math.abs(balanceDelta) : 0;
     const outstandingAmount = balanceDelta > 0 ? balanceDelta : 0;
-
     const startDay = dateOnly(subscription?.start_date);
     const elapsedDays = (today && startDay && today >= startDay)
         ? Math.min(totalDays, diffDaysInclusive(startDay, today))
@@ -1492,7 +1302,6 @@ function buildSubscriptionMetrics(subscription, consumptions = []) {
     const consumedDaysCount = activeDays.size;
     const missedDaysCount = Math.max(0, elapsedDays - consumedDaysCount);
     const daysLeftCount = Math.max(0, totalDays - consumedDaysCount - missedDaysCount);
-
     return {
         total_days: totalDays,
         consumed_days: consumedDaysCount,
@@ -1531,21 +1340,18 @@ function buildSubscriptionMetrics(subscription, consumptions = []) {
         })
     };
 }
-
 function getSubscriptionReferenceNo(subscriptionId) {
     return `SUBSCRIPTION-${subscriptionId}`;
 }
-
 function buildManualAdvanceExclusionClause(alias = '') {
     const prefix = alias ? `${alias}.` : '';
     return `AND COALESCE(${prefix}note, '') NOT ILIKE 'Subscription #% prepaid qty%'`;
 }
-
 async function findSubscriptionItemAdvance(req, subscriptionId, itemId, transaction = undefined) {
     const outlet_id = req.user?.outlet_id;
     const whereBase = { item_id: itemId };
-    if (outlet_id) whereBase.outlet_id = outlet_id;
-
+    if (outlet_id)
+        whereBase.outlet_id = outlet_id;
     // 1. Fast indexed lookup by source_sale_id (< 1ms)
     const fastMatch = await req.propertyDb.models.customer_item_advances.findOne({
         where: {
@@ -1554,8 +1360,8 @@ async function findSubscriptionItemAdvance(req, subscriptionId, itemId, transact
         },
         transaction
     });
-    if (fastMatch) return fastMatch;
-
+    if (fastMatch)
+        return fastMatch;
     // 2. Fallback search by note pattern if source_sale_id was not set on older records
     return req.propertyDb.models.customer_item_advances.findOne({
         where: {
@@ -1565,28 +1371,21 @@ async function findSubscriptionItemAdvance(req, subscriptionId, itemId, transact
         transaction
     });
 }
-
 async function consumeSubscriptionItemAdvance(req, subscriptionId, itemId, qty, transaction = undefined, existingAdvance = null) {
     const delta = toAmount(qty);
-    if (delta <= 0) return null;
-
+    if (delta <= 0)
+        return null;
     const advance = existingAdvance || (await findSubscriptionItemAdvance(req, subscriptionId, itemId, transaction));
-    if (!advance) return null;
-
+    if (!advance)
+        return null;
     const currentAvailable = toAmount(advance.available_qty);
     const nextAvailable = Math.max(currentAvailable - delta, 0);
-
-    await advance.update(
-        {
-            available_qty: nextAvailable,
-            updated_by: req.user.id
-        },
-        { transaction }
-    );
-
+    await advance.update({
+        available_qty: nextAvailable,
+        updated_by: req.user.id
+    }, { transaction });
     return advance;
 }
-
 async function getSubscriptionItemAdvanceSummary(req, subscription, transaction = undefined) {
     const itemId = Number(subscription?.item_id) || 0;
     if (itemId <= 0) {
@@ -1600,14 +1399,7 @@ async function getSubscriptionItemAdvanceSummary(req, subscription, transaction 
             available_amount: 0
         };
     }
-
-    const advance = await findSubscriptionItemAdvance(
-        req,
-        subscription.id,
-        itemId,
-        transaction
-    );
-
+    const advance = await findSubscriptionItemAdvance(req, subscription.id, itemId, transaction);
     if (!advance) {
         return {
             original_qty: 0,
@@ -1619,19 +1411,16 @@ async function getSubscriptionItemAdvanceSummary(req, subscription, transaction 
             available_amount: 0
         };
     }
-
     const originalQty = toAmount(advance.original_qty);
     const availableQty = toAmount(advance.available_qty);
     const consumedQty = Math.max(originalQty - availableQty, 0);
     const rate = toAmount(advance.rate);
-
     const itemMaster = subscription?.item || subscription?.item_master || (await req.propertyDb.models.item_master.findByPk(itemId, { transaction }));
     const taxPercent = toAmount(itemMaster?.tax_percent || 0);
     const isTaxInclusive = itemMaster?.is_tax_inclusive === true || String(itemMaster?.tax_type || '').toUpperCase() === 'GST_INCLUSIVE';
     const effectiveRate = (!isTaxInclusive && taxPercent > 0)
         ? rate * (1 + taxPercent / 100.0)
         : rate;
-
     return {
         original_qty: Number(originalQty.toFixed(2)),
         consumed_qty: Number(consumedQty.toFixed(2)),
@@ -1643,7 +1432,6 @@ async function getSubscriptionItemAdvanceSummary(req, subscription, transaction 
         available_amount: Number((availableQty * effectiveRate).toFixed(2))
     };
 }
-
 async function findSubscriptionCustomerAdvance(req, subscriptionId, transaction = undefined) {
     return req.propertyDb.models.customer_advances.findOne({
         where: {
@@ -1656,80 +1444,52 @@ async function findSubscriptionCustomerAdvance(req, subscriptionId, transaction 
         transaction
     });
 }
-
-async function consumeSubscriptionCustomerAdvance(
-    req,
-    subscriptionId,
-    amount,
-    transaction = undefined
-) {
+async function consumeSubscriptionCustomerAdvance(req, subscriptionId, amount, transaction = undefined) {
     const delta = toAmount(amount);
-    if (delta <= 0) return null;
-
+    if (delta <= 0)
+        return null;
     const advance = await findSubscriptionCustomerAdvance(req, subscriptionId, transaction);
-    if (!advance) return null;
-
+    if (!advance)
+        return null;
     const currentAvailable = toAmount(advance.available_amount);
     const nextAvailable = Math.max(currentAvailable - delta, 0);
-
-    await advance.update(
-        {
-            available_amount: nextAvailable,
-            updated_by: req.user.id
-        },
-        { transaction }
-    );
-
+    await advance.update({
+        available_amount: nextAvailable,
+        updated_by: req.user.id
+    }, { transaction });
     return advance;
 }
-
-async function addSubscriptionCustomerAdvance(
-    req,
-    subscription,
-    amount,
-    paymentMode,
-    note,
-    settlementDate,
-    transaction = undefined
-) {
+async function addSubscriptionCustomerAdvance(req, subscription, amount, paymentMode, note, settlementDate, transaction = undefined) {
     const delta = toAmount(amount);
-    if (delta <= 0) return null;
-
+    if (delta <= 0)
+        return null;
     const advance = await findSubscriptionCustomerAdvance(req, subscription.id, transaction);
     if (advance) {
-        await advance.update(
-            {
-                original_amount: toAmount(advance.original_amount) + delta,
-                available_amount: toAmount(advance.available_amount) + delta,
-                payment_mode: paymentMode || advance.payment_mode,
-                note: note || advance.note,
-                updated_by: req.user.id
-            },
-            { transaction }
-        );
+        await advance.update({
+            original_amount: toAmount(advance.original_amount) + delta,
+            available_amount: toAmount(advance.available_amount) + delta,
+            payment_mode: paymentMode || advance.payment_mode,
+            note: note || advance.note,
+            updated_by: req.user.id
+        }, { transaction });
         return advance;
     }
-
-    return req.propertyDb.models.customer_advances.create(
-        {
-            outlet_id: req.user.outlet_id,
-            source_sale_id: null,
-            customer_name: subscription.customer_name || null,
-            customer_phone: subscription.customer_phone || null,
-            customer_gstin: subscription.customer_gstin || null,
-            advance_date: settlementDate || new Date(),
-            original_amount: delta,
-            available_amount: delta,
-            payment_mode: paymentMode || 'CASH',
-            reference_no: getSubscriptionReferenceNo(subscription.id),
-            note: note || `Additional customer advance for subscription ${subscription.id}`,
-            created_by: req.user.id,
-            updated_by: req.user.id
-        },
-        { transaction }
-    );
+    return req.propertyDb.models.customer_advances.create({
+        outlet_id: req.user.outlet_id,
+        source_sale_id: null,
+        customer_name: subscription.customer_name || null,
+        customer_phone: subscription.customer_phone || null,
+        customer_gstin: subscription.customer_gstin || null,
+        advance_date: settlementDate || new Date(),
+        original_amount: delta,
+        available_amount: delta,
+        payment_mode: paymentMode || 'CASH',
+        reference_no: getSubscriptionReferenceNo(subscription.id),
+        note: note || `Additional customer advance for subscription ${subscription.id}`,
+        created_by: req.user.id,
+        updated_by: req.user.id
+    }, { transaction });
 }
-
 async function getSubscriptionCustomerAdvanceSummary(req, subscription, transaction = undefined) {
     const advance = await findSubscriptionCustomerAdvance(req, subscription.id, transaction);
     if (!advance) {
@@ -1739,18 +1499,15 @@ async function getSubscriptionCustomerAdvanceSummary(req, subscription, transact
             available_amount: 0
         };
     }
-
     const originalAmount = toAmount(advance.original_amount);
     const availableAmount = toAmount(advance.available_amount);
     const consumedAmount = Math.max(originalAmount - availableAmount, 0);
-
     return {
         original_amount: Number(originalAmount.toFixed(2)),
         consumed_amount: Number(consumedAmount.toFixed(2)),
         available_amount: Number(availableAmount.toFixed(2))
     };
 }
-
 async function buildSubscriptionFinancialSummary(req, subscription, consumptions, transaction = undefined) {
     const metrics = buildSubscriptionMetrics(subscription, consumptions);
     const cashAdvanceSummary = await getSubscriptionCustomerAdvanceSummary(req, subscription, transaction);
@@ -1758,7 +1515,6 @@ async function buildSubscriptionFinancialSummary(req, subscription, consumptions
     const availableAdvance = Math.max(toAmount(cashAdvanceSummary.available_amount), 0);
     const customerAdvanceUsed = Math.min(grossOutstanding, availableAdvance);
     const netOutstanding = Math.max(grossOutstanding - customerAdvanceUsed, 0);
-
     return {
         ...metrics,
         gross_outstanding_amount: Number(grossOutstanding.toFixed(2)),
@@ -1766,7 +1522,6 @@ async function buildSubscriptionFinancialSummary(req, subscription, consumptions
         outstanding_amount: Number(netOutstanding.toFixed(2))
     };
 }
-
 async function buildSubscriptionLedgerResponse(req, subscriptionId) {
     const subscription = await req.propertyDb.models.milk_subscriptions.findOne({
         where: {
@@ -1778,11 +1533,9 @@ async function buildSubscriptionLedgerResponse(req, subscriptionId) {
             { model: req.propertyDb.models.milk_subscription_schemes, as: 'schemes', required: false }
         ]
     });
-
-    if (!subscription) return null;
-
+    if (!subscription)
+        return null;
     const consumptions = await loadSubscriptionConsumptionRows(req, subscription);
-
     const settlements = await req.propertyDb.models.milk_subscription_settlements.findAll({
         where: {
             outlet_id: req.user.outlet_id,
@@ -1790,35 +1543,28 @@ async function buildSubscriptionLedgerResponse(req, subscriptionId) {
         },
         order: [['settlement_date', 'ASC'], ['id', 'ASC']]
     });
-
     return {
         subscription,
         consumptions,
         settlements
     };
 }
-
 async function getSubscriptionSchemeTotals(subscription) {
     const schemeRows = Array.isArray(subscription?.schemes) ? subscription.schemes : [];
     const bonusQty = schemeRows.reduce((sum, row) => sum + toAmount(row.bonus_qty), 0);
     const discountAmount = schemeRows.reduce((sum, row) => sum + toAmount(row.discount_amount), 0);
     return { bonusQty, discountAmount };
 }
-
 async function persistMilkSubscriptionConsumptions({ req, transaction, sale, consumptions }) {
     if (!Array.isArray(consumptions) || consumptions.length === 0) {
         return;
     }
-
     for (const row of consumptions) {
-        await req.propertyDb.models.milk_subscription_consumptions.create(
-            {
-                ...row,
-                sale_id: sale.id,
-                sale_no: sale.sale_no
-            },
-            { transaction }
-        );
+        await req.propertyDb.models.milk_subscription_consumptions.create({
+            ...row,
+            sale_id: sale.id,
+            sale_no: sale.sale_no
+        }, { transaction });
         try {
             if (row.subscription_id) {
                 const sub = await req.propertyDb.models.milk_subscriptions.findByPk(row.subscription_id, { transaction });
@@ -1826,12 +1572,12 @@ async function persistMilkSubscriptionConsumptions({ req, transaction, sale, con
                     await sub.increment('services_consumed', { by: Number(row.covered_qty || 1), transaction });
                 }
             }
-        } catch (subIncrErr) {
+        }
+        catch (subIncrErr) {
             console.error('[QUOTA CONSUMPTION INCREMENT FAIL]', subIncrErr.message);
         }
     }
 }
-
 async function getActiveItemCycleSchemes(req) {
     return req.propertyDb.models.sales_schemes.findAll({
         where: {
@@ -1842,10 +1588,10 @@ async function getActiveItemCycleSchemes(req) {
         }
     });
 }
-
 async function findSchemeEnrollment(req, schemeId, identity) {
     const scope = buildCustomerScope(identity);
-    if (!scope) return null;
+    if (!scope)
+        return null;
     return req.propertyDb.models.sales_scheme_customers.findOne({
         where: {
             outlet_id: req.user.outlet_id,
@@ -1855,31 +1601,21 @@ async function findSchemeEnrollment(req, schemeId, identity) {
         }
     });
 }
-
-async function ensureCustomerSchemeEnrollments({
-    req,
-    transaction,
-    header,
-    selectedSchemes = []
-}) {
+async function ensureCustomerSchemeEnrollments({ req, transaction, header, selectedSchemes = [] }) {
     const identity = normalizeCustomerIdentity(header);
     const scope = buildCustomerScope(identity);
-    if (!scope) return;
-
+    if (!scope)
+        return;
     const candidateIds = [
-        ...new Set(
-            [
-                Number(header?.scheme_id),
-                ...(Array.isArray(selectedSchemes)
-                    ? selectedSchemes.map((scheme) =>
-                        Number(scheme?.id ?? scheme?.scheme_id ?? scheme?.schemeId)
-                    )
-                    : [])
-            ].filter((value) => Number.isFinite(value) && value > 0)
-        )
+        ...new Set([
+            Number(header?.scheme_id),
+            ...(Array.isArray(selectedSchemes)
+                ? selectedSchemes.map((scheme) => Number(scheme?.id ?? scheme?.scheme_id ?? scheme?.schemeId))
+                : [])
+        ].filter((value) => Number.isFinite(value) && value > 0))
     ];
-    if (!candidateIds.length) return;
-
+    if (!candidateIds.length)
+        return;
     const schemes = await req.propertyDb.models.sales_schemes.findAll({
         where: {
             id: { [Op.in]: candidateIds },
@@ -1888,57 +1624,41 @@ async function ensureCustomerSchemeEnrollments({
         },
         transaction
     });
-
     for (const scheme of schemes) {
         const existingEnrollment = await findSchemeEnrollment(req, scheme.id, identity);
-        if (existingEnrollment) continue;
-        await req.propertyDb.models.sales_scheme_customers.create(
-            {
-                outlet_id: req.user.outlet_id,
-                scheme_id: scheme.id,
-                customer_name: identity.customer_name || null,
-                customer_phone: identity.customer_phone || null,
-                customer_gstin: identity.customer_gstin || null,
-                start_date: header.sale_date || new Date(),
-                usage_type:
-                    String(scheme.repeat_mode || '').toUpperCase() === 'ONCE'
-                        ? 'single_use'
-                        : 'reusable',
-                is_consumed: false,
-                is_active: true,
-                created_by: req.user.id
-            },
-            { transaction }
-        );
+        if (existingEnrollment)
+            continue;
+        await req.propertyDb.models.sales_scheme_customers.create({
+            outlet_id: req.user.outlet_id,
+            scheme_id: scheme.id,
+            customer_name: identity.customer_name || null,
+            customer_phone: identity.customer_phone || null,
+            customer_gstin: identity.customer_gstin || null,
+            start_date: header.sale_date || new Date(),
+            usage_type: String(scheme.repeat_mode || '').toUpperCase() === 'ONCE'
+                ? 'single_use'
+                : 'reusable',
+            is_consumed: false,
+            is_active: true,
+            created_by: req.user.id
+        }, { transaction });
     }
 }
-
-async function computeItemCycleProgress({
-    req,
-    scheme,
-    enrollment,
-    identity,
-    billDate,
-    currentBillItems = []
-}) {
+async function computeItemCycleProgress({ req, scheme, enrollment, identity, billDate, currentBillItems = [] }) {
     const startDate = enrollment?.start_date ? new Date(enrollment.start_date) : null;
     const today = dateOnly(billDate) || dateOnly(new Date());
     const cycleDays = Math.max(1, Number(scheme.cycle_days) || 30);
     const itemId = Number(scheme.item_id);
-
     if (!startDate || !today || !Number.isFinite(itemId)) {
         return null;
     }
-
     const start = dateOnly(startDate);
     const diffMs = today.getTime() - start.getTime();
     const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
     const cycleIndex = diffDays >= 0 ? Math.floor(diffDays / cycleDays) : 0;
     const cycleStart = addDays(start, cycleIndex * cycleDays);
     const cycleEnd = addDays(cycleStart, cycleDays - 1);
-
     const dateToCheck = today < cycleEnd ? today : cycleEnd;
-
     const whereCustomer = buildCustomerScope(identity);
     const params = {
         outlet_id: req.user.outlet_id,
@@ -1948,26 +1668,21 @@ async function computeItemCycleProgress({
         to_day: formatDateLocalYmd(dateToCheck),
         outletTz: req.outletTimeZone || 'Asia/Kolkata'
     };
-
     let customerWhere = "";
     if (identity?.customer_phone) {
-        const phone = String(identity.customer_phone).replace(/\D/g, '').trim();
-        const last10 = phone.length > 10 ? phone.slice(-10) : phone;
-        customerWhere = "AND sh.customer_phone IN (:phone_last10, :phone_91, :phone_plus91, :phone_0)";
-        params.phone_last10 = last10;
-        params.phone_91 = `91${last10}`;
-        params.phone_plus91 = `+91${last10}`;
-        params.phone_0 = `0${last10}`;
-    } else if (identity?.customer_gstin) {
+        const variants = getPhoneSearchVariants(identity.customer_phone);
+        customerWhere = "AND sh.customer_phone IN (:phone_variants)";
+        params.phone_variants = variants.length > 0 ? variants : [identity.customer_phone];
+    }
+    else if (identity?.customer_gstin) {
         customerWhere = "AND sh.customer_gstin = :customer_gstin";
         params.customer_gstin = identity.customer_gstin;
-    } else if (identity?.customer_name) {
+    }
+    else if (identity?.customer_name) {
         customerWhere = "AND sh.customer_name = :customer_name";
         params.customer_name = identity.customer_name;
     }
-
-    const [rows] = await req.propertyDb.query(
-        `
+    const [rows] = await req.propertyDb.query(`
 SELECT DATE(sh.sale_date AT TIME ZONE :outletTz) AS sale_day,
        COALESCE(SUM(si.qty), 0) AS qty
 FROM sales_headers sh
@@ -1982,17 +1697,13 @@ WHERE sh.outlet_id = :outlet_id
   ${customerWhere}
 GROUP BY DATE(sh.sale_date AT TIME ZONE :outletTz)
 ORDER BY sale_day ASC
-        `,
-        { replacements: params }
-    );
-
+        `, { replacements: params });
     const daily = new Map();
     for (const row of rows || []) {
         const d = row.sale_day instanceof Date ? row.sale_day : new Date(row.sale_day);
         const key = formatDateLocalYmd(dateOnly(d));
         daily.set(key, Number(row.qty) || 0);
     }
-
     // Include current bill items for today (before saving this bill).
     const currentQty = currentBillItems
         .filter((it) => Number(it.item_id) === itemId)
@@ -2001,14 +1712,13 @@ ORDER BY sale_day ASC
         const key = formatDateLocalYmd(today);
         daily.set(key, (daily.get(key) || 0) + currentQty);
     }
-
     let consumedDays = 0;
     let billedQty = 0;
     for (const qty of daily.values()) {
-        if (qty > 0) consumedDays += 1;
+        if (qty > 0)
+            consumedDays += 1;
         billedQty += qty;
     }
-
     const minQty = Number(scheme.min_qty) || 0;
     const freeQty = Number(scheme.free_qty) || 0;
     const requiredDailyQty = Number(scheme.required_daily_qty) || freeQty;
@@ -2020,21 +1730,22 @@ ORDER BY sale_day ASC
             if (dayQty < requiredDailyQty) {
                 missingDays.push(key);
             }
-        } else if (dayQty <= 0) {
+        }
+        else if (dayQty <= 0) {
             missingDays.push(key);
         }
     }
-
     const totalRequiredQty = requiredDailyQty > 0 ? requiredDailyQty * cycleDays : minQty;
     let qualifiedDays = 0;
     for (const qty of daily.values()) {
         if (requiredDailyQty > 0) {
-            if (qty >= requiredDailyQty) qualifiedDays += 1;
-        } else if (qty > 0) {
+            if (qty >= requiredDailyQty)
+                qualifiedDays += 1;
+        }
+        else if (qty > 0) {
             qualifiedDays += 1;
         }
     }
-
     return {
         cycle_start: formatDateLocalYmd(cycleStart),
         cycle_end: formatDateLocalYmd(cycleEnd),
@@ -2053,19 +1764,11 @@ ORDER BY sale_day ASC
         require_no_gaps: !!scheme.require_no_gaps
     };
 }
-
-async function hasSchemeGrantedToday({
-    req,
-    schemeId,
-    itemId,
-    identity,
-    billDate
-}) {
+async function hasSchemeGrantedToday({ req, schemeId, itemId, identity, billDate }) {
     const day = formatDateLocalYmd(dateOnly(billDate || new Date()));
-    const phone = String(identity?.customer_phone || '').replace(/\D/g, '').trim();
-    const last10 = phone.length > 10 ? phone.slice(-10) : phone;
-    const [rows] = await req.propertyDb.query(
-        `
+    const variants = identity?.customer_phone ? getPhoneSearchVariants(identity.customer_phone) : [];
+    const hasPhone = variants.length > 0;
+    const [rows] = await req.propertyDb.query(`
 SELECT 1
 FROM sales_headers sh
 JOIN sales_items si ON si.sale_id = sh.id
@@ -2078,30 +1781,25 @@ WHERE sh.outlet_id = :outlet_id
   AND si.is_scheme_free = TRUE
   AND si.applied_scheme_id = :scheme_id
   AND (
-    (:phone_last10 <> '' AND sh.customer_phone IN (:phone_last10, :phone_91, :phone_plus91, :phone_0))
+    (:has_phone = TRUE AND sh.customer_phone IN (:phone_variants))
     OR (:customer_gstin <> '' AND sh.customer_gstin = :customer_gstin)
     OR (:customer_name <> '' AND sh.customer_name = :customer_name)
   )
 LIMIT 1
-        `,
-        {
-            replacements: {
-                outlet_id: req.user.outlet_id,
-                sale_day: day,
-                item_id: itemId,
-                scheme_id: schemeId,
-                phone_last10: last10,
-                phone_91: last10 ? `91${last10}` : '',
-                phone_plus91: last10 ? `+91${last10}` : '',
-                phone_0: last10 ? `0${last10}` : '',
-                customer_gstin: identity?.customer_gstin || '',
-                customer_name: identity?.customer_name || ''
-            }
+        `, {
+        replacements: {
+            outlet_id: req.user.outlet_id,
+            sale_day: day,
+            item_id: itemId,
+            scheme_id: schemeId,
+            has_phone: hasPhone,
+            phone_variants: hasPhone ? variants : ['__none__'],
+            customer_gstin: identity?.customer_gstin || '',
+            customer_name: identity?.customer_name || ''
         }
-    );
+    });
     return (rows || []).length > 0;
 }
-
 async function applyItemCycleSchemesToSale({ req, header, items, transaction }) {
     const recomputeRowTotals = (row, nextQty) => {
         const qty = toAmount(nextQty);
@@ -2126,36 +1824,30 @@ async function applyItemCycleSchemesToSale({ req, header, items, transaction }) 
             net_amount: lineTotal
         };
     };
-
     const identity = normalizeCustomerIdentity(header);
     const allSchemes = await getActiveItemCycleSchemes(req);
     const selectedSchemeId = Number(header.scheme_id);
-    const selectedSchemeIdsFromHeader = normalizeSelectedSchemes(
-        header.selected_schemes || header.selectedSchemes
-    )
+    const selectedSchemeIdsFromHeader = normalizeSelectedSchemes(header.selected_schemes || header.selectedSchemes)
         .map((scheme) => Number(scheme?.id))
         .filter((value) => Number.isFinite(value) && value > 0);
     const targetSchemeIds = [
-        ...new Set(
-            [
-                ...(Number.isFinite(selectedSchemeId) && selectedSchemeId > 0
-                    ? [selectedSchemeId]
-                    : []),
-                ...selectedSchemeIdsFromHeader
-            ]
-        )
+        ...new Set([
+            ...(Number.isFinite(selectedSchemeId) && selectedSchemeId > 0
+                ? [selectedSchemeId]
+                : []),
+            ...selectedSchemeIdsFromHeader
+        ])
     ];
     const schemes = targetSchemeIds.length
         ? allSchemes.filter((s) => targetSchemeIds.includes(Number(s.id)))
         : [];
-    if (!schemes.length) return items;
-
+    if (!schemes.length)
+        return items;
     const billDate = header.sale_date || new Date();
     const today = dateOnly(billDate);
-    if (!today) return items;
-
+    if (!today)
+        return items;
     const updated = Array.isArray(items) ? [...items] : [];
-
     for (const scheme of schemes) {
         const itemId = Number(scheme.item_id);
         const freeQty = Number(scheme.free_qty) || 0;
@@ -2164,18 +1856,15 @@ async function applyItemCycleSchemesToSale({ req, header, items, transaction }) 
         const applyTiming = String(scheme.apply_timing || 'CURRENT_BILL').toUpperCase();
         const usageMode = String(header.scheme_usage_mode || 'APPLY_NOW').toUpperCase();
         const repeatMode = String(scheme.repeat_mode || 'REPEAT').toUpperCase();
-        if (!Number.isFinite(itemId) || freeQty <= 0) continue;
-
+        if (!Number.isFinite(itemId) || freeQty <= 0)
+            continue;
         // Must have the scheme item on the bill to apply free qty.
-        const hasSchemeItemOnBill = updated.some(
-            (row) => Number(row.item_id) === itemId && (Number(row.qty) || 0) > 0
-        );
-        if (!hasSchemeItemOnBill) continue;
-        const alreadyHasAdvanceFreeForItem = updated.some(
-            (row) => Number(row.item_id) === itemId && row.is_advance_free === true
-        );
-        if (alreadyHasAdvanceFreeForItem) continue;
-
+        const hasSchemeItemOnBill = updated.some((row) => Number(row.item_id) === itemId && (Number(row.qty) || 0) > 0);
+        if (!hasSchemeItemOnBill)
+            continue;
+        const alreadyHasAdvanceFreeForItem = updated.some((row) => Number(row.item_id) === itemId && row.is_advance_free === true);
+        if (alreadyHasAdvanceFreeForItem)
+            continue;
         let enrollment = await findSchemeEnrollment(req, scheme.id, identity);
         // If user explicitly selected this ITEM scheme on the bill, auto-enroll (start = bill day)
         // so the scheme starts working without extra steps.
@@ -2196,8 +1885,8 @@ async function applyItemCycleSchemesToSale({ req, header, items, transaction }) 
                 });
             }
         }
-        if (!enrollment) continue;
-
+        if (!enrollment)
+            continue;
         const progress = await computeItemCycleProgress({
             req,
             scheme,
@@ -2206,25 +1895,23 @@ async function applyItemCycleSchemesToSale({ req, header, items, transaction }) 
             billDate,
             currentBillItems: updated
         });
-        if (!progress) continue;
-
-        const alreadyGrantedThisCycle =
-            String(enrollment.last_applied_cycle_start || '') ===
+        if (!progress)
+            continue;
+        const alreadyGrantedThisCycle = String(enrollment.last_applied_cycle_start || '') ===
             String(progress.cycle_start || '') &&
             String(enrollment.last_applied_cycle_end || '') ===
-            String(progress.cycle_end || '');
-        if (alreadyGrantedThisCycle) continue;
-
+                String(progress.cycle_end || '');
+        if (alreadyGrantedThisCycle)
+            continue;
         // NEXT_PURCHASE mode should reserve on current purchase and apply on a future bill.
-        if (applyTiming === 'NEXT_PURCHASE' && usageMode !== 'APPLY_NOW') continue;
-
-        if (scheme.require_no_gaps && progress.missing_days.length > 0) continue;
-        const effectiveMinQty =
-            minQty > 0 ? minQty : (requiredDailyQty > 0 ? requiredDailyQty : freeQty);
+        if (applyTiming === 'NEXT_PURCHASE' && usageMode !== 'APPLY_NOW')
+            continue;
+        if (scheme.require_no_gaps && progress.missing_days.length > 0)
+            continue;
+        const effectiveMinQty = minQty > 0 ? minQty : (requiredDailyQty > 0 ? requiredDailyQty : freeQty);
         if (effectiveMinQty > 0 && progress.total_qty < effectiveMinQty) {
             continue;
         }
-
         const alreadyGrantedToday = await hasSchemeGrantedToday({
             req,
             schemeId: scheme.id,
@@ -2232,41 +1919,38 @@ async function applyItemCycleSchemesToSale({ req, header, items, transaction }) 
             identity,
             billDate
         });
-        if (alreadyGrantedToday) continue;
-
+        if (alreadyGrantedToday)
+            continue;
         let appliedFreeQty = 0;
-        const alreadyHasFreeLine = updated.some(
-            (row) =>
-                Number(row.item_id) === itemId &&
-                (row.is_scheme_free === true || String(row.line_note || '').includes('SCHEME_FREE'))
-        );
-        if (alreadyHasFreeLine) continue;
-
+        const alreadyHasFreeLine = updated.some((row) => Number(row.item_id) === itemId &&
+            (row.is_scheme_free === true || String(row.line_note || '').includes('SCHEME_FREE')));
+        if (alreadyHasFreeLine)
+            continue;
         // Apply free qty as a rate=0 line based on bill quantity and threshold.
         const billItemQty = updated
-            .filter((row) =>
-                Number(row.item_id) === itemId &&
-                (Number(row.qty) || 0) > 0 &&
-                row.is_scheme_free !== true &&
-                row.is_advance_free !== true
-            )
+            .filter((row) => Number(row.item_id) === itemId &&
+            (Number(row.qty) || 0) > 0 &&
+            row.is_scheme_free !== true &&
+            row.is_advance_free !== true)
             .reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
         const eligibleFreeQty = Math.min(freeQty, billItemQty);
-        if (eligibleFreeQty <= 0) continue;
-
+        if (eligibleFreeQty <= 0)
+            continue;
         let remainingFree = eligibleFreeQty;
         for (let i = 0; i < updated.length && remainingFree > 0; i++) {
             const row = updated[i];
-            if (Number(row.item_id) !== itemId) continue;
-            if (row.is_scheme_free === true) continue;
-            if (row.is_advance_free === true) continue;
-
+            if (Number(row.item_id) !== itemId)
+                continue;
+            if (row.is_scheme_free === true)
+                continue;
+            if (row.is_advance_free === true)
+                continue;
             const rowQty = Number(row.qty) || 0;
-            if (rowQty <= 0) continue;
-
+            if (rowQty <= 0)
+                continue;
             const take = Math.min(remainingFree, rowQty);
-            if (take <= 0) continue;
-
+            if (take <= 0)
+                continue;
             const freeRow = {
                 ...row,
                 qty: take,
@@ -2285,40 +1969,32 @@ async function applyItemCycleSchemesToSale({ req, header, items, transaction }) 
                 is_scheme_free: true,
                 applied_scheme_id: scheme.id
             };
-
             if (take >= rowQty - 1e-9) {
                 updated[i] = freeRow;
-            } else {
+            }
+            else {
                 updated[i] = recomputeRowTotals(row, rowQty - take);
                 updated.splice(i + 1, 0, freeRow);
                 i++; // skip the inserted free line
             }
             appliedFreeQty += take;
-
             remainingFree -= take;
         }
-
         if (appliedFreeQty > 0) {
-            await enrollment.update(
-                {
-                    last_applied_cycle_start: dateOnlyString(progress.cycle_start),
-                    last_applied_cycle_end: dateOnlyString(progress.cycle_end)
-                },
-                { transaction }
-            );
+            await enrollment.update({
+                last_applied_cycle_start: dateOnlyString(progress.cycle_start),
+                last_applied_cycle_end: dateOnlyString(progress.cycle_end)
+            }, { transaction });
         }
     }
-
     return updated;
 }
-
 async function allocateItemAdvanceConsumption({ req, header, items, transaction }) {
     const identity = normalizeCustomerIdentity(header);
     const scope = buildCustomerScope(identity);
     if (!scope) {
         return { items, advanceAppliedAmount: 0 };
     }
-
     const updatedItems = Array.isArray(items)
         ? items.map((row) => ({
             ...row,
@@ -2330,7 +2006,6 @@ async function allocateItemAdvanceConsumption({ req, header, items, transaction 
     if (!itemIds.length) {
         return { items: updatedItems, advanceAppliedAmount: 0 };
     }
-
     const advanceRows = await req.propertyDb.models.customer_item_advances.findAll({
         where: {
             outlet_id: req.user.outlet_id,
@@ -2341,60 +2016,53 @@ async function allocateItemAdvanceConsumption({ req, header, items, transaction 
         order: [['item_id', 'ASC'], ['advance_date', 'ASC'], ['id', 'ASC']],
         transaction
     });
-
     const advancePools = new Map();
     for (const row of advanceRows) {
         const itemId = Number(row.item_id) || 0;
-        if (!advancePools.has(itemId)) advancePools.set(itemId, []);
+        if (!advancePools.has(itemId))
+            advancePools.set(itemId, []);
         advancePools.get(itemId).push(row);
     }
-
     let advanceAppliedAmount = 0;
     for (const item of updatedItems) {
-        if (item.is_scheme_free === true || item.is_advance_free === true) continue;
+        if (item.is_scheme_free === true || item.is_advance_free === true)
+            continue;
         const itemId = Number(item.item_id) || 0;
         const billQty = toAmount(item.qty);
-        if (billQty <= 0) continue;
-
+        if (billQty <= 0)
+            continue;
         const pools = advancePools.get(itemId) || [];
         let remainingQty = billQty;
         let itemAdvanceQty = 0;
         let itemAdvanceAmount = 0;
-
         for (const advanceRow of pools) {
-            if (remainingQty <= 0) break;
+            if (remainingQty <= 0)
+                break;
             const availableQty = toAmount(advanceRow.available_qty);
-            if (availableQty <= 0) continue;
-
+            if (availableQty <= 0)
+                continue;
             const takeQty = Math.min(remainingQty, availableQty);
-            if (takeQty <= 0) continue;
-
+            if (takeQty <= 0)
+                continue;
             const unitRate = toAmount(advanceRow.rate);
             const consumeAmount = takeQty * unitRate;
-
             itemAdvanceQty += takeQty;
             itemAdvanceAmount += consumeAmount;
             advanceAppliedAmount += consumeAmount;
             remainingQty -= takeQty;
             advanceRow.available_qty = Math.max(availableQty - takeQty, 0);
         }
-
         item.item_advance_qty = itemAdvanceQty;
         item.item_advance_amount = itemAdvanceAmount;
     }
-
     for (const advanceRow of advanceRows) {
-        await advanceRow.update(
-            { available_qty: advanceRow.available_qty },
-            { transaction }
-        );
+        await advanceRow.update({ available_qty: advanceRow.available_qty }, { transaction });
     }
-
     return { items: updatedItems, advanceAppliedAmount };
 }
-
 function parseDateOnly(value) {
-    if (!value) return null;
+    if (!value)
+        return null;
     const normalized = normalizeDateKey(value);
     if (normalized) {
         const date = new Date(`${normalized}T00:00:00`);
@@ -2407,81 +2075,69 @@ function parseDateOnly(value) {
         const trimmed = value.trim();
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
         if (match) {
-            date = new Date(
-                Number(match[1]),
-                Number(match[2]) - 1,
-                Number(match[3])
-            );
-        } else {
+            date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+        }
+        else {
             date = new Date(trimmed);
         }
-    } else {
+    }
+    else {
         date = new Date(value);
     }
-    if (Number.isNaN(date.getTime())) return null;
+    if (Number.isNaN(date.getTime()))
+        return null;
     date.setHours(0, 0, 0, 0);
     return date;
 }
-
 function toWholeNumber(value, fallback = 1) {
     const parsed = Number(value);
-    if (!Number.isFinite(parsed)) return fallback;
+    if (!Number.isFinite(parsed))
+        return fallback;
     return Math.max(1, Math.round(parsed));
 }
-
 function toAmount(value, fallback = 0) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
 }
-
 function extractNumericPart(saleNo, setting) {
-    if (!saleNo) return null;
+    if (!saleNo)
+        return null;
     const prefix = setting?.prefix || '';
     const postfix = setting?.postfix || '';
     let value = String(saleNo);
-
     if (prefix && value.startsWith(prefix)) {
         value = value.slice(prefix.length);
     }
     if (postfix && value.endsWith(postfix)) {
         value = value.slice(0, value.length - postfix.length);
     }
-
     const numeric = parseInt(value, 10);
     return Number.isNaN(numeric) ? null : numeric;
 }
-
 async function getVoucherRules(req) {
     const settings = await req.propertyDb.models.system_settings.findOne({
         where: { outlet_id: req.user.outlet_id }
     });
-
     return Array.isArray(settings?.voucher_rules) ? settings.voucher_rules : [];
 }
-
 async function validateVoucherUsage(req, { code, orderAmount = 0, header = {}, ignoreSaleIds = [] }) {
     const rules = await getVoucherRules(req);
     const voucher = rules.find((entry) => String(entry.code || '').trim().toUpperCase() === code);
-
     if (!voucher) {
         return { valid: false, reason: 'INVALID', message: 'Voucher code is invalid.' };
     }
-
     const now = new Date();
     const validFrom = parseDateOnly(voucher.valid_from || voucher.validFrom);
     const validTo = parseDateOnly(voucher.valid_to || voucher.validTo);
-
     if (validFrom && now < validFrom) {
         return { valid: false, reason: 'NOT_STARTED', message: 'Voucher is not active yet.' };
     }
-
     if (validTo) {
         validTo.setHours(23, 59, 59, 999);
         if (now > validTo) {
             return { valid: false, reason: 'EXPIRED', message: 'Voucher has expired.' };
         }
     }
-
     const minimumPurchaseAmount = Number(voucher.minimum_purchase_amount ?? voucher.minimumPurchaseAmount) || 0;
     if (Number(orderAmount) < minimumPurchaseAmount) {
         return {
@@ -2490,13 +2146,14 @@ async function validateVoucherUsage(req, { code, orderAmount = 0, header = {}, i
             message: `Minimum purchase ${minimumPurchaseAmount.toFixed(2)} required.`
         };
     }
-
     const identity = normalizeCustomerIdentity(header);
     const lookupClauses = [];
-    if (identity.customer_phone) lookupClauses.push({ customer_phone: identity.customer_phone });
-    if (identity.customer_gstin) lookupClauses.push({ customer_gstin: identity.customer_gstin });
-    if (identity.customer_name) lookupClauses.push({ customer_name: identity.customer_name });
-
+    if (identity.customer_phone)
+        lookupClauses.push({ customer_phone: identity.customer_phone });
+    if (identity.customer_gstin)
+        lookupClauses.push({ customer_gstin: identity.customer_gstin });
+    if (identity.customer_name)
+        lookupClauses.push({ customer_name: identity.customer_name });
     if (lookupClauses.length > 0) {
         const where = {
             outlet_id: req.user.outlet_id,
@@ -2504,15 +2161,12 @@ async function validateVoucherUsage(req, { code, orderAmount = 0, header = {}, i
             status: 'COMPLETED',
             [Op.or]: lookupClauses
         };
-
         const idsToIgnore = ignoreSaleIds
             .map((value) => Number(value))
             .filter((value) => Number.isFinite(value) && value > 0);
-
         if (idsToIgnore.length > 0) {
             where.id = { [Op.notIn]: idsToIgnore };
         }
-
         const existing = await req.propertyDb.models.sales_headers.findOne({ where });
         if (existing) {
             return {
@@ -2522,7 +2176,6 @@ async function validateVoucherUsage(req, { code, orderAmount = 0, header = {}, i
             };
         }
     }
-
     return {
         valid: true,
         voucher: {
@@ -2536,25 +2189,16 @@ async function validateVoucherUsage(req, { code, orderAmount = 0, header = {}, i
         }
     };
 }
-
 /**
  * Collects (but does NOT yet persist) cash-ledger entry descriptors for the
  * payment lines of a completed sale.  Callers flush them via
  * batchCreateLedgerEntries for a single round-trip.
  */
-function buildSalePaymentLedgerEntries({
-    req,
-    sale,
-    header,
-    paymentMode,
-    amountPaid,
-    netAmount,
-    balanceDue,
-    created_by,
-    outlet_id
-}) {
-    if (sale.status !== 'COMPLETED') return [];
-    if (netAmount <= 0 && amountPaid <= 0 && balanceDue <= 0) return [];
+function buildSalePaymentLedgerEntries({ req, sale, header, paymentMode, amountPaid, netAmount, balanceDue, created_by, outlet_id }) {
+    if (sale.status !== 'COMPLETED')
+        return [];
+    if (netAmount <= 0 && amountPaid <= 0 && balanceDue <= 0)
+        return [];
     const targetOutletId = outlet_id || sale?.outlet_id || header?.outlet_id || req?.user?.outlet_id;
     const splitLines = decodePaymentReferenceLines(header.payment_reference);
     const nonCreditSplit = splitLines.filter((row) => {
@@ -2565,14 +2209,11 @@ function buildSalePaymentLedgerEntries({
     const paymentLines = hasUsableSplit
         ? nonCreditSplit
         : [{ method: paymentMode, amount: Math.min(amountPaid, netAmount) }];
-
     const changeAmount = toAmount(header.change_amount || sale?.change_amount || 0);
     let remainingChange = changeAmount;
-
     const totalSplitPaid = paymentLines.reduce((sum, line) => sum + toAmount(line.amount), 0);
     const excessToDeduct = Math.max(0, toAmount(totalSplitPaid - changeAmount - amountPaid));
     let remainingExcess = excessToDeduct;
-
     if (remainingExcess > 0) {
         for (const line of paymentLines) {
             if (line.method === 'CASH') {
@@ -2591,7 +2232,6 @@ function buildSalePaymentLedgerEntries({
             }
         }
     }
-
     const entries = [];
     for (const line of paymentLines) {
         let lineAmount = line.amount;
@@ -2600,16 +2240,18 @@ function buildSalePaymentLedgerEntries({
             lineAmount = toAmount(lineAmount - deduct);
             remainingChange = toAmount(remainingChange - deduct);
         }
-        if (lineAmount <= 0) continue;
-
+        if (lineAmount <= 0)
+            continue;
         const method = String(line.method || paymentMode || '').toUpperCase();
-        if (method === 'CREDIT' || method === 'DUE' || method === 'ADVANCE_DEPOSIT' || method === 'ADVANCE_ADDED' || method === 'ADVANCE' || method === 'ADVANCE_ADJUSTMENT' || method === 'ADVANCE_APPLY') continue;
-
+        if (method === 'CREDIT' || method === 'DUE' || method === 'ADVANCE_DEPOSIT' || method === 'ADVANCE_ADDED' || method === 'ADVANCE' || method === 'ADVANCE_ADJUSTMENT' || method === 'ADVANCE_APPLY')
+            continue;
         let lineTxnType = 'SALE_CASH';
-        if (method === 'CARD') lineTxnType = 'SALE_CARD';
-        else if (method === 'UPI') lineTxnType = 'SALE_UPI';
-        else lineTxnType = 'SALE_CASH';
-
+        if (method === 'CARD')
+            lineTxnType = 'SALE_CARD';
+        else if (method === 'UPI')
+            lineTxnType = 'SALE_UPI';
+        else
+            lineTxnType = 'SALE_CASH';
         entries.push({
             outlet_id: targetOutletId,
             txn_date: header.sale_date,
@@ -2624,11 +2266,9 @@ function buildSalePaymentLedgerEntries({
             created_by
         });
     }
-
     const creditSplit = splitLines.filter((row) => row.method === 'CREDIT' || row.method === 'DUE');
     const splitCreditAmount = creditSplit.reduce((sum, r) => sum + toAmount(r.amount), 0);
     const finalCreditAmount = Math.max(toAmount(balanceDue), splitCreditAmount);
-
     if (finalCreditAmount > 0) {
         entries.push({
             outlet_id: targetOutletId,
@@ -2646,39 +2286,26 @@ function buildSalePaymentLedgerEntries({
             created_by
         });
     }
-
     return entries;
 }
-
 /**
  * Collects (but does NOT yet persist) cash-ledger entry descriptors for
  * discount / scheme-free / subscription benefit expenses of a completed sale.
  */
-function buildSaleBenefitLedgerEntries({
-    req,
-    sale,
-    header,
-    paymentMode,
-    created_by,
-    discountAmount,
-    schemeFreeQtyAmount,
-    subscriptionAdjustmentAmount = 0,
-    outlet_id
-}) {
-    if (sale.status !== 'COMPLETED') return [];
-
+function buildSaleBenefitLedgerEntries({ req, sale, header, paymentMode, created_by, discountAmount, schemeFreeQtyAmount, subscriptionAdjustmentAmount = 0, outlet_id }) {
+    if (sale.status !== 'COMPLETED')
+        return [];
     const targetOutletId = outlet_id || sale?.outlet_id || header?.outlet_id || req?.user?.outlet_id;
     const isSubscription = String(paymentMode || '').toUpperCase().includes('SUBSCRIPTION');
     // Avoid double-posting: subscription sales are paid via prepaid customer advance,
     // which is booked via ADVANCE_APPLY in the subscription allocation flow.
-    if (isSubscription) return [];
-
+    if (isSubscription)
+        return [];
     const partyName = header.customer_name || header.customer_phone || 'Walk-in Customer';
     const normalizedSchemeFree = toAmount(schemeFreeQtyAmount);
     const subAdj = toAmount(subscriptionAdjustmentAmount);
     const normalizedDiscount = Math.max(0, toAmount(toAmount(discountAmount) - normalizedSchemeFree - subAdj));
     const entries = [];
-
     if (normalizedDiscount > 0) {
         entries.push({
             outlet_id: targetOutletId,
@@ -2694,7 +2321,6 @@ function buildSaleBenefitLedgerEntries({
             created_by
         });
     }
-
     if (normalizedSchemeFree > 0) {
         entries.push({
             outlet_id: targetOutletId,
@@ -2710,39 +2336,25 @@ function buildSaleBenefitLedgerEntries({
             created_by
         });
     }
-
     return entries;
 }
-
 // Keep the old async wrappers for backward compatibility with any callers
 // outside createSaleVersion (e.g. returns/refunds)
 async function recordSalePayment({ req, transaction, sale, header, paymentMode, amountPaid, netAmount, balanceDue, created_by }) {
     const targetOutletId = sale?.outlet_id || header?.outlet_id || req?.user?.outlet_id;
     const entries = buildSalePaymentLedgerEntries({ req, sale, header, paymentMode, amountPaid, netAmount, balanceDue, created_by, outlet_id: targetOutletId });
-    if (entries.length === 0) return;
+    if (entries.length === 0)
+        return;
     await batchCreateLedgerEntries({ db: req.propertyDb, outlet_id: targetOutletId, entries, transaction });
 }
-
 async function recordSaleBenefitExpenseEntries({ req, transaction, sale, header, paymentMode, created_by, discountAmount, schemeFreeQtyAmount, subscriptionAdjustmentAmount }) {
     const targetOutletId = sale?.outlet_id || header?.outlet_id || req?.user?.outlet_id;
     const entries = buildSaleBenefitLedgerEntries({ req, sale, header, paymentMode, created_by, discountAmount, schemeFreeQtyAmount, outlet_id: targetOutletId });
-    if (entries.length === 0) return;
+    if (entries.length === 0)
+        return;
     await batchCreateLedgerEntries({ db: req.propertyDb, outlet_id: targetOutletId, entries, transaction });
 }
-
-
-async function createSaleVersion({
-    req,
-    transaction,
-    header,
-    items,
-    overrides = {},
-    createPayment = true,
-    stockTxnType = 'SALE',
-    affectStock = true,
-    invoiceDiscountAmount = 0,
-    itemMasterMap: inputItemMasterMap = null
-}) {
+async function createSaleVersion({ req, transaction, header, items, overrides = {}, createPayment = true, stockTxnType = 'SALE', affectStock = true, invoiceDiscountAmount = 0, itemMasterMap: inputItemMasterMap = null }) {
     const saleItems = Array.isArray(items) ? items : [];
     const status = header.status || 'COMPLETED';
     const voucherCode = String(header.voucher_code || '').trim().toUpperCase();
@@ -2750,9 +2362,7 @@ async function createSaleVersion({
     let roundOffAmount = toAmount(header.round_off_amount || 0);
     const netAmount = toAmount(header.net_amount);
     const invoiceDiscount = Math.max(0, toAmount(invoiceDiscountAmount || header.total_discount || 0));
-    const amountPaid = toAmount(
-        header.amount_paid ?? (paymentMode === 'CREDIT' ? 0 : netAmount)
-    );
+    const amountPaid = toAmount(header.amount_paid ?? (paymentMode === 'CREDIT' ? 0 : netAmount));
     const changeAmount = header.change_amount != null
         ? Math.max(toAmount(header.change_amount), 0)
         : (paymentMode === 'CASH' ? Math.max(amountPaid - netAmount, 0) : 0);
@@ -2760,7 +2370,6 @@ async function createSaleVersion({
     const outlet_id = req.user.outlet_id;
     const created_by = req.user.id;
     const normalizedIdentity = normalizeCustomerIdentity(header);
-
     let itemMasterMap = inputItemMasterMap;
     if (!itemMasterMap) {
         const itemIds = saleItems.map(row => Number(row?.item_id)).filter(id => Number.isFinite(id) && id > 0);
@@ -2773,7 +2382,6 @@ async function createSaleVersion({
         }) : [];
         itemMasterMap = new Map(itemMasters.map(item => [item.id, item]));
     }
-
     let totalQty = 0;
     let subTotal = 0;
     let itemsTaxableTotal = 0;
@@ -2787,58 +2395,46 @@ async function createSaleVersion({
     let subscriptionTaxSgst = 0;
     let subscriptionTaxIgst = 0;
     let subscriptionTaxableAmount = 0;
-
     const itemRateFallbackMap = new Map();
     for (const row of saleItems) {
         const itemId = Number(row?.item_id);
         const rowRate = toAmount(row?.rate);
-        if (!Number.isFinite(itemId) || itemId <= 0) continue;
-        if (row?.is_scheme_free === true || row?.is_advance_free === true) continue;
-        if (rowRate <= 0) continue;
+        if (!Number.isFinite(itemId) || itemId <= 0)
+            continue;
+        if (row?.is_scheme_free === true || row?.is_advance_free === true)
+            continue;
+        if (rowRate <= 0)
+            continue;
         if (!itemRateFallbackMap.has(itemId)) {
             itemRateFallbackMap.set(itemId, rowRate);
         }
     }
-
     const { calculateCommissionFields } = require('../../utils/commissionHelper');
     const baseAmount = toAmount(header.taxable_amount ?? header.sub_total ?? netAmount);
     let _t = Date.now();
-    const commFields = await calculateCommissionFields(
-        req.propertyDb,
-        header.sale_source || 'Store',
-        baseAmount,
-        netAmount,
-        saleItems,
-        transaction,
-        { itemMasterMap }
-    );
-    console.log(`[PERF-CSV] calculateCommissionFields: ${Date.now()-_t}ms`);
+    const commFields = await calculateCommissionFields(req.propertyDb, header.sale_source || 'Store', baseAmount, netAmount, saleItems, transaction, { itemMasterMap });
+    console.log(`[PERF-CSV] calculateCommissionFields: ${Date.now() - _t}ms`);
     _t = Date.now();
-
     const headerCharges = Array.isArray(header.charges) ? header.charges : [];
     const headerChargeTotal = toAmount(header.charge_total);
     const headerChargeTaxTotal = toAmount(header.charge_tax_total);
     const stockLedgerLines = [];
     const salesItemRows = [];
-
     const cachedSettings = status === 'COMPLETED' && affectStock
         ? await req.propertyDb.models.system_settings.findOne({
             where: { outlet_id },
             transaction
-          })
+        })
         : null;
-
     // Check if this sale is converted from a Delivery Challan
     const challanRefNo = header.ref_no || (header.notes && header.notes.match(/Delivery Challan ([A-Z0-9_-]+)/i)?.[1]);
     const originalChallanQtyMap = new Map();
-
     if (challanRefNo && req.propertyDb.models.delivery_challan_headers) {
         const challanHeader = await req.propertyDb.models.delivery_challan_headers.findOne({
             where: { outlet_id, challan_no: challanRefNo },
             include: [{ model: req.propertyDb.models.delivery_challan_items, as: 'items' }],
             transaction
         });
-
         if (challanHeader) {
             await challanHeader.update({ status: 'Converted_To_Sale' }, { transaction });
             if (challanHeader.items && challanHeader.items.length > 0) {
@@ -2854,35 +2450,31 @@ async function createSaleVersion({
             }
         }
     }
-
     for (const row of saleItems) {
         const qty = toAmount(row.qty);
         let rate = toAmount(row.rate);
         let taxPercent = toAmount(row.tax_percent);
         let taxType = row.tax_type || 'GST';
-
         const isAdvanceOrSubFree = row.is_advance_free === true || row._subscription_free === true;
         if (isAdvanceOrSubFree && rate <= 0) {
             const itemMaster = itemMasterMap.get(Number(row.item_id));
-            const referenceRate = toAmount(
-                row.reference_rate ??
+            const referenceRate = toAmount(row.reference_rate ??
                 row.original_rate ??
                 itemMaster?.retail_sale_price ??
                 itemMaster?.rate ??
-                0
-            );
-            if (referenceRate > 0) rate = referenceRate;
+                0);
+            if (referenceRate > 0)
+                rate = referenceRate;
             if (itemMaster) {
                 taxPercent = toAmount(itemMaster.tax_percent);
-                if (!row.tax_type && itemMaster.tax_type) taxType = itemMaster.tax_type;
+                if (!row.tax_type && itemMaster.tax_type)
+                    taxType = itemMaster.tax_type;
             }
         }
-
         const isSchemeFree = row.is_scheme_free === true || !!row.applied_happy_hour_id;
         if (isSchemeFree) {
             const dbItem = itemMasterMap.get(Number(row.item_id));
-            const referenceRate = toAmount(
-                row.scheme_free_reference_rate ??
+            const referenceRate = toAmount(row.scheme_free_reference_rate ??
                 row.reference_rate ??
                 row.original_rate ??
                 row.rate ??
@@ -2890,78 +2482,83 @@ async function createSaleVersion({
                 dbItem?.retail_sale_price ??
                 dbItem?.rate ??
                 itemRateFallbackMap.get(Number(row.item_id)) ??
-                0
-            );
-            if (referenceRate > 0) rate = referenceRate;
+                0);
+            if (referenceRate > 0)
+                rate = referenceRate;
         }
-
         const lineDiscount = toAmount(row.line_discount || 0);
         const amount = toAmount(qty * rate);
         const dbItem = itemMasterMap.get(Number(row.item_id));
         const isTaxInclusiveHeader = String(header.billing_tax_mode || header.billingTaxMode || '').toUpperCase().includes('INCLUSIVE');
         const isTaxInclusiveRow = isTaxInclusiveHeader || checkIsTaxInclusive(row, dbItem);
         const grossInclusiveAmount = isTaxInclusiveRow ? amount : toAmount(amount * (1 + (taxPercent / 100)));
-
         let taxableAmount = amount;
         let taxAmount = 0;
         let lineTotal = grossInclusiveAmount;
-
         if (isAdvanceOrSubFree || isSchemeFree) {
             if (isTaxInclusiveRow) {
                 const netInclusive = Math.max(0, amount - lineDiscount);
                 if (taxPercent > 0) {
                     taxableAmount = toAmount(netInclusive / (1 + (taxPercent / 100)));
                     taxAmount = toAmount(netInclusive - taxableAmount);
-                } else {
+                }
+                else {
                     taxableAmount = netInclusive;
                     taxAmount = 0;
                 }
                 lineTotal = netInclusive;
-            } else {
+            }
+            else {
                 const netExclusive = Math.max(0, amount - lineDiscount);
                 taxableAmount = netExclusive;
                 taxAmount = taxPercent > 0 ? toAmount(netExclusive * (taxPercent / 100)) : 0;
                 lineTotal = toAmount(taxableAmount + taxAmount);
             }
-        } else if (isTaxInclusiveRow) {
+        }
+        else if (isTaxInclusiveRow) {
             const netInclusive = Math.max(0, amount - lineDiscount);
             if (taxPercent > 0) {
                 taxableAmount = toAmount(netInclusive / (1 + (taxPercent / 100)));
                 taxAmount = toAmount(netInclusive - taxableAmount);
-            } else {
+            }
+            else {
                 taxableAmount = netInclusive;
                 taxAmount = 0;
             }
             lineTotal = netInclusive;
-        } else if (row.taxable_amount != null && row.tax_amount != null) {
+        }
+        else if (row.taxable_amount != null && row.tax_amount != null) {
             taxableAmount = toAmount(row.taxable_amount);
             taxAmount = toAmount(row.tax_amount);
             lineTotal = toAmount(row.line_total ?? (taxableAmount + taxAmount));
-        } else if (taxPercent > 0) {
+        }
+        else if (taxPercent > 0) {
             const netInclusive = Math.max(0, grossInclusiveAmount - lineDiscount);
             taxableAmount = toAmount(netInclusive / (1 + (taxPercent / 100)));
             taxAmount = toAmount(netInclusive - taxableAmount);
             lineTotal = netInclusive;
         }
-
         let itemNetAmount = lineTotal;
         if (row.is_scheme_free === true && !(row._subscription_free === true || row.is_advance_free === true)) {
             schemeFreeQtyAmount = toAmount(schemeFreeQtyAmount + lineTotal);
             itemNetAmount = 0;
-        } else if (row.is_advance_free === true || row._subscription_free === true) {
+        }
+        else if (row.is_advance_free === true || row._subscription_free === true) {
             subscriptionAdjustmentAmount = toAmount(subscriptionAdjustmentAmount + lineTotal);
             advanceSubscriptionDiscount = toAmount(advanceSubscriptionDiscount + lineTotal);
             const rowTaxesForSub = Array.isArray(row.tax_breakup) ? row.tax_breakup : [];
             const cgstRow = rowTaxesForSub.find(t => String(t?.code).toUpperCase() === 'CGST');
             const sgstRow = rowTaxesForSub.find(t => String(t?.code).toUpperCase() === 'SGST');
             const igstRow = rowTaxesForSub.find(t => String(t?.code).toUpperCase() === 'IGST');
-            if (cgstRow) subscriptionTaxCgst = toAmount(subscriptionTaxCgst + (cgstRow.taxAmount ?? cgstRow.tax_amount ?? 0));
-            if (sgstRow) subscriptionTaxSgst = toAmount(subscriptionTaxSgst + (sgstRow.taxAmount ?? sgstRow.tax_amount ?? 0));
-            if (igstRow) subscriptionTaxIgst = toAmount(subscriptionTaxIgst + (igstRow.taxAmount ?? igstRow.tax_amount ?? 0));
+            if (cgstRow)
+                subscriptionTaxCgst = toAmount(subscriptionTaxCgst + (cgstRow.taxAmount ?? cgstRow.tax_amount ?? 0));
+            if (sgstRow)
+                subscriptionTaxSgst = toAmount(subscriptionTaxSgst + (sgstRow.taxAmount ?? sgstRow.tax_amount ?? 0));
+            if (igstRow)
+                subscriptionTaxIgst = toAmount(subscriptionTaxIgst + (igstRow.taxAmount ?? igstRow.tax_amount ?? 0));
             subscriptionTaxableAmount = toAmount(subscriptionTaxableAmount + taxableAmount);
             itemNetAmount = 0;
         }
-
         totalQty += qty;
         subTotal += amount;
         if (taxPercent > 0) {
@@ -2969,18 +2566,15 @@ async function createSaleVersion({
         }
         itemsTaxTotal += taxAmount;
         itemsLineTotal += lineTotal;
-
         let rowTaxes = Array.isArray(row.tax_breakup) && row.tax_breakup.length > 0
             ? row.tax_breakup
             : [];
-
         const headerTaxMode = String(header.billing_tax_mode || header.billingTaxMode || 'CGST_SGST').trim().toUpperCase();
-        const isInterstateIgst = headerTaxMode === 'IGST' 
-          || headerTaxMode.startsWith('IGST') 
-          || headerTaxMode.includes('INTERSTATE') 
-          || headerTaxMode.includes('INTER_STATE') 
-          || headerTaxMode.includes('INTER STATE');
-
+        const isInterstateIgst = headerTaxMode === 'IGST'
+            || headerTaxMode.startsWith('IGST')
+            || headerTaxMode.includes('INTERSTATE')
+            || headerTaxMode.includes('INTER_STATE')
+            || headerTaxMode.includes('INTER STATE');
         if (isInterstateIgst) {
             if (taxPercent > 0) {
                 rowTaxes = [
@@ -2993,10 +2587,12 @@ async function createSaleVersion({
                         taxAmount: toAmount(taxAmount)
                     }
                 ];
-            } else {
+            }
+            else {
                 rowTaxes = [];
             }
-        } else if (rowTaxes.length === 0 || isTaxInclusiveRow || isAdvanceOrSubFree) {
+        }
+        else if (rowTaxes.length === 0 || isTaxInclusiveRow || isAdvanceOrSubFree) {
             if (taxPercent > 0) {
                 const halfRate = taxPercent / 2;
                 const halfTax = toAmount(taxAmount / 2);
@@ -3020,7 +2616,6 @@ async function createSaleVersion({
                 ];
             }
         }
-
         for (const tax of rowTaxes) {
             const taxCode = String(tax?.code || '').trim().toUpperCase();
             const taxLabel = String(tax?.label || taxCode || '').trim();
@@ -3038,15 +2633,14 @@ async function createSaleVersion({
                     taxableAmount: taxableValue,
                     taxAmount: taxValue
                 });
-            } else {
+            }
+            else {
                 existing.taxableAmount += taxableValue;
                 existing.taxAmount += taxValue;
             }
         }
-
         const originalRate = toAmount(row.original_rate ?? (isTaxInclusiveRow ? rate : (rate + (lineDiscount / (qty || 1)))));
         const schemeDiscountPerUnit = toAmount(row.scheme_discount_per_unit ?? (lineDiscount / (qty || 1)));
-
         salesItemRows.push({
             sale_id: null,
             item_id: row.item_id,
@@ -3079,22 +2673,18 @@ async function createSaleVersion({
             item_remark: row.item_remark || row.itemRemark || null,
             notes: row.notes || row.remarks || null
         });
-
         if (status === 'COMPLETED' && affectStock) {
             const dbItem = itemMasterMap.get(Number(row.item_id));
             const isRecipeBased = dbItem?.is_recipe_based ?? false;
             const isStockable = dbItem?.stockable ?? true;
-
             // Calculate delta stock adjustment if converted from Delivery Challan
             const challanKey = String(row.item_id);
             const origChallanItem = originalChallanQtyMap.get(challanKey);
             const origChallanQty = origChallanItem ? origChallanItem.qty : 0;
             const effectiveQtyForStock = (originalChallanQtyMap.size > 0 || origChallanItem) ? (qty - origChallanQty) : qty;
-
             if (originalChallanQtyMap.has(challanKey)) {
                 originalChallanQtyMap.delete(challanKey); // Mark as processed
             }
-
             if (!isRecipeBased && isStockable && effectiveQtyForStock !== 0) {
                 if (effectiveQtyForStock > 0) {
                     stockLedgerLines.push({
@@ -3104,7 +2694,8 @@ async function createSaleVersion({
                         qty_out: effectiveQtyForStock,
                         is_bom_component: false
                     });
-                } else if (effectiveQtyForStock < 0) {
+                }
+                else if (effectiveQtyForStock < 0) {
                     const { insertLedger } = require('../../services/stockLedger.service');
                     await insertLedger({
                         db: req.propertyDb,
@@ -3139,7 +2730,6 @@ async function createSaleVersion({
                     }
                 }
             }
-
             // Auto-debit stock for modifiers / add-ons linked to raw materials
             if (effectiveQtyForStock > 0) {
                 const rawMods = row.modifier_objects || row.modifiers || [];
@@ -3167,7 +2757,8 @@ async function createSaleVersion({
                             }
                         }
                     }
-                } else if (Array.isArray(row.modifier_details) && row.modifier_details.length > 0) {
+                }
+                else if (Array.isArray(row.modifier_details) && row.modifier_details.length > 0) {
                     for (const modStr of row.modifier_details) {
                         const match = String(modStr).trim().match(/^(.*?)(?:\s*\(x(\d+)\))?$/);
                         const modName = match ? match[1].trim() : String(modStr).trim();
@@ -3205,7 +2796,6 @@ async function createSaleVersion({
             }
         }
     }
-
     // For any items in original Challan that were completely deleted/removed during Billing:
     if (status === 'COMPLETED' && affectStock && originalChallanQtyMap.size > 0) {
         const { insertLedger } = require('../../services/stockLedger.service');
@@ -3224,55 +2814,50 @@ async function createSaleVersion({
             }
         }
     }
-
     const derivedTaxableAmount = Math.max(0, itemsTaxableTotal);
     let rawCgst = 0;
     let rawSgst = 0;
     let rawIgst = 0;
     for (const [_, taxObj] of taxSummary) {
         const code = String(taxObj.code || taxObj.label || '').toUpperCase();
-        if (code.includes('CGST')) rawCgst += toAmount(taxObj.taxAmount);
-        else if (code.includes('SGST') || code.includes('UTGST')) rawSgst += toAmount(taxObj.taxAmount);
-        else if (code.includes('IGST')) rawIgst += toAmount(taxObj.taxAmount);
+        if (code.includes('CGST'))
+            rawCgst += toAmount(taxObj.taxAmount);
+        else if (code.includes('SGST') || code.includes('UTGST'))
+            rawSgst += toAmount(taxObj.taxAmount);
+        else if (code.includes('IGST'))
+            rawIgst += toAmount(taxObj.taxAmount);
     }
     const derivedCgstAmount = Math.max(0, rawCgst);
     const derivedSgstAmount = Math.max(0, rawSgst);
     const derivedIgstAmount = Math.max(0, rawIgst);
     const derivedTotalTax = Math.max(0, itemsTaxTotal);
     const derivedTotalDiscount = toAmount(header.total_discount || 0);
-
     const adjustedTaxBreakup = Array.from(taxSummary.values()).map((tax) => {
         return { ...tax };
     });
-
     const itemDiscountSum = salesItemRows.reduce((sum, r) => sum + toAmount(r.line_discount || 0), 0);
     const remainingUnappliedDiscount = Math.max(0, invoiceDiscount - itemDiscountSum);
     const unroundedNet = Math.max(0, itemsLineTotal + headerChargeTotal + headerChargeTaxTotal - remainingUnappliedDiscount - advanceSubscriptionDiscount);
-    
     let resolvedRoundOff = toAmount(header.round_off_amount ?? header.roundOffAmount ?? 0);
     if (resolvedRoundOff === 0) {
         if (header.net_amount != null || header.netAmount != null) {
             const targetNet = toAmount(header.net_amount ?? header.netAmount);
             resolvedRoundOff = toAmount(targetNet - unroundedNet);
-        } else {
+        }
+        else {
             resolvedRoundOff = toAmount(Math.round(unroundedNet) - unroundedNet);
         }
     }
-
     const derivedNetAmount = Math.max(0, toAmount(unroundedNet + resolvedRoundOff));
     roundOffAmount = resolvedRoundOff;
-
     const advanceApplied = toAmount(header.advance_applied_amount ?? header.advanceAppliedAmount ?? 0);
     const rawDiff = derivedNetAmount - amountPaid - advanceApplied;
     const effectiveBalanceDue = (paymentMode !== 'CREDIT' && rawDiff <= 0.50)
         ? 0
         : Math.max(toAmount(rawDiff), 0);
-
     const effectiveChangeAmount = header.change_amount != null
         ? Math.max(toAmount(header.change_amount), 0)
         : (paymentMode === 'CASH' && amountPaid > derivedNetAmount ? Math.max(toAmount(amountPaid - derivedNetAmount), 0) : 0);
-
-
     const saleCreateData = {
         outlet_id,
         sale_no: header.sale_no,
@@ -3313,37 +2898,33 @@ async function createSaleVersion({
         ...commFields,
         ...overrides
     };
-
-
     let _t2 = Date.now();
     const sale = await req.propertyDb.models.sales_headers.create(saleCreateData, {
         transaction,
         returning: ['id', 'sale_no', 'status', 'outlet_id', 'net_amount', 'change_amount', 'balance_due']
     });
     console.log(`[PERF-CSV] sales_headers.create: ${Date.now() - _t2}ms`);
-
     _t2 = Date.now();
-    for (const itemRow of salesItemRows) itemRow.sale_id = sale.id;
-    if (salesItemRows.length > 0) await req.propertyDb.models.sales_items.bulkCreate(salesItemRows, { transaction });
+    for (const itemRow of salesItemRows)
+        itemRow.sale_id = sale.id;
+    if (salesItemRows.length > 0)
+        await req.propertyDb.models.sales_items.bulkCreate(salesItemRows, { transaction });
     console.log(`[PERF-CSV] sales_items.bulkCreate(${salesItemRows.length}): ${Date.now() - _t2}ms`);
-
     _t2 = Date.now();
     if (status === 'COMPLETED' && affectStock && stockLedgerLines.length > 0) {
         const { batchInsertLedger } = require('../../services/stockLedger.service');
         await batchInsertLedger({ db: req.propertyDb, outlet_id, lines: stockLedgerLines, ref_no: header.sale_no, txn_type: stockTxnType, txn_date: header.sale_date, systemSettings: cachedSettings, transaction });
     }
     console.log(`[PERF-CSV] batchInsertLedger: ${Date.now() - _t2}ms`);
-
     _t2 = Date.now();
     if (createPayment) {
         const ledgerDiscountAmount = toAmount(header.ledger_discount_amount ?? header.total_discount ?? 0);
         const allLedgerEntries = [
-            ...buildSalePaymentLedgerEntries({ req, sale, header, paymentMode, amountPaid, netAmount: derivedNetAmount, balanceDue: effectiveBalanceDue, created_by }),
-            ...buildSaleBenefitLedgerEntries({ req, sale, header, paymentMode, created_by, discountAmount: ledgerDiscountAmount, schemeFreeQtyAmount, subscriptionAdjustmentAmount })
+            ...buildSalePaymentLedgerEntries({ req, sale, header, outlet_id, paymentMode, amountPaid, netAmount: derivedNetAmount, balanceDue: effectiveBalanceDue, created_by }),
+            ...buildSaleBenefitLedgerEntries({ req, sale, header, outlet_id, paymentMode, created_by, discountAmount: ledgerDiscountAmount, schemeFreeQtyAmount, subscriptionAdjustmentAmount })
         ];
         if (allLedgerEntries.length > 0) {
             await batchCreateLedgerEntries({ db: req.propertyDb, outlet_id, entries: allLedgerEntries, transaction });
-
             // Auto credit default bank account for bank/card/upi/subscription payment lines
             try {
                 const defaultBank = await getDefaultBankAccount({ db: req.propertyDb, outlet_id, transaction });
@@ -3354,11 +2935,9 @@ async function createSaleVersion({
                         bankPaymentTotal += Number(e.amount_in) || 0;
                     }
                 }
-
                 if (bankPaymentTotal > 0) {
                     await creditBankBalance({ db: req.propertyDb, outlet_id, amount: bankPaymentTotal, bankAccountId: defaultBank?.id, transaction });
                 }
-
                 // Auto post double-entry Sales Accounting Voucher
                 const count = await req.propertyDb.models.accounting_vouchers.count({ where: { outlet_id, voucher_type: 'SALES' }, transaction });
                 const vNo = `SV-${String(count + 1).padStart(4, '0')}`;
@@ -3376,13 +2955,11 @@ async function createSaleVersion({
                     status: 'POSTED',
                     created_by
                 }, { transaction });
-
                 const cashPaidTotal = allLedgerEntries
                     .filter(e => e.transaction_type === 'SALE_CASH' || e.payment_method === 'CASH')
                     .reduce((sum, e) => sum + (Number(e.amount_in) || 0), 0);
                 const taxAmount = toAmount(header.total_tax || 0);
                 const grossSales = Math.max(0, derivedNetAmount - taxAmount);
-
                 const vLines = [];
                 if (cashPaidTotal > 0) {
                     vLines.push({
@@ -3439,17 +3016,16 @@ async function createSaleVersion({
                         particulars: `Output Tax Payable for #${sale.sale_no}`
                     });
                 }
-
                 if (vLines.length > 0) {
                     await req.propertyDb.models.voucher_lines.bulkCreate(vLines, { transaction });
                 }
-            } catch (vErr) {
+            }
+            catch (vErr) {
                 console.error('Error auto-creating Sales accounting voucher:', vErr);
             }
         }
     }
     console.log(`[PERF-CSV] batchCreateLedgerEntries: ${Date.now() - _t2}ms`);
-
     if (status === 'COMPLETED' && advanceApplied > 0.009 && req.propertyDb.models.customer_advances) {
         try {
             const { Op } = require('sequelize');
@@ -3463,12 +3039,13 @@ async function createSaleVersion({
                 order: [['advance_date', 'ASC'], ['id', 'ASC']],
                 transaction
             });
-
             let remainingAdvToDeduct = advanceApplied;
             for (const adv of advances) {
-                if (remainingAdvToDeduct <= 0.009) break;
+                if (remainingAdvToDeduct <= 0.009)
+                    break;
                 const curAvail = toAmount(adv.available_amount);
-                if (curAvail <= 0.009) continue;
+                if (curAvail <= 0.009)
+                    continue;
                 const deduct = Math.min(remainingAdvToDeduct, curAvail);
                 await adv.update({
                     available_amount: Math.max(0, toAmount(curAvail - deduct)),
@@ -3476,7 +3053,6 @@ async function createSaleVersion({
                 }, { transaction });
                 remainingAdvToDeduct = toAmount(remainingAdvToDeduct - deduct);
             }
-
             if (req.propertyDb.models.customer_repayments) {
                 await req.propertyDb.models.customer_repayments.create({
                     outlet_id,
@@ -3490,7 +3066,6 @@ async function createSaleVersion({
                     updated_by: created_by
                 }, { transaction });
             }
-
             const { createLedgerEntry } = require('../../services/cashLedger.service');
             await createLedgerEntry({
                 db: req.propertyDb,
@@ -3509,17 +3084,16 @@ async function createSaleVersion({
                 created_by,
                 transaction
             });
-        } catch (advErr) {
+        }
+        catch (advErr) {
             console.error('Error applying advance in createSale:', advErr);
         }
     }
-
     return sale;
 }
-
 async function reverseSaleStock({ req, transaction, sale, items }) {
-    if (sale.status !== 'COMPLETED') return;
-
+    if (sale.status !== 'COMPLETED')
+        return;
     for (const row of items) {
         // Always revert the parent item itself
         await insertLedger({
@@ -3532,7 +3106,6 @@ async function reverseSaleStock({ req, transaction, sale, items }) {
             qty_in: toAmount(row.qty),
             transaction
         });
-
         // If it is a composite item, also revert components
         const bomComponents = await req.propertyDb.models.item_boms.findAll({
             where: { outlet_id: req.user.outlet_id, parent_item_id: row.item_id },
@@ -3545,14 +3118,13 @@ async function reverseSaleStock({ req, transaction, sale, items }) {
             ],
             transaction
         });
-
         if (bomComponents && bomComponents.length > 0) {
             for (const bomComp of bomComponents) {
                 const compItem = bomComp.component_item;
-                if (!compItem) continue;
+                if (!compItem)
+                    continue;
                 const qtyRequiredPerUnit = Number(bomComp.quantity);
                 const totalQtyToRevert = qtyRequiredPerUnit * toAmount(row.qty);
-
                 await insertLedger({
                     db: req.propertyDb,
                     outlet_id: req.user.outlet_id,
@@ -3567,37 +3139,29 @@ async function reverseSaleStock({ req, transaction, sale, items }) {
         }
     }
 }
-
 function aggregateItemQty(items) {
     const totals = new Map();
     for (const row of Array.isArray(items) ? items : []) {
         const itemCode = String(row.item_code || '').trim();
-        if (!itemCode) continue;
+        if (!itemCode)
+            continue;
         const qty = toAmount(row.qty);
-        if (qty <= 0) continue;
+        if (qty <= 0)
+            continue;
         totals.set(itemCode, (totals.get(itemCode) || 0) + qty);
     }
     return totals;
 }
-
-async function applySaleModificationStockDelta({
-    req,
-    transaction,
-    previousItems,
-    nextItems,
-    refNo
-}) {
+async function applySaleModificationStockDelta({ req, transaction, previousItems, nextItems, refNo }) {
     const previousTotals = aggregateItemQty(previousItems);
     const nextTotals = aggregateItemQty(nextItems);
     const itemCodes = new Set([...previousTotals.keys(), ...nextTotals.keys()]);
-
     for (const itemCode of itemCodes) {
         const previousQty = previousTotals.get(itemCode) || 0;
         const nextQty = nextTotals.get(itemCode) || 0;
         const diff = nextQty - previousQty;
-
-        if (Math.abs(diff) <= 0.000001) continue;
-
+        if (Math.abs(diff) <= 0.000001)
+            continue;
         // Always apply stock delta adjustment to the parent item itself
         await insertLedger({
             db: req.propertyDb,
@@ -3610,12 +3174,10 @@ async function applySaleModificationStockDelta({
             qty_out: diff > 0 ? diff : 0,
             transaction
         });
-
         const item = await req.propertyDb.models.item_master.findOne({
             where: { outlet_id: req.user.outlet_id, item_code: itemCode },
             transaction
         });
-
         const bomComponents = item
             ? await req.propertyDb.models.item_boms.findAll({
                 where: { outlet_id: req.user.outlet_id, parent_item_id: item.id },
@@ -3629,14 +3191,13 @@ async function applySaleModificationStockDelta({
                 transaction
             })
             : [];
-
         if (bomComponents && bomComponents.length > 0) {
             for (const bomComp of bomComponents) {
                 const compItem = bomComp.component_item;
-                if (!compItem) continue;
+                if (!compItem)
+                    continue;
                 const qtyRequiredPerUnit = Number(bomComp.quantity);
                 const totalDiff = qtyRequiredPerUnit * diff;
-
                 await insertLedger({
                     db: req.propertyDb,
                     outlet_id: req.user.outlet_id,
@@ -3652,7 +3213,6 @@ async function applySaleModificationStockDelta({
         }
     }
 }
-
 async function getSaleChainIds(req, sale, transaction) {
     const rootId = sale.original_sale_id || sale.id;
     const versions = await req.propertyDb.models.sales_headers.findAll({
@@ -3663,18 +3223,11 @@ async function getSaleChainIds(req, sale, transaction) {
         attributes: ['id'],
         transaction
     });
-
     return versions
         .map((row) => Number(row.id))
         .filter((value) => Number.isFinite(value) && value > 0);
 }
-
-async function recordSaleModificationPayment({
-    req,
-    transaction,
-    previousSale,
-    nextSale
-}) {
+async function recordSaleModificationPayment({ req, transaction, previousSale, nextSale }) {
     const previousCollected = previousSale.status === 'COMPLETED'
         ? Math.min(toAmount(previousSale.amount_paid), toAmount(previousSale.net_amount))
         : 0;
@@ -3682,9 +3235,8 @@ async function recordSaleModificationPayment({
         ? Math.min(toAmount(nextSale.amount_paid), toAmount(nextSale.net_amount))
         : 0;
     const diff = Number((nextCollected - previousCollected).toFixed(2));
-
-    if (diff === 0) return;
-
+    if (diff === 0)
+        return;
     await createLedgerEntry({
         db: req.propertyDb,
         outlet_id: req.user.outlet_id,
@@ -3702,7 +3254,6 @@ async function recordSaleModificationPayment({
         transaction
     });
 }
-
 exports.getNextSaleNo = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -3713,16 +3264,13 @@ exports.getNextSaleNo = async (req, res) => {
             module: 'SALES',
             date: normalizedDate || req.query.date || new Date().toISOString()
         });
-
         if (!resolved) {
             return res.status(400).json({
                 success: false,
                 message: 'Sales numbering not configured'
             });
         }
-
         const { effective, nextSetting } = resolved;
-
         const existingSales = await req.propertyDb.models.sales_headers.findAll({
             where: {
                 outlet_id,
@@ -3739,27 +3287,24 @@ exports.getNextSaleNo = async (req, res) => {
             limit: 100,
             attributes: ['sale_no']
         });
-
         let nextNum = toWholeNumber(effective.start_no);
-
         for (const sale of existingSales) {
             const numeric = numberingHelper.extractNumericPart(sale.sale_no, effective);
             if (numeric !== null) {
                 nextNum = Math.max(nextNum, numeric + 1);
             }
         }
-
         res.json({
             success: true,
             data: {
                 number: `${effective.prefix || ''}${nextNum}${effective.postfix || ''}`
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createSale = async (req, res) => {
     const tStart = Date.now();
     const t = await req.propertyDb.transaction();
@@ -3767,7 +3312,6 @@ exports.createSale = async (req, res) => {
     const createdSales = [];
     let primarySale;
     let freeSale;
-
     try {
         const { header, items } = req.body;
         const saleItemsRaw = Array.isArray(items) ? items : [];
@@ -3777,16 +3321,15 @@ exports.createSale = async (req, res) => {
         const headerForCreate = { ...header };
         const moduleUpper = String(req.user?.business_module || req.user?.module || '').toUpperCase();
         const isRestaurant = moduleUpper === 'RESTAURANT';
-
         // Fallback: If customer_gstin or customer_address is missing on header, try looking up linked customer record
         if ((!headerForCreate.customer_gstin || !headerForCreate.customer_address) && (headerForCreate.customer_phone || headerForCreate.customer_name)) {
             try {
-                const phoneDigits = String(headerForCreate.customer_phone || '').replace(/\D/g, '').trim();
-                const last10 = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits;
+                const variants = headerForCreate.customer_phone ? getPhoneSearchVariants(headerForCreate.customer_phone) : [];
                 const custWhere = { outlet_id: req.user.outlet_id };
-                if (last10.length >= 7) {
-                    custWhere.customer_phone = { [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`] };
-                } else if (headerForCreate.customer_name) {
+                if (variants.length > 0) {
+                    custWhere.customer_phone = { [Op.in]: variants };
+                }
+                else if (headerForCreate.customer_name) {
                     custWhere.customer_name = String(headerForCreate.customer_name).trim();
                 }
                 const foundCustomer = await req.propertyDb.models.customers.findOne({ where: custWhere, transaction: t });
@@ -3798,9 +3341,9 @@ exports.createSale = async (req, res) => {
                         headerForCreate.customer_address = String(foundCustomer.customer_address).trim();
                     }
                 }
-            } catch (_) {}
+            }
+            catch (_) { }
         }
-
         // Auto-set order_type to B2B if customer_gstin is present and order_type is default/STORE/B2C
         if (headerForCreate.customer_gstin && String(headerForCreate.customer_gstin).trim().length > 0) {
             const currentType = String(headerForCreate.order_type || '').toUpperCase();
@@ -3808,7 +3351,6 @@ exports.createSale = async (req, res) => {
                 headerForCreate.order_type = 'B2B';
             }
         }
-
         if (status === 'DRAFT') {
             if (isRestaurant) {
                 // Restaurant Case: Direct official bill number (e.g. FAM-63-26)
@@ -3823,7 +3365,8 @@ exports.createSale = async (req, res) => {
                         headerForCreate.sale_no = resolved.number;
                     }
                 }
-            } else {
+            }
+            else {
                 // Retailer Case: Temporary DRAFT- prefix while drafting
                 if (!headerForCreate.sale_no || !String(headerForCreate.sale_no).toUpperCase().startsWith('DRAFT-')) {
                     headerForCreate.sale_no = buildDraftSaleNo();
@@ -3832,22 +3375,17 @@ exports.createSale = async (req, res) => {
         }
         const voucherCode = String(header.voucher_code || '').trim().toUpperCase();
         const affectStock = header.affect_stock !== false;
-
-
         const netAmount = toAmount(headerForCreate.net_amount);
         const isZeroAmountSchemeBill = status === 'COMPLETED' &&
             saleItemsRaw.length === 0 &&
             netAmount === 0 &&
             (Number(header.scheme_id) > 0 || String(header.scheme_name || '').trim().length > 0);
-
         if (status !== 'DRAFT' && saleItemsRaw.length === 0 && !isZeroAmountSchemeBill) {
             return res.status(400).json({
                 success: false,
                 message: 'At least one sale item is required'
             });
         }
-
-
         if (voucherCode && status === 'COMPLETED') {
             const voucherCheck = await validateVoucherUsage(req, {
                 code: voucherCode,
@@ -3863,7 +3401,6 @@ exports.createSale = async (req, res) => {
                 });
             }
         }
-
         if (status === 'COMPLETED') {
             let t1 = Date.now();
             await ensureCustomerSchemeEnrollments({
@@ -3872,9 +3409,8 @@ exports.createSale = async (req, res) => {
                 header: headerForCreate,
                 selectedSchemes
             });
-            console.log(`[PERF] ensureCustomerSchemeEnrollments: ${Date.now()-t1}ms`);
+            console.log(`[PERF] ensureCustomerSchemeEnrollments: ${Date.now() - t1}ms`);
         }
-
         let saleItems = saleItemsRaw;
         let subscriptionAllocation = {
             items: saleItemsRaw,
@@ -3892,8 +3428,9 @@ exports.createSale = async (req, res) => {
                     transaction: t
                 });
                 saleItems = subscriptionAllocation.items;
-                console.log(`[PERF] collectPreSplitSubscriptionAllocation: ${Date.now()-t2}ms`);
-            } else {
+                console.log(`[PERF] collectPreSplitSubscriptionAllocation: ${Date.now() - t2}ms`);
+            }
+            else {
                 let t3 = Date.now();
                 subscriptionAllocation = await allocateMilkSubscriptionCoverage({
                     req,
@@ -3901,7 +3438,7 @@ exports.createSale = async (req, res) => {
                     items: saleItemsRaw,
                     transaction: t
                 });
-                console.log(`[PERF] allocateMilkSubscriptionCoverage: ${Date.now()-t3}ms`);
+                console.log(`[PERF] allocateMilkSubscriptionCoverage: ${Date.now() - t3}ms`);
                 let t4 = Date.now();
                 saleItems = await applyItemCycleSchemesToSale({
                     req,
@@ -3909,20 +3446,17 @@ exports.createSale = async (req, res) => {
                     items: subscriptionAllocation.items,
                     transaction: t
                 });
-                console.log(`[PERF] applyItemCycleSchemesToSale: ${Date.now()-t4}ms`);
+                console.log(`[PERF] applyItemCycleSchemesToSale: ${Date.now() - t4}ms`);
                 let t5 = Date.now();
                 saleItems = await allocateItemAdvanceConsumption({ req, header: headerForCreate, items: saleItems, transaction: t })
                     .then((result) => result.items);
-                console.log(`[PERF] allocateItemAdvanceConsumption: ${Date.now()-t5}ms`);
+                console.log(`[PERF] allocateItemAdvanceConsumption: ${Date.now() - t5}ms`);
             }
         }
-
         const itemIds = [
-            ...new Set(
-                saleItems
-                    .map((row) => Number(row?.item_id))
-                    .filter((value) => Number.isFinite(value) && value > 0)
-            )
+            ...new Set(saleItems
+                .map((row) => Number(row?.item_id))
+                .filter((value) => Number.isFinite(value) && value > 0))
         ];
         const itemRows = itemIds.length > 0
             ? await req.propertyDb.models.item_master.findAll({
@@ -3933,38 +3467,28 @@ exports.createSale = async (req, res) => {
                 transaction: t
             })
             : [];
-        const itemMetaMap = new Map(
-            itemRows.map((row) => [Number(row.id), row.toJSON()])
-        );
+        const itemMetaMap = new Map(itemRows.map((row) => [Number(row.id), row.toJSON()]));
         const taxMode = String(header.billing_tax_mode || 'CGST_SGST').trim().toUpperCase();
-        const splitItems = saleItems.reduce(
-            (acc, row) => {
-                if (toAmount(row?.qty) <= 0) {
-                    return acc;
-                }
-                if (isFreeBillRow(row)) {
-                    acc.free.push(row);
-                } else {
-                    acc.paid.push(row);
-                }
+        const splitItems = saleItems.reduce((acc, row) => {
+            if (toAmount(row?.qty) <= 0) {
                 return acc;
-            },
-            { paid: [], free: [] }
-        );
-        const freeBillItems = splitItems.free.map((row) =>
-            buildTaxCompliantFreeRow(row, itemMetaMap.get(Number(row.item_id)), taxMode)
-        );
-        const freeBillDiscount = toRoundedAmount(
-            freeBillItems.reduce((sum, row) => sum + toAmount(row.line_total), 0)
-        );
+            }
+            if (isFreeBillRow(row)) {
+                acc.free.push(row);
+            }
+            else {
+                acc.paid.push(row);
+            }
+            return acc;
+        }, { paid: [], free: [] });
+        const freeBillItems = splitItems.free.map((row) => buildTaxCompliantFreeRow(row, itemMetaMap.get(Number(row.item_id)), taxMode));
+        const freeBillDiscount = toRoundedAmount(freeBillItems.reduce((sum, row) => sum + toAmount(row.line_total), 0));
         const hasSubscriptionFreeRows = splitItems.free.some((row) => row._subscription_free === true || row.is_advance_free === true);
         const hasSchemeFreeRows = splitItems.free.some((row) => row.is_scheme_free === true && !(row._subscription_free === true || row.is_advance_free === true));
         const paidSaleNo = String(headerForCreate.sale_no || '').trim();
         const freeSaleNo = splitItems.paid.length > 0 ? incrementSaleNo(paidSaleNo) : paidSaleNo;
-
         const reqEnableToken = req.body.enable_token_system || req.body.header?.enable_token_system;
         let isTokenEnabled = reqEnableToken === true || reqEnableToken === 'true' || reqEnableToken === 1;
-
         if (!isTokenEnabled) {
             try {
                 const sysSettings = await req.propertyDb.models.system_settings.findOne({
@@ -3975,9 +3499,9 @@ exports.createSale = async (req, res) => {
                     const rawFlag = sysSettings.enable_token_system ?? sysSettings.enableTokenSystem;
                     isTokenEnabled = rawFlag === true || rawFlag === 'true' || rawFlag === 1 || rawFlag == '1';
                 }
-            } catch (tErr) {}
+            }
+            catch (tErr) { }
         }
-
         if (!headerForCreate.token_no) {
             try {
                 const tokenRes = await numberingHelper.resolveNextNumber({
@@ -3988,7 +3512,8 @@ exports.createSale = async (req, res) => {
                 });
                 if (tokenRes && tokenRes.number) {
                     headerForCreate.token_no = tokenRes.number;
-                } else {
+                }
+                else {
                     const tokenCount = await req.propertyDb.models.sales_headers.count({
                         where: { outlet_id: req.user.outlet_id },
                         transaction: t
@@ -3996,56 +3521,48 @@ exports.createSale = async (req, res) => {
                     const num = String(tokenCount + 1).padStart(3, '0');
                     headerForCreate.token_no = `TK-${num}`;
                 }
-            } catch (tErr) {
+            }
+            catch (tErr) {
                 const rnd = Math.floor(100 + Math.random() * 900);
                 headerForCreate.token_no = `TK-${rnd}`;
             }
         }
-
         const buildBillHeader = (saleNo, extra = {}) => ({
             ...headerForCreate,
             sale_no: saleNo,
             ...extra
         });
-
         const paymentMode = String(headerForCreate.payment_mode || 'CASH').trim().toUpperCase();
         if (paymentMode === 'CREDIT_NOTE' && header.credit_note_redeemed_id && status === 'COMPLETED') {
             const creditNote = await req.propertyDb.models.sales_credit_notes.findOne({
                 where: { id: header.credit_note_redeemed_id, outlet_id: req.user.outlet_id },
                 transaction: t
             });
-
             if (!creditNote) {
                 await t.rollback();
                 return res.status(400).json({ success: false, message: 'Credit Note not found' });
             }
-
             if (creditNote.status !== 'Active' && creditNote.status !== 'PENDING') {
                 await t.rollback();
                 return res.status(400).json({ success: false, message: `Credit Note is not active. Status: ${creditNote.status}` });
             }
-
             const redeemAmount = toAmount(header.credit_note_amount || netAmount);
             if (redeemAmount <= 0) {
                 await t.rollback();
                 return res.status(400).json({ success: false, message: 'Redemption amount must be greater than zero' });
             }
-
             const remaining = toAmount(creditNote.remaining_balance ?? creditNote.net_amount);
             if (redeemAmount > remaining) {
                 await t.rollback();
                 return res.status(400).json({ success: false, message: `Redemption amount exceeds remaining balance (Available: ${remaining})` });
             }
-
             const newRemaining = remaining - redeemAmount;
             await creditNote.update({
                 remaining_balance: newRemaining,
                 status: newRemaining === 0 ? 'Fully_Redeemed' : 'Active'
             }, { transaction: t });
-
             headerForCreate.credit_note_redeemed_id = header.credit_note_redeemed_id;
             headerForCreate.credit_note_amount = redeemAmount;
-
             await req.propertyDb.models.restaurant_audit_trail.create({
                 outlet_id: req.user.outlet_id,
                 user_id: req.user.id,
@@ -4053,7 +3570,6 @@ exports.createSale = async (req, res) => {
                 description: `Redeemed ${redeemAmount} from Credit Note ${creditNote.credit_note_no} for Sale No ${paidSaleNo}`
             }, { transaction: t });
         }
-
         if (splitItems.paid.length > 0) {
             let t6 = Date.now();
             primarySale = await createSaleVersion({
@@ -4068,17 +3584,14 @@ exports.createSale = async (req, res) => {
                 affectStock,
                 itemMasterMap: itemMetaMap
             });
-            console.log(`[PERF] createSaleVersion(paid): ${Date.now()-t6}ms`);
+            console.log(`[PERF] createSaleVersion(paid): ${Date.now() - t6}ms`);
             createdSales.push(primarySale);
-
         }
-
         if (freeBillItems.length > 0 && splitItems.paid.length === 0) {
             const freeBillCharges = Array.isArray(headerForCreate.charges) ? headerForCreate.charges : [];
             const freeBillChargeTotal = toAmount(headerForCreate.charge_total);
             const freeBillChargeTaxTotal = toAmount(headerForCreate.charge_tax_total);
             const freeBillNetAmount = freeBillChargeTotal + freeBillChargeTaxTotal;
-
             freeSale = await createSaleVersion({
                 req,
                 transaction: t,
@@ -4101,15 +3614,12 @@ exports.createSale = async (req, res) => {
                     igst_amount: 0,
                     tax_percent: 0,
                     total_discount: freeBillDiscount,
-                    manual_discount_type: 'AMOUNT',
-                    manual_discount_value: freeBillDiscount,
-                    manual_discount_amount: freeBillDiscount,
-                    round_off_amount: 0,
-                    net_amount: freeBillNetAmount,
                     invoice_discount_amount: freeBillDiscount,
                     manual_discount_type: null,
                     manual_discount_value: 0,
                     manual_discount_amount: 0,
+                    round_off_amount: 0,
+                    net_amount: freeBillNetAmount,
                     loyalty_points_earned: 0,
                     loyalty_points_redeemed: 0,
                     loyalty_discount_amount: 0,
@@ -4137,16 +3647,13 @@ exports.createSale = async (req, res) => {
             }, { transaction: t });
             createdSales.push(freeSale);
         }
-
         if (createdSales.length === 0) {
             return res.status(400).json({
                 success: false,
                 message: 'At least one sale item is required'
             });
         }
-
         const referenceSale = freeSale || primarySale || createdSales[0];
-
         if (status === 'COMPLETED') {
             await persistMilkSubscriptionConsumptions({
                 req,
@@ -4155,54 +3662,31 @@ exports.createSale = async (req, res) => {
                 consumptions: subscriptionAllocation.consumptions
             });
             if (subscriptionAllocation.totalCoveredAmount > 0) {
-                const coverages = Array.isArray(subscriptionAllocation.subscriptionCoverages)
-                    ? subscriptionAllocation.subscriptionCoverages
+                const subAllocAny = subscriptionAllocation;
+                const coverages = Array.isArray(subAllocAny.subscriptionCoverages)
+                    ? subAllocAny.subscriptionCoverages
                     : [{
-                        subscriptionId: subscriptionAllocation.subscriptionId,
-                        subscriptionItemId: subscriptionAllocation.subscriptionItemId,
-                        itemId: null,
-                        totalCoveredQty: subscriptionAllocation.totalCoveredQty,
-                        totalCoveredAmount: subscriptionAllocation.totalCoveredAmount
-                    }];
-
+                            subscriptionId: subAllocAny.subscriptionId,
+                            subscriptionItemId: subAllocAny.subscriptionItemId,
+                            itemId: null,
+                            totalCoveredQty: subAllocAny.totalCoveredQty,
+                            totalCoveredAmount: subAllocAny.totalCoveredAmount
+                        }];
                 for (const coverage of coverages) {
-                    const coverageAdvance = await findSubscriptionItemAdvance(
-                        req,
-                        coverage.subscriptionId,
-                        coverage.itemId || subscriptionAllocation.subscriptionItemId,
-                        t
-                    );
+                    const coverageAdvance = await findSubscriptionItemAdvance(req, coverage.subscriptionId, coverage.itemId || subAllocAny.subscriptionItemId, t);
                     if (coverageAdvance) {
-                        await consumeSubscriptionItemAdvance(
-                            req,
-                            coverage.subscriptionId,
-                            coverage.itemId || subscriptionAllocation.subscriptionItemId,
-                            coverage.totalCoveredQty,
-                            t,
-                            coverageAdvance
-                        );
+                        await consumeSubscriptionItemAdvance(req, coverage.subscriptionId, coverage.itemId || subAllocAny.subscriptionItemId, coverage.totalCoveredQty, t, coverageAdvance);
                     }
-
                     console.log(`[SUBSCRIPTION ADV] Looking up advance for subscriptionId=${coverage.subscriptionId}`);
-                    const subscriptionCashAdvance = await findSubscriptionCustomerAdvance(
-                        req,
-                        coverage.subscriptionId,
-                        t
-                    );
-                    console.log(`[SUBSCRIPTION ADV] Found: ${subscriptionCashAdvance ? 'YES id='+subscriptionCashAdvance.id+' available='+subscriptionCashAdvance.available_amount : 'NO'}`);
+                    const subscriptionCashAdvance = await findSubscriptionCustomerAdvance(req, coverage.subscriptionId, t);
+                    console.log(`[SUBSCRIPTION ADV] Found: ${subscriptionCashAdvance ? 'YES id=' + subscriptionCashAdvance.id + ' available=' + subscriptionCashAdvance.available_amount : 'NO'}`);
                     let appliedCashAdvanceAmount = 0;
                     if (subscriptionCashAdvance) {
-                        appliedCashAdvanceAmount = Math.min(
-                            toAmount(subscriptionCashAdvance.available_amount),
-                            toAmount(coverage.totalCoveredAmount)
-                        );
+                        appliedCashAdvanceAmount = Math.min(toAmount(subscriptionCashAdvance.available_amount), toAmount(coverage.totalCoveredAmount));
                         if (appliedCashAdvanceAmount > 0) {
                             // Directly update the already-found advance to avoid a second SELECT inside the transaction
                             const newAvailable = Math.max(toAmount(subscriptionCashAdvance.available_amount) - appliedCashAdvanceAmount, 0);
-                            await subscriptionCashAdvance.update(
-                                { available_amount: newAvailable, updated_by: req.user.id },
-                                { transaction: t }
-                            );
+                            await subscriptionCashAdvance.update({ available_amount: newAvailable, updated_by: req.user.id }, { transaction: t });
                             console.log(`[SUBSCRIPTION] Deducted ${appliedCashAdvanceAmount} from advance id=${subscriptionCashAdvance.id}, new available=${newAvailable}`);
                         }
                     }
@@ -4233,8 +3717,7 @@ exports.createSale = async (req, res) => {
                 appliedSchemeIds: collectAppliedSchemeIds(header, saleItems),
                 transaction: t
             });
-            console.log(`[PERF] markSingleUseSchemesAsConsumed: ${Date.now()-t7}ms`);
-
+            console.log(`[PERF] markSingleUseSchemesAsConsumed: ${Date.now() - t7}ms`);
             let t8 = Date.now();
             const loyaltyResult = await applyLoyaltyOnCompletedSale({
                 db: req.propertyDb,
@@ -4244,16 +3727,14 @@ exports.createSale = async (req, res) => {
                 header,
                 transaction: t
             });
-            console.log(`[PERF] applyLoyaltyOnCompletedSale: ${Date.now()-t8}ms`);
+            console.log(`[PERF] applyLoyaltyOnCompletedSale: ${Date.now() - t8}ms`);
             // ⚡ Static Model.update — no RETURNING *
             await req.propertyDb.models.sales_headers.update({
                 loyalty_points_earned: loyaltyResult.earned_points,
                 loyalty_points_redeemed: loyaltyResult.redeemed_points,
                 loyalty_discount_amount: loyaltyResult.redemption_discount_amount
             }, { where: { id: referenceSale.id }, transaction: t });
-
         }
-
         audit.log({
             req,
             module: 'SALES',
@@ -4274,8 +3755,6 @@ exports.createSale = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         }).catch(err => console.error('[AUDIT LOG FAIL]', err.message));
-
-
         // --- LUCKY DRAW INTERCEPTION HOOK ---
         let _tLD = Date.now();
         if (status === 'COMPLETED' && referenceSale.customer_phone) {
@@ -4286,14 +3765,12 @@ exports.createSale = async (req, res) => {
                 const pendingCampaign = await req.propertyDb.models.lucky_draw_campaigns.findOne({
                     where: { status: 'PENDING_RESULT' }
                 });
-
                 // Voucher generation is paused if there is a pending campaign or if no active campaign exists
                 if (activeCampaign && !pendingCampaign) {
                     const customerPhone = referenceSale.customer_phone.trim();
                     if (customerPhone.length > 0) {
                         const customerName = referenceSale.customer_name ? referenceSale.customer_name.trim() : null;
                         const netAmount = Number(referenceSale.net_amount || 0);
-
                         // Check credit eligibility
                         let isEligible = true;
                         if (activeCampaign.allow_creditors === false) {
@@ -4309,7 +3786,6 @@ exports.createSale = async (req, res) => {
                                 isEligible = false;
                             }
                         }
-
                         if (isEligible) {
                             let [progress, created] = await req.propertyDb.models.customer_draw_progress.findOrCreate({
                                 where: {
@@ -4323,7 +3799,6 @@ exports.createSale = async (req, res) => {
                                 },
                                 transaction: t
                             });
-
                             // Check if vouchers already exist for this sale
                             const existingVouchers = await req.propertyDb.models.draw_vouchers.findAll({
                                 where: {
@@ -4332,7 +3807,6 @@ exports.createSale = async (req, res) => {
                                 },
                                 transaction: t
                             });
-
                             if (existingVouchers.length > 0) {
                                 luckyDrawVouchers = existingVouchers.map(v => ({
                                     code: v.voucher_code,
@@ -4341,19 +3815,17 @@ exports.createSale = async (req, res) => {
                                     customer_phone: customerPhone,
                                     customer_name: customerName
                                 }));
-                            } else if (netAmount > 0) {
+                            }
+                            else if (netAmount > 0) {
                                 const threshold = Number(activeCampaign.threshold_amount || 2000.00);
                                 const currentSpend = Number(progress.accumulated_spend || 0);
                                 const newTotalSpend = Number((currentSpend + netAmount).toFixed(2));
-
                                 let vouchersToGenerate = 0;
                                 let remainingSpend = newTotalSpend;
-
                                 if (threshold > 0 && newTotalSpend >= threshold) {
                                     vouchersToGenerate = Math.floor(newTotalSpend / threshold);
                                     remainingSpend = Number((newTotalSpend - (vouchersToGenerate * threshold)).toFixed(2));
                                 }
-
                                 for (let i = 0; i < vouchersToGenerate; i++) {
                                     let code = '';
                                     let attempts = 0;
@@ -4361,16 +3833,15 @@ exports.createSale = async (req, res) => {
                                         const randPart1 = Math.random().toString(36).substring(2, 6).toUpperCase();
                                         const randPart2 = Math.random().toString(36).substring(2, 5).toUpperCase();
                                         code = `LD-${randPart1}-${randPart2}`;
-
                                         const exists = await req.propertyDb.models.draw_vouchers.findOne({
                                             where: { voucher_code: code },
                                             transaction: t,
                                             bypassOutletFilter: true
                                         });
-                                        if (!exists) break;
+                                        if (!exists)
+                                            break;
                                         attempts++;
                                     }
-
                                     const voucher = await req.propertyDb.models.draw_vouchers.create({
                                         outlet_id: req.user.outlet_id,
                                         campaign_id: activeCampaign.id,
@@ -4380,7 +3851,6 @@ exports.createSale = async (req, res) => {
                                         voucher_code: code,
                                         is_winner: false
                                     }, { transaction: t });
-
                                     luckyDrawVouchers.push({
                                         code: voucher.voucher_code,
                                         campaign_name: activeCampaign.name,
@@ -4389,7 +3859,6 @@ exports.createSale = async (req, res) => {
                                         customer_name: customerName
                                     });
                                 }
-
                                 await progress.update({
                                     customer_name: customerName || progress.customer_name,
                                     accumulated_spend: remainingSpend
@@ -4398,22 +3867,20 @@ exports.createSale = async (req, res) => {
                         }
                     }
                 }
-            } catch (ldErr) {
+            }
+            catch (ldErr) {
                 console.error('[LUCKY DRAW CHECKOUT HOOK FAIL]', ldErr.message);
             }
         }
-        console.log(`[PERF] luckyDraw: ${Date.now()-_tLD}ms`);
-
+        console.log(`[PERF] luckyDraw: ${Date.now() - _tLD}ms`);
         const outlet_id = req.user?.outlet_id || req.body.header?.outlet_id || req.body.outlet_id || 1;
         const tableId = req.body.table_id || req.body.header?.table_id || req.body.tableId || req.body.header?.tableId;
         const rawKotIds = req.body.kot_ids || req.body.kotIds || req.body.header?.kot_ids || req.body.header?.kotIds || (req.body.kot_id ? [req.body.kot_id] : null);
         const parsedKotIds = (Array.isArray(rawKotIds) && rawKotIds.length > 0) ? rawKotIds.map(id => Number(id)).filter(id => id > 0) : [];
-
         if (tableId || parsedKotIds.length > 0) {
             try {
                 const isPaidOrSettled = (referenceSale.status === 'COMPLETED' || referenceSale.status === 'PAID') && Number(referenceSale.balance_due ?? 0) <= 0.01;
                 const newKotStatus = isPaidOrSettled ? 'Closed' : 'billed';
-
                 if (parsedKotIds.length > 0) {
                     await req.propertyDb.models.kot_headers.update({
                         status: newKotStatus,
@@ -4423,14 +3890,15 @@ exports.createSale = async (req, res) => {
                         where: { id: { [Op.in]: parsedKotIds } },
                         transaction: t
                     });
-                } else if (tableId) {
+                }
+                else if (tableId) {
                     await req.propertyDb.models.kot_headers.update({
                         status: newKotStatus,
                         sales_header_id: referenceSale.id,
                         kds_dismissed: true
                     }, {
-                        where: { 
-                            table_id: Number(tableId), 
+                        where: {
+                            table_id: Number(tableId),
                             [Op.or]: [
                                 { sales_header_id: null },
                                 { sales_header_id: referenceSale.id }
@@ -4439,7 +3907,6 @@ exports.createSale = async (req, res) => {
                         transaction: t
                     });
                 }
-
                 if (tableId) {
                     const remainingActiveKots = await req.propertyDb.models.kot_headers.count({
                         where: {
@@ -4449,7 +3916,6 @@ exports.createSale = async (req, res) => {
                         },
                         transaction: t
                     });
-
                     if (remainingActiveKots === 0) {
                         await req.propertyDb.models.restaurant_tables.update({
                             status: 'Available',
@@ -4460,19 +3926,19 @@ exports.createSale = async (req, res) => {
                             transaction: t
                         });
                         console.log('[TABLE CHECKOUT] Table #' + tableId + ' fully cleared & marked Available.');
-                    } else {
+                    }
+                    else {
                         console.log('[MULTI-TRANSACTION BILLING] Table #' + tableId + ' has ' + remainingActiveKots + ' active client KOTs remaining. Keeping table Occupied.');
                     }
                 }
-            } catch (tblErr) {
+            }
+            catch (tblErr) {
                 console.error('[TABLE / KOT CHECKOUT HOOK FAIL]', tblErr.message);
             }
         }
-
         let t10 = Date.now();
         await t.commit();
-        console.log(`[PERF] t.commit: ${Date.now()-t10}ms`);
-
+        console.log(`[PERF] t.commit: ${Date.now() - t10}ms`);
         // Trigger WhatsApp Checkout Billing alert asynchronously
         if (status === 'COMPLETED' && referenceSale.customer_phone) {
             try {
@@ -4482,13 +3948,12 @@ exports.createSale = async (req, res) => {
                     sale_no: referenceSale.sale_no,
                     net_amount: referenceSale.net_amount
                 }).catch(qErr => console.error('[WHATSAPP QUEUE ALERT TRIGGER FAIL]', qErr.message));
-            } catch (err) {
+            }
+            catch (err) {
                 console.error('[WHATSAPP QUEUE SERVICE REQUIRE FAIL]', err.message);
             }
         }
-
         console.log(`[PERF] Backend createSale completed in ${Date.now() - tStart}ms`);
-
         res.json({
             success: true,
             sale_id: referenceSale.id,
@@ -4506,7 +3971,8 @@ exports.createSale = async (req, res) => {
                 lucky_draw_vouchers: luckyDrawVouchers
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         let errMessage = error.message;
         if (error.name === 'SequelizeValidationError' || (error.errors && Array.isArray(error.errors) && error.errors.length > 0)) {
@@ -4519,11 +3985,8 @@ exports.createSale = async (req, res) => {
         });
     }
 };
-
-
 exports.modifySale = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const saleId = Number(req.params.id);
         const { header, items } = req.body;
@@ -4534,34 +3997,27 @@ exports.modifySale = async (req, res) => {
         const status = headerForModify.status || 'COMPLETED';
         const voucherCode = String(headerForModify.voucher_code || '').trim().toUpperCase();
         const affectStock = headerForModify.affect_stock !== false;
-
         if (!Number.isFinite(saleId) || saleId <= 0) {
             return res.status(400).json({ success: false, message: 'Invalid sale id' });
         }
-
         const netAmount = toAmount(headerForModify.net_amount);
         const isZeroAmountSchemeBill = status === 'COMPLETED' &&
             saleItemsRaw.length === 0 &&
             netAmount === 0 &&
             (Number(headerForModify.scheme_id) > 0 || String(headerForModify.scheme_name || '').trim().length > 0);
-
         if (saleItemsRaw.length === 0 && !isZeroAmountSchemeBill) {
             return res.status(400).json({
                 success: false,
                 message: 'At least one sale item is required to modify a bill'
             });
         }
-
         try {
             const fs = require('fs');
             const path = require('path');
             const logPath = path.join(require('os').tmpdir(), 'retailsale_debug.log');
-            fs.appendFileSync(
-                logPath,
-                `[${new Date().toISOString()}] DEBUG modifySale: saleId=${saleId}, userOutlet=${req.user?.outlet_id}\n`
-            );
-        } catch (_) {}
-
+            fs.appendFileSync(logPath, `[${new Date().toISOString()}] DEBUG modifySale: saleId=${saleId}, userOutlet=${req.user?.outlet_id}\n`);
+        }
+        catch (_) { }
         const currentSale = await req.propertyDb.models.sales_headers.findOne({
             where: {
                 id: saleId,
@@ -4576,20 +4032,16 @@ exports.modifySale = async (req, res) => {
             ],
             transaction: t
         });
-
         if (!currentSale) {
             return res.status(404).json({ success: false, message: 'Sale not found' });
         }
-
         if (currentSale.is_latest === false) {
             return res.status(400).json({
                 success: false,
                 message: 'This bill has already been modified. Open the latest version to edit again.'
             });
         }
-
         const isDraftConversion = (currentSale.status || '').toUpperCase() === 'DRAFT' && status === 'COMPLETED';
-
         if (isDraftConversion) {
             const resolved = await numberingHelper.resolveNextNumber({
                 req,
@@ -4605,7 +4057,6 @@ exports.modifySale = async (req, res) => {
             }
             headerForModify.sale_no = resolved.number;
         }
-
         const ignoreSaleIds = await getSaleChainIds(req, currentSale, t);
         if (voucherCode && status === 'COMPLETED') {
             const voucherCheck = await validateVoucherUsage(req, {
@@ -4623,18 +4074,15 @@ exports.modifySale = async (req, res) => {
                 });
             }
         }
-
         if (currentSale.notes && currentSale.notes.includes('Auto-generated from delivery order #')) {
             headerForModify.notes = currentSale.notes;
         }
-
         const saleItems = status === 'COMPLETED' && !itemsPreSplit
             ? await applyItemCycleSchemesToSale({ req, header: headerForModify, items: saleItemsRaw, transaction: t })
             : saleItemsRaw;
         const advanceAllocation = status === 'COMPLETED' && !itemsPreSplit
             ? await allocateItemAdvanceConsumption({ req, header: headerForModify, items: saleItems, transaction: t })
             : { items: saleItems, advanceAppliedAmount: 0 };
-
         const supersededSaleNo = `${currentSale.sale_no}#v${currentSale.version_no || 1}`;
         await currentSale.update({
             sale_no: supersededSaleNo,
@@ -4644,7 +4092,6 @@ exports.modifySale = async (req, res) => {
             modified_at: new Date(),
             modification_note: headerForModify.modification_note || 'Superseded by modified bill version'
         }, { transaction: t });
-
         const newSale = await createSaleVersion({
             req,
             transaction: t,
@@ -4662,11 +4109,9 @@ exports.modifySale = async (req, res) => {
             stockTxnType: isDraftConversion ? 'SALE' : 'SALE_MODIFY',
             affectStock: isDraftConversion ? affectStock : false
         });
-
         await currentSale.update({
             replaced_by_sale_id: newSale.id
         }, { transaction: t });
-
         if (status === 'COMPLETED' && affectStock) {
             await applySaleModificationStockDelta({
                 req,
@@ -4676,7 +4121,6 @@ exports.modifySale = async (req, res) => {
                 refNo: newSale.sale_no
             });
         }
-
         if (status === 'COMPLETED') {
             await markSingleUseSchemesAsConsumed({
                 req,
@@ -4685,7 +4129,6 @@ exports.modifySale = async (req, res) => {
                 appliedSchemeIds: collectAppliedSchemeIds(headerForModify, saleItems),
                 transaction: t
             });
-
             const loyaltyResult = await applyLoyaltyOnCompletedSale({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -4700,14 +4143,12 @@ exports.modifySale = async (req, res) => {
                 loyalty_discount_amount: loyaltyResult.redemption_discount_amount
             }, { transaction: t });
         }
-
         await recordSaleModificationPayment({
             req,
             transaction: t,
             previousSale: currentSale,
             nextSale: newSale
         });
-
         await audit.log({
             req,
             module: 'SALES',
@@ -4725,7 +4166,6 @@ exports.modifySale = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         await req.propertyDb.models.system_notifications.create({
             outlet_id: req.user.outlet_id,
             module: 'SALES',
@@ -4734,7 +4174,6 @@ exports.modifySale = async (req, res) => {
             type: 'WARNING',
             entity_id: newSale.id
         }, { transaction: t });
-
         // Sync with customer order if this sale is generated from a delivery order
         const orderIdMatch = String(currentSale.notes || '').match(/Auto-generated from delivery order #(\d+)/);
         if (orderIdMatch) {
@@ -4748,7 +4187,6 @@ exports.modifySale = async (req, res) => {
                 if (customerOrder.original_net_amount === null || customerOrder.original_net_amount === undefined) {
                     customerOrder.original_net_amount = customerOrder.net_amount;
                 }
-
                 // Map items into customer order format
                 const mappedReceivedItems = advanceAllocation.items.map(item => ({
                     item_id: item.item_id,
@@ -4758,15 +4196,12 @@ exports.modifySale = async (req, res) => {
                     rate: item.rate,
                     amount: item.amount || (toAmount(item.qty) * toAmount(item.rate))
                 }));
-
                 customerOrder.received_items = mappedReceivedItems;
                 customerOrder.modification_reason = headerForModify.modification_note || 'Order modified by supplier';
-                
                 // Update totals
                 customerOrder.sub_total = newSale.sub_total;
                 customerOrder.tax_amount = newSale.total_tax;
                 customerOrder.net_amount = newSale.net_amount;
-
                 // Handle payment status adjustments
                 const origAmt = toAmount(customerOrder.original_net_amount);
                 const newAmt = toAmount(newSale.net_amount);
@@ -4775,22 +4210,18 @@ exports.modifySale = async (req, res) => {
                         customerOrder.refund_status = 'PENDING';
                     }
                 }
-
                 await customerOrder.save({ transaction: t });
             }
         }
-
         // Handle restaurant KOT and table closing on check out/completion of draft
         const tableId = headerForModify.table_id || headerForModify.tableId || req.body.table_id || req.body.header?.table_id || req.body.tableId || req.body.header?.tableId;
         const outlet_id = req.user?.outlet_id || headerForModify.outlet_id || 1;
         if (status === 'COMPLETED') {
             try {
                 const rawKotIds = req.body.kot_ids || req.body.kotIds || req.body.header?.kot_ids || req.body.header?.kotIds || (req.body.kot_id ? [req.body.kot_id] : null);
-                const parsedKotIds = (Array.isArray(rawKotIds) ? rawKotIds : []).map(id => Number(id)).filter(id => id > 0);
-
+                const parsedKotIds = (Array.isArray(rawKotIds) ? rawKotIds : []).map((id) => Number(id)).filter((id) => id > 0);
                 const isPaidOrSettled = (status === 'COMPLETED' || status === 'PAID') && Number(newSale.balance_due ?? 0) <= 0.01;
                 const newKotStatus = isPaidOrSettled ? 'Closed' : 'billed';
-
                 if (parsedKotIds.length > 0) {
                     await req.propertyDb.models.kot_headers.update({
                         status: newKotStatus,
@@ -4800,14 +4231,15 @@ exports.modifySale = async (req, res) => {
                         where: { id: { [Op.in]: parsedKotIds } },
                         transaction: t
                     });
-                } else if (tableId) {
+                }
+                else if (tableId) {
                     await req.propertyDb.models.kot_headers.update({
                         status: newKotStatus,
                         sales_header_id: newSale.id,
                         kds_dismissed: true
                     }, {
-                        where: { 
-                            table_id: Number(tableId), 
+                        where: {
+                            table_id: Number(tableId),
                             [Op.or]: [
                                 { sales_header_id: null },
                                 { sales_header_id: newSale.id }
@@ -4816,7 +4248,6 @@ exports.modifySale = async (req, res) => {
                         transaction: t
                     });
                 }
-
                 if (tableId) {
                     const remainingActiveKots = await req.propertyDb.models.kot_headers.count({
                         where: {
@@ -4826,7 +4257,6 @@ exports.modifySale = async (req, res) => {
                         },
                         transaction: t
                     });
-
                     if (remainingActiveKots === 0) {
                         await req.propertyDb.models.restaurant_tables.update({
                             status: 'Available',
@@ -4837,23 +4267,24 @@ exports.modifySale = async (req, res) => {
                             transaction: t
                         });
                         console.log('[TABLE MODIFY CHECKOUT] Table #' + tableId + ' fully cleared & marked Available.');
-                    } else {
+                    }
+                    else {
                         console.log('[MULTI-TRANSACTION BILLING] Table #' + tableId + ' has ' + remainingActiveKots + ' active client KOTs remaining. Keeping table Occupied.');
                     }
                 }
-            } catch (tblErr) {
+            }
+            catch (tblErr) {
                 console.error('[TABLE MODIFY CHECKOUT HOOK FAIL]', tblErr.message);
             }
         }
-
         await t.commit();
-
         res.json({
             success: true,
             sale_id: newSale.id,
             message: 'Sales bill modified successfully'
         });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         let errMessage = error.message;
         if (error.name === 'SequelizeValidationError' || (error.errors && Array.isArray(error.errors) && error.errors.length > 0)) {
@@ -4866,7 +4297,6 @@ exports.modifySale = async (req, res) => {
         });
     }
 };
-
 exports.updateSalePaymentMode = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
@@ -4877,12 +4307,10 @@ exports.updateSalePaymentMode = async (req, res) => {
         const paymentLinesRaw = Array.isArray(req.body.payment_lines || req.body.paymentLines)
             ? (req.body.payment_lines || req.body.paymentLines)
             : [];
-
         if (!Number.isFinite(saleId) || saleId <= 0) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Invalid sale id' });
         }
-
         const dbMethods = await req.propertyDb.models.payment_methods.findAll({
             where: { is_active: true },
             transaction: t
@@ -4898,7 +4326,6 @@ exports.updateSalePaymentMode = async (req, res) => {
                 message: `Invalid payment mode. Allowed: ${[...allowedModes].join(', ')}`
             });
         }
-
         const sale = await req.propertyDb.models.sales_headers.findOne({
             where: {
                 id: saleId,
@@ -4908,23 +4335,19 @@ exports.updateSalePaymentMode = async (req, res) => {
             },
             transaction: t
         });
-
         if (!sale) {
             await t.rollback();
             return res.status(404).json({ success: false, message: 'Sale not found' });
         }
-
         const previousMode = String(sale.payment_mode || '').trim().toUpperCase();
         const netAmount = toAmount(sale.net_amount);
         const previousPaymentReference = String(sale.payment_reference || '').trim();
-
         const paymentLines = paymentLinesRaw
             .map((row) => ({
-                method: String(row.method || '').trim().toUpperCase(),
-                amount: toAmount(row.amount)
-            }))
+            method: String(row.method || '').trim().toUpperCase(),
+            amount: toAmount(row.amount)
+        }))
             .filter((row) => allowedModes.has(row.method) && row.amount > 0);
-
         if (paymentLines.length === 0) {
             const fallbackAmountPaid = Math.min(toAmount(sale.amount_paid), netAmount);
             const fallbackDue = Math.max(netAmount - fallbackAmountPaid, 0);
@@ -4938,7 +4361,6 @@ exports.updateSalePaymentMode = async (req, res) => {
                 paymentLines.push({ method: 'CREDIT', amount: fallbackDue });
             }
         }
-
         const nonCreditLines = paymentLines.filter((row) => row.method !== 'CREDIT');
         const creditLines = paymentLines.filter((row) => row.method === 'CREDIT');
         const nonCreditCollected = toAmount(nonCreditLines.reduce((sum, row) => sum + toAmount(row.amount), 0));
@@ -4955,50 +4377,50 @@ exports.updateSalePaymentMode = async (req, res) => {
         const creditDue = Math.max(explicitCredit, remainingDue);
         const amountPaid = Math.min(nonCreditCollected, netAmount);
         const balanceDue = Math.max(netAmount - amountPaid, 0);
-
         let resolvedMode = paymentModeInput;
         const totalLinesCount = nonCreditLines.length + (creditDue > 0 ? 1 : 0);
         if (totalLinesCount > 1 || resolvedMode === 'SPLIT' || resolvedMode === 'SPLIT PAYMENT') {
             resolvedMode = 'SPLIT';
-        } else if (!allowedModes.has(resolvedMode) || resolvedMode === 'SPLIT') {
+        }
+        else if (!allowedModes.has(resolvedMode) || resolvedMode === 'SPLIT') {
             if (nonCreditLines.length > 0) {
                 const primary = [...nonCreditLines].sort((a, b) => b.amount - a.amount)[0];
                 resolvedMode = primary?.method || 'CASH';
-            } else {
+            }
+            else {
                 resolvedMode = 'CREDIT';
             }
         }
         if (resolvedMode !== 'CREDIT' && amountPaid <= 0 && balanceDue > 0) {
             resolvedMode = 'CREDIT';
         }
-
         const mergedLines = [...nonCreditLines];
         if (creditDue > 0) {
             mergedLines.push({ method: 'CREDIT', amount: creditDue });
         }
-
         const nextPaymentReference = encodePaymentReferenceFromLines(mergedLines);
         const nextChangeAmount = resolvedMode === 'CASH'
             ? Math.max(nonCreditCollected - netAmount, 0)
             : 0;
-
         const customerNameInput = req.body.customer_name !== undefined ? String(req.body.customer_name || '').trim() : null;
         const customerPhoneInput = req.body.customer_phone !== undefined ? String(req.body.customer_phone || '').trim() : null;
         const customerAddressInput = req.body.customer_address !== undefined ? String(req.body.customer_address || '').trim() : null;
         const customerGstinInput = req.body.customer_gstin !== undefined ? String(req.body.customer_gstin || '').trim() : null;
-
         const updateCustomerFields = {};
-        if (customerNameInput !== null) updateCustomerFields.customer_name = customerNameInput;
-        if (customerPhoneInput !== null) updateCustomerFields.customer_phone = customerPhoneInput;
-        if (customerAddressInput !== null) updateCustomerFields.customer_address = customerAddressInput;
-        if (customerGstinInput !== null) updateCustomerFields.customer_gstin = customerGstinInput;
-
+        if (customerNameInput !== null)
+            updateCustomerFields.customer_name = customerNameInput;
+        if (customerPhoneInput !== null)
+            updateCustomerFields.customer_phone = customerPhoneInput;
+        if (customerAddressInput !== null)
+            updateCustomerFields.customer_address = customerAddressInput;
+        if (customerGstinInput !== null)
+            updateCustomerFields.customer_gstin = customerGstinInput;
         const resolvedPartyName = (customerNameInput || sale.customer_name || customerPhoneInput || sale.customer_phone || 'Walk-in Customer');
-
         if (customerNameInput || customerPhoneInput) {
             try {
                 const searchScope = [];
-                if (customerPhoneInput) searchScope.push({ customer_phone: customerPhoneInput });
+                if (customerPhoneInput)
+                    searchScope.push({ customer_phone: customerPhoneInput });
                 if (customerNameInput && customerNameInput.toLowerCase() !== 'walk-in customer' && customerNameInput.toLowerCase() !== 'walk-in') {
                     searchScope.push({ customer_name: customerNameInput });
                 }
@@ -5014,24 +4436,27 @@ exports.updateSalePaymentMode = async (req, res) => {
                     if (customerNameInput && customerNameInput.toLowerCase() !== 'walk-in customer' && customerNameInput.toLowerCase() !== 'walk-in') {
                         custPayload.customer_name = customerNameInput;
                     }
-                    if (customerPhoneInput) custPayload.customer_phone = customerPhoneInput;
-                    if (customerAddressInput) custPayload.customer_address = customerAddressInput;
-                    if (customerGstinInput) custPayload.customer_gstin = customerGstinInput;
-
+                    if (customerPhoneInput)
+                        custPayload.customer_phone = customerPhoneInput;
+                    if (customerAddressInput)
+                        custPayload.customer_address = customerAddressInput;
+                    if (customerGstinInput)
+                        custPayload.customer_gstin = customerGstinInput;
                     if (existingCust) {
                         await existingCust.update(custPayload, { transaction: t });
-                    } else if (customerNameInput && customerNameInput.toLowerCase() !== 'walk-in customer' && customerNameInput.toLowerCase() !== 'walk-in') {
+                    }
+                    else if (customerNameInput && customerNameInput.toLowerCase() !== 'walk-in customer' && customerNameInput.toLowerCase() !== 'walk-in') {
                         await req.propertyDb.models.customers.create({
                             outlet_id: req.user.outlet_id,
                             ...custPayload
                         }, { transaction: t });
                     }
                 }
-            } catch (custErr) {
+            }
+            catch (custErr) {
                 console.warn('Customer upsert non-fatal error:', custErr.message);
             }
         }
-
         const noChange = previousMode === resolvedMode &&
             toAmount(sale.amount_paid) === amountPaid &&
             toAmount(sale.balance_due) === balanceDue &&
@@ -5045,13 +4470,11 @@ exports.updateSalePaymentMode = async (req, res) => {
                 data: { sale_id: sale.id, sale_no: sale.sale_no, payment_mode: resolvedMode }
             });
         }
-
         let nextNotes = sale.notes || '';
         const newPaymentSummary = mergedLines.map(line => `${line.method} ${toAmount(line.amount).toFixed(2)}`).join(', ');
         if (nextNotes.includes('Payment:')) {
             nextNotes = nextNotes.replace(/Payment:\s*[^|\n]*/, `Payment: ${newPaymentSummary}`);
         }
-
         await sale.update({
             payment_mode: resolvedMode,
             initial_amount_paid: amountPaid,
@@ -5062,19 +4485,14 @@ exports.updateSalePaymentMode = async (req, res) => {
             notes: nextNotes,
             ...updateCustomerFields
         }, { transaction: t });
-
-        await req.propertyDb.models.cash_ledger.update(
-            { payment_method: resolvedMode, party_name: resolvedPartyName },
-            {
-                where: {
-                    outlet_id: req.user.outlet_id,
-                    reference_type: 'SALE',
-                    reference_id: String(sale.id)
-                },
-                transaction: t
-            }
-        );
-
+        await req.propertyDb.models.cash_ledger.update({ payment_method: resolvedMode, party_name: resolvedPartyName }, {
+            where: {
+                outlet_id: req.user.outlet_id,
+                reference_type: 'SALE',
+                reference_id: String(sale.id)
+            },
+            transaction: t
+        });
         await req.propertyDb.models.cash_ledger.destroy({
             where: {
                 outlet_id: req.user.outlet_id,
@@ -5084,7 +4502,6 @@ exports.updateSalePaymentMode = async (req, res) => {
             },
             transaction: t
         });
-
         if (balanceDue <= 0.009) {
             const oldRepayments = await req.propertyDb.models.customer_repayments.findAll({
                 where: { sale_id: sale.id },
@@ -5102,17 +4519,21 @@ exports.updateSalePaymentMode = async (req, res) => {
                 await rep.destroy({ transaction: t });
             }
         }
-
         for (const row of nonCreditLines) {
-            if (row.amount <= 0) continue;
+            if (row.amount <= 0)
+                continue;
             let lineTxnType = 'SALE_CASH';
             const m = String(row.method || '').toUpperCase();
-            if (m === 'CARD') lineTxnType = 'SALE_CARD';
-            else if (m === 'UPI') lineTxnType = 'SALE_UPI';
-            else if (m === 'BANK') lineTxnType = 'SALE_BANK';
-            else if (m === 'ADVANCE' || m === 'ADVANCE_ADJUSTMENT' || m === 'ADVANCE_APPLY') lineTxnType = 'ADVANCE_APPLY';
-            else lineTxnType = 'SALE_CASH';
-
+            if (m === 'CARD')
+                lineTxnType = 'SALE_CARD';
+            else if (m === 'UPI')
+                lineTxnType = 'SALE_UPI';
+            else if (m === 'BANK')
+                lineTxnType = 'SALE_BANK';
+            else if (m === 'ADVANCE' || m === 'ADVANCE_ADJUSTMENT' || m === 'ADVANCE_APPLY')
+                lineTxnType = 'ADVANCE_APPLY';
+            else
+                lineTxnType = 'SALE_CASH';
             await createLedgerEntry({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -5131,7 +4552,6 @@ exports.updateSalePaymentMode = async (req, res) => {
                 transaction: t
             });
         }
-
         if (balanceDue > 0) {
             await createLedgerEntry({
                 db: req.propertyDb,
@@ -5150,14 +4570,12 @@ exports.updateSalePaymentMode = async (req, res) => {
                 transaction: t
             });
         }
-
         await recalculateLedgerBalances({
             db: req.propertyDb,
             outlet_id: req.user.outlet_id,
             fromDate: sale.sale_date || new Date(),
             transaction: t
         });
-
         await audit.log({
             req,
             module: 'SALES',
@@ -5169,7 +4587,6 @@ exports.updateSalePaymentMode = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         await t.commit();
         return res.json({
             success: true,
@@ -5181,7 +4598,8 @@ exports.updateSalePaymentMode = async (req, res) => {
                 previous_payment_mode: previousMode
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         return res.status(error.status || 500).json({
             success: false,
@@ -5189,7 +4607,6 @@ exports.updateSalePaymentMode = async (req, res) => {
         });
     }
 };
-
 exports.settleRunningBill = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
@@ -5199,12 +4616,10 @@ exports.settleRunningBill = async (req, res) => {
             ? (req.body.payment_lines || req.body.paymentLines)
             : [];
         const customAmountPaid = req.body.amount_paid != null ? Number(req.body.amount_paid) : null;
-
         if (!Number.isFinite(saleId) || saleId <= 0) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Invalid sale id' });
         }
-
         const sale = await req.propertyDb.models.sales_headers.findOne({
             where: {
                 id: saleId,
@@ -5212,17 +4627,14 @@ exports.settleRunningBill = async (req, res) => {
             },
             transaction: t
         });
-
         if (!sale) {
             await t.rollback();
             return res.status(404).json({ success: false, message: 'Sale order not found' });
         }
-
         const netAmount = Number(sale.net_amount || 0);
         let amountPaid = customAmountPaid != null ? customAmountPaid : (paymentModeInput === 'CREDIT' ? 0 : netAmount);
         let balanceDue = Math.max(0, netAmount - amountPaid);
         let changeAmount = paymentModeInput === 'CASH' && amountPaid > netAmount ? amountPaid - netAmount : 0;
-
         let nextPaymentReference = sale.payment_reference;
         if (paymentLinesRaw.length > 0) {
             const cleanLines = paymentLinesRaw.map(row => ({
@@ -5236,24 +4648,25 @@ exports.settleRunningBill = async (req, res) => {
                 balanceDue = creditLine ? creditLine.amount : Math.max(0, netAmount - amountPaid);
             }
         }
-
         const customerNameInput = req.body.customer_name !== undefined ? String(req.body.customer_name || '').trim() : null;
         const customerPhoneInput = req.body.customer_phone !== undefined ? String(req.body.customer_phone || '').trim() : null;
         const customerAddressInput = req.body.customer_address !== undefined ? String(req.body.customer_address || '').trim() : null;
         const customerGstinInput = req.body.customer_gstin !== undefined ? String(req.body.customer_gstin || '').trim() : null;
-
         const updateCustomerFields = {};
-        if (customerNameInput !== null) updateCustomerFields.customer_name = customerNameInput;
-        if (customerPhoneInput !== null) updateCustomerFields.customer_phone = customerPhoneInput;
-        if (customerAddressInput !== null) updateCustomerFields.customer_address = customerAddressInput;
-        if (customerGstinInput !== null) updateCustomerFields.customer_gstin = customerGstinInput;
-
+        if (customerNameInput !== null)
+            updateCustomerFields.customer_name = customerNameInput;
+        if (customerPhoneInput !== null)
+            updateCustomerFields.customer_phone = customerPhoneInput;
+        if (customerAddressInput !== null)
+            updateCustomerFields.customer_address = customerAddressInput;
+        if (customerGstinInput !== null)
+            updateCustomerFields.customer_gstin = customerGstinInput;
         const resolvedPartyName = (customerNameInput || sale.customer_name || customerPhoneInput || sale.customer_phone || 'Walk-in Customer');
-
         if (customerNameInput || customerPhoneInput) {
             try {
                 const searchScope = [];
-                if (customerPhoneInput) searchScope.push({ customer_phone: customerPhoneInput });
+                if (customerPhoneInput)
+                    searchScope.push({ customer_phone: customerPhoneInput });
                 if (customerNameInput && customerNameInput.toLowerCase() !== 'walk-in customer' && customerNameInput.toLowerCase() !== 'walk-in') {
                     searchScope.push({ customer_name: customerNameInput });
                 }
@@ -5269,24 +4682,27 @@ exports.settleRunningBill = async (req, res) => {
                     if (customerNameInput && customerNameInput.toLowerCase() !== 'walk-in customer' && customerNameInput.toLowerCase() !== 'walk-in') {
                         custPayload.customer_name = customerNameInput;
                     }
-                    if (customerPhoneInput) custPayload.customer_phone = customerPhoneInput;
-                    if (customerAddressInput) custPayload.customer_address = customerAddressInput;
-                    if (customerGstinInput) custPayload.customer_gstin = customerGstinInput;
-
+                    if (customerPhoneInput)
+                        custPayload.customer_phone = customerPhoneInput;
+                    if (customerAddressInput)
+                        custPayload.customer_address = customerAddressInput;
+                    if (customerGstinInput)
+                        custPayload.customer_gstin = customerGstinInput;
                     if (existingCust) {
                         await existingCust.update(custPayload, { transaction: t });
-                    } else if (customerNameInput && customerNameInput.toLowerCase() !== 'walk-in customer' && customerNameInput.toLowerCase() !== 'walk-in') {
+                    }
+                    else if (customerNameInput && customerNameInput.toLowerCase() !== 'walk-in customer' && customerNameInput.toLowerCase() !== 'walk-in') {
                         await req.propertyDb.models.customers.create({
                             outlet_id: req.user.outlet_id,
                             ...custPayload
                         }, { transaction: t });
                     }
                 }
-            } catch (custErr) {
+            }
+            catch (custErr) {
                 console.warn('Customer upsert non-fatal error:', custErr.message);
             }
         }
-
         await sale.update({
             status: 'COMPLETED',
             payment_mode: paymentModeInput,
@@ -5299,7 +4715,6 @@ exports.settleRunningBill = async (req, res) => {
             is_deleted: false,
             ...updateCustomerFields
         }, { transaction: t });
-
         // Ledger creation
         const nonCreditLines = paymentLinesRaw.length > 0
             ? paymentLinesRaw.map(row => ({
@@ -5307,17 +4722,21 @@ exports.settleRunningBill = async (req, res) => {
                 amount: Number(row.amount || 0)
             })).filter(row => row.amount > 0 && row.method !== 'CREDIT')
             : (paymentModeInput !== 'CREDIT' && amountPaid > 0 ? [{ method: paymentModeInput, amount: amountPaid }] : []);
-
         for (const row of nonCreditLines) {
-            if (row.amount <= 0) continue;
+            if (row.amount <= 0)
+                continue;
             let lineTxnType = 'SALE_CASH';
             const m = String(row.method || '').toUpperCase();
-            if (m === 'CARD') lineTxnType = 'SALE_CARD';
-            else if (m === 'UPI') lineTxnType = 'SALE_UPI';
-            else if (m === 'BANK') lineTxnType = 'SALE_BANK';
-            else if (m === 'ADVANCE' || m === 'ADVANCE_ADJUSTMENT' || m === 'ADVANCE_APPLY') lineTxnType = 'ADVANCE_APPLY';
-            else lineTxnType = 'SALE_CASH';
-
+            if (m === 'CARD')
+                lineTxnType = 'SALE_CARD';
+            else if (m === 'UPI')
+                lineTxnType = 'SALE_UPI';
+            else if (m === 'BANK')
+                lineTxnType = 'SALE_BANK';
+            else if (m === 'ADVANCE' || m === 'ADVANCE_ADJUSTMENT' || m === 'ADVANCE_APPLY')
+                lineTxnType = 'ADVANCE_APPLY';
+            else
+                lineTxnType = 'SALE_CASH';
             await createLedgerEntry({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -5336,7 +4755,6 @@ exports.settleRunningBill = async (req, res) => {
                 transaction: t
             });
         }
-
         if (balanceDue > 0) {
             await createLedgerEntry({
                 db: req.propertyDb,
@@ -5355,14 +4773,12 @@ exports.settleRunningBill = async (req, res) => {
                 transaction: t
             });
         }
-
         await recalculateLedgerBalances({
             db: req.propertyDb,
             outlet_id: req.user.outlet_id,
             fromDate: sale.sale_date || new Date(),
             transaction: t
         });
-
         // If restaurant table is attached, free the table and close active KOTs
         if (sale.table_id && req.propertyDb.models.tables) {
             try {
@@ -5373,7 +4789,8 @@ exports.settleRunningBill = async (req, res) => {
                     where: { id: sale.table_id },
                     transaction: t
                 });
-            } catch (_) {}
+            }
+            catch (_) { }
         }
         if (req.propertyDb.models.kots) {
             try {
@@ -5388,17 +4805,17 @@ exports.settleRunningBill = async (req, res) => {
                     },
                     transaction: t
                 });
-            } catch (_) {}
+            }
+            catch (_) { }
         }
-
         await t.commit();
-
         return res.json({
             success: true,
             message: `Sale ${sale.sale_no} settled successfully!`,
             data: sale
         });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         console.error('settleRunningBill error:', error);
         return res.status(500).json({ success: false, message: error.message });
@@ -5414,17 +4831,17 @@ exports.listSales = async (req, res) => {
         const fromDate = parseDateOnly(req.query.from_date);
         const toDate = parseDateOnly(req.query.to_date);
         const where = { outlet_id: req.user.outlet_id };
-
         if (status) {
             if (status === 'COMPLETED') {
                 where.status = { [Op.in]: ['COMPLETED', 'RETURNED'] };
-            } else if (status === 'RUNNING' || status === 'UNSETTLED' || status === 'PENDING') {
+            }
+            else if (status === 'RUNNING' || status === 'UNSETTLED' || status === 'PENDING') {
                 where.status = { [Op.in]: ['RUNNING', 'BILLED', 'PRINTED', 'PENDING'] };
-            } else if (status !== 'ALL') {
+            }
+            else if (status !== 'ALL') {
                 where.status = status;
             }
         }
-
         if (status !== 'DRAFT') {
             if (!where.status) {
                 where.status = { [Op.ne]: 'DRAFT' };
@@ -5439,24 +4856,22 @@ exports.listSales = async (req, res) => {
                 where.order_type = { [Op.ne]: 'CLINIC_APPOINTMENT' };
             }
         }
-
         if (source && source !== 'ALL') {
             where[Op.or] = [
                 { sale_source: { [Op.iLike]: `%${source}%` } },
                 { order_type: { [Op.iLike]: `%${source}%` } }
             ];
         }
-
         if (userId && String(userId).trim() !== '' && String(userId).trim() !== '0' && String(userId).toUpperCase() !== 'ALL') {
             const uid = parseInt(userId, 10);
             if (Number.isFinite(uid)) {
                 where.created_by = uid;
             }
         }
-
         if (status === 'DRAFT' || status === 'RUNNING' || status === 'UNSETTLED') {
             where.is_deleted = false;
-        } else if (latestOnly) {
+        }
+        else if (latestOnly) {
             where.is_latest = true;
             where.is_deleted = false;
             where.notes = {
@@ -5466,7 +4881,6 @@ exports.listSales = async (req, res) => {
                 ]
             };
         }
-
         if (fromDate || toDate) {
             where.sale_date = {};
             if (fromDate) {
@@ -5478,7 +4892,6 @@ exports.listSales = async (req, res) => {
                 where.sale_date[Op.lte] = toDate;
             }
         }
-
         if (search) {
             const searchClauses = [
                 { sale_no: { [Op.iLike]: `%${search}%` } },
@@ -5495,7 +4908,6 @@ exports.listSales = async (req, res) => {
             where,
             order: [['sale_date', 'DESC'], ['id', 'DESC']]
         });
-
         const saleIds = sales.map(s => s.id);
         const refunds = saleIds.length > 0 ? await req.propertyDb.models.sales_refunds.findAll({
             where: {
@@ -5503,7 +4915,6 @@ exports.listSales = async (req, res) => {
                 sale_id: saleIds
             }
         }) : [];
-
         const refundsMap = {};
         for (const refund of refunds) {
             if (!refundsMap[refund.sale_id]) {
@@ -5511,7 +4922,6 @@ exports.listSales = async (req, res) => {
             }
             refundsMap[refund.sale_id].push(refund);
         }
-
         const enrichedSales = sales.map(sale => {
             const saleJson = sale.toJSON();
             const saleRefunds = refundsMap[sale.id] || [];
@@ -5520,41 +4930,42 @@ exports.listSales = async (req, res) => {
             let hasPaid = false;
             saleRefunds.forEach(r => {
                 totalRefundPaid += Number(r.amount_paid || 0);
-                if (r.status === 'PAID') hasPaid = true;
-                if (r.status === 'PENDING') hasPending = true;
+                if (r.status === 'PAID')
+                    hasPaid = true;
+                if (r.status === 'PENDING')
+                    hasPending = true;
             });
-
             if (saleRefunds.length > 0) {
                 saleJson.refund_amount = totalRefundPaid;
                 if (hasPaid && hasPending) {
                     saleJson.refund_status = 'PARTIALLY_REFUNDED';
-                } else if (hasPaid) {
+                }
+                else if (hasPaid) {
                     saleJson.refund_status = 'REFUNDED';
-                } else if (hasPending) {
+                }
+                else if (hasPending) {
                     saleJson.refund_status = 'PENDING';
                 }
                 const paidRefunds = saleRefunds.filter(r => r.status === 'PAID');
                 if (paidRefunds.length > 0) {
-                    paidRefunds.sort((a, b) => new Date(b.updated_at || b.refund_date) - new Date(a.updated_at || a.refund_date));
+                    paidRefunds.sort((a, b) => new Date(b.updated_at || b.refund_date).getTime() - new Date(a.updated_at || a.refund_date).getTime());
                     saleJson.refund_payment_mode = paidRefunds[0].payment_mode;
                     saleJson.refund_paid_at = paidRefunds[0].updated_at || paidRefunds[0].refund_date;
                 }
             }
             return saleJson;
         });
-
         res.json({ success: true, data: enrichedSales });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.listCustomers = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const sharedOutletIds = await getSharedOutletIds(req, outlet_id);
         const search = String(req.query.search || '').trim();
-
         const where = { outlet_id: { [Op.in]: sharedOutletIds } };
         if (search) {
             where[Op.or] = [
@@ -5564,13 +4975,11 @@ exports.listCustomers = async (req, res) => {
                 { customer_gstin: { [Op.iLike]: `%${search}%` } }
             ];
         }
-
         const rows = await req.propertyDb.models.customers.findAll({
             where,
             order: [['id', 'DESC']],
             bypassOutletFilter: true
         });
-
         let outletMap = new Map();
         try {
             if (req.propertyDb.models.outlets) {
@@ -5583,28 +4992,27 @@ exports.listCustomers = async (req, res) => {
                     outletMap.set(Number(o.id), o.outlet_name || o.outlet_code || `Outlet #${o.id}`);
                 });
             }
-        } catch (_) {}
-
+        }
+        catch (_) { }
         const seen = new Set();
         const deduplicatedRows = [];
         for (const row of rows) {
-            const phone = row.customer_phone ? String(row.customer_phone).replace(/\D/g, '').slice(-10) : '';
+            const phone = row.customer_phone ? normalizePhoneNumber(row.customer_phone) : '';
             const name = String(row.customer_name || '').trim().toLowerCase();
             const key = phone ? `phone:${phone}` : (name ? `name:${name}` : `id:${row.id}`);
-            if (seen.has(key)) continue;
+            if (seen.has(key))
+                continue;
             seen.add(key);
-
             const plain = typeof row.get === 'function' ? row.get({ plain: true }) : { ...row };
             plain.outlet_name = outletMap.get(Number(plain.outlet_id)) || (plain.outlet_id ? `Outlet #${plain.outlet_id}` : 'Store');
             deduplicatedRows.push(plain);
         }
-
         res.json({ success: true, data: deduplicatedRows });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createCustomer = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -5620,7 +5028,6 @@ exports.createCustomer = async (req, res) => {
         if (!scope) {
             return res.status(400).json({ success: false, message: 'Customer name or phone is required' });
         }
-
         const existing = await req.propertyDb.models.customers.findOne({
             where: {
                 outlet_id: { [Op.in]: sharedOutletIds },
@@ -5628,28 +5035,24 @@ exports.createCustomer = async (req, res) => {
             },
             bypassOutletFilter: true
         });
-
         if (existing) {
             await existing.update(payload);
             return res.json({ success: true, data: existing });
         }
-
         const created = await req.propertyDb.models.customers.create({
             outlet_id,
             ...payload
         });
-
         res.json({ success: true, data: created });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.updateCustomer = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const sharedOutletIds = await getSharedOutletIds(req, outlet_id);
-
         const source = await req.propertyDb.models.customers.findOne({
             where: {
                 id: req.params.id,
@@ -5657,11 +5060,9 @@ exports.updateCustomer = async (req, res) => {
             },
             bypassOutletFilter: true
         });
-
         if (!source) {
             return res.status(404).json({ success: false, message: 'Customer not found' });
         }
-
         const scope = buildCustomerScope(normalizeCustomerIdentity(source));
         const nextIdentity = normalizeCustomerIdentity(req.body);
         const payload = {
@@ -5675,30 +5076,24 @@ exports.updateCustomer = async (req, res) => {
             customer_phone: payload.customer_phone,
             customer_gstin: payload.customer_gstin
         };
-
         await source.update(payload);
-        await req.propertyDb.models.customer_advances.update(
-            advancePayload,
-            {
-                where: {
-                    outlet_id: { [Op.in]: sharedOutletIds },
-                    ...(scope ?? { id: -1 })
-                },
-                bypassOutletFilter: true
-            }
-        );
-
+        await req.propertyDb.models.customer_advances.update(advancePayload, {
+            where: {
+                outlet_id: { [Op.in]: sharedOutletIds },
+                ...(scope ?? { id: -1 })
+            },
+            bypassOutletFilter: true
+        });
         res.json({ success: true, data: payload });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.deleteCustomer = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const sharedOutletIds = await getSharedOutletIds(req, outlet_id);
-
         const source = await req.propertyDb.models.customers.findOne({
             where: {
                 id: req.params.id,
@@ -5706,11 +5101,9 @@ exports.deleteCustomer = async (req, res) => {
             },
             bypassOutletFilter: true
         });
-
         if (!source) {
             return res.status(404).json({ success: false, message: 'Customer not found' });
         }
-
         const identity = normalizeCustomerIdentity(source);
         const scope = buildCustomerScope(identity);
         if (!scope) {
@@ -5719,15 +5112,7 @@ exports.deleteCustomer = async (req, res) => {
                 message: 'Unable to resolve customer identity for delete'
             });
         }
-
-        const [
-            linkedSalesCount,
-            linkedAdvancesCount,
-            linkedItemAdvancesCount,
-            linkedSchemeCustomerCount,
-            linkedSubscriptionsCount,
-            linkedLoyaltyCount
-        ] = await Promise.all([
+        const [linkedSalesCount, linkedAdvancesCount, linkedItemAdvancesCount, linkedSchemeCustomerCount, linkedSubscriptionsCount, linkedLoyaltyCount] = await Promise.all([
             req.propertyDb.models.sales_headers.count({
                 where: {
                     outlet_id: { [Op.in]: sharedOutletIds },
@@ -5759,20 +5144,16 @@ exports.deleteCustomer = async (req, res) => {
                 bypassOutletFilter: true
             })
         ]);
-
-        const totalLinked =
-            linkedSalesCount +
+        const totalLinked = linkedSalesCount +
             linkedAdvancesCount +
             linkedItemAdvancesCount +
             linkedSchemeCustomerCount +
             linkedSubscriptionsCount +
             linkedLoyaltyCount;
-
         if (totalLinked > 0) {
             return res.status(400).json({
                 success: false,
-                message:
-                    'Customer cannot be deleted because linked transactions exist. Please keep customer history.',
+                message: 'Customer cannot be deleted because linked transactions exist. Please keep customer history.',
                 data: {
                     linked_sales: linkedSalesCount,
                     linked_advances: linkedAdvancesCount,
@@ -5783,27 +5164,24 @@ exports.deleteCustomer = async (req, res) => {
                 }
             });
         }
-
         const deleted = await req.propertyDb.models.customers.destroy({
             where: {
                 id: source.id
             },
             bypassOutletFilter: true
         });
-
         if (!deleted) {
             return res.status(404).json({
                 success: false,
                 message: 'Customer master record not found for deletion'
             });
         }
-
         res.json({ success: true, message: 'Customer deleted successfully' });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getSaleDetails = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -5834,7 +5212,6 @@ exports.getSaleDetails = async (req, res) => {
                 }
             ]
         });
-
         if (!sale) {
             sale = await req.propertyDb.models.sales_headers.findOne({
                 where: {
@@ -5863,16 +5240,13 @@ exports.getSaleDetails = async (req, res) => {
                 ]
             });
         }
-
         if (!sale) {
             return res.status(404).json({ success: false, message: 'Sale not found' });
         }
-
         // Load all credit notes for this sale to compute returned quantities
         const creditNotes = await req.propertyDb.models.sales_credit_notes.findAll({
             where: { sale_id: sale.id, outlet_id }
         });
-
         const alreadyReturned = {};
         creditNotes.forEach(cn => {
             if (Array.isArray(cn.items)) {
@@ -5881,18 +5255,16 @@ exports.getSaleDetails = async (req, res) => {
                 });
             }
         });
-
         const saleJson = sale.toJSON();
-        
         // Fallback: If customer_gstin or customer_address is empty, lookup customer master record
         if ((!saleJson.customer_gstin || !saleJson.customer_address) && (saleJson.customer_phone || saleJson.customer_name)) {
             try {
-                const phoneDigits = String(saleJson.customer_phone || '').replace(/\D/g, '').trim();
-                const last10 = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits;
+                const variants = saleJson.customer_phone ? getPhoneSearchVariants(saleJson.customer_phone) : [];
                 const custWhere = { outlet_id: outlet_id || saleJson.outlet_id };
-                if (last10) {
-                    custWhere.customer_phone = { [Op.like]: `%${last10}%` };
-                } else if (saleJson.customer_name) {
+                if (variants.length > 0) {
+                    custWhere.customer_phone = { [Op.in]: variants };
+                }
+                else if (saleJson.customer_name) {
                     custWhere.customer_name = { [Op.iLike]: String(saleJson.customer_name).trim() };
                 }
                 const foundCustomer = await req.propertyDb.models.customers.findOne({ where: custWhere });
@@ -5904,17 +5276,23 @@ exports.getSaleDetails = async (req, res) => {
                         saleJson.customer_address = String(foundCustomer.customer_address).trim();
                     }
                 }
-            } catch (_) {}
+            }
+            catch (_) { }
         }
-
         saleJson.items = saleJson.items.map(item => {
             let modDetails = item.modifier_details;
             let modObjs = item.modifier_objects;
             if (typeof modDetails === 'string' && modDetails.trim().startsWith('[')) {
-                try { modDetails = JSON.parse(modDetails); } catch (_) {}
+                try {
+                    modDetails = JSON.parse(modDetails);
+                }
+                catch (_) { }
             }
             if (typeof modObjs === 'string' && modObjs.trim().startsWith('[')) {
-                try { modObjs = JSON.parse(modObjs); } catch (_) {}
+                try {
+                    modObjs = JSON.parse(modObjs);
+                }
+                catch (_) { }
             }
             return {
                 ...item,
@@ -5943,20 +5321,21 @@ exports.getSaleDetails = async (req, res) => {
         let effectivePaymentLines = decodePaymentReferenceLines(saleJson.payment_reference);
         const repaymentsList = Array.isArray(sale.repayments) ? sale.repayments : [];
         if (repaymentsList.length > 0) {
-            const initialLines = effectivePaymentLines.filter(l => l.method !== 'CREDIT');
+            const initialLines = effectivePaymentLines.filter((l) => l.method !== 'CREDIT');
             const repaymentLines = repaymentsList
-                .filter(r => Number(r.amount) > 0)
-                .map(r => ({
-                    method: String(r.payment_mode || 'CASH').trim().toUpperCase(),
-                    amount: toAmount(r.amount)
-                }));
+                .filter((r) => Number(r.amount) > 0)
+                .map((r) => ({
+                method: String(r.payment_mode || 'CASH').trim().toUpperCase(),
+                amount: toAmount(r.amount)
+            }));
             const mTotals = new Map();
             for (const line of [...initialLines, ...repaymentLines]) {
                 mTotals.set(line.method, toAmount((mTotals.get(line.method) || 0) + line.amount));
             }
             const updatedLines = [];
             for (const [m, a] of mTotals.entries()) {
-                if (a > 0.009) updatedLines.push({ method: m, amount: a });
+                if (a > 0.009)
+                    updatedLines.push({ method: m, amount: a });
             }
             const curBalDue = toAmount(saleJson.balance_due);
             if (curBalDue > 0.009) {
@@ -5967,55 +5346,56 @@ exports.getSaleDetails = async (req, res) => {
                 saleJson.payment_reference = `POSPAY:${JSON.stringify(updatedLines)}`;
                 if (curBalDue > 0.009) {
                     saleJson.payment_mode = (toAmount(saleJson.amount_paid) > 0.009) ? 'SPLIT' : 'CREDIT';
-                } else {
-                    const nonCredit = updatedLines.filter(l => l.method !== 'CREDIT');
+                }
+                else {
+                    const nonCredit = updatedLines.filter((l) => l.method !== 'CREDIT');
                     saleJson.payment_mode = nonCredit.length === 1 ? nonCredit[0].method : 'SPLIT';
                 }
             }
         }
         saleJson.payment_lines = effectivePaymentLines;
-
         // Load all refunds for this sale
         const refunds = await req.propertyDb.models.sales_refunds.findAll({
             where: { sale_id: sale.id, outlet_id }
         });
-
         saleJson.refunds = refunds;
         let totalRefundPaid = 0;
         let hasPending = false;
         let hasPaid = false;
         refunds.forEach(r => {
             totalRefundPaid += Number(r.amount_paid || 0);
-            if (r.status === 'PAID') hasPaid = true;
-            if (r.status === 'PENDING') hasPending = true;
+            if (r.status === 'PAID')
+                hasPaid = true;
+            if (r.status === 'PENDING')
+                hasPending = true;
         });
-
         if (refunds.length > 0) {
             saleJson.refund_amount = totalRefundPaid;
             if (hasPaid && hasPending) {
                 saleJson.refund_status = 'PARTIALLY_REFUNDED';
-            } else if (hasPaid) {
+            }
+            else if (hasPaid) {
                 saleJson.refund_status = 'REFUNDED';
-            } else if (hasPending) {
+            }
+            else if (hasPending) {
                 saleJson.refund_status = 'PENDING';
             }
             const paidRefunds = refunds.filter(r => r.status === 'PAID');
             if (paidRefunds.length > 0) {
-                paidRefunds.sort((a, b) => new Date(b.updated_at || b.refund_date) - new Date(a.updated_at || a.refund_date));
+                paidRefunds.sort((a, b) => new Date(b.updated_at || b.refund_date).getTime() - new Date(a.updated_at || a.refund_date).getTime());
                 saleJson.refund_payment_mode = paidRefunds[0].payment_mode;
                 saleJson.refund_paid_at = paidRefunds[0].updated_at || paidRefunds[0].refund_date;
             }
         }
-
         // Load all lucky draw vouchers for this sale
         try {
             const vouchers = await req.propertyDb.models.draw_vouchers.findAll({
                 where: { sale_id: sale.id, outlet_id },
                 include: [{
-                    model: req.propertyDb.models.lucky_draw_campaigns,
-                    as: 'campaign',
-                    attributes: ['name', 'description']
-                }]
+                        model: req.propertyDb.models.lucky_draw_campaigns,
+                        as: 'campaign',
+                        attributes: ['name', 'description']
+                    }]
             });
             saleJson.lucky_draw_vouchers = vouchers.map(v => ({
                 code: v.voucher_code,
@@ -6024,17 +5404,17 @@ exports.getSaleDetails = async (req, res) => {
                 customer_phone: v.customer_phone,
                 customer_name: v.customer_name
             }));
-        } catch (ldErr) {
+        }
+        catch (ldErr) {
             console.error('[LUCKY DRAW DETAILS FETCH FAIL]', ldErr.message);
             saleJson.lucky_draw_vouchers = [];
         }
-
         res.json({ success: true, data: saleJson });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.deleteDraft = async (req, res) => {
     try {
         const { reason } = req.body || {};
@@ -6045,15 +5425,12 @@ exports.deleteDraft = async (req, res) => {
                 status: 'DRAFT'
             }
         });
-
         if (!draft) {
             return res.status(404).json({ success: false, message: 'Draft not found or already cancelled' });
         }
-
         const cancelNote = reason && reason.trim() ? reason.trim() : 'Cancelled by user';
         const auditLogNote = `[DRAFT CANCELLED] ${cancelNote} (User: ${req.user?.name || req.user?.username || req.user?.id})`;
         const updatedNotes = draft.notes ? `${draft.notes} | ${auditLogNote}` : auditLogNote;
-
         await draft.update({
             status: 'CANCELLED',
             is_deleted: true,
@@ -6062,18 +5439,16 @@ exports.deleteDraft = async (req, res) => {
             modification_note: cancelNote,
             notes: updatedNotes
         });
-
         res.json({ success: true, message: 'Draft order cancelled and audit logged successfully' });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createScheme = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const created_by = req.user.id;
-
         const scheme = await req.propertyDb.models.sales_schemes.create({
             outlet_id,
             scheme_name: req.body.scheme_name,
@@ -6090,16 +5465,8 @@ exports.createScheme = async (req, res) => {
             free_qty: req.body.free_qty || 0,
             cycle_days: req.body.cycle_days || 30,
             require_no_gaps: req.body.require_no_gaps ?? false,
-            repeat_mode: normalizeSchemeMode(
-                req.body.repeat_mode,
-                'REPEAT',
-                ['REPEAT', 'ONCE']
-            ),
-            apply_timing: normalizeSchemeMode(
-                req.body.apply_timing,
-                'CURRENT_BILL',
-                ['CURRENT_BILL', 'NEXT_PURCHASE']
-            ),
+            repeat_mode: normalizeSchemeMode(req.body.repeat_mode, 'REPEAT', ['REPEAT', 'ONCE']),
+            apply_timing: normalizeSchemeMode(req.body.apply_timing, 'CURRENT_BILL', ['CURRENT_BILL', 'NEXT_PURCHASE']),
             auto_select_on_customer: req.body.auto_select_on_customer ?? true,
             next_purchase_valid_days: Number(req.body.next_purchase_valid_days) || 7,
             is_active: req.body.is_active ?? true,
@@ -6107,13 +5474,12 @@ exports.createScheme = async (req, res) => {
             free_item_id: req.body.free_item_id || null,
             days_of_week: req.body.days_of_week || null
         });
-
         res.json({ success: true, data: scheme });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.updateScheme = async (req, res) => {
     try {
         const scheme = await req.propertyDb.models.sales_schemes.findOne({
@@ -6122,11 +5488,9 @@ exports.updateScheme = async (req, res) => {
                 outlet_id: req.user.outlet_id
             }
         });
-
         if (!scheme) {
             return res.status(404).json({ success: false, message: 'Scheme not found' });
         }
-
         await scheme.update({
             scheme_name: req.body.scheme_name ?? scheme.scheme_name,
             scheme_type: req.body.scheme_type ?? scheme.scheme_type,
@@ -6142,31 +5506,20 @@ exports.updateScheme = async (req, res) => {
             free_qty: req.body.free_qty ?? scheme.free_qty,
             cycle_days: req.body.cycle_days ?? scheme.cycle_days,
             require_no_gaps: req.body.require_no_gaps ?? scheme.require_no_gaps,
-            repeat_mode: normalizeSchemeMode(
-                req.body.repeat_mode ?? scheme.repeat_mode,
-                scheme.repeat_mode || 'REPEAT',
-                ['REPEAT', 'ONCE']
-            ),
-            apply_timing: normalizeSchemeMode(
-                req.body.apply_timing ?? scheme.apply_timing,
-                scheme.apply_timing || 'CURRENT_BILL',
-                ['CURRENT_BILL', 'NEXT_PURCHASE']
-            ),
-            auto_select_on_customer:
-                req.body.auto_select_on_customer ?? scheme.auto_select_on_customer,
-            next_purchase_valid_days:
-                req.body.next_purchase_valid_days ?? scheme.next_purchase_valid_days,
+            repeat_mode: normalizeSchemeMode(req.body.repeat_mode ?? scheme.repeat_mode, scheme.repeat_mode || 'REPEAT', ['REPEAT', 'ONCE']),
+            apply_timing: normalizeSchemeMode(req.body.apply_timing ?? scheme.apply_timing, scheme.apply_timing || 'CURRENT_BILL', ['CURRENT_BILL', 'NEXT_PURCHASE']),
+            auto_select_on_customer: req.body.auto_select_on_customer ?? scheme.auto_select_on_customer,
+            next_purchase_valid_days: req.body.next_purchase_valid_days ?? scheme.next_purchase_valid_days,
             is_active: req.body.is_active ?? scheme.is_active,
             free_item_id: req.body.free_item_id !== undefined ? req.body.free_item_id : scheme.free_item_id,
             days_of_week: req.body.days_of_week !== undefined ? req.body.days_of_week : scheme.days_of_week
         });
-
         res.json({ success: true, data: scheme });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.deleteScheme = async (req, res) => {
     try {
         const scheme = await req.propertyDb.models.sales_schemes.findOne({
@@ -6175,18 +5528,16 @@ exports.deleteScheme = async (req, res) => {
                 outlet_id: req.user.outlet_id
             }
         });
-
         if (!scheme) {
             return res.status(404).json({ success: false, message: 'Scheme not found' });
         }
-
         await scheme.destroy();
         res.json({ success: true, message: 'Scheme deleted successfully' });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.listSchemes = async (req, res) => {
     try {
         const identity = normalizeCustomerIdentity(req.query);
@@ -6202,7 +5553,6 @@ exports.listSchemes = async (req, res) => {
             },
             order: [['scheme_name', 'ASC']]
         });
-
         let customerLinks = [];
         if (scope) {
             customerLinks = await req.propertyDb.models.sales_scheme_customers.findAll({
@@ -6223,7 +5573,8 @@ exports.listSchemes = async (req, res) => {
         const linkBySchemeId = new Map();
         for (const row of customerLinks) {
             const schemeId = Number(row.scheme_id);
-            if (!Number.isFinite(schemeId) || schemeId <= 0) continue;
+            if (!Number.isFinite(schemeId) || schemeId <= 0)
+                continue;
             const startDate = row.start_date ? dateOnly(row.start_date) : null;
             const hasStarted = !startDate || !today || startDate.getTime() <= today.getTime();
             const usageType = normalizeUsageType(row.usage_type, 'reusable');
@@ -6231,29 +5582,27 @@ exports.listSchemes = async (req, res) => {
             const usable = hasStarted && !(usageType === 'single_use' && isConsumed);
             if (!linkBySchemeId.has(schemeId)) {
                 linkBySchemeId.set(schemeId, usable);
-            } else if (usable) {
+            }
+            else if (usable) {
                 linkBySchemeId.set(schemeId, true);
             }
         }
-
         const data = schemes.map((scheme) => ({
             ...scheme.toJSON(),
             customer_linked: linkBySchemeId.get(Number(scheme.id)) === true
         }));
-
         res.json({ success: true, data });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.listSchemeCustomers = async (req, res) => {
     try {
         const schemeId = Number(req.params.id);
         if (!Number.isFinite(schemeId) || schemeId <= 0) {
             return res.status(400).json({ success: false, message: 'Invalid scheme id' });
         }
-
         const customers = await req.propertyDb.models.sales_scheme_customers.findAll({
             where: {
                 outlet_id: req.user.outlet_id,
@@ -6261,20 +5610,18 @@ exports.listSchemeCustomers = async (req, res) => {
             },
             order: [['id', 'DESC']]
         });
-
         res.json({ success: true, data: customers });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createSchemeCustomer = async (req, res) => {
     try {
         const schemeId = Number(req.params.id);
         if (!Number.isFinite(schemeId) || schemeId <= 0) {
             return res.status(400).json({ success: false, message: 'Invalid scheme id' });
         }
-
         const scheme = await req.propertyDb.models.sales_schemes.findOne({
             where: {
                 id: schemeId,
@@ -6284,7 +5631,6 @@ exports.createSchemeCustomer = async (req, res) => {
         if (!scheme) {
             return res.status(404).json({ success: false, message: 'Scheme not found' });
         }
-
         const identity = normalizeCustomerIdentity(req.body);
         const scope = buildCustomerScope(identity);
         if (!scope) {
@@ -6293,19 +5639,14 @@ exports.createSchemeCustomer = async (req, res) => {
                 message: 'Customer phone or GSTIN or name is required'
             });
         }
-
         const startDate = req.body.start_date || req.body.startDate;
         const parsedStart = parseDateOnly(startDate);
         if (!parsedStart) {
             return res.status(400).json({ success: false, message: 'Valid start_date is required' });
         }
-        const usageType = normalizeUsageType(
-            req.body.usage_type ?? req.body.usageType,
-            String(scheme.repeat_mode || '').trim().toUpperCase() === 'ONCE'
-                ? 'single_use'
-                : 'reusable'
-        );
-
+        const usageType = normalizeUsageType(req.body.usage_type ?? req.body.usageType, String(scheme.repeat_mode || '').trim().toUpperCase() === 'ONCE'
+            ? 'single_use'
+            : 'reusable');
         const created = await req.propertyDb.models.sales_scheme_customers.create({
             outlet_id: req.user.outlet_id,
             scheme_id: schemeId,
@@ -6320,13 +5661,12 @@ exports.createSchemeCustomer = async (req, res) => {
             is_active: req.body.is_active !== false,
             created_by: req.user.id
         });
-
         res.json({ success: true, data: created });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.updateSchemeCustomer = async (req, res) => {
     try {
         const schemeId = Number(req.params.id);
@@ -6337,7 +5677,6 @@ exports.updateSchemeCustomer = async (req, res) => {
         if (!Number.isFinite(customerId) || customerId <= 0) {
             return res.status(400).json({ success: false, message: 'Invalid customer id' });
         }
-
         const row = await req.propertyDb.models.sales_scheme_customers.findOne({
             where: {
                 id: customerId,
@@ -6348,7 +5687,6 @@ exports.updateSchemeCustomer = async (req, res) => {
         if (!row) {
             return res.status(404).json({ success: false, message: 'Enrollment not found' });
         }
-
         const updates = {};
         if (req.body.start_date || req.body.startDate) {
             const parsedStart = parseDateOnly(req.body.start_date || req.body.startDate);
@@ -6366,21 +5704,19 @@ exports.updateSchemeCustomer = async (req, res) => {
         if (typeof req.body.is_consumed === 'boolean') {
             updates.is_consumed = req.body.is_consumed;
         }
-
         await row.update(updates);
         res.json({ success: true, data: row });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getSchemeProgress = async (req, res) => {
     try {
         const schemeId = Number(req.params.id);
         if (!Number.isFinite(schemeId) || schemeId <= 0) {
             return res.status(400).json({ success: false, message: 'Invalid scheme id' });
         }
-
         const scheme = await req.propertyDb.models.sales_schemes.findOne({
             where: {
                 id: schemeId,
@@ -6391,7 +5727,6 @@ exports.getSchemeProgress = async (req, res) => {
         if (!scheme) {
             return res.status(404).json({ success: false, message: 'Scheme not found' });
         }
-
         const identity = normalizeCustomerIdentity(req.query);
         const enrollment = await findSchemeEnrollment(req, schemeId, identity);
         if (!enrollment) {
@@ -6402,7 +5737,6 @@ exports.getSchemeProgress = async (req, res) => {
                 }
             });
         }
-
         const billDate = req.query.date || new Date();
         const progress = await computeItemCycleProgress({
             req,
@@ -6412,8 +5746,7 @@ exports.getSchemeProgress = async (req, res) => {
             billDate,
             currentBillItems: []
         });
-        const alreadyGrantedThisCycle =
-            String(enrollment.last_applied_cycle_start || '') === String(progress?.cycle_start || '') &&
+        const alreadyGrantedThisCycle = String(enrollment.last_applied_cycle_start || '') === String(progress?.cycle_start || '') &&
             String(enrollment.last_applied_cycle_end || '') === String(progress?.cycle_end || '');
         const alreadyGrantedToday = await hasSchemeGrantedToday({
             req,
@@ -6422,7 +5755,6 @@ exports.getSchemeProgress = async (req, res) => {
             identity,
             billDate
         });
-
         res.json({
             success: true,
             data: {
@@ -6435,26 +5767,22 @@ exports.getSchemeProgress = async (req, res) => {
                 }
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.listSubscriptions = async (req, res) => {
     try {
         const search = String(req.query.search || '').trim().toLowerCase();
         const status = String(req.query.status || '').trim().toUpperCase();
-
         console.log("[DEBUG listSubscriptions] Received request. Query:", req.query);
         console.log("[DEBUG listSubscriptions] User resolved:", req.user);
-
         const where = { outlet_id: req.user.outlet_id };
         if (status === 'ACTIVE' || status === 'EXPIRED' || status === 'SETTLED' || status === 'CANCELLED') {
             where.status = status;
         }
-
         console.log("[DEBUG listSubscriptions] Where clause:", where);
-
         const subscriptions = await req.propertyDb.models.milk_subscriptions.findAll({
             where,
             include: [
@@ -6464,9 +5792,7 @@ exports.listSubscriptions = async (req, res) => {
             ],
             order: [['created_at', 'DESC'], ['id', 'DESC']]
         });
-
         console.log("[DEBUG listSubscriptions] Found subscriptions count:", subscriptions.length);
-
         const data = [];
         for (const subscription of subscriptions) {
             const itemName = subscription.item?.item_name || subscription.item_name || '';
@@ -6478,7 +5804,6 @@ exports.listSubscriptions = async (req, res) => {
                 customerPhone,
                 subscription.customer_gstin || ''
             ].join(' ').toLowerCase();
-
             let consumptions = Array.isArray(subscription.consumptions) ? subscription.consumptions : [];
             if (consumptions.length === 0) {
                 consumptions = await loadSubscriptionConsumptionRows(req, subscription);
@@ -6492,7 +5817,6 @@ exports.listSubscriptions = async (req, res) => {
             const remainingAmount = isSettled ? 0 : (cashAdvanceSummary.available_amount != null && cashAdvanceSummary.original_amount > 0 ? cashAdvanceSummary.available_amount : (advanceSummary.available_amount || 0));
             const remainingQty = isSettled ? 0 : advanceSummary.available_qty;
             const consumedQty = isSettled ? advanceSummary.original_qty : advanceSummary.consumed_qty;
-
             data.push({
                 ...subscription.toJSON(),
                 active_subscription: subscription.active_subscription === true && subscription.status === 'ACTIVE',
@@ -6511,15 +5835,13 @@ exports.listSubscriptions = async (req, res) => {
                 search_index: haystack
             });
         }
-
         const filtered = data.filter((entry) => !search || entry.search_index.includes(search));
-
         res.json({ success: true, data: filtered });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.listCustomerSubscriptions = async (req, res) => {
     try {
         await resolveOutletId(req);
@@ -6528,7 +5850,6 @@ exports.listCustomerSubscriptions = async (req, res) => {
         if (!scope) {
             return res.status(400).json({ success: false, message: 'Customer name or phone is required' });
         }
-
         const today = req.query.date || new Date();
         const asOfDay = formatDateLocalYmd(today);
         const subscriptions = await req.propertyDb.models.milk_subscriptions.findAll({
@@ -6542,7 +5863,6 @@ exports.listCustomerSubscriptions = async (req, res) => {
             ],
             order: [['start_date', 'DESC'], ['id', 'DESC']]
         });
-
         const rows = [];
         const remainingAssignedByItem = new Set();
         for (const subscription of subscriptions) {
@@ -6552,18 +5872,12 @@ exports.listCustomerSubscriptions = async (req, res) => {
             const isEnded = endDateStr ? asOfDay > endDateStr : false;
             const isActiveSub = Boolean(subscription.active_subscription) || String(subscription.active_subscription).toLowerCase() === 'true' || subscription.active_subscription == 1;
             const isApplicableToday = isStarted && !isEnded && subscription.status === 'ACTIVE' && isActiveSub;
-
             const coveredRows = await loadSubscriptionConsumptionRows(req, subscription);
             const advanceSummary = await getSubscriptionItemAdvanceSummary(req, subscription);
             const cashAdvanceSummary = await getSubscriptionCustomerAdvanceSummary(req, subscription);
             const metrics = buildSubscriptionMetrics(subscription, coveredRows);
             const itemId = Number(subscription.item_id) || 0;
-            const todayConsumedQty = await getCustomerItemConsumedQtyForDay(
-                req,
-                identity,
-                itemId,
-                today
-            );
+            const todayConsumedQty = await getCustomerItemConsumedQtyForDay(req, identity, itemId, today);
             const dailyLimit = toAmount(subscription.daily_allowed_qty);
             const todayRemainingForItem = isApplicableToday ? Math.max(dailyLimit - todayConsumedQty, 0) : 0;
             const assignKey = `${itemId}`;
@@ -6578,7 +5892,6 @@ exports.listCustomerSubscriptions = async (req, res) => {
             const remainingAmount = isSettled ? 0 : (cashAdvanceSummary.available_amount != null && cashAdvanceSummary.original_amount > 0 ? cashAdvanceSummary.available_amount : (advanceSummary.available_amount || 0));
             const remainingQty = isSettled ? 0 : advanceSummary.available_qty;
             const consumedQty = isSettled ? advanceSummary.original_qty : advanceSummary.consumed_qty;
-
             rows.push({
                 ...subscription.toJSON(),
                 scheme_totals: {
@@ -6600,13 +5913,12 @@ exports.listCustomerSubscriptions = async (req, res) => {
                 ...buildSubscriptionMetrics(subscription, coveredRows)
             });
         }
-
         res.json({ success: true, data: rows });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getSubscriptionDetails = async (req, res) => {
     try {
         await resolveOutletId(req);
@@ -6614,33 +5926,27 @@ exports.getSubscriptionDetails = async (req, res) => {
         if (!Number.isFinite(subscriptionId) || subscriptionId <= 0) {
             return res.status(400).json({ success: false, message: 'Invalid subscription id' });
         }
-
         const ledger = await buildSubscriptionLedgerResponse(req, subscriptionId);
         if (!ledger) {
             return res.status(404).json({ success: false, message: 'Subscription not found' });
         }
-
         res.json({
             success: true,
             data: {
                 ...ledger.subscription.toJSON(),
                 scheme_totals: await getSubscriptionSchemeTotals(ledger.subscription),
-                financial_summary: await buildSubscriptionFinancialSummary(
-                    req,
-                    ledger.subscription,
-                    ledger.consumptions.map((row) => row.toJSON())
-                ),
+                financial_summary: await buildSubscriptionFinancialSummary(req, ledger.subscription, ledger.consumptions.map((row) => row.toJSON())),
                 advance_summary: await getSubscriptionItemAdvanceSummary(req, ledger.subscription),
                 cash_advance_summary: await getSubscriptionCustomerAdvanceSummary(req, ledger.subscription),
                 consumptions: ledger.consumptions.map((row) => row.toJSON()),
                 settlements: ledger.settlements.map((row) => row.toJSON())
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createSubscription = async (req, res) => {
     const outlet_id = await resolveOutletId(req);
     if (!outlet_id) {
@@ -6654,13 +5960,11 @@ exports.createSubscription = async (req, res) => {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Customer name or phone is required' });
         }
-
         const itemId = Number(req.body.item_id);
         if (!Number.isFinite(itemId) || itemId <= 0) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Valid item_id is required' });
         }
-
         const item = await req.propertyDb.models.item_master.findOne({
             where: {
                 id: itemId,
@@ -6672,14 +5976,12 @@ exports.createSubscription = async (req, res) => {
             await t.rollback();
             return res.status(404).json({ success: false, message: 'Item not found' });
         }
-
         const startDate = parseDateOnly(req.body.start_date || req.body.startDate);
         const endDate = parseDateOnly(req.body.end_date || req.body.endDate);
         if (!startDate || !endDate) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Valid start_date and end_date are required' });
         }
-
         const existingSubscriptions = await req.propertyDb.models.milk_subscriptions.findAll({
             where: {
                 outlet_id,
@@ -6696,10 +5998,12 @@ exports.createSubscription = async (req, res) => {
             transaction: t
         });
         const duplicateMatch = existingSubscriptions.find((row) => {
+            const rowStatus = (row.status || '').toUpperCase();
+            if (rowStatus === 'CANCELLED' || rowStatus === 'EXHAUSTED' || rowStatus === 'SETTLED' || rowStatus === 'EXPIRED') return false;
             // Must be the exact same item variant (item_code is unique per variant)
             const rowItemCode = row.item ? row.item.item_code : '';
-            if (rowItemCode !== item.item_code) return false;
-
+            if (rowItemCode !== item.item_code)
+                return false;
             const rowIdentity = normalizeCustomerIdentity(row.toJSON());
             const samePhone = identity.customer_phone && rowIdentity.customer_phone
                 ? identity.customer_phone === rowIdentity.customer_phone
@@ -6711,7 +6015,8 @@ exports.createSubscription = async (req, res) => {
                 ? identity.customer_name.toLowerCase() === rowIdentity.customer_name.toLowerCase()
                 : false;
             const sameCustomer = samePhone || sameGstin || sameName;
-            if (!sameCustomer) return false;
+            if (!sameCustomer)
+                return false;
             return String(row.start_date || '') === String(req.body.start_date || req.body.startDate || '') &&
                 String(row.end_date || '') === String(req.body.end_date || req.body.endDate || '') &&
                 String(row.delivery_type || '').toUpperCase() === String(req.body.delivery_type || 'HOME').trim().toUpperCase();
@@ -6724,12 +6029,19 @@ exports.createSubscription = async (req, res) => {
                 data: duplicateMatch.toJSON()
             });
         }
-
         const overlappingMatch = existingSubscriptions.find((row) => {
+            const rowStatus = (row.status || '').toUpperCase();
+            const isRowRunning = row.active_subscription !== false &&
+                                 rowStatus !== 'EXHAUSTED' &&
+                                 rowStatus !== 'SETTLED' &&
+                                 rowStatus !== 'CANCELLED' &&
+                                 rowStatus !== 'EXPIRED';
+            if (!isRowRunning) return false;
+
             // Must be the exact same item variant (item_code is unique per variant)
             const rowItemCode = row.item ? row.item.item_code : '';
-            if (rowItemCode !== item.item_code) return false;
-
+            if (rowItemCode !== item.item_code)
+                return false;
             const rowIdentity = normalizeCustomerIdentity(row.toJSON());
             const samePhone = identity.customer_phone && rowIdentity.customer_phone
                 ? identity.customer_phone === rowIdentity.customer_phone
@@ -6741,10 +6053,12 @@ exports.createSubscription = async (req, res) => {
                 ? identity.customer_name.toLowerCase() === rowIdentity.customer_name.toLowerCase()
                 : false;
             const sameCustomer = samePhone || sameGstin || sameName;
-            if (!sameCustomer) return false;
+            if (!sameCustomer)
+                return false;
             const rowStart = parseDateOnly(row.start_date);
             const rowEnd = parseDateOnly(row.end_date);
-            if (!rowStart || !rowEnd) return false;
+            if (!rowStart || !rowEnd)
+                return false;
             return rowStart <= endDate && rowEnd >= startDate;
         });
         if (overlappingMatch) {
@@ -6755,7 +6069,6 @@ exports.createSubscription = async (req, res) => {
                 data: overlappingMatch.toJSON()
             });
         }
-
         const selectedSchemes = normalizeSelectedSchemes(req.body.selected_schemes || req.body.selectedSchemes);
         const schemeTotals = selectedSchemes.reduce((acc, scheme) => {
             acc.scheme_discount_amount += toRoundedAmount(scheme.discount_amount);
@@ -6763,40 +6076,30 @@ exports.createSubscription = async (req, res) => {
             return acc;
         }, { scheme_discount_amount: 0, bonus_qty: 0 });
         const bonusQty = toRoundedAmount(req.body.bonus_qty ?? req.body.bonusQty ?? 0);
-        const itemRate = toRoundedAmount(
-            req.body.item_rate ?? req.body.itemRate ?? item.retail_sale_price ?? item.rate
-        );
-        const baseTaxableFromBody = toRoundedAmount(
-            req.body.taxable_amount ?? req.body.taxableAmount ?? req.body.base_amount ?? req.body.baseAmount
-        );
+        const itemRate = toRoundedAmount(req.body.item_rate ?? req.body.itemRate ?? item.retail_sale_price ?? item.rate);
+        const baseTaxableFromBody = toRoundedAmount(req.body.taxable_amount ?? req.body.taxableAmount ?? req.body.base_amount ?? req.body.baseAmount);
         const taxPercent = toRoundedAmount(req.body.tax_percent ?? req.body.taxPercent ?? item.tax_percent);
         const taxAmountFromBody = toRoundedAmount(req.body.tax_amount ?? req.body.taxAmount);
         const derivedTaxAmount = taxAmountFromBody > 0
             ? taxAmountFromBody
             : toRoundedAmount((baseTaxableFromBody * taxPercent) / 100);
-        const totalPaymentAmount = toRoundedAmount(
-            req.body.total_payment_amount ??
+        const totalPaymentAmount = toRoundedAmount(req.body.total_payment_amount ??
             req.body.totalPaymentAmount ??
-            (baseTaxableFromBody + derivedTaxAmount)
-        );
-
+            (baseTaxableFromBody + derivedTaxAmount));
         const reqItems = Array.isArray(req.body.items || req.body.subscription_items) && (req.body.items || req.body.subscription_items).length > 0
             ? (req.body.items || req.body.subscription_items)
             : [{ item_id: itemId, daily_qty: toRoundedAmount(req.body.daily_allowed_qty ?? req.body.dailyAllowedQty) }];
-
-        const totalSubscriptionDays = Math.max(1, Math.round((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)) + 1);
+        const totalSubscriptionDays = Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1);
         const payableDays = schemeTotals.bonus_qty > 0 ? Math.max(0, totalSubscriptionDays - 1) : totalSubscriptionDays;
         const todayTxnDate = formatDateLocalYmd(new Date());
         const paymentMode = String(req.body.payment_mode || req.body.paymentMode || 'SUBSCRIPTION').trim().toUpperCase();
-
         const createdSubscriptions = [];
         let primarySubscription = null;
-
         for (let idx = 0; idx < reqItems.length; idx++) {
             const subItem = reqItems[idx];
             const subItemId = Number(subItem.item_id || subItem.itemId || itemId);
-            if (!Number.isFinite(subItemId) || subItemId <= 0) continue;
-
+            if (!Number.isFinite(subItemId) || subItemId <= 0)
+                continue;
             const subDailyQty = toRoundedAmount(subItem.daily_qty ?? subItem.dailyQty ?? subItem.daily_allowed_qty ?? 1.0);
             const subItemMaster = (subItemId === itemId && item)
                 ? item
@@ -6804,7 +6107,6 @@ exports.createSubscription = async (req, res) => {
                     where: { id: subItemId, outlet_id },
                     transaction: t
                 }) || item);
-
             const subItemRate = toRoundedAmount(subItemMaster.retail_sale_price || subItemMaster.rate || 0);
             const subTaxPercent = toRoundedAmount(subItemMaster.tax_percent || 0);
             const subBaseAmount = toRoundedAmount(subItemRate * subDailyQty * payableDays);
@@ -6812,7 +6114,6 @@ exports.createSubscription = async (req, res) => {
             const subTotalPayment = reqItems.length === 1 && totalPaymentAmount > 0
                 ? totalPaymentAmount
                 : toRoundedAmount(subBaseAmount + subTaxAmount);
-
             const subRecord = await req.propertyDb.models.milk_subscriptions.create({
                 outlet_id,
                 customer_name: identity.customer_name || null,
@@ -6842,9 +6143,8 @@ exports.createSubscription = async (req, res) => {
                 created_by: req.user?.id || null,
                 updated_by: req.user?.id || null
             }, { transaction: t });
-
-            if (idx === 0) primarySubscription = subRecord;
-
+            if (idx === 0)
+                primarySubscription = subRecord;
             const prepaidQty = subItemRate > 0 ? toRoundedAmount(subBaseAmount / subItemRate) : 0;
             if (subTotalPayment > 0 && (prepaidQty > 0 || subBaseAmount > 0)) {
                 await req.propertyDb.models.customer_advances.create({
@@ -6862,7 +6162,6 @@ exports.createSubscription = async (req, res) => {
                     created_by: req.user?.id || null,
                     updated_by: req.user?.id || null
                 }, { transaction: t });
-
                 await req.propertyDb.models.customer_item_advances.create({
                     outlet_id,
                     source_sale_id: null,
@@ -6878,7 +6177,6 @@ exports.createSubscription = async (req, res) => {
                     created_by: req.user?.id || null,
                     updated_by: req.user?.id || null
                 }, { transaction: t });
-
                 await createLedgerEntry({
                     db: req.propertyDb,
                     outlet_id,
@@ -6895,21 +6193,18 @@ exports.createSubscription = async (req, res) => {
                     transaction: t
                 });
             }
-
             await req.propertyDb.models.milk_subscription_items.create({
                 subscription_id: subRecord.id,
                 item_id: subItemId,
                 daily_qty: subDailyQty,
                 rate_override: subItemRate
             }, { transaction: t });
-
             createdSubscriptions.push({
                 ...subRecord.toJSON(),
                 item_name: subItemMaster.item_name,
                 daily_allowed_qty: subDailyQty
             });
         }
-
         await audit.log({
             req,
             module: 'SALES',
@@ -6920,7 +6215,6 @@ exports.createSubscription = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         await t.commit();
         res.json({
             success: true,
@@ -6931,12 +6225,12 @@ exports.createSubscription = async (req, res) => {
                 created_subscriptions: createdSubscriptions
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getSubscriptionLedger = async (req, res) => {
     try {
         await resolveOutletId(req);
@@ -6944,32 +6238,26 @@ exports.getSubscriptionLedger = async (req, res) => {
         if (!Number.isFinite(subscriptionId) || subscriptionId <= 0) {
             return res.status(400).json({ success: false, message: 'Invalid subscription id' });
         }
-
         const ledger = await buildSubscriptionLedgerResponse(req, subscriptionId);
         if (!ledger) {
             return res.status(404).json({ success: false, message: 'Subscription not found' });
         }
-
         res.json({
             success: true,
             data: {
                 subscription: ledger.subscription.toJSON(),
-                financial_summary: await buildSubscriptionFinancialSummary(
-                    req,
-                    ledger.subscription,
-                    ledger.consumptions.map((row) => row.toJSON())
-                ),
+                financial_summary: await buildSubscriptionFinancialSummary(req, ledger.subscription, ledger.consumptions.map((row) => row.toJSON())),
                 advance_summary: await getSubscriptionItemAdvanceSummary(req, ledger.subscription),
                 cash_advance_summary: await getSubscriptionCustomerAdvanceSummary(req, ledger.subscription),
                 consumptions: ledger.consumptions.map((row) => row.toJSON()),
                 settlements: ledger.settlements.map((row) => row.toJSON())
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.generateFinalSettlement = async (req, res) => {
     await resolveOutletId(req);
     const t = await req.propertyDb.transaction();
@@ -6979,7 +6267,6 @@ exports.generateFinalSettlement = async (req, res) => {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Invalid subscription id' });
         }
-
         const subscription = await req.propertyDb.models.milk_subscriptions.findOne({
             where: {
                 id: subscriptionId,
@@ -6990,35 +6277,24 @@ exports.generateFinalSettlement = async (req, res) => {
             ],
             transaction: t
         });
-
         if (!subscription) {
             await t.rollback();
             return res.status(404).json({ success: false, message: 'Subscription not found' });
         }
-
         let consumptionRows = await loadSubscriptionConsumptionRows(req, subscription, t);
         if (consumptionRows.length > 0 && consumptionRows.some((row) => !row.id)) {
             const createdRows = [];
             for (const row of consumptionRows) {
                 const payload = typeof row.toJSON === 'function' ? row.toJSON() : { ...row };
                 delete payload.id;
-                createdRows.push(
-                    await req.propertyDb.models.milk_subscription_consumptions.create(
-                        {
-                            ...payload,
-                            status: payload.status || 'CONSUMED'
-                        },
-                        { transaction: t }
-                    )
-                );
+                createdRows.push(await req.propertyDb.models.milk_subscription_consumptions.create({
+                    ...payload,
+                    status: payload.status || 'CONSUMED'
+                }, { transaction: t }));
             }
             consumptionRows = createdRows;
         }
-
-        const metrics = buildSubscriptionMetrics(
-            subscription,
-            consumptionRows.map((row) => row.toJSON())
-        );
+        const metrics = buildSubscriptionMetrics(subscription, consumptionRows.map((row) => row.toJSON()));
         const schemeTotals = await getSubscriptionSchemeTotals(subscription);
         const referenceRateRow = [...consumptionRows].reverse().find((row) => toAmount(row.rate) > 0);
         const referenceRate = toAmount(referenceRateRow?.rate);
@@ -7030,17 +6306,10 @@ exports.generateFinalSettlement = async (req, res) => {
         const customerAdvanceUsed = Math.min(grossDue, availableCustomerAdvance);
         const totalDue = Math.max(grossDue - customerAdvanceUsed, 0);
         const paymentMode = String(req.body.payment_mode || req.body.paymentMode || 'CASH').trim().toUpperCase();
-        const requestedAmount = Math.max(
-            0,
-            toAmount(req.body.amount_paid ?? req.body.amountPaid ?? totalDue)
-        );
-        const availableCustomerAdvanceAfterDue = Math.max(
-            availableCustomerAdvance - customerAdvanceUsed,
-            0
-        );
+        const requestedAmount = Math.max(0, toAmount(req.body.amount_paid ?? req.body.amountPaid ?? totalDue));
+        const availableCustomerAdvanceAfterDue = Math.max(availableCustomerAdvance - customerAdvanceUsed, 0);
         const refundAvailable = availableCustomerAdvanceAfterDue + creditAmount;
         const isRefundFlow = totalDue <= 0 && refundAvailable > 0;
-
         if (totalDue > 0 && paymentMode === 'CREDIT') {
             throw new Error(`Please clear the remaining due of ${totalDue.toFixed(2)} before settling the subscription.`);
         }
@@ -7053,7 +6322,6 @@ exports.generateFinalSettlement = async (req, res) => {
         if (isRefundFlow && requestedAmount > refundAvailable + 0.009) {
             throw new Error(`Refund amount cannot exceed available advance of ${refundAvailable.toFixed(2)}.`);
         }
-
         const isCreditCarryForward = paymentMode === 'CREDIT' && totalDue > 0;
         const amountReceived = totalDue > 0 ? Math.min(requestedAmount, totalDue) : 0;
         const refundFromAdvance = isRefundFlow
@@ -7066,13 +6334,9 @@ exports.generateFinalSettlement = async (req, res) => {
         const advanceTopup = totalDue > 0 ? Math.max(requestedAmount - totalDue, 0) : 0;
         const balanceDue = Math.max(totalDue - amountReceived, 0);
         const remainingCredit = Math.max(creditAmount - refundFromCredit, 0);
-        const remainingCustomerAdvance = Math.max(
-            availableCustomerAdvanceAfterDue - refundFromAdvance,
-            0
-        );
+        const remainingCustomerAdvance = Math.max(availableCustomerAdvanceAfterDue - refundFromAdvance, 0);
         const advanceAmount = Number((remainingCredit + remainingCustomerAdvance + advanceTopup).toFixed(2));
         const amountPaid = Number((amountReceived + refundPaid).toFixed(2));
-
         const settlementNo = `SUBSET-${Date.now()}`;
         const settlement = await req.propertyDb.models.milk_subscription_settlements.create({
             outlet_id: req.user.outlet_id,
@@ -7081,31 +6345,26 @@ exports.generateFinalSettlement = async (req, res) => {
             settlement_date: req.body.settlement_date || new Date(),
             period_start: subscription.start_date,
             period_end: subscription.end_date,
-                gross_excess_amount: metrics.actual_value,
-                scheme_discount_amount: schemeTotals.discountAmount,
-                bonus_amount: bonusAmount,
-                total_due: grossDue,
-                payment_mode: paymentMode,
-                amount_paid: amountPaid,
-                balance_due: balanceDue,
-                advance_amount: advanceAmount,
-                notes: req.body.notes || null,
-                created_by: req.user.id
-            }, { transaction: t });
-
-        await req.propertyDb.models.milk_subscription_consumptions.update(
-            {
-                settlement_id: settlement.id,
-                status: 'SETTLED'
+            gross_excess_amount: metrics.actual_value,
+            scheme_discount_amount: schemeTotals.discountAmount,
+            bonus_amount: bonusAmount,
+            total_due: grossDue,
+            payment_mode: paymentMode,
+            amount_paid: amountPaid,
+            balance_due: balanceDue,
+            advance_amount: advanceAmount,
+            notes: req.body.notes || null,
+            created_by: req.user.id
+        }, { transaction: t });
+        await req.propertyDb.models.milk_subscription_consumptions.update({
+            settlement_id: settlement.id,
+            status: 'SETTLED'
+        }, {
+            where: {
+                id: { [Op.in]: consumptionRows.map((row) => row.id) }
             },
-            {
-                where: {
-                    id: { [Op.in]: consumptionRows.map((row) => row.id) }
-                },
-                transaction: t
-            }
-        );
-
+            transaction: t
+        });
         const closeSubscriptionNow = isCreditCarryForward || balanceDue <= 0;
         await subscription.update({
             status: closeSubscriptionNow ? 'SETTLED' : 'ACTIVE',
@@ -7113,7 +6372,6 @@ exports.generateFinalSettlement = async (req, res) => {
             settled_at: closeSubscriptionNow ? new Date() : null,
             updated_by: req.user.id
         }, { transaction: t });
-
         if (isCreditCarryForward && balanceDue > 0) {
             const creditSaleNo = `SUBCRED-${Date.now()}`;
             await req.propertyDb.models.sales_headers.create({
@@ -7167,7 +6425,6 @@ exports.generateFinalSettlement = async (req, res) => {
                 is_latest: true,
                 is_deleted: false
             }, { transaction: t });
-
             await createLedgerEntry({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -7185,37 +6442,15 @@ exports.generateFinalSettlement = async (req, res) => {
                 transaction: t
             });
         }
-
         if (customerAdvanceUsed > 0) {
-            await consumeSubscriptionCustomerAdvance(
-                req,
-                subscription.id,
-                customerAdvanceUsed,
-                t
-            );
+            await consumeSubscriptionCustomerAdvance(req, subscription.id, customerAdvanceUsed, t);
         }
-
         if (advanceTopup > 0) {
-            await addSubscriptionCustomerAdvance(
-                req,
-                subscription,
-                advanceTopup,
-                paymentMode,
-                `Advance created from settlement ${settlement.settlement_no}`,
-                settlement.settlement_date,
-                t
-            );
+            await addSubscriptionCustomerAdvance(req, subscription, advanceTopup, paymentMode, `Advance created from settlement ${settlement.settlement_no}`, settlement.settlement_date, t);
         }
-
         if (refundFromAdvance > 0) {
-            await consumeSubscriptionCustomerAdvance(
-                req,
-                subscription.id,
-                refundFromAdvance,
-                t
-            );
+            await consumeSubscriptionCustomerAdvance(req, subscription.id, refundFromAdvance, t);
         }
-
         if (!isCreditCarryForward && (amountReceived > 0 || advanceTopup > 0 || refundPaid > 0)) {
             const advanceNoteSuffix = customerAdvanceUsed > 0
                 ? ` after applying customer advance ${customerAdvanceUsed.toFixed(2)}`
@@ -7243,7 +6478,6 @@ exports.generateFinalSettlement = async (req, res) => {
                 transaction: t
             });
         }
-
         await audit.log({
             req,
             module: 'SALES',
@@ -7254,9 +6488,7 @@ exports.generateFinalSettlement = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         await t.commit();
-
         res.json({
             success: true,
             data: {
@@ -7284,18 +6516,17 @@ exports.generateFinalSettlement = async (req, res) => {
                 reference_rate: referenceRate
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.listItemAdvances = async (req, res) => {
     try {
         const identity = normalizeCustomerIdentity(req.query);
         const itemId = Number(req.query.item_id);
         const filterItemId = Number.isFinite(itemId) && itemId > 0 ? itemId : null;
-
         const replacements = {
             outlet_id: req.user.outlet_id,
             customer_phone: identity.customer_phone || '',
@@ -7303,9 +6534,7 @@ exports.listItemAdvances = async (req, res) => {
             customer_name: identity.customer_name || '',
             item_id: filterItemId,
         };
-
-        const [advanceRows] = await req.propertyDb.query(
-            `
+        const [advanceRows] = await req.propertyDb.query(`
 SELECT
   cia.id,
   cia.item_id,
@@ -7327,12 +6556,8 @@ WHERE cia.outlet_id = :outlet_id
   )
   ${filterItemId ? 'AND cia.item_id = :item_id' : ''}
 ORDER BY cia.item_id ASC, cia.advance_date ASC, cia.id ASC
-            `,
-            { replacements }
-        );
-
-        const [consumedRows] = await req.propertyDb.query(
-            `
+            `, { replacements });
+        const [consumedRows] = await req.propertyDb.query(`
 SELECT
   si.item_id,
   COALESCE(SUM(si.qty), 0) AS consumed_qty
@@ -7348,10 +6573,7 @@ WHERE sh.outlet_id = :outlet_id
     OR (:customer_name <> '' AND sh.customer_name = :customer_name)
   )
 GROUP BY si.item_id
-            `,
-            { replacements }
-        );
-
+            `, { replacements });
         const consumedByItem = new Map();
         for (const row of consumedRows || []) {
             const itemId = Number(row.item_id) || 0;
@@ -7359,14 +6581,13 @@ GROUP BY si.item_id
                 consumedByItem.set(itemId, Number(row.consumed_qty) || 0);
             }
         }
-
         const totalsByItem = new Map();
         for (const row of advanceRows || []) {
             const itemId = Number(row.item_id) || 0;
-            if (!itemId) continue;
+            if (!itemId)
+                continue;
             totalsByItem.set(itemId, (totalsByItem.get(itemId) || 0) + (Number(row.original_qty) || 0));
         }
-
         const data = [];
         for (const row of advanceRows || []) {
             const originalQty = Number(row.original_qty) || 0;
@@ -7384,40 +6605,34 @@ GROUP BY si.item_id
                 consumed_qty_total: consumedQty
             });
         }
-
         res.json({ success: true, data });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createItemAdvance = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const created_by = req.user.id;
         const identity = normalizeCustomerIdentity(req.body);
         const scope = buildCustomerScope(identity);
-
         if (!scope) {
             return res.status(400).json({
                 success: false,
                 message: 'Customer phone or GSTIN or name is required'
             });
         }
-
         const itemId = Number(req.body.item_id || req.body.itemId);
         if (!Number.isFinite(itemId) || itemId <= 0) {
             return res.status(400).json({ success: false, message: 'Valid item_id is required' });
         }
-
         const qty = toAmount(req.body.original_qty ?? req.body.qty);
         if (!Number.isFinite(qty) || qty <= 0) {
             return res.status(400).json({ success: false, message: 'Valid qty/original_qty is required' });
         }
-
         const advanceDate = parseDateOnly(req.body.advance_date || req.body.advanceDate) || new Date();
         const rate = toAmount(req.body.rate);
-
         const created = await req.propertyDb.models.customer_item_advances.create({
             outlet_id,
             source_sale_id: req.body.source_sale_id || null,
@@ -7432,13 +6647,12 @@ exports.createItemAdvance = async (req, res) => {
             note: req.body.note || null,
             created_by
         });
-
         res.json({ success: true, data: created });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.updateItemAdvance = async (req, res) => {
     try {
         const row = await req.propertyDb.models.customer_item_advances.findOne({
@@ -7450,7 +6664,6 @@ exports.updateItemAdvance = async (req, res) => {
         if (!row) {
             return res.status(404).json({ success: false, message: 'Item advance not found' });
         }
-
         const updates = {};
         if (req.body.item_id != null) {
             const itemId = Number(req.body.item_id);
@@ -7480,14 +6693,13 @@ exports.updateItemAdvance = async (req, res) => {
         if (req.body.note !== undefined) {
             updates.note = req.body.note || null;
         }
-
         await row.update(updates);
         res.json({ success: true, data: row });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.deleteItemAdvance = async (req, res) => {
     try {
         const row = await req.propertyDb.models.customer_item_advances.findOne({
@@ -7499,18 +6711,17 @@ exports.deleteItemAdvance = async (req, res) => {
         if (!row) {
             return res.status(404).json({ success: false, message: 'Item advance not found' });
         }
-
         await row.update({
             original_qty: 0,
             available_qty: 0,
             note: row.note ? `Cancelled: ${row.note}` : 'Cancelled'
         });
         res.json({ success: true, message: 'Item advance cancelled', data: row });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getItemAdvanceSummary = async (req, res) => {
     try {
         const identity = normalizeCustomerIdentity(req.query);
@@ -7521,17 +6732,13 @@ exports.getItemAdvanceSummary = async (req, res) => {
                 message: 'Customer phone or GSTIN or name is required'
             });
         }
-
         const itemId = Number(req.query.item_id);
         if (!Number.isFinite(itemId) || itemId <= 0) {
             return res.status(400).json({ success: false, message: 'Valid item_id is required' });
         }
-
         const asOfDate = parseDateOnly(req.query.date || req.query.as_of_date || req.query.asOfDate) || new Date();
         const asOfDay = formatDateLocalYmd(asOfDate);
-
-        const [advRows] = await req.propertyDb.query(
-            `
+        const [advRows] = await req.propertyDb.query(`
 SELECT
   COALESCE(SUM(original_qty), 0) AS original_qty,
   COALESCE(SUM(available_qty), 0) AS available_qty
@@ -7545,21 +6752,17 @@ WHERE outlet_id = :outlet_id
     OR (:customer_gstin <> '' AND customer_gstin = :customer_gstin)
     OR (:customer_name <> '' AND customer_name = :customer_name)
   )
-            `,
-            {
-                replacements: {
-                    outlet_id: req.user.outlet_id,
-                    item_id: itemId,
-                    as_of_day: asOfDay,
-                    customer_phone: identity.customer_phone || '',
-                    customer_gstin: identity.customer_gstin || '',
-                    customer_name: identity.customer_name || ''
-                }
+            `, {
+            replacements: {
+                outlet_id: req.user.outlet_id,
+                item_id: itemId,
+                as_of_day: asOfDay,
+                customer_phone: identity.customer_phone || '',
+                customer_gstin: identity.customer_gstin || '',
+                customer_name: identity.customer_name || ''
             }
-        );
-
-        const [consumeRows] = await req.propertyDb.query(
-            `
+        });
+        const [consumeRows] = await req.propertyDb.query(`
 SELECT
   COALESCE(SUM(original_qty - available_qty), 0) AS consumed_qty
 FROM customer_item_advances
@@ -7572,23 +6775,19 @@ WHERE outlet_id = :outlet_id
     OR (:customer_gstin <> '' AND customer_gstin = :customer_gstin)
     OR (:customer_name <> '' AND customer_name = :customer_name)
   )
-            `,
-            {
-                replacements: {
-                    outlet_id: req.user.outlet_id,
-                    item_id: itemId,
-                    as_of_day: asOfDay,
-                    customer_phone: identity.customer_phone || '',
-                    customer_gstin: identity.customer_gstin || '',
-                    customer_name: identity.customer_name || ''
-                }
+            `, {
+            replacements: {
+                outlet_id: req.user.outlet_id,
+                item_id: itemId,
+                as_of_day: asOfDay,
+                customer_phone: identity.customer_phone || '',
+                customer_gstin: identity.customer_gstin || '',
+                customer_name: identity.customer_name || ''
             }
-        );
-
+        });
         const originalQty = Number(advRows?.[0]?.original_qty) || 0;
         const availableQty = Number(advRows?.[0]?.available_qty) || 0;
         const consumedQty = Number(consumeRows?.[0]?.consumed_qty) || 0;
-
         res.json({
             success: true,
             data: {
@@ -7599,11 +6798,11 @@ WHERE outlet_id = :outlet_id
                 as_of_date: asOfDay
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getItemAdvanceLedger = async (req, res) => {
     try {
         const identity = normalizeCustomerIdentity(req.query);
@@ -7614,17 +6813,14 @@ exports.getItemAdvanceLedger = async (req, res) => {
                 message: 'Customer phone or GSTIN or name is required'
             });
         }
-
         const itemId = Number(req.query.item_id);
         if (!Number.isFinite(itemId) || itemId <= 0) {
             return res.status(400).json({ success: false, message: 'Valid item_id is required' });
         }
-
         const toDate = parseDateOnly(req.query.to_date || req.query.toDate || req.query.date) || new Date();
         const fromDate = parseDateOnly(req.query.from_date || req.query.fromDate) || addDays(toDate, -30);
         const fromDay = formatDateLocalYmd(fromDate);
         const toDay = formatDateLocalYmd(toDate);
-
         const replacements = {
             outlet_id: req.user.outlet_id,
             item_id: itemId,
@@ -7635,9 +6831,7 @@ exports.getItemAdvanceLedger = async (req, res) => {
             customer_name: identity.customer_name || '',
             outletTz: req.outletTimeZone || 'Asia/Kolkata'
         };
-
-        const [advances] = await req.propertyDb.query(
-            `
+        const [advances] = await req.propertyDb.query(`
 SELECT id, advance_date, original_qty, available_qty, rate, note
 FROM customer_item_advances
 WHERE outlet_id = :outlet_id
@@ -7650,12 +6844,8 @@ WHERE outlet_id = :outlet_id
     OR (:customer_name <> '' AND customer_name = :customer_name)
   )
 ORDER BY advance_date ASC, id ASC
-            `,
-            { replacements }
-        );
-
-        const [consumptions] = await req.propertyDb.query(
-            `
+            `, { replacements });
+        const [consumptions] = await req.propertyDb.query(`
 SELECT DATE(sh.sale_date AT TIME ZONE :outletTz) AS sale_day,
        sh.sale_no,
        COALESCE(SUM(si.qty), 0) AS qty,
@@ -7675,10 +6865,7 @@ WHERE sh.outlet_id = :outlet_id
   )
 GROUP BY DATE(sh.sale_date AT TIME ZONE :outletTz), sh.sale_no
 ORDER BY sale_day ASC
-            `,
-            { replacements }
-        );
-
+            `, { replacements });
         res.json({
             success: true,
             data: {
@@ -7689,20 +6876,20 @@ ORDER BY sale_day ASC
                 consumptions: consumptions || []
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.listVouchers = async (req, res) => {
     try {
         const rules = await getVoucherRules(req);
         res.json({ success: true, data: rules });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.createVoucher = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -7710,20 +6897,16 @@ exports.createVoucher = async (req, res) => {
         if (!code) {
             return res.status(400).json({ success: false, message: 'Voucher code is required' });
         }
-
         const settings = await req.propertyDb.models.system_settings.findOne({
             where: { outlet_id }
         });
-
         if (!settings) {
             return res.status(400).json({ success: false, message: 'Create settings before adding vouchers' });
         }
-
         const existing = Array.isArray(settings.voucher_rules) ? settings.voucher_rules : [];
         if (existing.some((entry) => String(entry.code || '').trim().toUpperCase() === code)) {
             return res.status(400).json({ success: false, message: 'Voucher code already exists' });
         }
-
         const voucher = {
             code,
             label: req.body.label || code,
@@ -7733,16 +6916,14 @@ exports.createVoucher = async (req, res) => {
             valid_to: req.body.valid_to || null,
             minimum_purchase_amount: Number(req.body.minimum_purchase_amount) || 0
         };
-
         settings.voucher_rules = [...existing, voucher];
         await settings.save();
-
         res.json({ success: true, data: voucher });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.updateVoucher = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -7750,17 +6931,14 @@ exports.updateVoucher = async (req, res) => {
         const settings = await req.propertyDb.models.system_settings.findOne({
             where: { outlet_id }
         });
-
         if (!settings) {
             return res.status(404).json({ success: false, message: 'Settings not found' });
         }
-
         const existing = Array.isArray(settings.voucher_rules) ? settings.voucher_rules : [];
         const index = existing.findIndex((entry) => String(entry.code || '').trim().toUpperCase() === code);
         if (index == -1) {
             return res.status(404).json({ success: false, message: 'Voucher not found' });
         }
-
         existing[index] = {
             ...existing[index],
             label: req.body.label || existing[index].label || code,
@@ -7770,16 +6948,14 @@ exports.updateVoucher = async (req, res) => {
             valid_to: req.body.valid_to || null,
             minimum_purchase_amount: Number(req.body.minimum_purchase_amount) || 0
         };
-
         settings.voucher_rules = [...existing];
         await settings.save();
-
         res.json({ success: true, data: existing[index] });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.deleteVoucher = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -7787,35 +6963,30 @@ exports.deleteVoucher = async (req, res) => {
         const settings = await req.propertyDb.models.system_settings.findOne({
             where: { outlet_id }
         });
-
         if (!settings) {
             return res.status(404).json({ success: false, message: 'Settings not found' });
         }
-
         const existing = Array.isArray(settings.voucher_rules) ? settings.voucher_rules : [];
         const filtered = existing.filter((entry) => String(entry.code || '').trim().toUpperCase() !== code);
         settings.voucher_rules = filtered;
         await settings.save();
-
         res.json({ success: true, message: 'Voucher deleted successfully' });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.validateVoucher = async (req, res) => {
     try {
         const code = String(req.body.code || '').trim().toUpperCase();
         if (!code) {
             return res.status(400).json({ success: false, message: 'Voucher code is required' });
         }
-
         const result = await validateVoucherUsage(req, {
             code,
             orderAmount: req.body.order_amount || 0,
             header: req.body.header || {}
         });
-
         if (!result.valid) {
             return res.status(400).json({
                 success: false,
@@ -7823,13 +6994,12 @@ exports.validateVoucher = async (req, res) => {
                 message: result.message
             });
         }
-
         res.json({ success: true, data: result.voucher });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.deleteSubscription = async (req, res) => {
     await resolveOutletId(req);
     const t = await req.propertyDb.transaction();
@@ -7837,12 +7007,10 @@ exports.deleteSubscription = async (req, res) => {
         const subscriptionId = Number(req.params.id);
         console.log("[DEBUG deleteSubscription] Called with ID:", subscriptionId);
         console.log("[DEBUG deleteSubscription] User resolved:", req.user);
-
         if (!Number.isFinite(subscriptionId) || subscriptionId <= 0) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Invalid subscription id' });
         }
-
         const subscription = await req.propertyDb.models.milk_subscriptions.findOne({
             where: {
                 id: subscriptionId,
@@ -7850,26 +7018,21 @@ exports.deleteSubscription = async (req, res) => {
             },
             transaction: t
         });
-
         console.log("[DEBUG deleteSubscription] Found subscription database record:", subscription ? subscription.toJSON() : null);
-
         if (!subscription) {
             await t.rollback();
             return res.status(404).json({ success: false, message: 'Subscription not found' });
         }
-
         // Delete associated customer item advances
         const itemAdvance = await findSubscriptionItemAdvance(req, subscriptionId, subscription.item_id, t);
         if (itemAdvance) {
             await itemAdvance.destroy({ transaction: t });
         }
-
         // Delete associated customer cash advances
         const customerAdvance = await findSubscriptionCustomerAdvance(req, subscriptionId, t);
         if (customerAdvance) {
             await customerAdvance.destroy({ transaction: t });
         }
-
         // Delete and recalculate ledger entries
         const entriesToDelete = await req.propertyDb.models.cash_ledger.findAll({
             where: {
@@ -7879,7 +7042,6 @@ exports.deleteSubscription = async (req, res) => {
             },
             transaction: t
         });
-
         if (entriesToDelete.length > 0) {
             let earliestDate = new Date();
             for (const entry of entriesToDelete) {
@@ -7888,14 +7050,12 @@ exports.deleteSubscription = async (req, res) => {
                     earliestDate = entryDate;
                 }
             }
-
             await req.propertyDb.models.cash_ledger.destroy({
                 where: {
                     id: { [Op.in]: entriesToDelete.map(e => e.id) }
                 },
                 transaction: t
             });
-
             await recalculateLedgerBalances({
                 db: req.propertyDb,
                 outlet_id: req.user.outlet_id,
@@ -7903,7 +7063,6 @@ exports.deleteSubscription = async (req, res) => {
                 transaction: t
             });
         }
-
         // Log audit
         await audit.log({
             req,
@@ -7915,18 +7074,16 @@ exports.deleteSubscription = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         // Finally destroy the subscription. Cascade delete takes care of schemes, consumptions, settlements.
         await subscription.destroy({ transaction: t });
-
         await t.commit();
         res.json({ success: true, message: 'Subscription deleted successfully' });
-    } catch (error) {
+    }
+    catch (error) {
         await t.rollback();
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.updateSubscriptionStatus = async (req, res) => {
     try {
         await resolveOutletId(req);
@@ -7934,41 +7091,34 @@ exports.updateSubscriptionStatus = async (req, res) => {
         if (!Number.isFinite(subscriptionId) || subscriptionId <= 0) {
             return res.status(400).json({ success: false, message: 'Invalid subscription id' });
         }
-
         const subscription = await req.propertyDb.models.milk_subscriptions.findOne({
             where: {
                 id: subscriptionId,
                 outlet_id: req.user.outlet_id
             }
         });
-
         if (!subscription) {
             return res.status(404).json({ success: false, message: 'Subscription not found' });
         }
-
         const newStatus = String(req.body.status || '').trim().toUpperCase();
         if (!newStatus) {
             return res.status(400).json({ success: false, message: 'Status is required' });
         }
-
         const validStatuses = ['ACTIVE', 'EXPIRED', 'SETTLED', 'CANCELLED'];
         if (!validStatuses.includes(newStatus)) {
             return res.status(400).json({ success: false, message: 'Invalid status' });
         }
-
         const updates = {
             status: newStatus,
             updated_by: req.user.id
         };
-
         if (newStatus === 'CANCELLED' || newStatus === 'SETTLED' || newStatus === 'EXPIRED') {
             updates.active_subscription = false;
-        } else if (newStatus === 'ACTIVE') {
+        }
+        else if (newStatus === 'ACTIVE') {
             updates.active_subscription = true;
         }
-
         await subscription.update(updates);
-
         // Log audit
         await audit.log({
             req,
@@ -7980,33 +7130,28 @@ exports.updateSubscriptionStatus = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, data: subscription });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.returnSale = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const { sale_id, items } = req.body;
         const outlet_id = req.user.outlet_id;
-
         const sale = await req.propertyDb.models.sales_headers.findOne({
             where: { id: sale_id, outlet_id, is_deleted: false },
             include: [{ model: req.propertyDb.models.sales_items, as: 'items' }],
             transaction: t
         });
-
         if (!sale) {
             return res.status(404).json({ success: false, message: 'Sale not found' });
         }
-
         if (sale.status !== 'COMPLETED' && sale.status !== 'RETURNED') {
             return res.status(400).json({ success: false, message: 'Only completed sales can be returned' });
         }
-
         // Load existing Credit Notes for this sale to compute remaining quantities
         const existingCNs = await req.propertyDb.models.sales_credit_notes.findAll({
             where: { sale_id: sale.id, outlet_id },
@@ -8020,7 +7165,6 @@ exports.returnSale = async (req, res) => {
                 }
             }
         }
-
         const cnItems = [];
         let cnTotalQty = 0;
         let cnSubTotal = 0;
@@ -8030,15 +7174,14 @@ exports.returnSale = async (req, res) => {
         let cnIgstAmount = 0;
         let cnTotalTax = 0;
         let cnNetAmount = 0;
-
         // Revert stock for selected return items and build credit note items
         for (const returnItem of items) {
             const saleItem = sale.items.find(it => it.item_id === returnItem.item_id);
-            if (!saleItem) continue;
-
+            if (!saleItem)
+                continue;
             const qtyToReturn = Number(returnItem.qty_to_return || 0);
-            if (qtyToReturn <= 0) continue;
-
+            if (qtyToReturn <= 0)
+                continue;
             const prevReturned = alreadyReturned[saleItem.item_id] || 0;
             const maxReturnable = Number(saleItem.qty) - prevReturned;
             if (qtyToReturn > maxReturnable + 0.009) {
@@ -8048,7 +7191,6 @@ exports.returnSale = async (req, res) => {
                     message: `Cannot return more than remaining quantity (${maxReturnable.toFixed(2)}) for item ${saleItem.item_name}`
                 });
             }
-
             // Calculate proportionate values
             const proportion = qtyToReturn / Number(saleItem.qty);
             const rawTaxable = toAmount(Number(saleItem.taxable_amount) * proportion);
@@ -8059,20 +7201,21 @@ exports.returnSale = async (req, res) => {
             const isNonTaxable = tax_percent <= 0 && tax_amount <= 0;
             const taxable_amount = isNonTaxable ? 0 : rawTaxable;
             const non_taxable_amount = isNonTaxable ? rawTaxable : 0;
-
             let cgst_amount = 0;
             let sgst_amount = 0;
             let igst_amount = 0;
             let tax_breakup = [];
-
             if (Array.isArray(saleItem.tax_breakup) && saleItem.tax_breakup.length > 0) {
                 tax_breakup = saleItem.tax_breakup.map((tax) => {
                     const rawAmt = tax.taxAmount ?? tax.tax_amount ?? tax.amount ?? 0;
                     const taxAmt = toAmount(Number(rawAmt) * proportion);
                     const code = String(tax.code || '').trim().toUpperCase();
-                    if (code === 'CGST') cgst_amount += taxAmt;
-                    if (code === 'SGST' || code === 'UTGST') sgst_amount += taxAmt;
-                    if (code === 'IGST') igst_amount += taxAmt;
+                    if (code === 'CGST')
+                        cgst_amount += taxAmt;
+                    if (code === 'SGST' || code === 'UTGST')
+                        sgst_amount += taxAmt;
+                    if (code === 'IGST')
+                        igst_amount += taxAmt;
                     return {
                         ...tax,
                         code,
@@ -8081,14 +7224,13 @@ exports.returnSale = async (req, res) => {
                     };
                 });
             }
-
             if (tax_amount > 0 && tax_breakup.length === 0) {
                 const headerMode = String(sale.billing_tax_mode || sale.billingTaxMode || '').trim().toUpperCase();
-                const isIgstHeader = headerMode === 'IGST' 
-                  || headerMode.startsWith('IGST') 
-                  || headerMode.includes('INTERSTATE') 
-                  || headerMode.includes('INTER_STATE') 
-                  || headerMode.includes('INTER STATE');
+                const isIgstHeader = headerMode === 'IGST'
+                    || headerMode.startsWith('IGST')
+                    || headerMode.includes('INTERSTATE')
+                    || headerMode.includes('INTER_STATE')
+                    || headerMode.includes('INTER STATE');
                 const isIndiaCountry = String(sale.billing_country || '').trim().toUpperCase() === 'INDIA' || !sale.billing_country;
                 if (isIgstHeader) {
                     igst_amount = tax_amount;
@@ -8103,7 +7245,8 @@ exports.returnSale = async (req, res) => {
                             taxAmount: tax_amount
                         }
                     ];
-                } else if (isIndiaCountry && (headerMode === 'CGST_SGST' || headerMode === 'GST' || !headerMode)) {
+                }
+                else if (isIndiaCountry && (headerMode === 'CGST_SGST' || headerMode === 'GST' || !headerMode)) {
                     const halfTax = toAmount(tax_amount / 2);
                     cgst_amount = halfTax;
                     sgst_amount = toAmount(tax_amount - halfTax);
@@ -8128,7 +7271,8 @@ exports.returnSale = async (req, res) => {
                             taxAmount: sgst_amount
                         }
                     ];
-                } else {
+                }
+                else {
                     const tName = headerMode === 'VAT' ? 'VAT' : (headerMode === 'SALES_TAX' ? 'Sales Tax' : (headerMode || 'Tax'));
                     tax_breakup = [
                         {
@@ -8143,7 +7287,6 @@ exports.returnSale = async (req, res) => {
                     ];
                 }
             }
-
             cnItems.push({
                 item_id: saleItem.item_id,
                 item_code: saleItem.item_code,
@@ -8160,7 +7303,6 @@ exports.returnSale = async (req, res) => {
                 line_total,
                 tax_breakup
             });
-
             cnTotalQty += qtyToReturn;
             cnSubTotal += toAmount(rate * qtyToReturn);
             cnTaxableAmount += taxable_amount;
@@ -8169,7 +7311,6 @@ exports.returnSale = async (req, res) => {
             cnIgstAmount += igst_amount;
             cnTotalTax += tax_amount;
             cnNetAmount += line_total;
-
             // Always revert the parent item itself in stock ledger
             await insertLedger({
                 db: req.propertyDb,
@@ -8181,7 +7322,6 @@ exports.returnSale = async (req, res) => {
                 qty_in: qtyToReturn,
                 transaction: t
             });
-
             // If it is a composite item, also revert components
             const bomComponents = await req.propertyDb.models.item_boms.findAll({
                 where: { outlet_id, parent_item_id: saleItem.item_id },
@@ -8194,14 +7334,13 @@ exports.returnSale = async (req, res) => {
                 ],
                 transaction: t
             });
-
             if (bomComponents && bomComponents.length > 0) {
                 for (const bomComp of bomComponents) {
                     const compItem = bomComp.component_item;
-                    if (!compItem) continue;
+                    if (!compItem)
+                        continue;
                     const qtyRequiredPerUnit = Number(bomComp.quantity);
                     const totalQtyToRevert = qtyRequiredPerUnit * qtyToReturn;
-
                     await insertLedger({
                         db: req.propertyDb,
                         outlet_id,
@@ -8215,12 +7354,10 @@ exports.returnSale = async (req, res) => {
                 }
             }
         }
-
         if (cnItems.length === 0) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'No valid items/quantities to return' });
         }
-
         // Generate Credit Note Number
         const nowCN = new Date();
         const todayStr = `${nowCN.getFullYear()}${String(nowCN.getMonth() + 1).padStart(2, '0')}${String(nowCN.getDate()).padStart(2, '0')}`;
@@ -8230,7 +7367,6 @@ exports.returnSale = async (req, res) => {
         });
         const seqCN = String(cnCount + 1).padStart(4, '0');
         const credit_note_no = `CN-${todayStr}-${seqCN}`;
-
         // Create the Credit Note record
         const creditNote = await req.propertyDb.models.sales_credit_notes.create({
             outlet_id,
@@ -8254,7 +7390,6 @@ exports.returnSale = async (req, res) => {
             notes: `Credit Note issued for sales return on bill ${sale.sale_no}`,
             created_by: req.user.id
         }, { transaction: t });
-
         // Update sale status to RETURNED only if all items are fully returned
         let allFullyReturned = true;
         for (const saleItem of sale.items) {
@@ -8268,7 +7403,6 @@ exports.returnSale = async (req, res) => {
         if (allFullyReturned) {
             await sale.update({ status: 'RETURNED' }, { transaction: t });
         }
-
         // Generate and insert a pending refund record
         const refundCount = await req.propertyDb.models.sales_refunds.count({
             where: { outlet_id, refund_date: new Date() },
@@ -8276,7 +7410,6 @@ exports.returnSale = async (req, res) => {
         });
         const seqRefund = String(refundCount + 1).padStart(4, '0');
         const refund_no = `REF-${todayStr}-${seqRefund}`;
-
         await req.propertyDb.models.sales_refunds.create({
             outlet_id,
             sale_id: sale.id,
@@ -8288,7 +7421,6 @@ exports.returnSale = async (req, res) => {
             notes: `Pending refund for Credit Note ${credit_note_no} against bill ${sale.sale_no}`,
             created_by: req.user.id
         }, { transaction: t });
-
         await audit.log({
             req,
             module: 'SALES',
@@ -8299,19 +7431,18 @@ exports.returnSale = async (req, res) => {
             outlet_id,
             user_id: req.user.id
         });
-
         await t.commit();
         res.json({
             success: true,
             message: 'Sale returned, Credit Note generated, and pending refund recorded successfully',
             credit_note: creditNote
         });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.listRefunds = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -8319,12 +7450,10 @@ exports.listRefunds = async (req, res) => {
         const search = String(req.query.search || '').trim();
         const fromDate = parseDateOnly(req.query.from_date);
         const toDate = parseDateOnly(req.query.to_date);
-
         const where = { outlet_id };
         if (status) {
             where.status = status;
         }
-
         if (fromDate || toDate) {
             where.refund_date = {};
             if (fromDate) {
@@ -8336,7 +7465,6 @@ exports.listRefunds = async (req, res) => {
                 where.refund_date[Op.lte] = toDate;
             }
         }
-
         const include = [
             {
                 model: req.propertyDb.models.sales_headers,
@@ -8344,7 +7472,6 @@ exports.listRefunds = async (req, res) => {
                 attributes: ['sale_no', 'customer_name', 'customer_phone', 'customer_gstin']
             }
         ];
-
         if (search) {
             where[Op.or] = [
                 { refund_no: { [Op.iLike]: `%${search}%` } },
@@ -8354,51 +7481,42 @@ exports.listRefunds = async (req, res) => {
                 { '$sale.customer_phone$': { [Op.iLike]: `%${search}%` } }
             ];
         }
-
         const data = await req.propertyDb.models.sales_refunds.findAll({
             where,
             include,
             order: [['refund_date', 'DESC'], ['id', 'DESC']]
         });
-
         res.json({ success: true, data });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.payRefund = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const outlet_id = req.user.outlet_id;
         const { refund_id, amount_paid, payment_mode, reference_no, notes } = req.body;
-
         const refund = await req.propertyDb.models.sales_refunds.findOne({
             where: { id: refund_id, outlet_id },
             transaction: t
         });
-
         if (!refund) {
             return res.status(404).json({ success: false, message: 'Refund record not found' });
         }
-
         if (refund.status === 'PAID') {
             return res.status(400).json({ success: false, message: 'Refund is already fully paid' });
         }
-
         const amountPaidNumeric = Number(amount_paid || 0);
         if (amountPaidNumeric <= 0) {
             return res.status(400).json({ success: false, message: 'Paid amount must be positive' });
         }
-
         const newAmountPaid = Number(refund.amount_paid) + amountPaidNumeric;
         const newAmountPending = Number(refund.amount_pending);
-        
         let newStatus = 'PARTIALLY_PAID';
         if (newAmountPaid >= newAmountPending) {
             newStatus = 'PAID';
         }
-
         await refund.update({
             amount_paid: newAmountPaid,
             status: newStatus,
@@ -8407,13 +7525,11 @@ exports.payRefund = async (req, res) => {
             notes: notes || refund.notes,
             updated_by: req.user.id
         }, { transaction: t });
-
         // Fetch sale to log correct party_name
         const sale = await req.propertyDb.models.sales_headers.findOne({
             where: { id: refund.sale_id, outlet_id },
             transaction: t
         });
-
         // Sync with delivery order if applicable
         if (sale && sale.notes) {
             const match = String(sale.notes).match(/#(\d+)$/);
@@ -8432,7 +7548,6 @@ exports.payRefund = async (req, res) => {
                 }
             }
         }
-
         // Insert into Cash Ledger
         await createLedgerEntry({
             db: req.propertyDb,
@@ -8449,7 +7564,6 @@ exports.payRefund = async (req, res) => {
             created_by: req.user.id,
             transaction: t
         });
-
         await audit.log({
             req,
             module: 'SALES',
@@ -8460,19 +7574,19 @@ exports.payRefund = async (req, res) => {
             outlet_id,
             user_id: req.user.id
         });
-
         await t.commit();
         res.json({ success: true, message: 'Refund processed successfully and cash ledger updated.' });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.allocateMilkSubscriptionCoverage = allocateMilkSubscriptionCoverage;
 exports.persistMilkSubscriptionConsumptions = persistMilkSubscriptionConsumptions;
 exports.findSubscriptionItemAdvance = findSubscriptionItemAdvance;
 exports.consumeSubscriptionItemAdvance = consumeSubscriptionItemAdvance;
 exports.findSubscriptionCustomerAdvance = findSubscriptionCustomerAdvance;
 exports.consumeSubscriptionCustomerAdvance = consumeSubscriptionCustomerAdvance;
-
+module.exports = exports;
+exports.default = exports;

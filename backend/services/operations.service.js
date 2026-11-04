@@ -1,8 +1,12 @@
+"use strict";
 /**
  * LYNX OPERATE - Operations Excellence Service
  * Handles operational health monitoring, sales velocity reorder calculations, expiry tracking, and collection alerts.
  */
-
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getOperationalHealthSnapshot = getOperationalHealthSnapshot;
+exports.getReorderAlerts = getReorderAlerts;
+exports.getExpiryAlerts = getExpiryAlerts;
 async function getOperationalHealthSnapshot(propertyDb, outletId = 0) {
     const context = {
         totalActiveProducts: 0,
@@ -15,9 +19,8 @@ async function getOperationalHealthSnapshot(propertyDb, outletId = 0) {
         todayGrossProfit: 0,
         stockoutRiskItems: []
     };
-
-    if (!propertyDb) return context;
-
+    if (!propertyDb)
+        return context;
     try {
         // 1. Stock & Product counts
         const stockRes = await propertyDb.query(`
@@ -31,12 +34,10 @@ async function getOperationalHealthSnapshot(propertyDb, outletId = 0) {
             replacements: { outletId },
             type: propertyDb.QueryTypes.SELECT
         });
-
         if (stockRes && stockRes.length > 0) {
             context.totalActiveProducts = parseInt(stockRes[0].total_products || 0);
             context.lowStockCount = parseInt(stockRes[0].low_stock_count || 0);
         }
-
         // 2. Near-expiry batch items (expiring within 60 days)
         const expiryRes = await propertyDb.query(`
             SELECT COUNT(gri.id) AS expiring_count
@@ -50,11 +51,9 @@ async function getOperationalHealthSnapshot(propertyDb, outletId = 0) {
             replacements: { outletId },
             type: propertyDb.QueryTypes.SELECT
         });
-
         if (expiryRes && expiryRes.length > 0) {
             context.expiringItemCount = parseInt(expiryRes[0].expiring_count || 0);
         }
-
         // 3. Pending supplier bills & outstanding total
         const suppRes = await propertyDb.query(`
             SELECT 
@@ -67,12 +66,10 @@ async function getOperationalHealthSnapshot(propertyDb, outletId = 0) {
             replacements: { outletId },
             type: propertyDb.QueryTypes.SELECT
         });
-
         if (suppRes && suppRes.length > 0) {
             context.pendingSupplierBillsCount = parseInt(suppRes[0].pending_bills || 0);
             context.pendingSupplierAmount = parseFloat(suppRes[0].pending_amount || 0);
         }
-
         // 4. Low stock risk items list (top 5)
         const lowList = await propertyDb.query(`
             SELECT item_code, item_name, item_group, COALESCE(opening_balance, 0) AS stock
@@ -86,19 +83,16 @@ async function getOperationalHealthSnapshot(propertyDb, outletId = 0) {
             replacements: { outletId },
             type: propertyDb.QueryTypes.SELECT
         });
-
         context.stockoutRiskItems = lowList || [];
-
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[LYNX OPERATE HEALTH SNAPSHOT ERROR]:', error.message);
     }
-
     return context;
 }
-
 async function getReorderAlerts(propertyDb, outletId = 0) {
-    if (!propertyDb) return [];
-
+    if (!propertyDb)
+        return [];
     try {
         // Compute 30-day sales velocity and suggested reorder quantity
         const reorderRes = await propertyDb.query(`
@@ -124,7 +118,6 @@ async function getReorderAlerts(propertyDb, outletId = 0) {
             replacements: { outletId },
             type: propertyDb.QueryTypes.SELECT
         });
-
         return (reorderRes || []).map(r => ({
             itemId: r.item_id,
             itemCode: r.item_code,
@@ -135,15 +128,15 @@ async function getReorderAlerts(propertyDb, outletId = 0) {
             dailyVelocity: parseFloat(r.daily_velocity || 0),
             suggestedReorderQty: parseInt(r.suggested_reorder_qty || 10)
         }));
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[LYNX OPERATE REORDER ALERTS ERROR]:', error.message);
         return [];
     }
 }
-
 async function getExpiryAlerts(propertyDb, outletId = 0, days = 60) {
-    if (!propertyDb) return [];
-
+    if (!propertyDb)
+        return [];
     try {
         const expiryRes = await propertyDb.query(`
             SELECT 
@@ -171,7 +164,6 @@ async function getExpiryAlerts(propertyDb, outletId = 0, days = 60) {
             replacements: { outletId, days: Number(days) || 60 },
             type: propertyDb.QueryTypes.SELECT
         });
-
         return (expiryRes || []).map(r => ({
             receiptItemId: r.receipt_item_id,
             itemCode: r.item_code,
@@ -185,13 +177,13 @@ async function getExpiryAlerts(propertyDb, outletId = 0, days = 60) {
             grnNo: r.grn_no || '',
             supplierName: r.supplier_name || 'N/A'
         }));
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[LYNX OPERATE EXPIRY ALERTS ERROR]:', error.message);
         return [];
     }
 }
-
-module.exports = {
+exports.default = {
     getOperationalHealthSnapshot,
     getReorderAlerts,
     getExpiryAlerts

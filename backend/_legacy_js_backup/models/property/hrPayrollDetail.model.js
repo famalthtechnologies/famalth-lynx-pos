@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const HrPayrollDetail = sequelize.define('hr_payroll_details', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -24,11 +25,9 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'hr_payroll_details',
         timestamps: false
     });
-
     HrPayrollDetail.associate = (models) => {
         HrPayrollDetail.belongsTo(models.hr_payroll_runs, { foreignKey: 'payroll_run_id', as: 'payrollRun' });
         HrPayrollDetail.belongsTo(models.hr_employees, { foreignKey: 'employee_id', as: 'employee' });
     };
-
     return HrPayrollDetail;
 };

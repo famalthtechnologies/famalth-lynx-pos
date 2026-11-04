@@ -230,6 +230,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       double.tryParse(value?.toString() ?? '0') ?? 0;
 
   bool _canRenewSubscription(Map<String, dynamic> subscription) {
+    final status = (subscription['status'] ?? '').toString().toUpperCase();
+    final isActive = subscription['active_subscription'] == true || status == 'ACTIVE';
+    // If subscription is EXHAUSTED, EXPIRED, SETTLED, or already inactive, allow immediate renewal
+    if (status == 'EXHAUSTED' || status == 'EXPIRED' || status == 'SETTLED' || !isActive) {
+      return true;
+    }
     final endDate = _parseDateOnly(subscription['end_date']);
     if (endDate == null) return false;
     final today = DateTime.now();
@@ -333,6 +339,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   bool _hasFutureRenewal(Map<String, dynamic> subscription) {
+    final status = (subscription['status'] ?? '').toString().toUpperCase();
+    if (status == 'EXHAUSTED' || status == 'CANCELLED') return false;
     final baseEnd = _parseDateOnly(subscription['end_date']);
     if (baseEnd == null) return false;
     final expectedStart = baseEnd.add(const Duration(days: 1));
@@ -341,6 +349,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       final rowId = int.tryParse(row['id']?.toString() ?? '') ?? 0;
       final baseId = int.tryParse(subscription['id']?.toString() ?? '') ?? 0;
       if (rowId == baseId) return false;
+      final rowStatus = (row['status'] ?? '').toString().toUpperCase();
+      if (rowStatus == 'CANCELLED' || rowStatus == 'EXHAUSTED') return false;
       final rowStart = _parseDateOnly(row['start_date']);
       if (rowStart == null) return false;
       return !rowStart.isBefore(expectedStart);
@@ -577,7 +587,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       return;
     }
 
-    final nextStart = endDate.add(const Duration(days: 1));
+    final status = (subscription['status'] ?? '').toString().toUpperCase();
+    final isExhausted = status == 'EXHAUSTED' || subscription['active_subscription'] == false;
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final nextStart = (isExhausted || endDate.isBefore(todayOnly))
+        ? todayOnly
+        : endDate.add(const Duration(days: 1));
     final nextEnd = nextStart.add(const Duration(days: 29));
     final dailyQty = _asDouble(subscription['daily_allowed_qty']);
     final item = _ctrl.items.cast<Item?>().firstWhere(
@@ -2175,6 +2191,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     required String daysLeft,
     required List<Map<String, dynamic>> schemes,
   }) {
+    final custPhone = (subscription['customer_phone'] ?? subscription['phone'] ?? '').toString().trim();
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
       elevation: 0,
@@ -2221,7 +2238,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                           alignment: Alignment.centerLeft,
                         ),
                         child: Text(
-                          '$cust - $itemName',
+                          custPhone.isNotEmpty ? '$cust ($custPhone) - $itemName' : '$cust - $itemName',
                           style: const TextStyle(
                             color: Color(0xFF1E3A8A),
                             fontSize: 15,
@@ -2239,6 +2256,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               spacing: 8,
               runSpacing: 8,
               children: [
+                if (custPhone.isNotEmpty)
+                  _ledgerInfoChip('📞 $custPhone'),
                 _ledgerInfoChip(
                   '${subscription['start_date']} to ${subscription['end_date']}',
                 ),

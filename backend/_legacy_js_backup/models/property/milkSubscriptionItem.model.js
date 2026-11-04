@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const MilkSubscriptionItem = sequelize.define('milk_subscription_items', {
         id: {
@@ -25,7 +26,6 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'milk_subscription_items',
         timestamps: false
     });
-
     MilkSubscriptionItem.associate = (models) => {
         MilkSubscriptionItem.belongsTo(models.milk_subscriptions, {
             foreignKey: 'subscription_id',
@@ -36,6 +36,5 @@ module.exports = (sequelize, DataTypes) => {
             as: 'item'
         });
     };
-
     return MilkSubscriptionItem;
 };

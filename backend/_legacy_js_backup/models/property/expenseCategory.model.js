@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const ExpenseCategory = sequelize.define('expense_categories', {
         id: {
@@ -27,7 +28,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     ExpenseCategory.associate = (models) => {
         ExpenseCategory.belongsTo(models.outlets, {
             foreignKey: 'outlet_id',
@@ -38,6 +38,5 @@ module.exports = (sequelize, DataTypes) => {
             as: 'user'
         });
     };
-
     return ExpenseCategory;
 };

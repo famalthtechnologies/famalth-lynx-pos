@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const BankAccount = sequelize.define('bank_accounts', {
         id: {
@@ -59,6 +61,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     return BankAccount;
 };
+exports.default = module.exports;

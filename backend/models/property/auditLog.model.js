@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('audit_logs', {
         outlet_id: DataTypes.INTEGER,
@@ -17,3 +19,4 @@ module.exports = (sequelize, DataTypes) => {
         updatedAt: false
     });
 };
+exports.default = module.exports;

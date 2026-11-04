@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const ExpenseTax = sequelize.define('expense_taxes', {
         id: {
@@ -27,12 +28,10 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'expense_taxes',
         timestamps: false
     });
-
     ExpenseTax.associate = (models) => {
         ExpenseTax.belongsTo(models.expenses, {
             foreignKey: 'expense_id'
         });
     };
-
     return ExpenseTax;
 };

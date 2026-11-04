@@ -1,10 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.renderUnsubscribePage = renderUnsubscribePage;
 function renderUnsubscribePage(req, res) {
     const rawEmail = (req.query.email || '').trim();
     const sanitizedEmail = rawEmail.replace(/[<>"']/g, '');
     const displayEmail = sanitizedEmail || 'your email address';
-
     console.log(`[Famalth Lynx] Unsubscribe request processed for: "${sanitizedEmail || 'unknown'}"`);
-
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -125,9 +126,7 @@ function renderUnsubscribePage(req, res) {
   </div>
 </body>
 </html>`;
-
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.status(200).send(html);
 }
-
 module.exports = { renderUnsubscribePage };

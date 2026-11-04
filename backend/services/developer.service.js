@@ -96,10 +96,16 @@ async function getWebhooks(propertyDb, outletId = 0) {
     await ensureDeveloperTables(propertyDb);
     if (propertyDb) {
         try {
-            const rows = await propertyDb.query(`SELECT id, outlet_id, topic, target_url, secret, is_active, failure_count, last_triggered_at, created_at
-                 FROM developer_webhooks
-                 WHERE outlet_id = $1 OR outlet_id = 0
-                 ORDER BY created_at DESC`, { bind: [outletId] });
+            const querySql = outletId > 0
+                ? `SELECT id, outlet_id, topic, target_url, secret, is_active, failure_count, last_triggered_at, created_at
+                   FROM developer_webhooks
+                   WHERE outlet_id = $1
+                   ORDER BY created_at DESC`
+                : `SELECT id, outlet_id, topic, target_url, secret, is_active, failure_count, last_triggered_at, created_at
+                   FROM developer_webhooks
+                   ORDER BY created_at DESC`;
+            const bindParams = outletId > 0 ? [outletId] : [];
+            const rows = await propertyDb.query(querySql, { bind: bindParams });
             if (rows[0]) {
                 return rows[0].map((r) => ({
                     id: r.id,
@@ -116,7 +122,7 @@ async function getWebhooks(propertyDb, outletId = 0) {
         }
         catch (_) { }
     }
-    return memoryWebhooks.filter(w => w.outletId === outletId || w.outletId === 0);
+    return memoryWebhooks.filter(w => outletId > 0 ? w.outletId === outletId : true);
 }
 async function registerWebhook(propertyDb, outletId = 0, topic, targetUrl) {
     if (!topic || !targetUrl) {
@@ -152,7 +158,11 @@ async function deleteWebhook(propertyDb, outletId = 0, webhookId) {
     await ensureDeveloperTables(propertyDb);
     if (propertyDb) {
         try {
-            await propertyDb.query(`DELETE FROM developer_webhooks WHERE id = $1 AND (outlet_id = $2 OR outlet_id = 0)`, { bind: [webhookId, outletId] });
+            const deleteSql = outletId > 0
+                ? `DELETE FROM developer_webhooks WHERE id = $1 AND outlet_id = $2`
+                : `DELETE FROM developer_webhooks WHERE id = $1`;
+            const bindParams = outletId > 0 ? [webhookId, outletId] : [webhookId];
+            await propertyDb.query(deleteSql, { bind: bindParams });
         }
         catch (_) { }
     }
@@ -243,10 +253,16 @@ async function getApiKeys(propertyDb, outletId = 0) {
     await ensureDeveloperTables(propertyDb);
     if (propertyDb) {
         try {
-            const rows = await propertyDb.query(`SELECT id, outlet_id, key_name, api_key, client_id, client_secret, scopes, is_active, last_used_at, created_at
-                 FROM developer_api_keys
-                 WHERE outlet_id = $1 OR outlet_id = 0
-                 ORDER BY created_at DESC`, { bind: [outletId] });
+            const querySql = outletId > 0
+                ? `SELECT id, outlet_id, key_name, api_key, client_id, client_secret, scopes, is_active, last_used_at, created_at
+                   FROM developer_api_keys
+                   WHERE outlet_id = $1
+                   ORDER BY created_at DESC`
+                : `SELECT id, outlet_id, key_name, api_key, client_id, client_secret, scopes, is_active, last_used_at, created_at
+                   FROM developer_api_keys
+                   ORDER BY created_at DESC`;
+            const bindParams = outletId > 0 ? [outletId] : [];
+            const rows = await propertyDb.query(querySql, { bind: bindParams });
             if (rows[0] && rows[0].length > 0) {
                 return rows[0].map((r) => ({
                     id: r.id,
@@ -264,7 +280,7 @@ async function getApiKeys(propertyDb, outletId = 0) {
         }
         catch (_) { }
     }
-    return memoryApiKeys.filter(k => k.outletId === outletId || k.outletId === 0);
+    return memoryApiKeys.filter(k => outletId > 0 ? k.outletId === outletId : true);
 }
 async function generateApiKey(propertyDb, outletId = 0, keyName, scopes) {
     await ensureDeveloperTables(propertyDb);
@@ -313,7 +329,11 @@ async function deleteApiKey(propertyDb, outletId = 0, keyId) {
     await ensureDeveloperTables(propertyDb);
     if (propertyDb) {
         try {
-            await propertyDb.query(`DELETE FROM developer_api_keys WHERE id = $1 AND (outlet_id = $2 OR outlet_id = 0)`, { bind: [keyId, outletId] });
+            const deleteSql = outletId > 0
+                ? `DELETE FROM developer_api_keys WHERE id = $1 AND outlet_id = $2`
+                : `DELETE FROM developer_api_keys WHERE id = $1`;
+            const bindParams = outletId > 0 ? [keyId, outletId] : [keyId];
+            await propertyDb.query(deleteSql, { bind: bindParams });
         }
         catch (_) { }
     }

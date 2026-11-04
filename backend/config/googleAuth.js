@@ -1,11 +1,12 @@
-// const { google } = require("googleapis");
-
+"use strict";
+// import { google } from 'googleapis';
+//
 // const auth = new google.auth.GoogleAuth({
-//     keyFile: "./config/service-account.json",
+//     keyFile: './config/service-account.json',
 //     scopes: [
-//         "https://www.googleapis.com/auth/drive",
-//         "https://www.googleapis.com/auth/spreadsheets"
+//         'https://www.googleapis.com/auth/drive',
+//         'https://www.googleapis.com/auth/spreadsheets'
 //     ],
 // });
-
-// module.exports = auth;
+//
+// export default auth;

@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('sales_schemes', {
         outlet_id: DataTypes.INTEGER,

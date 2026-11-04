@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('users', {
         username: { type: DataTypes.STRING, allowNull: false },
@@ -5,7 +6,6 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.INTEGER,
             allowNull: false
         },
-
         password_hash: DataTypes.TEXT,
         full_name: DataTypes.STRING,
         mobile: DataTypes.STRING,

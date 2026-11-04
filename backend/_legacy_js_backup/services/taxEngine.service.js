@@ -1,6 +1,7 @@
+"use strict";
 /**
  * Universal Multi-Country Dynamic Tax Calculation Engine
- * 
+ *
  * Supports:
  * - USA: Multi-stacked composite sales tax (State + County + City + Transit District)
  * - Kenya: VAT 16% + CTL 2% (Catering Levy)
@@ -11,53 +12,42 @@
  * - Japan: Japanese Consumption Tax (JCT) 10%/8%
  * - Australia: GST 10% Inclusive
  */
-
 function formatRate(val) {
     const num = Number(val || 0);
     return Number.isInteger(num) ? num.toString() : num.toFixed(2);
 }
-
-function computeTaxBreakdown({
-    taxableAmount,
-    taxPercent,
-    taxType,
-    taxMode = 'EXCLUSIVE',
-    taxGroupComponents = [],
-    isTaxInclusive = false
-}) {
+function computeTaxBreakdown({ taxableAmount, taxPercent, taxType, taxMode = 'EXCLUSIVE', taxGroupComponents = [], isTaxInclusive = false }) {
     if (taxableAmount <= 0) {
         return [];
     }
-
     // 1. If explicit multi-component Tax Group is present
     if (Array.isArray(taxGroupComponents) && taxGroupComponents.length > 0) {
         const sortedComponents = [...taxGroupComponents].sort((a, b) => (a.calculation_order || 1) - (b.calculation_order || 1));
         const results = [];
         let runningTaxable = taxableAmount;
-
         for (const comp of sortedComponents) {
             const rate = Number(comp.rate || 0);
-            if (rate <= 0) continue;
-
+            if (rate <= 0)
+                continue;
             const calcType = comp.calculation_type || 'FLAT_PERCENT';
             let compTaxable = taxableAmount;
             let compTax = 0;
-
             if (calcType === 'COMPOUND_ON_SUBTOTAL') {
                 compTaxable = runningTaxable;
                 compTax = compTaxable * (rate / 100);
                 runningTaxable += compTax;
-            } else if (calcType === 'PERCENT_OF_TAX') {
+            }
+            else if (calcType === 'PERCENT_OF_TAX') {
                 const prevTaxSum = results.reduce((acc, r) => acc + r.tax_amount, 0);
                 compTaxable = prevTaxSum;
                 compTax = prevTaxSum * (rate / 100);
-            } else {
+            }
+            else {
                 // FLAT_PERCENT
                 compTaxable = taxableAmount;
                 compTax = taxableAmount * (rate / 100);
                 runningTaxable += compTax;
             }
-
             results.push({
                 code: comp.component_code || 'TAX',
                 label: `${comp.component_name || comp.component_code} (${formatRate(rate)}%)`,
@@ -69,14 +59,12 @@ function computeTaxBreakdown({
         }
         return results;
     }
-
     // 2. Fallback to legacy single-rate resolution by taxType / taxMode
     const normalizedType = String(taxType || 'GST').toUpperCase();
     const rate = Number(taxPercent || 0);
-    if (rate <= 0) return [];
-
+    if (rate <= 0)
+        return [];
     const taxAmount = taxableAmount * (rate / 100);
-
     switch (normalizedType) {
         case 'VAT_CTL': {
             const ctlRate = 2.0;
@@ -207,7 +195,6 @@ function computeTaxBreakdown({
         }
     }
 }
-
 module.exports = {
     computeTaxBreakdown
 };

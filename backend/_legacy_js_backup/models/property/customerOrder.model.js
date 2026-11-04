@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const CustomerOrder = sequelize.define('customer_orders', {
         id: {
@@ -173,13 +174,11 @@ module.exports = (sequelize, DataTypes) => {
         timestamps: true,
         underscored: true
     });
-
     CustomerOrder.associate = (models) => {
         CustomerOrder.belongsTo(models.delivery_partners, {
             foreignKey: 'assigned_partner_id',
             as: 'partner'
         });
     };
-
     return CustomerOrder;
 };

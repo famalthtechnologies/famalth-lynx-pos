@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const SupplierReturnItem = sequelize.define('supplier_return_items', {
         return_id: DataTypes.INTEGER,
@@ -13,23 +14,19 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'supplier_return_items',
         timestamps: false
     });
-
     SupplierReturnItem.associate = (models) => {
         SupplierReturnItem.belongsTo(models.supplier_return_headers, {
             foreignKey: 'return_id',
             as: 'return_header'
         });
-
         SupplierReturnItem.belongsTo(models.goods_receipt_items, {
             foreignKey: 'receipt_item_id',
             as: 'receipt_item'
         });
-
         SupplierReturnItem.belongsTo(models.item_master, {
             foreignKey: 'item_id',
             as: 'item_master'
         });
     };
-
     return SupplierReturnItem;
 };

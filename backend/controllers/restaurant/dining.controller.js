@@ -1,11 +1,13 @@
-const { Op } = require('sequelize');
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.bookTablePublic = exports.payCustomerDiningBill = exports.getPublicDiningTables = exports.resolveWaiterCall = exports.getActiveWaiterCalls = exports.callTableWaiter = exports.placeCustomerDiningOrder = exports.registerCustomerDiningProfile = exports.verifyCustomerDiningOtp = exports.requestCustomerDiningOtp = exports.getTableDiningInfo = exports.diningWaiterCalls = void 0;
+const sequelize_1 = require("sequelize");
 const { sendOtpEmail } = require('../../modules/emailService');
 const numberingHelper = require('../inventory/numberingSettingsV2.controller');
 const audit = require('../../services/audit.service');
-
 const diningOtpStore = new Map();
-const diningWaiterCalls = [];
-
+exports.diningWaiterCalls = [];
+/* Helper to resolve outlet ID from query / body / token */
 async function resolveOutletId(req) {
     let raw = req.user?.outlet_id || req.query?.outlet_id || req.body?.outlet_id || req.query?.outlet || req.body?.outlet;
     if (!raw) {
@@ -18,19 +20,21 @@ async function resolveOutletId(req) {
     }
     return Number(raw);
 }
-
-exports.getTableDiningInfo = async (req, res) => {
+/**
+ * 1. GET /api/public/dining/table-info
+ * Returns restaurant branding, table info, categories, and item catalog
+ */
+const getTableDiningInfo = async (req, res) => {
     try {
         let outlet_id = await resolveOutletId(req);
         if (!outlet_id) {
             return res.status(400).json({ success: false, message: 'Valid outlet is required' });
         }
-
         const table_id = req.query.table_id || req.query.table;
         if (!table_id) {
             return res.status(400).json({ success: false, message: 'Table ID is required' });
         }
-
+        // Fetch Table details - check with outlet_id first, fallback to table_id alone if outlet_id mismatched in QR URL
         let table = await req.propertyDb.models.restaurant_tables.findOne({
             where: { id: table_id, outlet_id },
             include: [
@@ -40,7 +44,6 @@ exports.getTableDiningInfo = async (req, res) => {
                 { model: req.propertyDb.models.hr_employees, as: 'waiter', attributes: [['full_name', 'employee_name']], required: false }
             ]
         });
-
         if (!table) {
             table = await req.propertyDb.models.restaurant_tables.findByPk(table_id, {
                 include: [
@@ -54,19 +57,18 @@ exports.getTableDiningInfo = async (req, res) => {
                 outlet_id = table.outlet_id;
             }
         }
-
         if (!table) {
             return res.status(404).json({ success: false, message: 'Table not found in this outlet' });
         }
-
-        const propInfo = await req.propertyDb.models.property_info.findOne({ where: { outlet_id } });
+        // Fetch Property & Branding Info
+        const propInfo = await req.propertyDb.models.property_info.findOne({
+            where: { outlet_id }
+        });
         const outlet = await req.propertyDb.models.outlets.findByPk(outlet_id);
-
         let branding = null;
         if (req.propertyDb.models.app_branding) {
             branding = await req.propertyDb.models.app_branding.findOne({ where: { outlet_id } });
         }
-
         let allowNegativeStock = false;
         let baseCurrencySymbol = '₹';
         let baseCurrencyCode = 'INR';
@@ -74,14 +76,12 @@ exports.getTableDiningInfo = async (req, res) => {
         let enablePaymentGateway = false;
         let paymentGatewayProvider = 'SANDBOX';
         let merchantUpiId = '';
-
         if (propInfo && propInfo.currency_symbol) {
             baseCurrencySymbol = propInfo.currency_symbol;
         }
         if (propInfo && propInfo.currency_code) {
             baseCurrencyCode = propInfo.currency_code;
         }
-
         if (req.propertyDb && req.propertyDb.models.system_settings) {
             let sysSettings = null;
             if (outlet_id) {
@@ -91,42 +91,45 @@ exports.getTableDiningInfo = async (req, res) => {
                 sysSettings = await req.propertyDb.models.system_settings.findOne({ order: [['id', 'ASC']] });
             }
             if (sysSettings) {
-                if (sysSettings.allow_negative_stock) allowNegativeStock = true;
-                
+                if (sysSettings.allow_negative_stock)
+                    allowNegativeStock = true;
                 const isKenya = String(sysSettings.billing_country || '').trim().toLowerCase() === 'kenya';
                 let rawSym = (sysSettings.base_currency_symbol || '').trim();
                 let rawCode = (sysSettings.base_currency_code || '').trim();
-
                 // If KSh was assigned by migration default and country is not Kenya, discard it
                 if (rawSym === 'KSh' && !isKenya) {
                     rawSym = '';
                     rawCode = '';
                 }
-
                 if (rawSym) {
                     baseCurrencySymbol = rawSym;
-                } else if (String(sysSettings.billing_country || '').toLowerCase() === 'india') {
+                }
+                else if (String(sysSettings.billing_country || '').toLowerCase() === 'india') {
                     baseCurrencySymbol = '₹';
                     baseCurrencyCode = 'INR';
                 }
-
                 if (rawCode) {
                     baseCurrencyCode = rawCode;
                 }
-
-                if (sysSettings.billing_tax_mode) billingTaxMode = sysSettings.billing_tax_mode;
+                if (sysSettings.billing_tax_mode)
+                    billingTaxMode = sysSettings.billing_tax_mode;
                 enablePaymentGateway = sysSettings.enable_payment_gateway === true || sysSettings.enable_payment_gateway === 1 || String(sysSettings.enable_payment_gateway) === 'true';
-                if (sysSettings.payment_gateway_provider) paymentGatewayProvider = sysSettings.payment_gateway_provider;
-                if (sysSettings.merchant_upi_id) merchantUpiId = sysSettings.merchant_upi_id;
+                if (sysSettings.payment_gateway_provider)
+                    paymentGatewayProvider = sysSettings.payment_gateway_provider;
+                if (sysSettings.merchant_upi_id)
+                    merchantUpiId = sysSettings.merchant_upi_id;
             }
         }
-
+        // Fetch Active Menu Items
         const items = await req.propertyDb.models.item_master.findAll({
-            where: { outlet_id, is_active: true },
+            where: {
+                outlet_id,
+                is_active: true
+            },
             attributes: [
                 'id', 'item_name', 'item_code', 'item_group', 'sub_category', 'brand', 'unit',
                 'rate', 'retail_sale_price', 'mrp', 'food_type', 'dietary_type', 'is_veg',
-                'image_path',
+                'image_path', 'location',
                 'tax_percent', 'tax_type', 'tax_group_id', 'is_tax_inclusive', 'is_modifier', 'applicable_item_ids', 'deduct_raw_item_id',
                 'deduct_qty', 'stockable', 'is_saleable', 'opening_balance'
             ],
@@ -138,9 +141,11 @@ exports.getTableDiningInfo = async (req, res) => {
                     required: false
                 }
             ],
-            order: [['item_group', 'ASC'], ['item_name', 'ASC']]
+            order: [
+                ['item_group', 'ASC'],
+                ['item_name', 'ASC']
+            ]
         });
-
         // Get the latest balances from stock_ledger for all items in this outlet
         const ledgerStockMap = {};
         try {
@@ -156,14 +161,13 @@ exports.getTableDiningInfo = async (req, res) => {
             `, {
                 replacements: { outlet_id }
             });
-
             for (const row of ledgerStockRows || []) {
                 ledgerStockMap[row.item_code] = Number(row.balance);
             }
-        } catch (e) {
+        }
+        catch (e) {
             console.warn('Dining getTableDiningInfo stock ledger query warning:', e);
         }
-
         // Calculate dynamic held stock from active KOTs
         const heldStockMap = {};
         try {
@@ -179,26 +183,25 @@ exports.getTableDiningInfo = async (req, res) => {
             `, {
                 replacements: { outlet_id }
             });
-
             for (const row of heldStockRows || []) {
                 heldStockMap[Number(row.item_id)] = Number(row.held_qty);
             }
-        } catch (e) {
+        }
+        catch (e) {
             console.warn('Dining getTableDiningInfo held stock query warning:', e);
         }
-
+        // Format items to resolve effective tax from tax_group if present and central stock status
         const formattedCatalogItems = items.map((it) => {
             const plain = it.get ? it.get({ plain: true }) : it;
             const tg = plain.tax_group;
             const effectiveTaxPercent = tg ? Number(tg.total_rate) : (Number(plain.tax_percent) || 0);
+            const isTaxInclusive = tg ? (tg.is_tax_inclusive === true || tg.is_tax_inclusive === 1 || String(tg.is_tax_inclusive) === 'true') : (plain.is_tax_inclusive === true || plain.is_tax_inclusive === 1 || String(plain.is_tax_inclusive) === 'true');
             const isStockable = plain.stockable === true || plain.stockable === 1 || String(plain.stockable) === 'true';
-
             const heldQty = heldStockMap[plain.id] || 0;
             const currentStock = ledgerStockMap[plain.item_code] !== undefined
                 ? ledgerStockMap[plain.item_code]
                 : Number(plain.opening_balance || 0);
             const availableStock = Math.max(0, currentStock - heldQty);
-
             const isOutOfStock = isStockable && availableStock <= 0 && !allowNegativeStock;
             const sellingPrice = Number(plain.retail_sale_price) || Number(plain.rate) || Number(plain.mrp) || 0;
             return {
@@ -213,19 +216,17 @@ exports.getTableDiningInfo = async (req, res) => {
                 is_out_of_stock: isOutOfStock,
                 tax_percent: effectiveTaxPercent,
                 tax_group_name: tg ? tg.group_name : (effectiveTaxPercent > 0 ? `GST ${effectiveTaxPercent}%` : 'Tax Free'),
-                is_tax_inclusive: tg ? (tg.is_tax_inclusive === true || tg.is_tax_inclusive === 1 || String(tg.is_tax_inclusive) === 'true') : (plain.is_tax_inclusive === true || plain.is_tax_inclusive === 1 || String(plain.is_tax_inclusive) === 'true')
+                is_tax_inclusive: isTaxInclusive
             };
         });
-
+        // Group categories
         const categoriesSet = new Set();
-        formattedCatalogItems.forEach(it => {
+        formattedCatalogItems.forEach((it) => {
             if (it.item_group && it.item_group.trim().length > 0) {
                 categoriesSet.add(it.item_group.trim());
             }
         });
         const categories = Array.from(categoriesSet);
-
-        // Fetch orders ONLY for this logged in customer on this table
         // Fetch active KOT orders for this table today
         const customer_id = req.query.customer_id ? String(req.query.customer_id).trim() : '';
         const customer_name = req.query.customer_name ? String(req.query.customer_name).trim().toLowerCase() : '';
@@ -233,18 +234,16 @@ exports.getTableDiningInfo = async (req, res) => {
         const customer_email = req.query.customer_email ? String(req.query.customer_email).trim().toLowerCase() : '';
         const seat = req.query.seat ? String(req.query.seat).trim().toLowerCase() : '';
         const client_tag = req.query.client_tag ? String(req.query.client_tag).trim().toLowerCase() : '';
-
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
-
         const allTableKots = await req.propertyDb.models.kot_headers.findAll({
             where: {
                 table_id,
                 outlet_id,
-                status: { [Op.notIn]: ['Cancelled', 'cancelled', 'Rejected'] },
-                [Op.or]: [
-                    { created_time: { [Op.gte]: todayStart } },
-                    { created_at: { [Op.gte]: todayStart } }
+                status: { [sequelize_1.Op.notIn]: ['Cancelled', 'cancelled', 'Rejected'] },
+                [sequelize_1.Op.or]: [
+                    { created_time: { [sequelize_1.Op.gte]: todayStart } },
+                    { created_at: { [sequelize_1.Op.gte]: todayStart } }
                 ]
             },
             include: [
@@ -269,7 +268,11 @@ exports.getTableDiningInfo = async (req, res) => {
                         }
                     ]
                 },
-                { model: req.propertyDb.models.kot_revisions, as: 'revisions', required: false },
+                {
+                    model: req.propertyDb.models.kot_revisions,
+                    as: 'revisions',
+                    required: false
+                },
                 {
                     model: req.propertyDb.models.sales_headers,
                     as: 'sales_header',
@@ -285,20 +288,16 @@ exports.getTableDiningInfo = async (req, res) => {
             ],
             order: [['id', 'DESC']]
         });
-
-        // Format items with real rate, tax group taxes and line totals
+        // Format items with real rate, tax group taxes and line totals for all table KOTs
         const allFormattedKots = allTableKots.map((kot) => {
             const plainKot = kot.get ? kot.get({ plain: true }) : kot;
             let subtotal = 0;
             let taxableTotal = 0;
             let totalTax = 0;
-            let inclusiveTaxTotal = 0;
-            let exclusiveTaxTotal = 0;
-
+            let grandTotal = 0;
             const formattedItems = (plainKot.items || []).map((it) => {
                 const im = it.item || {};
                 let rate = Number(im.retail_sale_price || im.rate || im.mrp || 0);
-
                 // Check revision snapshot if rate was 0 in item_master
                 if (rate === 0 && plainKot.revisions && plainKot.revisions.length > 0) {
                     const revItems = plainKot.revisions[0]?.snapshot?.items || [];
@@ -307,29 +306,29 @@ exports.getTableDiningInfo = async (req, res) => {
                         rate = Number(matched.price || matched.rate || matched.base_price || 0);
                     }
                 }
-
                 const tg = im.tax_group;
                 const taxPercent = tg ? Number(tg.total_rate) : Number(im.tax_percent || 0);
                 const isInclusive = tg ? (tg.is_tax_inclusive === true || tg.is_tax_inclusive === 1 || String(tg.is_tax_inclusive) === 'true') : (im.is_tax_inclusive === true || im.is_tax_inclusive === 1 || String(im.is_tax_inclusive) === 'true');
                 const taxGroupName = tg ? tg.group_name : (taxPercent > 0 ? `GST ${taxPercent}%` : '');
-
                 const qty = Number(it.qty || 1);
-                const lineSubtotal = rate * qty;
-                let lineTaxable = lineSubtotal;
+                const lineGross = rate * qty;
                 let lineTax = 0;
-                if (isInclusive) {
-                    lineTaxable = lineSubtotal / (1 + (taxPercent / 100));
-                    lineTax = lineSubtotal - lineTaxable;
-                    inclusiveTaxTotal += lineTax;
-                } else {
-                    lineTax = (lineSubtotal * taxPercent) / 100;
-                    exclusiveTaxTotal += lineTax;
+                let lineTaxable = lineGross;
+                if (isInclusive && taxPercent > 0) {
+                    lineTaxable = lineGross / (1 + (taxPercent / 100));
+                    lineTax = lineGross - lineTaxable;
+                    grandTotal += lineGross;
                 }
-
-                subtotal += lineSubtotal;
+                else if (taxPercent > 0) {
+                    lineTax = (lineGross * taxPercent) / 100;
+                    grandTotal += (lineGross + lineTax);
+                }
+                else {
+                    grandTotal += lineGross;
+                }
+                subtotal += lineGross;
                 taxableTotal += lineTaxable;
                 totalTax += lineTax;
-
                 return {
                     ...it,
                     price: rate,
@@ -338,30 +337,24 @@ exports.getTableDiningInfo = async (req, res) => {
                     tax_percent: taxPercent,
                     tax_group_name: taxGroupName,
                     is_tax_inclusive: isInclusive,
-                    taxable_amount: lineTaxable,
                     tax_amount: lineTax,
-                    line_total: isInclusive ? lineSubtotal : (lineSubtotal + lineTax)
+                    taxable_amount: lineTaxable,
+                    line_total: isInclusive ? lineGross : (lineGross + lineTax)
                 };
             });
-
-            const finalTotal = subtotal + exclusiveTaxTotal;
+            const finalTotal = grandTotal;
             const remarks = plainKot.remarks || '';
             const isPaidInRemarks = remarks.includes('[PAID') || remarks.includes('[SETTLED]');
             const statusLower = (plainKot.status || '').toLowerCase();
-            
             const sale = plainKot.sales_header;
-            const isSaleSettled = sale && (
-                (sale.status || '').toLowerCase() === 'completed' ||
+            const isSaleSettled = sale && ((sale.status || '').toLowerCase() === 'completed' ||
                 (sale.status || '').toLowerCase() === 'paid' ||
                 (sale.status || '').toLowerCase() === 'settled' ||
-                Number(sale.balance_due ?? 0) <= 0.01
-            );
+                Number(sale.balance_due ?? 0) <= 0.01);
             const isSettled = isSaleSettled || isPaidInRemarks || statusLower === 'settled' || statusLower === 'paid' || statusLower === 'closed';
-
             // Extract payment mode from sale or remarks e.g. [MODE:UPI]
             const modeMatch = remarks.match(/\[MODE:([^\]]+)\]/i);
             const paymentMode = (sale && sale.payment_mode) ? sale.payment_mode : (modeMatch ? modeMatch[1] : (isPaidInRemarks ? 'ONLINE' : (plainKot.payment_mode || '')));
-
             const subtotalAmount = sale && sale.sub_total !== undefined ? Number(sale.sub_total) : subtotal;
             const taxableAmount = sale && sale.taxable_amount !== undefined ? Number(sale.taxable_amount) : taxableTotal;
             const taxAmount = sale && sale.total_tax !== undefined ? Number(sale.total_tax) : totalTax;
@@ -374,39 +367,38 @@ exports.getTableDiningInfo = async (req, res) => {
             const taxBreakup = sale && sale.tax_breakup ? sale.tax_breakup : null;
             const roundOffAmount = sale && sale.round_off_amount !== undefined ? Number(sale.round_off_amount) : 0;
             const totalAmount = sale && sale.net_amount !== undefined ? Number(sale.net_amount) : (finalTotal > 0 ? finalTotal : Number(plainKot.revisions?.[0]?.snapshot?.totalAmount || 0));
-
             // Extract seat number & customer name from remarks/sub_table/snapshot
             let seatNum = '';
             if (plainKot.sub_table) {
                 const sMatch = String(plainKot.sub_table).match(/\d+/);
-                if (sMatch) seatNum = sMatch[0];
+                if (sMatch)
+                    seatNum = sMatch[0];
             }
             if (!seatNum) {
                 const sMatch2 = remarks.match(/\[Seat:\s*([^\]]+)\]/i);
-                if (sMatch2) seatNum = sMatch2[1].replace(/seat/i, '').trim();
+                if (sMatch2)
+                    seatNum = sMatch2[1].replace(/seat/i, '').trim();
             }
-
             let custName = '';
             if (remarks.includes('Customer Self-Order (QR):')) {
                 const after = remarks.split('Customer Self-Order (QR):')[1]?.trim() || '';
                 const p1 = after.split('(')[0]?.trim() || '';
-                if (p1 && p1.toLowerCase() !== 'guest') custName = p1;
+                if (p1 && p1.toLowerCase() !== 'guest')
+                    custName = p1;
             }
             if (!custName && plainKot.revisions?.[0]?.snapshot?.customer_name) {
                 custName = String(plainKot.revisions[0].snapshot.customer_name).trim();
             }
-
             let custPhone = '';
             const phoneMatch = remarks.match(/\((\d{7,15})\)/);
-            if (phoneMatch) custPhone = phoneMatch[1];
+            if (phoneMatch)
+                custPhone = phoneMatch[1];
             if (!custPhone && plainKot.revisions?.[0]?.snapshot?.customer_phone) {
                 custPhone = String(plainKot.revisions[0].snapshot.customer_phone).trim();
             }
-
             const effectiveClientTag = (plainKot.client_tag && plainKot.client_tag.trim().length > 0)
                 ? plainKot.client_tag.trim()
                 : (seatNum ? `Bill ${seatNum}` : 'Bill 1');
-
             return {
                 ...plainKot,
                 client_tag: effectiveClientTag,
@@ -451,8 +443,7 @@ exports.getTableDiningInfo = async (req, res) => {
                 } : null
             };
         });
-
-        // Group into distinct seat/client bills breakdown
+        // Compute distinct seat/client bills breakdown on this table
         const billsMap = new Map();
         for (const kot of allFormattedKots) {
             const tag = (kot.client_tag || 'Bill 1').trim();
@@ -495,33 +486,31 @@ exports.getTableDiningInfo = async (req, res) => {
             b.kots.push(kot);
         }
         const tableBills = Array.from(billsMap.values());
-
         // Filter activeKots for this specific seat or customer
         let activeKots = [];
         if (client_tag) {
             activeKots = allFormattedKots.filter(k => (k.client_tag || '').toLowerCase() === client_tag);
-        } else if (seat) {
-            activeKots = allFormattedKots.filter(k =>
-                (k.seat && k.seat.toLowerCase() === seat) ||
+        }
+        else if (seat) {
+            activeKots = allFormattedKots.filter(k => (k.seat && k.seat.toLowerCase() === seat) ||
                 (k.sub_table && k.sub_table.toLowerCase().includes(seat)) ||
-                (k.client_tag && k.client_tag.toLowerCase().includes(`bill ${seat}`))
-            );
-        } else if (customer_id || customer_name || customer_phone || customer_email) {
+                (k.client_tag && k.client_tag.toLowerCase().includes(`bill ${seat}`)));
+        }
+        else if (customer_id || customer_name || customer_phone || customer_email) {
             activeKots = allFormattedKots.filter((kot) => {
                 const remarks = (kot.remarks || '').toLowerCase();
                 const snapshotStr = kot.revisions && kot.revisions.length > 0 ? JSON.stringify(kot.revisions).toLowerCase() : '';
-
                 const matchesName = customer_name && customer_name.length > 1 && (remarks.includes(customer_name) || snapshotStr.includes(customer_name));
                 const matchesPhone = customer_phone && customer_phone.length > 4 && (remarks.includes(customer_phone) || snapshotStr.includes(customer_phone));
                 const matchesEmail = customer_email && customer_email.length > 3 && (remarks.includes(customer_email) || snapshotStr.includes(customer_email));
                 const matchesId = customer_id && (remarks.includes(`cid:${customer_id}`) || snapshotStr.includes(`"customer_id":${customer_id}`) || snapshotStr.includes(`"customer_id":"${customer_id}"`));
-
                 return matchesName || matchesPhone || matchesEmail || matchesId;
             });
-        } else {
+        }
+        else {
+            // General table session with no specific seat/bill filter requested
             activeKots = allFormattedKots;
         }
-
         // Compute combined table bill for the entire session
         let tableSubtotal = 0;
         let tableTax = 0;
@@ -529,7 +518,6 @@ exports.getTableDiningInfo = async (req, res) => {
         let totalItemCount = 0;
         let allSettled = activeKots.length > 0;
         let tableBillNo = '';
-
         for (const kot of activeKots) {
             tableSubtotal += Number(kot.subtotal_amount || 0);
             tableTax += Number(kot.tax_amount || 0);
@@ -542,7 +530,6 @@ exports.getTableDiningInfo = async (req, res) => {
                 tableBillNo = kot.bill_no;
             }
         }
-
         const tableBill = activeKots.length > 0 ? {
             bill_no: tableBillNo,
             total_orders: activeKots.length,
@@ -553,7 +540,6 @@ exports.getTableDiningInfo = async (req, res) => {
             is_settled: allSettled,
             payment_status: allSettled ? 'PAID' : 'UNPAID'
         } : null;
-
         return res.json({
             success: true,
             data: {
@@ -591,23 +577,31 @@ exports.getTableDiningInfo = async (req, res) => {
                 table_bill: tableBill
             }
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[GET TABLE DINING INFO ERR]', err);
         return res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.requestCustomerDiningOtp = async (req, res) => {
+exports.getTableDiningInfo = getTableDiningInfo;
+/**
+ * 2. POST /api/public/dining/request-otp
+ * Dispatches 6-digit verification code to customer email
+ */
+const requestCustomerDiningOtp = async (req, res) => {
     try {
-        const { email, is_registration } = req.body;
-        const outlet_id = await resolveOutletId(req);
-
+        const { email, is_registration, table_id } = req.body;
+        let outlet_id = await resolveOutletId(req);
+        if (table_id) {
+            const tblCheck = await req.propertyDb.models.restaurant_tables.findByPk(table_id);
+            if (tblCheck && tblCheck.outlet_id) {
+                outlet_id = Number(tblCheck.outlet_id);
+            }
+        }
         if (!email || !email.includes('@')) {
             return res.status(400).json({ success: false, message: 'Please provide a valid email address' });
         }
-
         const cleanEmail = email.toLowerCase().trim();
-
         // Search for existing customer by email in outlet
         let customer = null;
         if (req.propertyDb && req.propertyDb.models.customers) {
@@ -621,12 +615,11 @@ exports.requestCustomerDiningOtp = async (req, res) => {
                 customer = await req.propertyDb.models.customers.findOne({
                     where: {
                         outlet_id,
-                        customer_address: { [Op.like]: `%${cleanEmail}%` }
+                        customer_address: { [sequelize_1.Op.like]: `%${cleanEmail}%` }
                     }
                 });
             }
         }
-
         // If customer is attempting to Login with OTP, but has never registered
         if (!is_registration && !customer) {
             return res.status(404).json({
@@ -635,25 +628,23 @@ exports.requestCustomerDiningOtp = async (req, res) => {
                 message: 'No account found for this email. Please register first with your name and phone number to continue.'
             });
         }
-
+        // Generate 6 digit OTP
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
         const storeKey = `${cleanEmail}_${outlet_id || 0}`;
-
         diningOtpStore.set(storeKey, {
             otp,
-            expiresAt: Date.now() + 10 * 60 * 1000,
+            expiresAt: Date.now() + 10 * 60 * 1000, // 10 mins
             email: cleanEmail,
             outletId: outlet_id || 0
         });
-
+        // Get restaurant name for email
         let restaurantName = 'Table Dining Self-Order';
         if (outlet_id && req.propertyDb) {
             const propInfo = await req.propertyDb.models.property_info.findOne({ where: { outlet_id } });
-            if (propInfo && propInfo.property_name) restaurantName = propInfo.property_name;
+            if (propInfo && propInfo.property_name)
+                restaurantName = propInfo.property_name;
         }
-
         await sendOtpEmail(cleanEmail, otp, `${restaurantName} - Table Dining Verification`);
-
         if (is_registration && customer) {
             return res.json({
                 success: true,
@@ -661,53 +652,55 @@ exports.requestCustomerDiningOtp = async (req, res) => {
                 message: `You are already registered! Login verification code sent to ${cleanEmail}.`
             });
         }
-
         return res.json({
             success: true,
             message: `Verification code sent to ${cleanEmail}. Valid for 10 minutes.`
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[REQUEST DINING OTP ERR]', err);
         return res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.verifyCustomerDiningOtp = async (req, res) => {
+exports.requestCustomerDiningOtp = requestCustomerDiningOtp;
+/**
+ * 3. POST /api/public/dining/verify-otp
+ * Verifies code; checks if customer already exists in DB
+ */
+const verifyCustomerDiningOtp = async (req, res) => {
     try {
         const { email, otp } = req.body;
         const outlet_id = await resolveOutletId(req);
-
         if (!email || !otp) {
             return res.status(400).json({ success: false, message: 'Email and OTP are required' });
         }
-
         const storeKey = `${email.toLowerCase().trim()}_${outlet_id || 0}`;
         const stored = diningOtpStore.get(storeKey);
-
+        // Verify OTP
         if (!stored || stored.otp !== otp.toString().trim() || Date.now() > stored.expiresAt) {
+            // Check master bypass/test OTP for development if needed
             if (otp !== '999999') {
                 return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
             }
         }
-
+        // Clean OTP after successful verification
         diningOtpStore.delete(storeKey);
-
+        // Search for existing customer by email in outlet
         let customer = await req.propertyDb.models.customers.findOne({
             where: {
                 outlet_id,
                 customer_email: email.toLowerCase().trim()
             }
         });
-
+        // If not found by email, check if any customer has matching phone or note
         if (!customer) {
             customer = await req.propertyDb.models.customers.findOne({
                 where: {
                     outlet_id,
-                    customer_address: { [Op.like]: `%${email.toLowerCase().trim()}%` }
+                    customer_address: { [sequelize_1.Op.like]: `%${email.toLowerCase().trim()}%` }
                 }
             });
         }
-
         if (customer) {
             return res.json({
                 success: true,
@@ -723,28 +716,31 @@ exports.verifyCustomerDiningOtp = async (req, res) => {
                 token: `DINING_${customer.id}_${Date.now()}`
             });
         }
-
         return res.json({
             success: true,
             is_registered: false,
             message: 'OTP verified! Please complete your quick profile to place your order.',
             email: email.toLowerCase().trim()
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[VERIFY DINING OTP ERR]', err);
         return res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.registerCustomerDiningProfile = async (req, res) => {
+exports.verifyCustomerDiningOtp = verifyCustomerDiningOtp;
+/**
+ * 4. POST /api/public/dining/register-profile
+ * Creates customer in database for the outlet and logs them in
+ */
+const registerCustomerDiningProfile = async (req, res) => {
     try {
         const { name, phone, email, address } = req.body;
         const outlet_id = await resolveOutletId(req);
-
         if (!name || (!phone && !email)) {
             return res.status(400).json({ success: false, message: 'Name and at least Phone or Email are required' });
         }
-
+        // Upsert customer
         const orConditions = [];
         if (email && String(email).trim().length > 0) {
             orConditions.push({ customer_email: String(email).toLowerCase().trim() });
@@ -752,17 +748,15 @@ exports.registerCustomerDiningProfile = async (req, res) => {
         if (phone && String(phone).trim().length > 0) {
             orConditions.push({ customer_phone: String(phone).trim() });
         }
-
         let customer = null;
         if (orConditions.length > 0) {
             customer = await req.propertyDb.models.customers.findOne({
                 where: {
                     outlet_id,
-                    [Op.or]: orConditions
+                    [sequelize_1.Op.or]: orConditions
                 }
             });
         }
-
         if (customer) {
             await customer.update({
                 customer_name: name.trim(),
@@ -770,7 +764,8 @@ exports.registerCustomerDiningProfile = async (req, res) => {
                 customer_email: (email ? String(email).toLowerCase().trim() : customer.customer_email) || '',
                 customer_address: address || customer.customer_address || ''
             });
-        } else {
+        }
+        else {
             customer = await req.propertyDb.models.customers.create({
                 outlet_id,
                 customer_name: name.trim(),
@@ -779,7 +774,6 @@ exports.registerCustomerDiningProfile = async (req, res) => {
                 customer_address: address || ''
             });
         }
-
         return res.json({
             success: true,
             message: 'Registration completed successfully!',
@@ -792,36 +786,30 @@ exports.registerCustomerDiningProfile = async (req, res) => {
             },
             token: `DINING_${customer.id}_${Date.now()}`
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[REGISTER DINING PROFILE ERR]', err);
         return res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.placeCustomerDiningOrder = async (req, res) => {
+exports.registerCustomerDiningProfile = registerCustomerDiningProfile;
+/**
+ * 5. POST /api/public/dining/place-order
+ * Customer creates a self-order KOT round with Auto-Waiter assignment
+ */
+const placeCustomerDiningOrder = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
-        const outlet_id = await resolveOutletId(req);
-        const {
-            table_id,
-            customer_id,
-            customer_name,
-            customer_phone,
-            customer_email,
-            items,
-            special_instructions,
-            payment_method,
-            seat,
-            client_tag,
-            sub_table
-        } = req.body;
-
-        if (!outlet_id) throw new Error('Outlet ID is required');
-        if (!table_id) throw new Error('Table ID is required');
+        let outlet_id = await resolveOutletId(req);
+        const { table_id, customer_id, customer_name, customer_phone, customer_email, items, special_instructions, payment_method, // 'PAY_LATER' | 'ONLINE' | 'CASH'
+        seat, client_tag, sub_table } = req.body;
+        if (!outlet_id)
+            throw new Error('Outlet ID is required');
+        if (!table_id)
+            throw new Error('Table ID is required');
         if (!items || !Array.isArray(items) || items.length === 0) {
             throw new Error('Order items list cannot be empty');
         }
-
         // Validate stock availability
         let allowNegativeStock = false;
         if (req.propertyDb.models.system_settings) {
@@ -833,7 +821,6 @@ exports.placeCustomerDiningOrder = async (req, res) => {
                 allowNegativeStock = true;
             }
         }
-
         if (!allowNegativeStock) {
             for (const itm of items) {
                 const itemId = itm.id || itm.item_id;
@@ -845,7 +832,6 @@ exports.placeCustomerDiningOrder = async (req, res) => {
                     });
                     if (dbItem) {
                         const isStockable = dbItem.stockable === true || dbItem.stockable === 1 || String(dbItem.stockable) === 'true';
-                        
                         let ledgerBalance = null;
                         if (dbItem.item_code) {
                             try {
@@ -860,11 +846,10 @@ exports.placeCustomerDiningOrder = async (req, res) => {
                                 if (lastLedger && lastLedger.length > 0) {
                                     ledgerBalance = Number(lastLedger[0].balance);
                                 }
-                            } catch (_) {}
+                            }
+                            catch (_) { }
                         }
-
                         const currentStock = ledgerBalance !== null ? ledgerBalance : Number(dbItem.opening_balance || 0);
-
                         let heldQty = 0;
                         try {
                             const [heldRows] = await req.propertyDb.query(`
@@ -883,10 +868,9 @@ exports.placeCustomerDiningOrder = async (req, res) => {
                             if (heldRows && heldRows.length > 0) {
                                 heldQty = Number(heldRows[0].held_qty || 0);
                             }
-                        } catch (_) {}
-
+                        }
+                        catch (_) { }
                         const availableStock = Math.max(0, currentStock - heldQty);
-
                         if (isStockable && availableStock < reqQty) {
                             await t.rollback();
                             return res.status(400).json({
@@ -898,55 +882,65 @@ exports.placeCustomerDiningOrder = async (req, res) => {
                 }
             }
         }
-
+        // 1. Fetch Table
         let table = await req.propertyDb.models.restaurant_tables.findOne({
             where: { id: table_id, outlet_id },
             transaction: t
         });
         if (!table) {
             table = await req.propertyDb.models.restaurant_tables.findByPk(table_id, { transaction: t });
-            if (table) outlet_id = table.outlet_id;
+            if (table)
+                outlet_id = table.outlet_id;
         }
-        if (!table) throw new Error('Table not found');
-
+        if (!table)
+            throw new Error('Table not found');
+        // 2. Auto-Assign Waiter if not already assigned
         let assignedWaiterId = table.current_waiter_id;
         let assignedWaiterName = '';
-
         if (!assignedWaiterId) {
+            // Find all active employees with waiter/captain/service roles
             const employees = await req.propertyDb.models.hr_employees.findAll({
-                where: { outlet_id, status: 'Active' },
+                where: {
+                    outlet_id,
+                    status: 'Active'
+                },
                 transaction: t
             });
-
             if (employees && employees.length > 0) {
+                // Find waiter with minimum active table load
                 const activeTables = await req.propertyDb.models.restaurant_tables.findAll({
-                    where: { outlet_id, status: 'Occupied', current_waiter_id: { [Op.ne]: null } },
+                    where: {
+                        outlet_id,
+                        status: 'Occupied',
+                        current_waiter_id: { [sequelize_1.Op.ne]: null }
+                    },
                     attributes: ['current_waiter_id'],
                     transaction: t
                 });
-
                 const waiterLoadMap = {};
-                employees.forEach(emp => { waiterLoadMap[emp.id] = 0; });
-                activeTables.forEach(tbl => {
+                employees.forEach((emp) => { waiterLoadMap[emp.id] = 0; });
+                activeTables.forEach((tbl) => {
                     if (tbl.current_waiter_id && waiterLoadMap[tbl.current_waiter_id] !== undefined) {
                         waiterLoadMap[tbl.current_waiter_id]++;
                     }
                 });
-
+                // Sort employees by lowest workload
                 employees.sort((a, b) => (waiterLoadMap[a.id] || 0) - (waiterLoadMap[b.id] || 0));
                 assignedWaiterId = employees[0].id;
                 assignedWaiterName = employees[0].employee_name || employees[0].full_name;
             }
-        } else {
-            const waiter = await req.propertyDb.models.hr_employees.findByPk(assignedWaiterId, { transaction: t });
-            if (waiter) assignedWaiterName = waiter.employee_name || waiter.full_name;
         }
-
+        else {
+            const waiter = await req.propertyDb.models.hr_employees.findByPk(assignedWaiterId, { transaction: t });
+            if (waiter)
+                assignedWaiterName = waiter.employee_name || waiter.full_name;
+        }
+        // Update table status to Occupied & assign waiter
         await table.update({
             status: 'Occupied',
             current_waiter_id: assignedWaiterId || table.current_waiter_id
         }, { transaction: t });
-
+        // 3. Resolve Sequential KOT Number
         let kot_no;
         try {
             const resolved = await numberingHelper.resolveNextNumber({
@@ -958,32 +952,32 @@ exports.placeCustomerDiningOrder = async (req, res) => {
             if (resolved && resolved.number) {
                 kot_no = resolved.number;
             }
-        } catch (numErr) {
+        }
+        catch (numErr) {
             console.error('[DINING KOT NUMBERING ERR]', numErr.message);
         }
-
         if (!kot_no) {
             const today = new Date();
             const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
             const count = await req.propertyDb.models.kot_headers.count({
                 where: {
                     outlet_id,
-                    created_at: { [Op.gte]: new Date(today.setHours(0, 0, 0, 0)) }
+                    created_at: { [sequelize_1.Op.gte]: new Date(today.setHours(0, 0, 0, 0)) }
                 },
                 transaction: t
             });
             const seq = String(count + 1).padStart(4, '0');
             kot_no = `KOT-${dateStr}-${seq}`;
         }
-
-        // Auto-register or link customer in customers master table
+        // 4. Auto-register or link customer in customers master table
         let resolvedCustomerId = customer_id ? Number(customer_id) : null;
         if ((customer_name || customer_phone) && req.propertyDb.models.customers) {
             try {
                 const searchWhere = { outlet_id };
                 if (customer_phone && String(customer_phone).trim().length > 0) {
                     searchWhere.customer_phone = String(customer_phone).trim();
-                } else if (customer_name && String(customer_name).trim().length > 0 && String(customer_name).trim().toLowerCase() !== 'guest') {
+                }
+                else if (customer_name && String(customer_name).trim().length > 0 && String(customer_name).trim().toLowerCase() !== 'guest') {
                     searchWhere.customer_name = String(customer_name).trim();
                 }
                 if (searchWhere.customer_phone || searchWhere.customer_name) {
@@ -1003,21 +997,20 @@ exports.placeCustomerDiningOrder = async (req, res) => {
                         resolvedCustomerId = custRecord.id;
                     }
                 }
-            } catch (custErr) {
+            }
+            catch (custErr) {
                 console.warn('[DINING ORDER CUSTOMER LINK WARNING]', custErr);
             }
         }
-
+        // 5. Create KOT Header
         const effectiveSeat = seat ? String(seat).trim() : '';
         const effectiveSubTable = sub_table || (effectiveSeat ? `Seat ${effectiveSeat}` : null);
         const effectiveClientTag = client_tag ? String(client_tag).trim() : (effectiveSeat ? `Bill ${effectiveSeat}` : 'Bill 1');
-
         const remarksText = [
             `Customer Self-Order (QR): ${customer_name || 'Guest'} (${customer_phone || ''}) [Seat: ${effectiveSeat || 'Table'}] [Bill: ${effectiveClientTag}] [CID:${resolvedCustomerId || customer_id || ''}] [EM:${customer_email || ''}]`,
             payment_method === 'ONLINE' ? '[PAID ONLINE]' : '[PAY AT TABLE]',
             special_instructions ? `Note: ${special_instructions}` : ''
         ].filter(Boolean).join(' | ');
-
         const kotHeader = await req.propertyDb.models.kot_headers.create({
             outlet_id,
             kot_no,
@@ -1031,13 +1024,12 @@ exports.placeCustomerDiningOrder = async (req, res) => {
             remarks: remarksText,
             created_time: new Date()
         }, { transaction: t });
-
+        // 5. Create KOT Items
         let totalAmount = 0;
         for (const item of items) {
             const qty = Number(item.qty || item.quantity || 1);
             const price = Number(item.price || item.selling_price || 0);
             totalAmount += (qty * price);
-
             await req.propertyDb.models.kot_items.create({
                 outlet_id,
                 kot_header_id: kotHeader.id,
@@ -1050,7 +1042,7 @@ exports.placeCustomerDiningOrder = async (req, res) => {
                 kitchen_station_id: item.kitchen_station_id || null
             }, { transaction: t });
         }
-
+        // 6. Create KOT Revision log
         if (req.propertyDb.models.kot_revisions) {
             await req.propertyDb.models.kot_revisions.create({
                 kot_header_id: kotHeader.id,
@@ -1059,9 +1051,7 @@ exports.placeCustomerDiningOrder = async (req, res) => {
                 snapshot: { items, totalAmount, customer_id, customer_name, customer_phone, customer_email, payment_method, seat: effectiveSeat, client_tag: effectiveClientTag, sub_table: effectiveSubTable }
             }, { transaction: t });
         }
-
         await t.commit();
-
         return res.json({
             success: true,
             message: 'Your order has been sent to the kitchen successfully!',
@@ -1079,29 +1069,30 @@ exports.placeCustomerDiningOrder = async (req, res) => {
                 created_time: kotHeader.created_time
             }
         });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         console.error('[PLACE CUSTOMER DINING ORDER ERR]', err);
         return res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.callTableWaiter = async (req, res) => {
+exports.placeCustomerDiningOrder = placeCustomerDiningOrder;
+/**
+ * 6. POST /api/public/dining/call-waiter
+ * Instant notification trigger for waitstaff
+ */
+const callTableWaiter = async (req, res) => {
     try {
         let outlet_id = await resolveOutletId(req);
         const effectiveTableId = req.params?.id || req.body?.table_id;
         const { request_type, customer_name } = req.body;
-
         if (!effectiveTableId) {
             return res.status(400).json({ success: false, message: 'Table ID is required' });
         }
-
         const table = await req.propertyDb.models.restaurant_tables.findOne({
             where: outlet_id ? { id: effectiveTableId, outlet_id } : { id: effectiveTableId }
         });
-
         const effectiveOutletId = table?.outlet_id ? Number(table.outlet_id) : (outlet_id ? Number(outlet_id) : 0);
-
         const callObj = {
             id: `CALL_${Date.now()}_${effectiveTableId}`,
             outlet_id: effectiveOutletId,
@@ -1112,63 +1103,72 @@ exports.callTableWaiter = async (req, res) => {
             created_at: new Date(),
             resolved: false
         };
-
         // Remove previous unresolved call for this table to keep state clean & current
-        const existingIdx = diningWaiterCalls.findIndex(c => Number(c.table_id) === Number(effectiveTableId) && !c.resolved);
+        const existingIdx = exports.diningWaiterCalls.findIndex(c => Number(c.table_id) === Number(effectiveTableId) && !c.resolved);
         if (existingIdx !== -1) {
-            diningWaiterCalls.splice(existingIdx, 1);
+            exports.diningWaiterCalls.splice(existingIdx, 1);
         }
-
-        diningWaiterCalls.unshift(callObj);
-        if (diningWaiterCalls.length > 100) diningWaiterCalls.pop();
-
+        exports.diningWaiterCalls.unshift(callObj);
+        // Keep in-memory calls list bounded
+        if (exports.diningWaiterCalls.length > 100)
+            exports.diningWaiterCalls.pop();
         return res.json({
             success: true,
             data: callObj,
             message: `Request received: ${request_type || 'CALL_WAITER'}. A staff member will attend your table shortly!`
         });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.getActiveWaiterCalls = async (req, res) => {
+exports.callTableWaiter = callTableWaiter;
+/**
+ * 7. GET /api/restaurant/dining/waiter-calls (POS/Captain Dashboard)
+ */
+const getActiveWaiterCalls = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || req.query?.outlet_id;
-        const calls = diningWaiterCalls.filter(c => (!outlet_id || Number(c.outlet_id) === Number(outlet_id)) && !c.resolved);
+        const calls = exports.diningWaiterCalls.filter(c => (!outlet_id || Number(c.outlet_id) === Number(outlet_id)) && !c.resolved);
         return res.json({ success: true, data: calls });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.resolveWaiterCall = async (req, res) => {
+exports.getActiveWaiterCalls = getActiveWaiterCalls;
+/**
+ * 8. POST /api/restaurant/dining/resolve-waiter-call
+ */
+const resolveWaiterCall = async (req, res) => {
     try {
         const { id, table_id } = req.body;
         if (id) {
-            const call = diningWaiterCalls.find(c => c.id === id);
-            if (call) call.resolved = true;
+            const call = exports.diningWaiterCalls.find(c => c.id === id);
+            if (call)
+                call.resolved = true;
         }
         if (table_id) {
-            const calls = diningWaiterCalls.filter(c => Number(c.table_id) === Number(table_id) && !c.resolved);
+            const calls = exports.diningWaiterCalls.filter(c => Number(c.table_id) === Number(table_id) && !c.resolved);
             calls.forEach(c => c.resolved = true);
         }
         return res.json({ success: true, message: 'Assistance request marked resolved' });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, error: err.message });
     }
 };
-
+exports.resolveWaiterCall = resolveWaiterCall;
 /**
  * 9. GET /api/public/dining/tables
  * Lists all active tables for dropdown table selection in customer/testing mode
  */
-exports.getPublicDiningTables = async (req, res) => {
+const getPublicDiningTables = async (req, res) => {
     try {
         const outlet_id = await resolveOutletId(req);
         const whereClause = {};
-        if (outlet_id) whereClause.outlet_id = outlet_id;
-
+        if (outlet_id)
+            whereClause.outlet_id = outlet_id;
         const tables = await req.propertyDb.models.restaurant_tables.findAll({
             where: whereClause,
             include: [
@@ -1179,92 +1179,79 @@ exports.getPublicDiningTables = async (req, res) => {
             order: [['table_name', 'ASC']]
         });
         return res.json({ success: true, data: tables });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, error: err.message });
     }
 };
-
+exports.getPublicDiningTables = getPublicDiningTables;
 /**
  * 10. POST /api/public/dining/pay-bill
  * Settles KOT order payment via online gateway / table payment
  */
-exports.payCustomerDiningBill = async (req, res) => {
+const payCustomerDiningBill = async (req, res) => {
     try {
         const outlet_id = await resolveOutletId(req);
         const { kot_id, table_id, client_tag, seat, transaction_id, payment_mode } = req.body;
-
-        if (!outlet_id) return res.status(400).json({ success: false, message: 'Outlet ID is required' });
-
+        if (!outlet_id)
+            return res.status(400).json({ success: false, message: 'Outlet ID is required' });
         const whereClause = { outlet_id };
         if (kot_id) {
             whereClause.id = kot_id;
-        } else if (table_id) {
+        }
+        else if (table_id) {
             whereClause.table_id = table_id;
             if (client_tag) {
                 whereClause.client_tag = client_tag;
-            } else if (seat) {
-                whereClause.sub_table = { [Op.like]: `%${seat}%` };
             }
-            whereClause.status = { [Op.notIn]: ['Cancelled', 'cancelled', 'Rejected', 'rejected', 'Paid', 'paid', 'Settled', 'settled'] };
-        } else {
+            else if (seat) {
+                whereClause.sub_table = { [sequelize_1.Op.like]: `%${seat}%` };
+            }
+            whereClause.status = { [sequelize_1.Op.notIn]: ['Cancelled', 'cancelled', 'Rejected', 'rejected', 'Paid', 'paid', 'Settled', 'settled'] };
+        }
+        else {
             return res.status(400).json({ success: false, message: 'kot_id or table_id is required' });
         }
-
         const kots = await req.propertyDb.models.kot_headers.findAll({ where: whereClause });
         if (!kots || kots.length === 0) {
             return res.status(404).json({ success: false, message: 'No active KOT orders found to pay' });
         }
-
         for (const kot of kots) {
             const currentRemarks = kot.remarks || '';
             const paidTag = `[PAID ONLINE] [TXN:${transaction_id || 'DIRECT'}] [MODE:${payment_mode || 'UPI'}]`;
             const updatedRemarks = currentRemarks.includes('[PAID') ? currentRemarks : `${currentRemarks} | ${paidTag}`.trim();
-
             await kot.update({
                 status: 'Settled',
                 remarks: updatedRemarks
             });
         }
-
         return res.json({
             success: true,
             message: 'Payment recorded and bill settled successfully'
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[PAY CUSTOMER DINING BILL ERR]', err);
         return res.status(500).json({ success: false, error: err.message });
     }
 };
-
+exports.payCustomerDiningBill = payCustomerDiningBill;
 /**
  * 12. POST /api/public/dining/book-table
  * Allows customers to book a table reservation from home via app or web
  */
-exports.bookTablePublic = async (req, res) => {
+const bookTablePublic = async (req, res) => {
     try {
         const outlet_id = await resolveOutletId(req);
-        if (!outlet_id) return res.status(400).json({ success: false, message: 'Outlet ID is required' });
-
-        const {
-            customer_name,
-            customer_phone,
-            customer_email,
-            reservation_date,
-            reservation_time,
-            guest_count = 1,
-            table_id,
-            remarks,
-            address,
-            gstin
-        } = req.body;
-
+        if (!outlet_id)
+            return res.status(400).json({ success: false, message: 'Outlet ID is required' });
+        const { customer_name, customer_phone, customer_email, reservation_date, reservation_time, guest_count = 1, table_id, remarks, address, gstin } = req.body;
         if (!customer_name || !customer_phone || !reservation_time) {
             return res.status(400).json({
                 success: false,
                 message: 'Customer name, phone number, and reservation time are required.'
             });
         }
-
         const settings = await req.propertyDb.models.system_settings.findOne({ where: { outlet_id } });
         if (settings && settings.allow_public_table_booking === false) {
             return res.status(403).json({
@@ -1272,7 +1259,6 @@ exports.bookTablePublic = async (req, res) => {
                 message: 'Online table reservation is currently disabled for this outlet.'
             });
         }
-
         let assignedTableId = table_id ? Number(table_id) : null;
         if (!assignedTableId) {
             try {
@@ -1282,14 +1268,13 @@ exports.bookTablePublic = async (req, res) => {
                 if (availableTable) {
                     assignedTableId = availableTable.id;
                 }
-            } catch (_) {}
+            }
+            catch (_) { }
         }
-
         const phone = customer_phone.trim();
         let customer = await req.propertyDb.models.customers.findOne({
             where: { outlet_id, customer_phone: phone }
         });
-
         if (!customer) {
             customer = await req.propertyDb.models.customers.create({
                 outlet_id,
@@ -1300,9 +1285,7 @@ exports.bookTablePublic = async (req, res) => {
                 customer_gstin: gstin ? gstin.trim() : null
             });
         }
-
         const dateVal = reservation_date || (reservation_time ? reservation_time.substring(0, 10) : new Date().toISOString().substring(0, 10));
-
         const reservation = await req.propertyDb.models.table_reservations.create({
             outlet_id,
             table_id: assignedTableId,
@@ -1318,7 +1301,6 @@ exports.bookTablePublic = async (req, res) => {
             gstin: gstin || null,
             source: 'ONLINE_HOME'
         });
-
         try {
             const { getSocketHub } = require('../../services/socketHub.service');
             const io = getSocketHub();
@@ -1334,8 +1316,8 @@ exports.bookTablePublic = async (req, res) => {
                     source: 'ONLINE_HOME'
                 });
             }
-        } catch (sErr) {}
-
+        }
+        catch (sErr) { }
         try {
             await req.propertyDb.models.system_notifications.create({
                 outlet_id,
@@ -1344,15 +1326,17 @@ exports.bookTablePublic = async (req, res) => {
                 type: 'INFO',
                 is_read: false
             });
-        } catch (nErr) {}
-
+        }
+        catch (nErr) { }
         return res.json({
             success: true,
             message: 'Table reservation received successfully! The restaurant will confirm your reservation shortly.',
             data: reservation
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[BOOK TABLE PUBLIC ERR]', err);
         return res.status(500).json({ success: false, error: err.message });
     }
 };
+exports.bookTablePublic = bookTablePublic;

@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const DamageHeader = sequelize.define('damage_headers', {
         damage_no: DataTypes.STRING,
@@ -18,13 +20,12 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     DamageHeader.associate = (models) => {
         DamageHeader.hasMany(models.damage_items, {
             foreignKey: 'damage_id',
             as: 'items'
         });
     };
-
     return DamageHeader;
 };
+exports.default = module.exports;

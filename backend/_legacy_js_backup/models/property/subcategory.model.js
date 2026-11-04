@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const SubCategory = sequelize.define('item_subcategories', {
         id: {
@@ -24,8 +25,6 @@ module.exports = (sequelize, DataTypes) => {
     }, {
         timestamps: true,
         underscored: true
-
     });
-
     return SubCategory;
 };

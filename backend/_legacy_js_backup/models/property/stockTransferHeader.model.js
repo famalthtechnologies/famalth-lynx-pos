@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const StockTransferHeader = sequelize.define('stock_transfer_headers', {
         id: {
@@ -60,6 +61,5 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     return StockTransferHeader;
 };

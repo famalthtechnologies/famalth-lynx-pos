@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const RestaurantTable = sequelize.define('restaurant_tables', {
         id: {
@@ -63,7 +64,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     RestaurantTable.associate = (models) => {
         RestaurantTable.belongsTo(models.floors, {
             foreignKey: 'floor_id',
@@ -86,6 +86,5 @@ module.exports = (sequelize, DataTypes) => {
             as: 'captain'
         });
     };
-
     return RestaurantTable;
 };

@@ -1,15 +1,16 @@
-const { Op, Sequelize } = require('sequelize');
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.triggerExpiryNotifications = exports.getExpiryLedgerByItem = exports.getExpiryTracker = void 0;
+const sequelize_1 = require("sequelize");
 const getExpiryTracker = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const { search, status_filter } = req.query;
-
         // Fetch all goods receipt items that have expiry_date set
         const receiptItems = await req.propertyDb.models.goods_receipt_items.findAll({
             where: {
                 expiry_date: {
-                    [Op.ne]: null
+                    [sequelize_1.Op.ne]: null
                 }
             },
             include: [
@@ -25,10 +26,8 @@ const getExpiryTracker = async (req, res) => {
                 ['id', 'DESC']
             ]
         });
-
         // Group by item_code or item_id
         const itemMap = {};
-
         for (const item of receiptItems) {
             const key = item.item_id ? String(item.item_id) : String(item.item_code || item.item_name);
             if (!itemMap[key]) {
@@ -42,7 +41,6 @@ const getExpiryTracker = async (req, res) => {
                     batches: []
                 };
             }
-
             itemMap[key].total_received_qty += Number(item.qty || 0);
             itemMap[key].batches.push({
                 grn_id: item.grn_id,
@@ -55,15 +53,12 @@ const getExpiryTracker = async (req, res) => {
                 expiry_date: item.expiry_date
             });
         }
-
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-
         const allEntries = [];
         for (const key of Object.keys(itemMap)) {
             const data = itemMap[key];
             const batches = data.batches;
-
             // 1. Get live stock balance from item_master or stock_ledger
             let currentStock = data.total_received_qty;
             if (data.item_id) {
@@ -77,19 +72,17 @@ const getExpiryTracker = async (req, res) => {
                 });
                 if (lastLedger && lastLedger.balance !== null) {
                     currentStock = Number(lastLedger.balance);
-                } else if (itemMaster && itemMaster.opening_balance !== null) {
+                }
+                else if (itemMaster && itemMaster.opening_balance !== null) {
                     currentStock = Number(itemMaster.opening_balance);
                 }
             }
-
             // 2. FEFO (First Expired First Out) stock deduction:
             // Earliest expiring batches are deducted first!
             const totalReceived = data.total_received_qty;
             let totalSold = Math.max(0, totalReceived - currentStock);
-
             // Sort batches by expiry_date ASC
             const sortedByExpiryAsc = [...batches].sort((a, b) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime());
-
             let remainingSold = totalSold;
             for (const b of sortedByExpiryAsc) {
                 const bQty = Number(b.qty || 0);
@@ -98,11 +91,11 @@ const getExpiryTracker = async (req, res) => {
                     b.available_qty = 0;
                     b.status = 'SOLD_OUT';
                     remainingSold -= bQty;
-                } else {
+                }
+                else {
                     b.qty_sold = remainingSold;
                     b.available_qty = Math.max(0, bQty - remainingSold);
                     remainingSold = 0;
-
                     const expDate = new Date(b.expiry_date);
                     const diffTime = expDate.getTime() - today.getTime();
                     const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -110,40 +103,38 @@ const getExpiryTracker = async (req, res) => {
                     b.status = daysLeft < 0 ? 'EXPIRED' : (daysLeft <= 30 ? 'CRITICAL' : (daysLeft <= 90 ? 'WARNING' : 'HEALTHY'));
                 }
             }
-
             // 3. Identify active batch with remaining available stock
             const activeBatches = sortedByExpiryAsc.filter(b => b.available_qty > 0);
             const nearestActiveBatch = activeBatches.length > 0 ? activeBatches[0] : (sortedByExpiryAsc.length > 0 ? sortedByExpiryAsc[sortedByExpiryAsc.length - 1] : null);
-
             let status = 'HEALTHY';
             let daysRemaining = 999;
             let nearestExpiryDate = nearestActiveBatch ? nearestActiveBatch.expiry_date : 'N/A';
-
             if (currentStock <= 0) {
                 status = 'SOLD_OUT';
                 daysRemaining = 0;
-            } else if (nearestActiveBatch) {
+            }
+            else if (nearestActiveBatch) {
                 const expDate = new Date(nearestActiveBatch.expiry_date);
                 const diffTime = expDate.getTime() - today.getTime();
                 daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
                 if (daysRemaining < 0) {
                     status = 'EXPIRED';
-                } else if (daysRemaining <= 30) {
+                }
+                else if (daysRemaining <= 30) {
                     status = 'CRITICAL';
-                } else if (daysRemaining <= 90) {
+                }
+                else if (daysRemaining <= 90) {
                     status = 'WARNING';
-                } else {
+                }
+                else {
                     status = 'HEALTHY';
                 }
             }
-
             // Sort batches by receipt_date descending for comparison (newest vs older active)
             const batchesByReceipt = [...batches].sort((a, b) => new Date(b.receipt_date).getTime() - new Date(a.receipt_date).getTime());
             const newestBatch = batchesByReceipt[0];
             const olderBatches = batchesByReceipt.slice(1);
             const oldestBatchWithStock = olderBatches.find(b => b.available_qty > 0) || (olderBatches.length > 0 ? olderBatches[olderBatches.length - 1] : null);
-
             let expiryComparison = 'NORMAL';
             let daysDifference = 0;
             if (oldestBatchWithStock) {
@@ -153,13 +144,14 @@ const getExpiryTracker = async (req, res) => {
                 daysDifference = diffDays;
                 if (diffDays < 0) {
                     expiryComparison = 'NEW_SHORTER_THAN_OLD';
-                } else if (diffDays > 0) {
+                }
+                else if (diffDays > 0) {
                     expiryComparison = 'NEW_LONGER_THAN_OLD';
-                } else {
+                }
+                else {
                     expiryComparison = 'SAME_EXPIRY';
                 }
             }
-
             const itemEntry = {
                 item_id: data.item_id,
                 item_code: data.item_code,
@@ -180,20 +172,16 @@ const getExpiryTracker = async (req, res) => {
                 batches_count: batches.length,
                 batches: sortedByExpiryAsc
             };
-
             allEntries.push(itemEntry);
         }
-
         // Sort by nearest active expiry first (lowest days_remaining first)
         allEntries.sort((a, b) => a.days_remaining - b.days_remaining);
-
         // Summary KPI counts across all tracked batches
         const expiredCount = allEntries.filter(i => i.status === 'EXPIRED').length;
         const criticalCount = allEntries.filter(i => i.status === 'CRITICAL').length;
         const warningCount = allEntries.filter(i => i.status === 'WARNING').length;
         const healthyCount = allEntries.filter(i => i.status === 'HEALTHY').length;
         const newShorterAlerts = allEntries.filter(i => i.expiry_comparison === 'NEW_SHORTER_THAN_OLD').length;
-
         // Apply filters to list returned
         let filteredList = [...allEntries];
         if (status_filter && status_filter !== 'ALL') {
@@ -201,13 +189,10 @@ const getExpiryTracker = async (req, res) => {
         }
         if (search) {
             const q = search.toLowerCase();
-            filteredList = filteredList.filter(i =>
-                (i.item_name && i.item_name.toLowerCase().includes(q)) ||
+            filteredList = filteredList.filter(i => (i.item_name && i.item_name.toLowerCase().includes(q)) ||
                 (i.item_code && i.item_code.toLowerCase().includes(q)) ||
-                (i.brand && i.brand.toLowerCase().includes(q))
-            );
+                (i.brand && i.brand.toLowerCase().includes(q)));
         }
-
         return res.json({
             success: true,
             summary: {
@@ -225,20 +210,19 @@ const getExpiryTracker = async (req, res) => {
             },
             data: filteredList
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[GET EXPIRY TRACKER ERROR]', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 };
-
+exports.getExpiryTracker = getExpiryTracker;
 const getExpiryLedgerByItem = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const itemId = req.params.itemId;
-
         let targetItemId = Number(itemId) || null;
         let targetItemCode = !Number(itemId) ? String(itemId) : null;
-
         // Fetch corresponding item from item_master to get both item_id and item_code
         if (targetItemId) {
             const im = await req.propertyDb.models.item_master.findByPk(targetItemId, {
@@ -247,7 +231,8 @@ const getExpiryLedgerByItem = async (req, res) => {
             if (im?.item_code) {
                 targetItemCode = im.item_code;
             }
-        } else if (targetItemCode) {
+        }
+        else if (targetItemCode) {
             const im = await req.propertyDb.models.item_master.findOne({
                 where: { item_code: targetItemCode },
                 attributes: ['id', 'item_code']
@@ -256,23 +241,23 @@ const getExpiryLedgerByItem = async (req, res) => {
                 targetItemId = im.id;
             }
         }
-
         const whereItem = {};
         if (targetItemId && targetItemCode) {
-            whereItem[Op.or] = [
+            whereItem[sequelize_1.Op.or] = [
                 { item_id: targetItemId },
                 { item_code: targetItemCode }
             ];
-        } else if (targetItemId) {
+        }
+        else if (targetItemId) {
             whereItem.item_id = targetItemId;
-        } else if (targetItemCode) {
+        }
+        else if (targetItemCode) {
             whereItem.item_code = targetItemCode;
         }
-
         const items = await req.propertyDb.models.goods_receipt_items.findAll({
             where: {
                 ...whereItem,
-                expiry_date: { [Op.ne]: null }
+                expiry_date: { [sequelize_1.Op.ne]: null }
             },
             include: [
                 {
@@ -284,19 +269,16 @@ const getExpiryLedgerByItem = async (req, res) => {
             ],
             order: [['expiry_date', 'ASC'], ['id', 'ASC']]
         });
-
         // Supplier names lookup
-        const supplierIds = [...new Set(items.map(i => i.grn?.supplier_id).filter(Boolean))];
+        const supplierIds = [...new Set(items.map((i) => i.grn?.supplier_id).filter(Boolean))];
         const suppliers = await req.propertyDb.models.supplier_master.findAll({
-            where: { id: { [Op.in]: supplierIds } },
+            where: { id: { [sequelize_1.Op.in]: supplierIds } },
             attributes: ['id', 'supplier_name']
         });
         const supplierMap = {};
-        suppliers.forEach(s => supplierMap[s.id] = s.supplier_name);
-
+        suppliers.forEach((s) => supplierMap[s.id] = s.supplier_name);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-
         // Fetch current live stock balance
         let currentStock = 0;
         const sample = items[0];
@@ -322,43 +304,42 @@ const getExpiryLedgerByItem = async (req, res) => {
                 }
             }
         }
-
         const totalReceived = items.reduce((sum, i) => sum + Number(i.qty || 0), 0);
         let remainingSold = Math.max(0, totalReceived - currentStock);
-
         // Calculate FEFO stock depletion per batch
         const ledger = items.map((i, index) => {
             const expDate = new Date(i.expiry_date);
             const diffTime = expDate.getTime() - today.getTime();
             const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             const batchQty = Number(i.qty || 0);
-
             let qtySold = 0;
             let qtyAvailable = 0;
-
             if (remainingSold >= batchQty) {
                 qtySold = batchQty;
                 qtyAvailable = 0;
                 remainingSold -= batchQty;
-            } else {
+            }
+            else {
                 qtySold = remainingSold;
                 qtyAvailable = Math.max(0, batchQty - remainingSold);
                 remainingSold = 0;
             }
-
             let status = 'ACTIVE';
             if (qtyAvailable <= 0) {
                 status = 'SOLD OUT';
-            } else if (daysLeft < 0) {
+            }
+            else if (daysLeft < 0) {
                 status = 'EXPIRED';
-            } else if (daysLeft <= 30) {
+            }
+            else if (daysLeft <= 30) {
                 status = 'CRITICAL';
-            } else if (daysLeft <= 90) {
+            }
+            else if (daysLeft <= 90) {
                 status = 'WARNING';
-            } else {
+            }
+            else {
                 status = 'ACTIVE';
             }
-
             return {
                 batch_no: `BATCH-${i.grn?.grn_no || index + 1}`,
                 grn_no: i.grn?.grn_no || '--',
@@ -375,29 +356,28 @@ const getExpiryLedgerByItem = async (req, res) => {
                 is_latest_receiving: index === items.length - 1
             };
         });
-
         return res.json({
             success: true,
             data: ledger,
             ledger: ledger
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[GET EXPIRY LEDGER ERROR]', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 };
-
+exports.getExpiryLedgerByItem = getExpiryLedgerByItem;
 const triggerExpiryNotifications = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const today = new Date();
         const thirtyDaysLater = new Date();
         thirtyDaysLater.setDate(today.getDate() + 30);
-
         const expiringItems = await req.propertyDb.models.goods_receipt_items.findAll({
             where: {
                 expiry_date: {
-                    [Op.lte]: thirtyDaysLater.toISOString().split('T')[0]
+                    [sequelize_1.Op.lte]: thirtyDaysLater.toISOString().split('T')[0]
                 }
             },
             include: [
@@ -410,15 +390,12 @@ const triggerExpiryNotifications = async (req, res) => {
             ],
             order: [['expiry_date', 'ASC']]
         });
-
         let createdCount = 0;
         for (const item of expiringItems) {
             const expDate = new Date(item.expiry_date);
             const daysLeft = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
             const title = daysLeft < 0 ? `🚨 Expired Stock: ${item.item_name}` : `⚠️ Critical Expiry (<30d): ${item.item_name}`;
             const message = `Item ${item.item_name} (Code: ${item.item_code || '--'}, Batch GRN #${item.grn?.grn_no || '--'}) ${daysLeft < 0 ? `expired on ${item.expiry_date}.` : `will expire on ${item.expiry_date} (${daysLeft} days remaining).`} Please review inventory.`;
-
             // Check if notification exists
             const existing = await req.propertyDb.models.system_notifications.findOne({
                 where: {
@@ -427,7 +404,6 @@ const triggerExpiryNotifications = async (req, res) => {
                     entity_id: item.id
                 }
             });
-
             if (!existing) {
                 await req.propertyDb.models.system_notifications.create({
                     outlet_id,
@@ -441,20 +417,15 @@ const triggerExpiryNotifications = async (req, res) => {
                 createdCount++;
             }
         }
-
         return res.json({
             success: true,
             message: `Batch expiry scan completed. ${createdCount} notification alerts generated.`,
             count: createdCount
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[TRIGGER EXPIRY ALERTS ERROR]', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 };
-
-module.exports = {
-    getExpiryTracker,
-    getExpiryLedgerByItem,
-    triggerExpiryNotifications
-};
+exports.triggerExpiryNotifications = triggerExpiryNotifications;

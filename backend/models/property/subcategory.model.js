@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const SubCategory = sequelize.define('item_subcategories', {
         id: {
@@ -24,8 +26,7 @@ module.exports = (sequelize, DataTypes) => {
     }, {
         timestamps: true,
         underscored: true
-
     });
-
     return SubCategory;
 };
+exports.default = module.exports;

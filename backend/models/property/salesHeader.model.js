@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const salesHeader = sequelize.define('sales_headers', {
         outlet_id: DataTypes.INTEGER,
@@ -11,7 +13,6 @@ module.exports = (sequelize, DataTypes) => {
         patient_name: DataTypes.STRING,
         payment_mode: DataTypes.STRING,
         payment_reference: DataTypes.TEXT,
-
         initial_amount_paid: DataTypes.DECIMAL(12, 2),
         amount_paid: DataTypes.DECIMAL(12, 2),
         change_amount: DataTypes.DECIMAL(12, 2),
@@ -84,27 +85,26 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     salesHeader.associate = (models) => {
         salesHeader.hasMany(models.sales_items, {
             foreignKey: 'sale_id',
             as: 'items'
         });
-         salesHeader.hasMany(models.customer_repayments, {
+        salesHeader.hasMany(models.customer_repayments, {
             foreignKey: 'sale_id',
             as: 'repayments'
         });
-         salesHeader.hasMany(models.milk_subscription_consumptions, {
+        salesHeader.hasMany(models.milk_subscription_consumptions, {
             foreignKey: 'sale_id',
             as: 'consumptions'
-         });
-         if (models.customer_advances) {
+        });
+        if (models.customer_advances) {
             salesHeader.hasMany(models.customer_advances, {
                 foreignKey: 'source_sale_id',
                 as: 'advances'
             });
-         }
+        }
     };
-
     return salesHeader;
 };
+exports.default = module.exports;

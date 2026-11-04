@@ -1,37 +1,26 @@
-
-
+"use strict";
 const { Op } = require('sequelize');
-
 function roundAmount(value) {
     return Number((Number(value) || 0).toFixed(2));
 }
-
 function createLocalDate(year, month, day) {
     const date = new Date(year, month - 1, day);
     date.setHours(0, 0, 0, 0);
     return date;
 }
-
 function parseDateValue(value) {
     if (value instanceof Date) {
         return new Date(value.getTime());
     }
-
     if (typeof value === 'string') {
         const trimmed = value.trim();
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
         if (match) {
-            return createLocalDate(
-                Number(match[1]),
-                Number(match[2]),
-                Number(match[3])
-            );
+            return createLocalDate(Number(match[1]), Number(match[2]), Number(match[3]));
         }
     }
-
     return new Date(value);
 }
-
 function startOfDay(value) {
     const date = parseDateValue(value);
     if (Number.isNaN(date.getTime())) {
@@ -42,20 +31,17 @@ function startOfDay(value) {
     date.setHours(0, 0, 0, 0);
     return date;
 }
-
 function dateKey(value) {
     const date = startOfDay(value);
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${date.getFullYear()}-${month}-${day}`;
 }
-
 function addDays(value, days) {
     const next = startOfDay(value);
     next.setDate(next.getDate() + days);
     return next;
 }
-
 function entryDelta(entry) {
     const type = String(entry.transaction_type || '').toUpperCase();
     if (type === 'SALE_CREDIT' || type === 'SUBSCRIPTION_SETTLEMENT_CREDIT' || type === 'SUBSCRIPTION_SETTLEMENT_PARTIAL') {
@@ -63,13 +49,7 @@ function entryDelta(entry) {
     }
     return roundAmount(entry.amount_in) - roundAmount(entry.amount_out) + roundAmount(entry.adjustment_amount);
 }
-
-async function getLatestManualOpeningBefore({
-    db,
-    outlet_id,
-    beforeDate,
-    transaction
-}) {
+async function getLatestManualOpeningBefore({ db, outlet_id, beforeDate, transaction }) {
     return db.models.daily_opening_balances.findOne({
         where: {
             outlet_id,
@@ -81,13 +61,7 @@ async function getLatestManualOpeningBefore({
         transaction
     });
 }
-
-async function resolveBalanceBeforeDate({
-    db,
-    outlet_id,
-    beforeDate,
-    transaction
-}) {
+async function resolveBalanceBeforeDate({ db, outlet_id, beforeDate, transaction }) {
     const priorEntry = await db.models.cash_ledger.findOne({
         where: {
             outlet_id,
@@ -98,27 +72,18 @@ async function resolveBalanceBeforeDate({
         order: [['txn_date', 'DESC'], ['id', 'DESC']],
         transaction
     });
-
     if (priorEntry) {
         return roundAmount(priorEntry.balance);
     }
-
     const opening = await getLatestManualOpeningBefore({
         db,
         outlet_id,
         beforeDate,
         transaction
     });
-
     return roundAmount(opening?.opening_balance);
 }
-
-async function getOpeningBalanceForDate({
-    db,
-    outlet_id,
-    balanceDate,
-    transaction
-}) {
+async function getOpeningBalanceForDate({ db, outlet_id, balanceDate, transaction }) {
     return resolveBalanceBeforeDate({
         db,
         outlet_id,
@@ -126,7 +91,6 @@ async function getOpeningBalanceForDate({
         transaction
     });
 }
-
 function buildOpeningMap(openings) {
     const map = new Map();
     for (const opening of openings) {
@@ -134,13 +98,11 @@ function buildOpeningMap(openings) {
     }
     return map;
 }
-
 function applySkippedDayOverrides(openingMap, fromDay, toDay, currentBalance) {
-    if (!fromDay || !toDay) return currentBalance;
-
+    if (!fromDay || !toDay)
+        return currentBalance;
     let pointer = addDays(fromDay, 1);
     let nextBalance = currentBalance;
-
     while (pointer <= toDay) {
         const override = openingMap.get(dateKey(pointer));
         if (override !== undefined) {
@@ -148,16 +110,9 @@ function applySkippedDayOverrides(openingMap, fromDay, toDay, currentBalance) {
         }
         pointer = addDays(pointer, 1);
     }
-
     return nextBalance;
 }
-
-async function recalculateLedgerBalances({
-    db,
-    outlet_id,
-    fromDate = new Date(),
-    transaction = undefined
-}) {
+async function recalculateLedgerBalances({ db, outlet_id, fromDate = new Date(), transaction = undefined }) {
     const startDateKey = dateKey(fromDate);
     const entries = await db.models.cash_ledger.findAll({
         where: {
@@ -169,31 +124,21 @@ async function recalculateLedgerBalances({
         order: [['txn_date', 'ASC'], ['id', 'ASC']],
         transaction
     });
-
     if (entries.length === 0) {
         return;
     }
-
     let currentBalance = await resolveBalanceBeforeDate({
         db,
         outlet_id,
         beforeDate: startDateKey,
         transaction
     });
-
     for (const entry of entries) {
         currentBalance = roundAmount(currentBalance + entryDelta(entry));
         await entry.update({ balance: currentBalance }, { transaction });
     }
 }
-
-async function updateLedgerEntry({
-    db,
-    entryId,
-    outlet_id,
-    values,
-    transaction = undefined
-}) {
+async function updateLedgerEntry({ db, entryId, outlet_id, values, transaction = undefined }) {
     const entry = await db.models.cash_ledger.findOne({
         where: {
             id: entryId,
@@ -201,16 +146,13 @@ async function updateLedgerEntry({
         },
         transaction
     });
-
     if (!entry) {
         throw new Error('Ledger entry not found');
     }
-
     const oldDate = startOfDay(entry.txn_date);
     const nextValues = {
         ...values
     };
-
     if (Object.prototype.hasOwnProperty.call(nextValues, 'amount_in')) {
         nextValues.amount_in = roundAmount(nextValues.amount_in);
     }
@@ -223,9 +165,7 @@ async function updateLedgerEntry({
     if (Object.prototype.hasOwnProperty.call(nextValues, 'txn_date')) {
         nextValues.txn_date = dateKey(nextValues.txn_date);
     }
-
     await entry.update(nextValues, { transaction });
-
     const updatedDate = startOfDay(entry.txn_date);
     const fromDate = oldDate < updatedDate ? oldDate : updatedDate;
     await recalculateLedgerBalances({
@@ -234,19 +174,9 @@ async function updateLedgerEntry({
         fromDate,
         transaction
     });
-
     return entry.reload({ transaction });
 }
-
-async function upsertOpeningBalance({
-    db,
-    outlet_id,
-    balance_date,
-    opening_balance,
-    note = null,
-    user_id = null,
-    transaction = undefined
-}) {
+async function upsertOpeningBalance({ db, outlet_id, balance_date, opening_balance, note = null, user_id = null, transaction = undefined }) {
     const key = dateKey(balance_date);
     const existing = await db.models.daily_opening_balances.findOne({
         where: {
@@ -255,16 +185,15 @@ async function upsertOpeningBalance({
         },
         transaction
     });
-
     let record = existing;
-
     if (existing) {
         await existing.update({
             opening_balance: roundAmount(opening_balance),
             note,
             updated_by: user_id
         }, { transaction });
-    } else {
+    }
+    else {
         record = await db.models.daily_opening_balances.create({
             outlet_id,
             balance_date: key,
@@ -274,22 +203,8 @@ async function upsertOpeningBalance({
             updated_by: user_id
         }, { transaction });
     }
-
     return record || existing;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 /**
  * Create a new cash ledger entry with an incrementally computed running balance.
  *
@@ -307,25 +222,8 @@ async function upsertOpeningBalance({
  *   `updateLedgerEntry` for backdated-correction scenarios where the sequential
  *   balances genuinely need to be recomputed.
  */
-async function createLedgerEntry({
-    db,
-    outlet_id,
-    txn_date = new Date(),
-    transaction_type,
-    reference_type = null,
-    reference_id = null,
-    reference_no = null,
-    party_name = null,
-    payment_method = null,
-    amount_in = 0,
-    amount_out = 0,
-    adjustment_amount = 0,
-    notes = null,
-    created_by = null,
-    transaction = undefined
-}) {
+async function createLedgerEntry({ db, outlet_id, txn_date = new Date(), transaction_type, reference_type = null, reference_id = null, reference_no = null, party_name = null, payment_method = null, amount_in = 0, amount_out = 0, adjustment_amount = 0, notes = null, created_by = null, transaction = undefined }) {
     const normalizedTxnDate = dateKey(txn_date);
-
     // ── O(1) running balance ──────────────────────────────────────────────
     // Find the very last ledger entry (by date then id) to get the current
     // running balance, then apply this entry's delta.
@@ -335,11 +233,11 @@ async function createLedgerEntry({
         attributes: ['balance', 'txn_date'],
         transaction
     });
-
     let runningBalance;
     if (lastEntry) {
         runningBalance = roundAmount(lastEntry.balance);
-    } else {
+    }
+    else {
         // No prior entries at all — use the latest manual opening balance.
         const opening = await getLatestManualOpeningBefore({
             db,
@@ -349,13 +247,11 @@ async function createLedgerEntry({
         });
         runningBalance = roundAmount(opening?.opening_balance ?? 0);
     }
-
     const txnTypeStr = String(transaction_type || '').toUpperCase();
     const isCreditSaleTxn = txnTypeStr === 'SALE_CREDIT' || txnTypeStr === 'SUBSCRIPTION_SETTLEMENT_CREDIT' || txnTypeStr === 'SUBSCRIPTION_SETTLEMENT_PARTIAL';
     const delta = isCreditSaleTxn ? 0 : (roundAmount(amount_in) - roundAmount(amount_out) + roundAmount(adjustment_amount));
     const newBalance = roundAmount(runningBalance + delta);
     // ─────────────────────────────────────────────────────────────────────
-
     const entry = await db.models.cash_ledger.create({
         outlet_id,
         txn_date: normalizedTxnDate,
@@ -372,10 +268,8 @@ async function createLedgerEntry({
         notes,
         created_by
     }, { transaction });
-
     return entry;
 }
-
 /**
  * ⚡ Batch-create multiple cash ledger entries in a single DB round-trip.
  *
@@ -396,8 +290,8 @@ async function createLedgerEntry({
  * @param {object} params.transaction  - Sequelize transaction
  */
 async function batchCreateLedgerEntries({ db, outlet_id, entries, transaction }) {
-    if (!Array.isArray(entries) || entries.length === 0) return [];
-
+    if (!Array.isArray(entries) || entries.length === 0)
+        return [];
     let _tL = Date.now();
     // 1 — Get the current running balance (ONE query)
     const lastEntry = await db.models.cash_ledger.findOne({
@@ -408,11 +302,11 @@ async function batchCreateLedgerEntries({ db, outlet_id, entries, transaction })
     });
     console.log(`[PERF-CL] cash_ledger.findOne: ${Date.now() - _tL}ms`);
     _tL = Date.now();
-
     let runningBalance;
     if (lastEntry) {
         runningBalance = roundAmount(lastEntry.balance);
-    } else {
+    }
+    else {
         // No prior entries — look up earliest date in our batch for opening balance
         const firstDate = entries[0].txn_date ?? new Date();
         const opening = await getLatestManualOpeningBefore({
@@ -423,7 +317,6 @@ async function batchCreateLedgerEntries({ db, outlet_id, entries, transaction })
         });
         runningBalance = roundAmount(opening?.opening_balance ?? 0);
     }
-
     // 2 — Compute running balances in memory
     const rows = entries.map(e => {
         const normalizedTxnDate = dateKey(e.txn_date ?? new Date());
@@ -446,17 +339,14 @@ async function batchCreateLedgerEntries({ db, outlet_id, entries, transaction })
             created_by: e.created_by ?? null
         };
     });
-
     // 3 — ONE bulkCreate for all entries
     const created = await db.models.cash_ledger.bulkCreate(rows, {
         transaction,
         returning: false
     });
     console.log(`[PERF-CL] cash_ledger.bulkCreate(${rows.length}): ${Date.now() - _tL}ms`);
-
     return created;
 }
-
 module.exports = {
     createLedgerEntry,
     batchCreateLedgerEntries,

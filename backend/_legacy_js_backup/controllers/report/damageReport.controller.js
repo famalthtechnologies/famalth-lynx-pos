@@ -1,13 +1,11 @@
+"use strict";
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
-
 exports.getDamageReport = async (req, res) => {
-  try {
-    const reqOutlet = req.query.outlet_id || req.query.outletId;
-    const scope = await resolveOutletScope(req, reqOutlet);
-    const { from, to } = req.query;
-
-    const [rows] = await req.propertyDb.query(
-      `
+    try {
+        const reqOutlet = req.query.outlet_id || req.query.outletId;
+        const scope = await resolveOutletScope(req, reqOutlet);
+        const { from, to } = req.query;
+        const [rows] = await req.propertyDb.query(`
       SELECT
         dh.damage_date   AS date,
         im.item_name     AS item,
@@ -32,22 +30,19 @@ exports.getDamageReport = async (req, res) => {
         AND dh.damage_date BETWEEN :from AND :to
 
       ORDER BY dh.damage_date DESC
-      `,
-      {
-        replacements: { outletIds: scope.outletIds, from, to }
-      }
-    );
-
-    res.json({
-      success: true,
-      data: rows
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to load damage report'
-    });
-  }
+      `, {
+            replacements: { outletIds: scope.outletIds, from, to }
+        });
+        res.json({
+            success: true,
+            data: rows
+        });
+    }
+    catch (err) {
+        console.error(err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to load damage report'
+        });
+    }
 };

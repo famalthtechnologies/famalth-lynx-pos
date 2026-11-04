@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('user_permissions', {
         id: {
@@ -9,11 +11,10 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.INTEGER,
             allowNull: false
         },
-
-
         perm_key: DataTypes.STRING
     }, {
         tableName: 'user_permissions',
         timestamps: false
     });
 };
+exports.default = module.exports;

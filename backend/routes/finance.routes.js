@@ -1,10 +1,14 @@
-const router = require('express').Router();
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const router = express_1.default.Router();
 const auth = require('../middlewares/auth.middleware');
 const license = require('../middlewares/license.middleware');
 const advancedCtrl = require('../controllers/finance/advancedFinance.controller');
-
 router.use(auth, license('REPORTS'));
-
 router.post('/expenses', advancedCtrl.createExpense);
 router.put('/expenses/:id', advancedCtrl.updateExpense);
 router.delete('/expenses/:id', advancedCtrl.deleteExpense);
@@ -37,11 +41,10 @@ router.get('/customer-ledger', advancedCtrl.getCustomerLedger);
 router.get('/delivery-report', advancedCtrl.getDeliveryReport);
 router.get('/expiry-report', advancedCtrl.getExpiryReport);
 router.get('/payment-flow', advancedCtrl.getPaymentFlowReport);
-
 // Recurring Expenses Endpoints
 router.get('/recurring-expenses', advancedCtrl.getRecurringExpenses);
 router.post('/recurring-expenses', advancedCtrl.createRecurringExpense);
 router.put('/recurring-expenses/:id', advancedCtrl.updateRecurringExpense);
 router.delete('/recurring-expenses/:id', advancedCtrl.deleteRecurringExpense);
-
 module.exports = router;
+exports.default = router;

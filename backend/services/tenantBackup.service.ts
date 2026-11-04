@@ -13,6 +13,10 @@ const BACKUP_BASE_DIR = path.join(canonicalRootDir, 'backups');
 function getBackupSearchRoots(): string[] {
   const current = process.cwd();
   const roots = [
+    path.join(canonicalRootDir, 'backend', 'storage'),
+    path.join(canonicalRootDir, 'storage'),
+    path.join(current, 'backend', 'storage'),
+    path.join(current, 'storage'),
     BACKUP_BASE_DIR,
     path.join(canonicalRootDir, 'backend', 'backups'),
     path.join(current, 'backups'),
@@ -144,19 +148,30 @@ export class TenantBackupService {
    * 1. Get Enterprise Storage Usage and Backup Status
    */
   public static async getStorageStats(activeDb: any, outletCode: string, isSuperAdmin: boolean = false): Promise<StorageStatsResult> {
-    let totalDiskBytes = 100 * 1024 * 1024 * 1024; // 100GB default fallback
-    let totalFreeBytes = 50 * 1024 * 1024 * 1024;
-    let totalUsedBytes = totalDiskBytes - totalFreeBytes;
+    const diskRoot = path.parse(canonicalRootDir).root || process.cwd();
+    let totalDiskBytes = 0;
+    let totalFreeBytes = 0;
+    let totalUsedBytes = 0;
 
     try {
       if (fsPromises.statfs) {
-        const stat = await fsPromises.statfs(canonicalRootDir);
+        const stat = await fsPromises.statfs(diskRoot);
         const bsize = stat.bsize || 4096;
         totalDiskBytes = Number(stat.blocks) * bsize;
         totalFreeBytes = Number(stat.bavail || stat.bfree) * bsize;
         totalUsedBytes = totalDiskBytes - totalFreeBytes;
       }
     } catch (_) {}
+
+    if (totalDiskBytes === 0) {
+      try {
+        const stat = await fsPromises.statfs(canonicalRootDir);
+        const bsize = stat.bsize || 4096;
+        totalDiskBytes = Number(stat.blocks) * bsize;
+        totalFreeBytes = Number(stat.bavail || stat.bfree) * bsize;
+        totalUsedBytes = totalDiskBytes - totalFreeBytes;
+      } catch (_) {}
+    }
 
     // Backups directory audit
     const backupAllowed = ['.fambak', '.posbak', '.enc', '.zip', '.sql', '.gz'];
@@ -168,12 +183,19 @@ export class TenantBackupService {
       let clientSize = 0;
 
       for (const root of getBackupSearchRoots()) {
-        const outletSubdir = path.join(root, 'outlets', outletCode);
-        const subData = await getDirectorySizeAndFiles(outletSubdir, ['.fambak', '.posbak', '.zip', '.gz']);
-        for (const sf of subData.files) {
-          if (!clientFiles.some(f => f.name === sf.name)) {
-            clientFiles.push(sf);
-            clientSize += sf.size;
+        const candidateSubdirs = [
+          path.join(root, 'outlets', outletCode, 'backups'),
+          path.join(root, 'outlets', outletCode),
+        ];
+        for (const outletSubdir of candidateSubdirs) {
+          if (fs.existsSync(outletSubdir)) {
+            const subData = await getDirectorySizeAndFiles(outletSubdir, ['.fambak', '.posbak', '.zip', '.gz']);
+            for (const sf of subData.files) {
+              if (!clientFiles.some(f => f.name === sf.name)) {
+                clientFiles.push(sf);
+                clientSize += sf.size;
+              }
+            }
           }
         }
 

@@ -1,27 +1,29 @@
-const { Op } = require('sequelize');
-const { diningWaiterCalls } = require('./dining.controller');
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getTableTransactions = exports.assignTableUser = exports.importTables = exports.updateReservationStatus = exports.createReservation = exports.listReservations = exports.mergeTables = exports.transferTable = exports.updateTableStatus = exports.deleteTable = exports.updateTable = exports.createTable = exports.listTables = exports.deleteTableType = exports.updateTableType = exports.createTableType = exports.listTableTypes = exports.deleteDiningArea = exports.updateDiningArea = exports.createDiningArea = exports.listDiningAreas = exports.deleteFloor = exports.updateFloor = exports.createFloor = exports.listFloors = void 0;
+const sequelize_1 = require("sequelize");
+const dining_controller_1 = require("./dining.controller");
 const audit = require('../../services/audit.service');
-
 /* =========================================================================
    FLOORS CONTROLLER
    ========================================================================= */
-
-exports.listFloors = async (req, res) => {
+const listFloors = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const floors = await req.propertyDb.models.floors.findAll({
             where: { outlet_id },
             order: [['name', 'ASC']]
         });
         res.json({ success: true, data: floors });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.createFloor = async (req, res) => {
+exports.listFloors = listFloors;
+const createFloor = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { name, status } = req.body;
         const floor = await req.propertyDb.models.floors.create({
             outlet_id,
@@ -29,60 +31,63 @@ exports.createFloor = async (req, res) => {
             status: status || 'ACTIVE'
         });
         res.json({ success: true, data: floor });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.updateFloor = async (req, res) => {
+exports.createFloor = createFloor;
+const updateFloor = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const { name, status } = req.body;
         const floor = await req.propertyDb.models.floors.findOne({ where: { id, outlet_id } });
-        if (!floor) return res.status(404).json({ success: false, message: 'Floor not found' });
-
+        if (!floor)
+            return res.status(404).json({ success: false, message: 'Floor not found' });
         await floor.update({ name, status });
         res.json({ success: true, data: floor });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.deleteFloor = async (req, res) => {
+exports.updateFloor = updateFloor;
+const deleteFloor = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const floor = await req.propertyDb.models.floors.findOne({ where: { id, outlet_id } });
-        if (!floor) return res.status(404).json({ success: false, message: 'Floor not found' });
-
+        if (!floor)
+            return res.status(404).json({ success: false, message: 'Floor not found' });
         await floor.destroy();
         res.json({ success: true, message: 'Floor deleted successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
+exports.deleteFloor = deleteFloor;
 /* =========================================================================
    DINING AREAS CONTROLLER
    ========================================================================= */
-
-exports.listDiningAreas = async (req, res) => {
+const listDiningAreas = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const areas = await req.propertyDb.models.dining_areas.findAll({
             where: { outlet_id },
             order: [['name', 'ASC']]
         });
         res.json({ success: true, data: areas });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.createDiningArea = async (req, res) => {
+exports.listDiningAreas = listDiningAreas;
+const createDiningArea = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { name, description, status } = req.body;
         const area = await req.propertyDb.models.dining_areas.create({
             outlet_id,
@@ -91,60 +96,63 @@ exports.createDiningArea = async (req, res) => {
             status: status || 'ACTIVE'
         });
         res.json({ success: true, data: area });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.updateDiningArea = async (req, res) => {
+exports.createDiningArea = createDiningArea;
+const updateDiningArea = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const { name, description, status } = req.body;
         const area = await req.propertyDb.models.dining_areas.findOne({ where: { id, outlet_id } });
-        if (!area) return res.status(404).json({ success: false, message: 'Dining Area not found' });
-
+        if (!area)
+            return res.status(404).json({ success: false, message: 'Dining Area not found' });
         await area.update({ name, description, status });
         res.json({ success: true, data: area });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.deleteDiningArea = async (req, res) => {
+exports.updateDiningArea = updateDiningArea;
+const deleteDiningArea = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const area = await req.propertyDb.models.dining_areas.findOne({ where: { id, outlet_id } });
-        if (!area) return res.status(404).json({ success: false, message: 'Dining Area not found' });
-
+        if (!area)
+            return res.status(404).json({ success: false, message: 'Dining Area not found' });
         await area.destroy();
         res.json({ success: true, message: 'Dining Area deleted successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
+exports.deleteDiningArea = deleteDiningArea;
 /* =========================================================================
    TABLE TYPES CONTROLLER
    ========================================================================= */
-
-exports.listTableTypes = async (req, res) => {
+const listTableTypes = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const types = await req.propertyDb.models.table_types.findAll({
             where: { outlet_id },
             order: [['name', 'ASC']]
         });
         res.json({ success: true, data: types });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.createTableType = async (req, res) => {
+exports.listTableTypes = listTableTypes;
+const createTableType = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { name, charge_type, charge_amount } = req.body;
         const type = await req.propertyDb.models.table_types.create({
             outlet_id,
@@ -153,50 +161,51 @@ exports.createTableType = async (req, res) => {
             charge_amount: charge_amount || 0.00
         });
         res.json({ success: true, data: type });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.updateTableType = async (req, res) => {
+exports.createTableType = createTableType;
+const updateTableType = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const { name, charge_type, charge_amount } = req.body;
         const type = await req.propertyDb.models.table_types.findOne({ where: { id, outlet_id } });
-        if (!type) return res.status(404).json({ success: false, message: 'Table Type not found' });
-
+        if (!type)
+            return res.status(404).json({ success: false, message: 'Table Type not found' });
         await type.update({ name, charge_type, charge_amount });
         res.json({ success: true, data: type });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.deleteTableType = async (req, res) => {
+exports.updateTableType = updateTableType;
+const deleteTableType = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const type = await req.propertyDb.models.table_types.findOne({ where: { id, outlet_id } });
-        if (!type) return res.status(404).json({ success: false, message: 'Table Type not found' });
-
+        if (!type)
+            return res.status(404).json({ success: false, message: 'Table Type not found' });
         await type.destroy();
         res.json({ success: true, message: 'Table Type deleted successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
+exports.deleteTableType = deleteTableType;
 /* =========================================================================
    TABLES CONTROLLER & ACTIONS
    ========================================================================= */
-
-exports.listTables = async (req, res) => {
+const listTables = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { floor_id, dining_area_id } = req.query;
         console.log(`[API listTables] GET called. outlet_id: ${outlet_id}, floor_id: ${floor_id}, dining_area_id: ${dining_area_id}`);
-
         const whereClause = { outlet_id };
         if (floor_id && floor_id !== 'undefined' && floor_id !== 'null' && floor_id !== '') {
             whereClause.floor_id = floor_id;
@@ -204,7 +213,6 @@ exports.listTables = async (req, res) => {
         if (dining_area_id && dining_area_id !== 'undefined' && dining_area_id !== 'null' && dining_area_id !== '') {
             whereClause.dining_area_id = dining_area_id;
         }
-
         const tables = await req.propertyDb.models.restaurant_tables.findAll({
             where: whereClause,
             logging: console.log,
@@ -217,57 +225,51 @@ exports.listTables = async (req, res) => {
             ],
             order: [['table_name', 'ASC']]
         });
-
         const todayStart = new Date();
-        todayStart.setHours(0,0,0,0);
+        todayStart.setHours(0, 0, 0, 0);
         const todayEnd = new Date();
-        todayEnd.setHours(23,59,59,999);
-
+        todayEnd.setHours(23, 59, 59, 999);
         const todayReservations = await req.propertyDb.models.table_reservations.findAll({
             where: {
                 outlet_id,
-                status: { [Op.in]: ['Pending', 'Confirmed', 'Reserved'] },
+                status: { [sequelize_1.Op.in]: ['Pending', 'Confirmed', 'Reserved'] },
                 reservation_time: {
-                    [Op.between]: [todayStart, todayEnd]
+                    [sequelize_1.Op.between]: [todayStart, todayEnd]
                 }
             }
         });
-
         function isReservationTimeActive(reservationTimeStr) {
             const now = new Date();
             const resvDate = new Date(reservationTimeStr);
-            
             if (resvDate.getFullYear() !== now.getFullYear() ||
                 resvDate.getMonth() !== now.getMonth() ||
                 resvDate.getDate() !== now.getDate()) {
                 return false;
             }
-            
             const resvHours = resvDate.getHours();
             const resvMins = resvDate.getMinutes();
             const resvTotalMins = resvHours * 60 + resvMins;
-            
             const nowHours = now.getHours();
             const nowMins = now.getMinutes();
             const nowTotalMins = nowHours * 60 + nowMins;
-            
-            let slotDuration = 60; 
-            
-            if (resvTotalMins === 1350) { 
-                slotDuration = 30; 
-            } else if (resvTotalMins === 660) { 
-                slotDuration = 60;
-            } else if (resvTotalMins === 960) { 
-                slotDuration = 120;
-            } else if (resvTotalMins === 1380) { 
-                slotDuration = 120;
-            } else {
+            let slotDuration = 60;
+            if (resvTotalMins === 1350) {
+                slotDuration = 30;
+            }
+            else if (resvTotalMins === 660) {
                 slotDuration = 60;
             }
-            
+            else if (resvTotalMins === 960) {
+                slotDuration = 120;
+            }
+            else if (resvTotalMins === 1380) {
+                slotDuration = 120;
+            }
+            else {
+                slotDuration = 60;
+            }
             return nowTotalMins >= resvTotalMins && nowTotalMins < (resvTotalMins + slotDuration);
         }
-
         const now = new Date();
         const activeTableIds = new Set();
         const autoSeatedTableIds = new Map();
@@ -275,22 +277,19 @@ exports.listTables = async (req, res) => {
             const resvTime = new Date(resv.reservation_time);
             if (resvTime <= now) {
                 await resv.update({ status: 'Seated' });
-                await req.propertyDb.models.restaurant_tables.update(
-                    { status: 'Occupied', current_guest_count: resv.guest_count },
-                    { where: { id: resv.table_id, outlet_id } }
-                );
+                await req.propertyDb.models.restaurant_tables.update({ status: 'Occupied', current_guest_count: resv.guest_count }, { where: { id: resv.table_id, outlet_id } });
                 autoSeatedTableIds.set(resv.table_id, resv.guest_count);
                 console.log(`[AUTO SEAT RESERVATION] Marked reservation #${resv.id} as Seated and Table #${resv.table_id} as Occupied`);
-            } else if (isReservationTimeActive(resv.reservation_time)) {
+            }
+            else if (isReservationTimeActive(resv.reservation_time)) {
                 activeTableIds.add(resv.table_id);
             }
         }
-
         const activeKots = await req.propertyDb.models.kot_headers.findAll({
             where: {
                 outlet_id,
                 status: {
-                    [Op.notIn]: ['Cancelled', 'cancelled', 'Rejected', 'rejected', 'Billed', 'billed', 'Closed', 'closed', 'NC Cleared', 'nc_cleared', 'NC_CLEARED', 'Settled', 'settled']
+                    [sequelize_1.Op.notIn]: ['Cancelled', 'cancelled', 'Rejected', 'rejected', 'Billed', 'billed', 'Closed', 'closed', 'NC Cleared', 'nc_cleared', 'NC_CLEARED', 'Settled', 'settled']
                 }
             },
             include: [
@@ -301,12 +300,12 @@ exports.listTables = async (req, res) => {
                 }
             ]
         });
-
         const tablesWithActiveKots = new Set();
         for (const k of activeKots) {
-            if (!k.table_id) continue;
+            if (!k.table_id)
+                continue;
             const items = k.items || [];
-            const activeItems = items.filter(it => {
+            const activeItems = items.filter((it) => {
                 const s = (it.status || '').toLowerCase();
                 return s !== 'cancelled' && s !== 'rejected';
             });
@@ -314,56 +313,49 @@ exports.listTables = async (req, res) => {
                 tablesWithActiveKots.add(Number(k.table_id));
             }
         }
-
-        const data = tables.map(t => {
+        const data = tables.map((t) => {
             const plain = t.get({ plain: true });
             const tableIdNum = Number(plain.id);
             const hasActiveKot = tablesWithActiveKots.has(tableIdNum);
-
             // Active dining customer assistance request (Water / Server / Bill / Custom)
-            const activeCall = (diningWaiterCalls || []).find(c =>
-                (!outlet_id || Number(c.outlet_id) === Number(outlet_id)) &&
+            const activeCall = (dining_controller_1.diningWaiterCalls || []).find((c) => (!outlet_id || Number(c.outlet_id) === Number(outlet_id)) &&
                 Number(c.table_id) === tableIdNum &&
-                !c.resolved
-            );
+                !c.resolved);
             plain.active_service_request = activeCall ? {
                 id: activeCall.id,
                 request_type: activeCall.request_type,
                 customer_name: activeCall.customer_name,
                 created_at: activeCall.created_at
             } : null;
-
             if (autoSeatedTableIds.has(plain.id)) {
                 plain.status = 'Occupied';
                 plain.current_guest_count = autoSeatedTableIds.get(plain.id);
-            } else if (!hasActiveKot && (plain.status === 'Occupied' || plain.status === 'Billing')) {
+            }
+            else if (!hasActiveKot && (plain.status === 'Occupied' || plain.status === 'Billing')) {
                 // Table has 0 active KOT items remaining -> auto heal to Available
                 plain.status = 'Available';
                 plain.current_guest_count = 0;
-                req.propertyDb.models.restaurant_tables.update(
-                    { status: 'Available', current_guest_count: 0 },
-                    { where: { id: plain.id, outlet_id } }
-                ).catch(e => console.error(`[AUTO HEAL TABLE ERR]`, e.message));
-            } else if (plain.status === 'Reserved' || plain.status === 'Available') {
+                req.propertyDb.models.restaurant_tables.update({ status: 'Available', current_guest_count: 0 }, { where: { id: plain.id, outlet_id } }).catch((e) => console.error(`[AUTO HEAL TABLE ERR]`, e.message));
+            }
+            else if (plain.status === 'Reserved' || plain.status === 'Available') {
                 plain.status = activeTableIds.has(plain.id) ? 'Reserved' : 'Available';
             }
             return plain;
         });
-
         console.log(`✔ [API listTables] Returning ${tables.length} tables successfully.`);
         res.json({ success: true, data });
-    } catch (err) {
+    }
+    catch (err) {
         console.error("❌ [API listTables] Error loading tables:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.createTable = async (req, res) => {
+exports.listTables = listTables;
+const createTable = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { floor_id, dining_area_id, table_type_id, table_name, capacity, x_coordinate, y_coordinate } = req.body;
         console.log("-> [API createTable] POST called with payload:", req.body);
-
         const table = await req.propertyDb.models.restaurant_tables.create({
             outlet_id,
             floor_id,
@@ -377,107 +369,110 @@ exports.createTable = async (req, res) => {
         });
         console.log("✔ [API createTable] Table created successfully in database. ID:", table.id);
         res.json({ success: true, data: table });
-    } catch (err) {
+    }
+    catch (err) {
         console.error("❌ [API createTable] Error creating table in database:", err);
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.updateTable = async (req, res) => {
+exports.createTable = createTable;
+const updateTable = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const { floor_id, dining_area_id, table_type_id, table_name, capacity, x_coordinate, y_coordinate } = req.body;
         const table = await req.propertyDb.models.restaurant_tables.findOne({ where: { id, outlet_id } });
-        if (!table) return res.status(404).json({ success: false, message: 'Table not found' });
-
+        if (!table)
+            return res.status(404).json({ success: false, message: 'Table not found' });
         await table.update({ floor_id, dining_area_id, table_type_id, table_name, capacity, x_coordinate, y_coordinate });
         res.json({ success: true, data: table });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.deleteTable = async (req, res) => {
+exports.updateTable = updateTable;
+const deleteTable = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const table = await req.propertyDb.models.restaurant_tables.findOne({ where: { id, outlet_id } });
-        if (!table) return res.status(404).json({ success: false, message: 'Table not found' });
-
+        if (!table)
+            return res.status(404).json({ success: false, message: 'Table not found' });
         await table.destroy();
         res.json({ success: true, message: 'Table deleted successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.updateTableStatus = async (req, res) => {
+exports.deleteTable = deleteTable;
+const updateTableStatus = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const { status, guest_count, waiter_id, captain_id, active_sale_id, assigned_user_id, assigned_user_name } = req.body;
-
         const table = await req.propertyDb.models.restaurant_tables.findOne({ where: { id, outlet_id } });
-        if (!table) return res.status(404).json({ success: false, message: 'Table not found' });
-
+        if (!table)
+            return res.status(404).json({ success: false, message: 'Table not found' });
         const updateData = {};
-        if (status) updateData.status = status;
-        if (guest_count !== undefined) updateData.current_guest_count = guest_count;
-        if (waiter_id !== undefined) updateData.current_waiter_id = waiter_id;
-        if (captain_id !== undefined) updateData.current_captain_id = captain_id;
-        if (active_sale_id !== undefined) updateData.active_sale_id = active_sale_id;
-        if (assigned_user_id !== undefined) updateData.assigned_user_id = assigned_user_id ? Number(assigned_user_id) : null;
-        if (assigned_user_name !== undefined) updateData.assigned_user_name = assigned_user_name ? String(assigned_user_name) : null;
-
+        if (status)
+            updateData.status = status;
+        if (guest_count !== undefined)
+            updateData.current_guest_count = guest_count;
+        if (waiter_id !== undefined)
+            updateData.current_waiter_id = waiter_id;
+        if (captain_id !== undefined)
+            updateData.current_captain_id = captain_id;
+        if (active_sale_id !== undefined)
+            updateData.active_sale_id = active_sale_id;
+        if (assigned_user_id !== undefined)
+            updateData.assigned_user_id = assigned_user_id ? Number(assigned_user_id) : null;
+        if (assigned_user_name !== undefined)
+            updateData.assigned_user_name = assigned_user_name ? String(assigned_user_name) : null;
         await table.update(updateData);
-
         if (status === 'Occupied') {
             try {
-                const { Op } = require('sequelize');
                 const now = new Date();
                 const windowStart = new Date(now.getTime() - 60 * 60 * 1000);
                 const windowEnd = new Date(now.getTime() + 60 * 60 * 1000);
-
                 const activeResvs = await req.propertyDb.models.table_reservations.findAll({
                     where: {
                         table_id: id,
                         outlet_id,
-                        status: { [Op.in]: ['Pending', 'Confirmed', 'Reserved'] },
+                        status: { [sequelize_1.Op.in]: ['Pending', 'Confirmed', 'Reserved'] },
                         reservation_time: {
-                            [Op.between]: [windowStart, windowEnd]
+                            [sequelize_1.Op.between]: [windowStart, windowEnd]
                         }
                     }
                 });
-
                 if (activeResvs && activeResvs.length > 0) {
                     activeResvs.sort((a, b) => {
                         const diffA = Math.abs(new Date(a.reservation_time).getTime() - now.getTime());
                         const diffB = Math.abs(new Date(b.reservation_time).getTime() - now.getTime());
                         return diffA - diffB;
                     });
-
                     const closest = activeResvs[0];
                     await closest.update({ status: 'Seated' });
                     console.log(`[AUTO SEAT RESERVATION] Marked reservation #${closest.id} for table #${id} as Seated`);
                 }
-            } catch (resvErr) {
+            }
+            catch (resvErr) {
                 console.error('[AUTO SEAT RESERVATION FAIL]', resvErr.message);
             }
         }
-
         res.json({ success: true, data: table });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.transferTable = async (req, res) => {
+exports.updateTableStatus = updateTableStatus;
+const transferTable = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { source_table_id, target_table_id } = req.body;
-
         const source = await req.propertyDb.models.restaurant_tables.findOne({
             where: { id: source_table_id, outlet_id },
             transaction: t
@@ -486,11 +481,12 @@ exports.transferTable = async (req, res) => {
             where: { id: target_table_id, outlet_id },
             transaction: t
         });
-
-        if (!source || !target) throw new Error('Source or Target table not found');
-        if (source.status === 'Available') throw new Error('Source table is empty');
-        if (target.status !== 'Available') throw new Error('Target table is occupied/reserved');
-
+        if (!source || !target)
+            throw new Error('Source or Target table not found');
+        if (source.status === 'Available')
+            throw new Error('Source table is empty');
+        if (target.status !== 'Available')
+            throw new Error('Target table is occupied/reserved');
         // Move metadata and sale reference
         await target.update({
             status: source.status,
@@ -499,13 +495,8 @@ exports.transferTable = async (req, res) => {
             current_captain_id: source.current_captain_id,
             active_sale_id: source.active_sale_id
         }, { transaction: t });
-
         // Update KOT headers linked to this table
-        await req.propertyDb.models.kot_headers.update(
-            { table_id: target_table_id },
-            { where: { table_id: source_table_id, status: { [Op.ne]: 'Closed' }, outlet_id }, transaction: t }
-        );
-
+        await req.propertyDb.models.kot_headers.update({ table_id: target_table_id }, { where: { table_id: source_table_id, status: { [sequelize_1.Op.ne]: 'Closed' }, outlet_id }, transaction: t });
         // Reset source table
         await source.update({
             status: 'Available',
@@ -514,7 +505,6 @@ exports.transferTable = async (req, res) => {
             current_captain_id: null,
             active_sale_id: null
         }, { transaction: t });
-
         await audit.log({
             req,
             module: 'RESTAURANT',
@@ -523,23 +513,22 @@ exports.transferTable = async (req, res) => {
             recordId: source_table_id,
             description: `Transferred Table ${source.table_name} to ${target.table_name}`,
             outlet_id,
-            user_id: req.user.id
+            user_id: req.user?.id
         });
-
         await t.commit();
         res.json({ success: true, message: `Table ${source.table_name} transferred to ${target.table_name}` });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.mergeTables = async (req, res) => {
+exports.transferTable = transferTable;
+const mergeTables = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { main_table_id, table_to_merge_id } = req.body;
-
         const mainTable = await req.propertyDb.models.restaurant_tables.findOne({
             where: { id: main_table_id, outlet_id },
             transaction: t
@@ -548,23 +537,19 @@ exports.mergeTables = async (req, res) => {
             where: { id: table_to_merge_id, outlet_id },
             transaction: t
         });
-
-        if (!mainTable || !mergeTable) throw new Error('Main or Merge table not found');
-        if (mainTable.status === 'Available') throw new Error('Main table must be occupied first');
-        if (mergeTable.status === 'Available') throw new Error('Merge table has no orders to merge');
-
+        if (!mainTable || !mergeTable)
+            throw new Error('Main or Merge table not found');
+        if (mainTable.status === 'Available')
+            throw new Error('Main table must be occupied first');
+        if (mergeTable.status === 'Available')
+            throw new Error('Merge table has no orders to merge');
         // Link KOT headers from merged table to the main table
-        await req.propertyDb.models.kot_headers.update(
-            { table_id: main_table_id },
-            { where: { table_id: table_to_merge_id, status: { [Op.ne]: 'Closed' }, outlet_id }, transaction: t }
-        );
-
+        await req.propertyDb.models.kot_headers.update({ table_id: main_table_id }, { where: { table_id: table_to_merge_id, status: { [sequelize_1.Op.ne]: 'Closed' }, outlet_id }, transaction: t });
         // Update guest count in main table
         const totalGuests = Number(mainTable.current_guest_count) + Number(mergeTable.current_guest_count);
         await mainTable.update({
             current_guest_count: totalGuests
         }, { transaction: t });
-
         // Reset the merged table
         await mergeTable.update({
             status: 'Available',
@@ -573,7 +558,6 @@ exports.mergeTables = async (req, res) => {
             current_captain_id: null,
             active_sale_id: null
         }, { transaction: t });
-
         await audit.log({
             req,
             module: 'RESTAURANT',
@@ -582,24 +566,23 @@ exports.mergeTables = async (req, res) => {
             recordId: main_table_id,
             description: `Merged Table ${mergeTable.table_name} into ${mainTable.table_name}`,
             outlet_id,
-            user_id: req.user.id
+            user_id: req.user?.id
         });
-
         await t.commit();
         res.json({ success: true, message: `Table ${mergeTable.table_name} merged into ${mainTable.table_name}` });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
+exports.mergeTables = mergeTables;
 /* =========================================================================
    TABLE RESERVATIONS CONTROLLER
    ========================================================================= */
-
-exports.listReservations = async (req, res) => {
+const listReservations = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const reservations = await req.propertyDb.models.table_reservations.findAll({
             where: { outlet_id },
             include: [
@@ -608,24 +591,24 @@ exports.listReservations = async (req, res) => {
             order: [['reservation_time', 'ASC']]
         });
         res.json({ success: true, data: reservations });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-exports.createReservation = async (req, res) => {
+exports.listReservations = listReservations;
+const createReservation = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { table_id, customer_name, customer_phone, reservation_time, guest_count, remarks, address, gstin } = req.body;
         const phone = (customer_phone || req.body.phone || '').toString().trim();
-
         const table = await req.propertyDb.models.restaurant_tables.findOne({
             where: { id: table_id, outlet_id },
             transaction: t
         });
-        if (!table) throw new Error('Table not found');
-
+        if (!table)
+            throw new Error('Table not found');
         const reservation = await req.propertyDb.models.table_reservations.create({
             outlet_id,
             table_id,
@@ -638,22 +621,19 @@ exports.createReservation = async (req, res) => {
             address,
             gstin
         }, { transaction: t });
-
         // Update table status to Reserved
         await table.update({ status: 'Reserved' }, { transaction: t });
-
         // Auto-add or update reservation customer details in customer database
         if (phone || customer_name) {
             try {
-                const { Op } = require('sequelize');
                 const cleanPhone = String(phone || '').trim();
                 const scope = {};
                 if (cleanPhone) {
                     scope.customer_phone = cleanPhone;
-                } else if (customer_name) {
+                }
+                else if (customer_name) {
                     scope.customer_name = String(customer_name).trim();
                 }
-
                 if (Object.keys(scope).length > 0) {
                     const existing = await req.propertyDb.models.customers.findOne({
                         where: {
@@ -662,7 +642,6 @@ exports.createReservation = async (req, res) => {
                         },
                         transaction: t
                     });
-
                     if (!existing) {
                         await req.propertyDb.models.customers.create({
                             outlet_id,
@@ -671,68 +650,67 @@ exports.createReservation = async (req, res) => {
                             customer_address: address ? String(address).trim() : null,
                             customer_gstin: gstin ? String(gstin).trim() : null
                         }, { transaction: t });
-                    } else {
+                    }
+                    else {
                         const updateData = {};
-                        if (!existing.customer_name && customer_name) updateData.customer_name = String(customer_name).trim();
-                        if (!existing.customer_address && address) updateData.customer_address = String(address).trim();
-                        if (!existing.customer_gstin && gstin) updateData.customer_gstin = String(gstin).trim();
+                        if (!existing.customer_name && customer_name)
+                            updateData.customer_name = String(customer_name).trim();
+                        if (!existing.customer_address && address)
+                            updateData.customer_address = String(address).trim();
+                        if (!existing.customer_gstin && gstin)
+                            updateData.customer_gstin = String(gstin).trim();
                         if (Object.keys(updateData).length > 0) {
                             await existing.update(updateData, { transaction: t });
                         }
                     }
                 }
-            } catch (custErr) {
+            }
+            catch (custErr) {
                 console.error('[AUTO ADD RESERVATION CUSTOMER FAIL]', custErr.message);
             }
         }
-
         await t.commit();
         res.json({ success: true, data: reservation });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-exports.updateReservationStatus = async (req, res) => {
+exports.createReservation = createReservation;
+const updateReservationStatus = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const { status } = req.body;
-
         const reservation = await req.propertyDb.models.table_reservations.findOne({
             where: { id, outlet_id },
             transaction: t
         });
-        if (!reservation) throw new Error('Reservation not found');
-
+        if (!reservation)
+            throw new Error('Reservation not found');
         await reservation.update({ status }, { transaction: t });
-
         const table = await req.propertyDb.models.restaurant_tables.findOne({
             where: { id: reservation.table_id, outlet_id },
             transaction: t
         });
-
-        if (status === 'Seated') {
+        if (status === 'Seated' && table) {
             await table.update({ status: 'Occupied', current_guest_count: reservation.guest_count }, { transaction: t });
-        } else if (status === 'Cancelled') {
+        }
+        else if (status === 'Cancelled' && table) {
             await table.update({ status: 'Available' }, { transaction: t });
         }
-
         await t.commit();
         res.json({ success: true, data: reservation });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
-/* =========================================================================
-   TABLE IMPORT & USER ASSIGNMENT & MULTI-TRANSACTION
-   ========================================================================= */
-
-exports.importTables = async (req, res) => {
+exports.updateReservationStatus = updateReservationStatus;
+const importTables = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const outlet_id = req.user?.outlet_id;
@@ -740,108 +718,79 @@ exports.importTables = async (req, res) => {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'Invalid outlet session' });
         }
-
         const { tables } = req.body;
-
         if (!tables || !Array.isArray(tables) || tables.length === 0) {
             await t.rollback();
             return res.status(400).json({ success: false, message: 'No table records provided for import' });
         }
-
         let importedCount = 0;
         let updatedCount = 0;
-
         // Cache created/found floors, areas, types and employees in memory during this transaction
         const floorCache = new Map();
         const areaCache = new Map();
         const typeCache = new Map();
         const employeeCache = new Map();
-
         for (const row of tables) {
-            const tableName = (
-                row.table_name || 
-                row['Table Name'] || 
-                row['Table Number'] || 
-                row['Table No'] || 
-                row.tableName || 
-                row.name || 
-                row.Table || 
-                ''
-            ).toString().trim();
-
-            if (!tableName) continue;
-
-            const capacity = parseInt(
-                row.capacity || 
-                row['Capacity'] || 
-                row['Seats'] || 
-                row['Capacity (Seats)'] || 
-                row.seats || 
-                4, 
-                10
-            ) || 4;
-
-            const floorName = (
-                row.floor || 
-                row['Floor'] || 
-                row['Floor Name'] || 
-                row.floor_name || 
-                'Main Floor'
-            ).toString().trim();
-
-            const areaName = (
-                row.dining_area || 
-                row['Dining Area'] || 
-                row['Area'] || 
-                row.area_name || 
-                row.area || 
-                'General Dining'
-            ).toString().trim();
-
-            const typeName = (
-                row.table_type || 
-                row['Table Type'] || 
-                row['Type'] || 
-                row.type || 
-                row.table_type_name || 
-                'Standard'
-            ).toString().trim();
-
-            const waiterIdentifier = (
-                row.waiter || 
-                row['Waiter'] || 
-                row['Assigned Waiter'] || 
-                row.waiter_name || 
-                row.current_waiter_id || 
-                ''
-            ).toString().trim();
-
-            const captainIdentifier = (
-                row.captain || 
-                row['Captain'] || 
-                row['Assigned Captain'] || 
-                row.captain_name || 
-                row.current_captain_id || 
-                ''
-            ).toString().trim();
-
-            const statusVal = (
-                row.status || 
-                row['Status'] || 
-                'Available'
-            ).toString().trim();
-
+            const tableName = (row.table_name ||
+                row['Table Name'] ||
+                row['Table Number'] ||
+                row['Table No'] ||
+                row.tableName ||
+                row.name ||
+                row.Table ||
+                '').toString().trim();
+            if (!tableName)
+                continue;
+            const capacity = parseInt(row.capacity ||
+                row['Capacity'] ||
+                row['Seats'] ||
+                row['Capacity (Seats)'] ||
+                row.seats ||
+                4, 10) || 4;
+            const floorName = (row.floor ||
+                row['Floor'] ||
+                row['Floor Name'] ||
+                row.floor_name ||
+                'Main Floor').toString().trim();
+            const areaName = (row.dining_area ||
+                row['Dining Area'] ||
+                row['Area'] ||
+                row.area_name ||
+                row.area ||
+                'General Dining').toString().trim();
+            const typeName = (row.table_type ||
+                row['Table Type'] ||
+                row['Type'] ||
+                row.type ||
+                row.table_type_name ||
+                'Standard').toString().trim();
+            const waiterIdentifier = (row.waiter ||
+                row['Waiter'] ||
+                row['Assigned Waiter'] ||
+                row.waiter_name ||
+                row.current_waiter_id ||
+                '').toString().trim();
+            const captainIdentifier = (row.captain ||
+                row['Captain'] ||
+                row['Assigned Captain'] ||
+                row.captain_name ||
+                row.current_captain_id ||
+                '').toString().trim();
+            const statusVal = (row.status ||
+                row['Status'] ||
+                'Available').toString().trim();
             // 1. Find or auto-create Floor
             let floor = null;
             if (floorName) {
                 const floorKey = floorName.toLowerCase();
                 if (floorCache.has(floorKey)) {
                     floor = floorCache.get(floorKey);
-                } else {
+                }
+                else {
                     floor = await req.propertyDb.models.floors.findOne({
                         where: {
                             outlet_id,
-                            name: { [Op.iLike]: floorName }
+                            name: { [sequelize_1.Op.iLike]: floorName }
                         },
                         transaction: t
                     });
@@ -855,18 +804,18 @@ exports.importTables = async (req, res) => {
                     floorCache.set(floorKey, floor);
                 }
             }
-
             // 2. Find or auto-create Dining Area
             let area = null;
             if (areaName) {
                 const areaKey = areaName.toLowerCase();
                 if (areaCache.has(areaKey)) {
                     area = areaCache.get(areaKey);
-                } else {
+                }
+                else {
                     area = await req.propertyDb.models.dining_areas.findOne({
                         where: {
                             outlet_id,
-                            name: { [Op.iLike]: areaName }
+                            name: { [sequelize_1.Op.iLike]: areaName }
                         },
                         transaction: t
                     });
@@ -881,18 +830,18 @@ exports.importTables = async (req, res) => {
                     areaCache.set(areaKey, area);
                 }
             }
-
             // 3. Find or auto-create Table Type
             let tableType = null;
             if (typeName) {
                 const typeKey = typeName.toLowerCase();
                 if (typeCache.has(typeKey)) {
                     tableType = typeCache.get(typeKey);
-                } else {
+                }
+                else {
                     tableType = await req.propertyDb.models.table_types.findOne({
                         where: {
                             outlet_id,
-                            name: { [Op.iLike]: typeName }
+                            name: { [sequelize_1.Op.iLike]: typeName }
                         },
                         transaction: t
                     });
@@ -907,20 +856,20 @@ exports.importTables = async (req, res) => {
                     typeCache.set(typeKey, tableType);
                 }
             }
-
             // 4. Resolve Waiter (optional)
             let waiterId = null;
             if (waiterIdentifier) {
                 const wKey = waiterIdentifier.toLowerCase();
                 if (employeeCache.has(wKey)) {
                     waiterId = employeeCache.get(wKey);
-                } else {
+                }
+                else {
                     const emp = await req.propertyDb.models.hr_employees.findOne({
                         where: {
                             outlet_id,
-                            [Op.or]: [
-                                { full_name: { [Op.iLike]: waiterIdentifier } },
-                                { employee_code: { [Op.iLike]: waiterIdentifier } }
+                            [sequelize_1.Op.or]: [
+                                { full_name: { [sequelize_1.Op.iLike]: waiterIdentifier } },
+                                { employee_code: { [sequelize_1.Op.iLike]: waiterIdentifier } }
                             ]
                         },
                         transaction: t
@@ -931,20 +880,20 @@ exports.importTables = async (req, res) => {
                     }
                 }
             }
-
             // 5. Resolve Captain (optional)
             let captainId = null;
             if (captainIdentifier) {
                 const cKey = captainIdentifier.toLowerCase();
                 if (employeeCache.has(cKey)) {
                     captainId = employeeCache.get(cKey);
-                } else {
+                }
+                else {
                     const emp = await req.propertyDb.models.hr_employees.findOne({
                         where: {
                             outlet_id,
-                            [Op.or]: [
-                                { full_name: { [Op.iLike]: captainIdentifier } },
-                                { employee_code: { [Op.iLike]: captainIdentifier } }
+                            [sequelize_1.Op.or]: [
+                                { full_name: { [sequelize_1.Op.iLike]: captainIdentifier } },
+                                { employee_code: { [sequelize_1.Op.iLike]: captainIdentifier } }
                             ]
                         },
                         transaction: t
@@ -955,16 +904,14 @@ exports.importTables = async (req, res) => {
                     }
                 }
             }
-
             // 6. Duplicate Prevention & Upsert on (outlet_id, table_name)
             let table = await req.propertyDb.models.restaurant_tables.findOne({
                 where: {
                     outlet_id,
-                    table_name: { [Op.iLike]: tableName }
+                    table_name: { [sequelize_1.Op.iLike]: tableName }
                 },
                 transaction: t
             });
-
             if (table) {
                 const updatePayload = {
                     capacity,
@@ -972,15 +919,17 @@ exports.importTables = async (req, res) => {
                     dining_area_id: area ? area.id : table.dining_area_id,
                     table_type_id: tableType ? tableType.id : table.table_type_id,
                 };
-                if (waiterId !== null) updatePayload.current_waiter_id = waiterId;
-                if (captainId !== null) updatePayload.current_captain_id = captainId;
+                if (waiterId !== null)
+                    updatePayload.current_waiter_id = waiterId;
+                if (captainId !== null)
+                    updatePayload.current_captain_id = captainId;
                 if (statusVal && statusVal !== 'Available' && statusVal !== 'Occupied' && statusVal !== 'Reserved') {
                     updatePayload.status = statusVal;
                 }
-
                 await table.update(updatePayload, { transaction: t });
                 updatedCount++;
-            } else {
+            }
+            else {
                 await req.propertyDb.models.restaurant_tables.create({
                     outlet_id,
                     table_name: tableName,
@@ -995,7 +944,6 @@ exports.importTables = async (req, res) => {
                 importedCount++;
             }
         }
-
         await t.commit();
         res.json({
             success: true,
@@ -1003,57 +951,56 @@ exports.importTables = async (req, res) => {
             imported: importedCount,
             updated: updatedCount
         });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         console.error('Error importing tables:', err);
         res.status(500).json({ success: false, message: 'Failed to import tables: ' + err.message });
     }
 };
-
-exports.assignTableUser = async (req, res) => {
+exports.importTables = importTables;
+const assignTableUser = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
         const { waiter_id, captain_id, assigned_user_id, assigned_user_name } = req.body;
-
         const table = await req.propertyDb.models.restaurant_tables.findOne({
             where: { id, outlet_id }
         });
-
         if (!table) {
             return res.status(404).json({ success: false, message: 'Table not found' });
         }
-
         const updateData = {};
-        if (waiter_id !== undefined) updateData.current_waiter_id = waiter_id ? Number(waiter_id) : null;
-        if (captain_id !== undefined) updateData.current_captain_id = captain_id ? Number(captain_id) : null;
-        if (assigned_user_id !== undefined) updateData.assigned_user_id = assigned_user_id ? Number(assigned_user_id) : null;
-        if (assigned_user_name !== undefined) updateData.assigned_user_name = assigned_user_name ? String(assigned_user_name) : null;
-
+        if (waiter_id !== undefined)
+            updateData.current_waiter_id = waiter_id ? Number(waiter_id) : null;
+        if (captain_id !== undefined)
+            updateData.current_captain_id = captain_id ? Number(captain_id) : null;
+        if (assigned_user_id !== undefined)
+            updateData.assigned_user_id = assigned_user_id ? Number(assigned_user_id) : null;
+        if (assigned_user_name !== undefined)
+            updateData.assigned_user_name = assigned_user_name ? String(assigned_user_name) : null;
         await table.update(updateData);
-
         res.json({
             success: true,
             message: 'Table assigned successfully',
             data: table
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error assigning table:', err);
         res.status(500).json({ success: false, message: 'Failed to assign table: ' + err.message });
     }
 };
-
-exports.getTableTransactions = async (req, res) => {
+exports.assignTableUser = assignTableUser;
+const getTableTransactions = async (req, res) => {
     try {
-        const outlet_id = req.user.outlet_id;
+        const outlet_id = req.user?.outlet_id;
         const { id } = req.params;
-
-        // Fetch active KOTs for this table
         const kots = await req.propertyDb.models.kot_headers.findAll({
             where: {
                 outlet_id,
                 table_id: id,
-                status: { [Op.ne]: 'c' }
+                status: { [sequelize_1.Op.ne]: 'c' }
             },
             include: [
                 {
@@ -1063,14 +1010,68 @@ exports.getTableTransactions = async (req, res) => {
             ],
             order: [['created_at', 'ASC']]
         });
-
         res.json({
             success: true,
             data: kots
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error fetching table transactions:', err);
         res.status(500).json({ success: false, message: 'Failed to load table transactions' });
     }
 };
-
+exports.getTableTransactions = getTableTransactions;
+exports.default = {
+    listFloors: exports.listFloors,
+    createFloor: exports.createFloor,
+    updateFloor: exports.updateFloor,
+    deleteFloor: exports.deleteFloor,
+    listDiningAreas: exports.listDiningAreas,
+    createDiningArea: exports.createDiningArea,
+    updateDiningArea: exports.updateDiningArea,
+    deleteDiningArea: exports.deleteDiningArea,
+    listTableTypes: exports.listTableTypes,
+    createTableType: exports.createTableType,
+    updateTableType: exports.updateTableType,
+    deleteTableType: exports.deleteTableType,
+    listTables: exports.listTables,
+    createTable: exports.createTable,
+    importTables: exports.importTables,
+    updateTable: exports.updateTable,
+    deleteTable: exports.deleteTable,
+    updateTableStatus: exports.updateTableStatus,
+    assignTableUser: exports.assignTableUser,
+    getTableTransactions: exports.getTableTransactions,
+    transferTable: exports.transferTable,
+    mergeTables: exports.mergeTables,
+    listReservations: exports.listReservations,
+    createReservation: exports.createReservation,
+    updateReservationStatus: exports.updateReservationStatus
+};
+module.exports = {
+    listFloors: exports.listFloors,
+    createFloor: exports.createFloor,
+    updateFloor: exports.updateFloor,
+    deleteFloor: exports.deleteFloor,
+    listDiningAreas: exports.listDiningAreas,
+    createDiningArea: exports.createDiningArea,
+    updateDiningArea: exports.updateDiningArea,
+    deleteDiningArea: exports.deleteDiningArea,
+    listTableTypes: exports.listTableTypes,
+    createTableType: exports.createTableType,
+    updateTableType: exports.updateTableType,
+    deleteTableType: exports.deleteTableType,
+    listTables: exports.listTables,
+    createTable: exports.createTable,
+    importTables: exports.importTables,
+    updateTable: exports.updateTable,
+    deleteTable: exports.deleteTable,
+    updateTableStatus: exports.updateTableStatus,
+    assignTableUser: exports.assignTableUser,
+    getTableTransactions: exports.getTableTransactions,
+    transferTable: exports.transferTable,
+    mergeTables: exports.mergeTables,
+    listReservations: exports.listReservations,
+    createReservation: exports.createReservation,
+    updateReservationStatus: exports.updateReservationStatus
+};

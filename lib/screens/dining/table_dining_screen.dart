@@ -6237,22 +6237,12 @@ class _CustomerAuthBottomSheetState extends State<_CustomerAuthBottomSheet> {
               TextField(
                 controller: _regPhoneCtrl,
                 keyboardType: TextInputType.phone,
-                maxLength: 10,
+                maxLength: 16,
                 decoration: InputDecoration(
                   counterText: '',
-                  labelText: 'Mobile Number (Optional)',
-                  hintText: '10-digit mobile number',
-                  prefixIcon: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('🇮🇳 +91', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        SizedBox(width: 6),
-                        VerticalDivider(width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
-                      ],
-                    ),
-                  ),
+                  labelText: 'Mobile / Phone Number (Optional)',
+                  hintText: 'e.g. +1 555 123 4567',
+                  prefixIcon: const Icon(Icons.phone_outlined, size: 20, color: Color(0xFF64748B)),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),

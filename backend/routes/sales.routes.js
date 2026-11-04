@@ -1,4 +1,10 @@
-const router = require('express').Router();
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const router = express_1.default.Router();
 const auth = require('../middlewares/auth.middleware');
 const license = require('../middlewares/license.middleware');
 const ctrl = require('../controllers/sales/sales.controller');
@@ -8,40 +14,32 @@ const commissionRulesCtrl = require('../controllers/sales/commissionRules.contro
 const happyHourCtrl = require('../controllers/sales/happyHour.controller');
 const billValuePromoCtrl = require('../controllers/sales/billValuePromo.controller');
 const { getSubscriptionDraftOrdersToday } = require('../jobs/subscriptionDeliveryJob');
-
 router.use(auth, license('INVENTORY'));
-
 // Commission Rules
 router.get('/commission-rules', commissionRulesCtrl.listCommissionRules);
 router.post('/commission-rules', commissionRulesCtrl.createCommissionRule);
-
+router.put('/commission-rules/:id', commissionRulesCtrl.updateCommissionRule);
+router.delete('/commission-rules/:id', commissionRulesCtrl.deleteCommissionRule);
 // Happy Hours
 router.get('/happy-hours', happyHourCtrl.listHappyHours);
 router.post('/happy-hours', happyHourCtrl.createHappyHour);
 router.put('/happy-hours/:id', happyHourCtrl.updateHappyHour);
 router.delete('/happy-hours/:id', happyHourCtrl.deleteHappyHour);
-
 // Bill Value Promos
 router.get('/bill-value-promos', billValuePromoCtrl.listBillValuePromos);
 router.post('/bill-value-promos', billValuePromoCtrl.createBillValuePromo);
 router.put('/bill-value-promos/:id', billValuePromoCtrl.updateBillValuePromo);
 router.delete('/bill-value-promos/:id', billValuePromoCtrl.deleteBillValuePromo);
-
-router.put('/commission-rules/:id', commissionRulesCtrl.updateCommissionRule);
-router.delete('/commission-rules/:id', commissionRulesCtrl.deleteCommissionRule);
-
 // Sale Sources
 router.get('/sources', settingsCtrl.listSaleSources);
 router.post('/sources', settingsCtrl.createSaleSource);
 router.put('/sources/:id', settingsCtrl.updateSaleSource);
 router.delete('/sources/:id', settingsCtrl.deleteSaleSource);
-
 // Payment Methods
 router.get('/payment-methods', settingsCtrl.listPaymentMethods);
 router.post('/payment-methods', settingsCtrl.createPaymentMethod);
 router.put('/payment-methods/:id', settingsCtrl.updatePaymentMethod);
 router.delete('/payment-methods/:id', settingsCtrl.deletePaymentMethod);
-
 router.get('/next-sale-no', ctrl.getNextSaleNo);
 router.get('/subscription-drafts-today', getSubscriptionDraftOrdersToday);
 router.get('/customers', ctrl.listCustomers);
@@ -77,18 +75,17 @@ router.delete('/vouchers/:code', ctrl.deleteVoucher);
 router.post('/validate-voucher', ctrl.validateVoucher);
 router.post('/schemes', ctrl.createScheme);
 router.put('/schemes/:id', ctrl.updateScheme);
+router.delete('/schemes/:id', ctrl.deleteScheme);
 router.put('/:id/payment-mode', ctrl.updateSalePaymentMode);
 router.put('/:id/settle', ctrl.settleRunningBill);
 router.put('/:id', ctrl.modifySale);
-router.delete('/schemes/:id', ctrl.deleteScheme);
 router.get('/refunds', ctrl.listRefunds);
 const { idempotencyMiddleware } = require('../middlewares/idempotency.middleware');
-
 router.post('/refunds/pay', ctrl.payRefund);
 router.post('/return', ctrl.returnSale);
 router.post('/', idempotencyMiddleware(120), ctrl.createSale);
 router.get('/', ctrl.listSales);
 router.delete('/drafts/:id', ctrl.deleteDraft);
 router.get('/:id', ctrl.getSaleDetails);
-
 module.exports = router;
+exports.default = router;

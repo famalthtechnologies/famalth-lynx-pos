@@ -1,5 +1,5 @@
+"use strict";
 const router = require('express').Router();
-
 /**
  * GET /api/system/server-time
  *
@@ -21,10 +21,10 @@ router.get('/', async (req, res) => {
                 source: 'db',
             });
         }
-    } catch (_) {
+    }
+    catch (_) {
         // fall through to Node fallback
     }
-
     // Fallback: use Node's Date (still useful — at least it is the server OS time,
     // not the client OS time)
     res.json({
@@ -33,5 +33,4 @@ router.get('/', async (req, res) => {
         source: 'node',
     });
 });
-
 module.exports = router;

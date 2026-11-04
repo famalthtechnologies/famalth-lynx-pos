@@ -7,7 +7,27 @@ function getDb(req) {
     return req.propertyDb || defaultDb;
 }
 function resolveOutletId(req) {
-    return Number(req?.user?.outlet_id) || Number(req?.query?.outletId) || Number(req?.body?.outletId) || 0;
+    const fromUser = Number(req?.user?.outlet_id || req?.user?.outletId);
+    if (fromUser)
+        return fromUser;
+    const fromHeader = Number(req?.headers?.['x-outlet-id'] || req?.headers?.['outlet_id']);
+    if (fromHeader)
+        return fromHeader;
+    const fromQueryOrBody = Number(req?.query?.outletId || req?.query?.outlet_id || req?.body?.outletId || req?.body?.outlet_id);
+    if (fromQueryOrBody)
+        return fromQueryOrBody;
+    // Decode token if req.user was not populated by upstream middleware
+    try {
+        const token = req?.headers?.authorization?.split(' ')[1];
+        if (token) {
+            const jwt = require('../utils/jwt.util');
+            const data = jwt.verify(token);
+            if (data?.outlet_id || data?.outletId)
+                return Number(data.outlet_id || data.outletId);
+        }
+    }
+    catch (_) { }
+    return 0;
 }
 const getEcosystemInfo = async (req, res) => {
     try {

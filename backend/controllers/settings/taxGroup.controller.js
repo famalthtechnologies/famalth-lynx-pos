@@ -1,6 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getDefaultTaxGroupsForCountry = getDefaultTaxGroupsForCountry;
+exports.resolveOutletId = resolveOutletId;
+exports.resolveBillingCountry = resolveBillingCountry;
+exports.autoSeedTaxGroupsInternal = autoSeedTaxGroupsInternal;
+exports.getTaxGroups = getTaxGroups;
+exports.seedDefaultTaxGroups = seedDefaultTaxGroups;
+exports.createTaxGroup = createTaxGroup;
+exports.updateTaxGroup = updateTaxGroup;
+exports.deleteTaxGroup = deleteTaxGroup;
 function getDefaultTaxGroupsForCountry(country) {
     const norm = (country || 'INDIA').toString().trim().toUpperCase();
-
     if (norm.includes('INDIA') || norm === 'IN' || norm === 'IND') {
         return [
             {
@@ -82,7 +92,6 @@ function getDefaultTaxGroupsForCountry(country) {
             }
         ];
     }
-
     if (norm.includes('USA') || norm.includes('UNITED STATES') || norm === 'US') {
         return [
             {
@@ -121,7 +130,6 @@ function getDefaultTaxGroupsForCountry(country) {
             }
         ];
     }
-
     if (norm.includes('KENYA') || norm === 'KE') {
         return [
             {
@@ -159,7 +167,6 @@ function getDefaultTaxGroupsForCountry(country) {
             }
         ];
     }
-
     if (norm.includes('UK') || norm.includes('ENGLAND') || norm.includes('BRITAIN') || norm.includes('UNITED KINGDOM') || norm === 'GB') {
         return [
             {
@@ -188,7 +195,6 @@ function getDefaultTaxGroupsForCountry(country) {
             }
         ];
     }
-
     if (norm.includes('GERMANY') || norm.includes('DEUTSCH') || norm === 'DE') {
         return [
             {
@@ -217,7 +223,6 @@ function getDefaultTaxGroupsForCountry(country) {
             }
         ];
     }
-
     if (norm.includes('BRAZIL') || norm.includes('BRASIL') || norm === 'BR') {
         return [
             {
@@ -248,7 +253,6 @@ function getDefaultTaxGroupsForCountry(country) {
             }
         ];
     }
-
     if (norm.includes('EU') || norm.includes('EUROPE')) {
         return [
             {
@@ -277,7 +281,7 @@ function getDefaultTaxGroupsForCountry(country) {
             }
         ];
     }
-
+    // Default fallback for any other country
     return [
         {
             group_name: 'Zero Tax (0%)',
@@ -308,26 +312,30 @@ function getDefaultTaxGroupsForCountry(country) {
             group_code: 'TAX_18',
             is_tax_inclusive: false,
             components: [
-                { component_code: 'TAX_18', component_name: 'Standard Tax', rate: 18.0, calculation_order: 1, calculation_type: 'FLAT_PERCENT' }
+                { component_code: 'TAX_18', component_name: 'Standard Tax (18%)', rate: 18.0, calculation_order: 1, calculation_type: 'FLAT_PERCENT' }
             ]
         }
     ];
 }
-
 async function resolveOutletId(req, inputOutletId) {
-    let outletId = Number(inputOutletId || req.outlet?.id || req.user?.outlet_id || req.headers?.['x-outlet-id'] || 0);
+    let outletId = Number(inputOutletId ||
+        req.outlet?.id ||
+        req.user?.outlet_id ||
+        (req.headers ? req.headers['x-outlet-id'] : 0) ||
+        0);
     if (!outletId || outletId <= 0) {
         try {
             const outlet = await req.propertyDb.models.outlets.findOne({
                 attributes: ['id'],
                 order: [['id', 'ASC']]
             });
-            if (outlet) outletId = outlet.id;
-        } catch (_) {}
+            if (outlet)
+                outletId = outlet.id;
+        }
+        catch (_) { }
     }
     return outletId || 1;
 }
-
 async function resolveBillingCountry(req, outletId, queryCountry) {
     if (queryCountry && String(queryCountry).trim().length > 0) {
         return String(queryCountry).trim();
@@ -335,7 +343,6 @@ async function resolveBillingCountry(req, outletId, queryCountry) {
     if (req.headers && req.headers['x-country']) {
         return String(req.headers['x-country']).trim();
     }
-
     try {
         if (req.propertyDb.models.system_settings) {
             const settings = await req.propertyDb.models.system_settings.findOne({
@@ -346,8 +353,8 @@ async function resolveBillingCountry(req, outletId, queryCountry) {
                 return settings.billing_country.trim();
             }
         }
-    } catch (_) {}
-
+    }
+    catch (_) { }
     try {
         if (req.propertyDb.models.outlets) {
             const outlet = await req.propertyDb.models.outlets.findByPk(outletId, {
@@ -357,15 +364,13 @@ async function resolveBillingCountry(req, outletId, queryCountry) {
                 return outlet.country.trim();
             }
         }
-    } catch (_) {}
-
+    }
+    catch (_) { }
     return 'India';
 }
-
 async function autoSeedTaxGroupsInternal(req, outletId, country) {
     const seedDefs = getDefaultTaxGroupsForCountry(country);
     const createdGroups = [];
-
     for (const def of seedDefs) {
         const t = await req.propertyDb.transaction();
         try {
@@ -373,7 +378,6 @@ async function autoSeedTaxGroupsInternal(req, outletId, country) {
             for (const c of def.components) {
                 totalRate += Number(c.rate || 0);
             }
-
             const group = await req.propertyDb.models.tax_groups.create({
                 outlet_id: outletId,
                 group_name: def.group_name,
@@ -382,35 +386,32 @@ async function autoSeedTaxGroupsInternal(req, outletId, country) {
                 is_tax_inclusive: def.is_tax_inclusive,
                 is_active: true
             }, { transaction: t });
-
             if (Array.isArray(def.components) && def.components.length > 0) {
                 const compRows = def.components.map((c, idx) => ({
                     tax_group_id: group.id,
                     component_code: c.component_code || `TAX_${idx + 1}`,
                     component_name: c.component_name || `Tax Component ${idx + 1}`,
                     rate: Number(c.rate || 0),
-                    calculation_order: c.calculation_order || (idx + 1),
+                    calculation_order: c.calculation_order || idx + 1,
                     calculation_type: c.calculation_type || 'FLAT_PERCENT',
                     gl_account_code: null
                 }));
                 await req.propertyDb.models.tax_group_components.bulkCreate(compRows, { transaction: t });
             }
-
             await t.commit();
-
             const created = await req.propertyDb.models.tax_groups.findByPk(group.id, {
                 include: [{ model: req.propertyDb.models.tax_group_components, as: 'components' }]
             });
-            if (created) createdGroups.push(created);
-        } catch (err) {
+            if (created)
+                createdGroups.push(created);
+        }
+        catch (err) {
             await t.rollback();
             console.error(`Error auto-seeding group ${def.group_name}:`, err);
         }
     }
-
     return createdGroups;
 }
-
 async function getTaxGroups(req, res) {
     try {
         const outlet_id = await resolveOutletId(req, req.query.outlet_id);
@@ -424,12 +425,12 @@ async function getTaxGroups(req, res) {
             ],
             order: [['id', 'ASC']]
         });
-
+        // Auto-seed for this outlet if no tax groups exist yet!
         if (!groups || groups.length === 0) {
             const country = await resolveBillingCountry(req, outlet_id, req.query.country);
             console.log(`[taxGroup] Auto-seeding default tax groups for outlet ${outlet_id} (Country: ${country})...`);
             await autoSeedTaxGroupsInternal(req, outlet_id, country);
-
+            // Re-query newly created groups
             groups = await req.propertyDb.models.tax_groups.findAll({
                 where: { outlet_id, is_active: true },
                 include: [
@@ -441,29 +442,25 @@ async function getTaxGroups(req, res) {
                 order: [['id', 'ASC']]
             });
         }
-
         return res.json({ success: true, data: groups });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error fetching tax groups:', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 }
-
 async function seedDefaultTaxGroups(req, res) {
     try {
         const outlet_id = await resolveOutletId(req, req.body.outlet_id || req.query.outlet_id);
         const country = req.body.country || req.query.country || (await resolveBillingCountry(req, outlet_id));
         const overwrite = !!req.body.overwrite;
         let preservedLinkedCount = 0;
-
         if (overwrite) {
             // Find all existing active tax groups for this outlet
             const existingGroups = await req.propertyDb.models.tax_groups.findAll({
                 where: { outlet_id, is_active: true }
             });
-
             const unlinkedGroupIds = [];
-
             for (const grp of existingGroups) {
                 let isLinked = false;
                 if (req.propertyDb.models.item_master) {
@@ -476,19 +473,15 @@ async function seedDefaultTaxGroups(req, res) {
                 }
                 if (isLinked) {
                     preservedLinkedCount++;
-                } else {
+                }
+                else {
                     unlinkedGroupIds.push(grp.id);
                 }
             }
-
             if (unlinkedGroupIds.length > 0) {
-                await req.propertyDb.models.tax_groups.update(
-                    { is_active: false },
-                    { where: { id: unlinkedGroupIds } }
-                );
+                await req.propertyDb.models.tax_groups.update({ is_active: false }, { where: { id: unlinkedGroupIds } });
             }
         }
-
         const seeded = await autoSeedTaxGroupsInternal(req, outlet_id, country);
         const preservedMsg = preservedLinkedCount > 0 ? ` (Preserved ${preservedLinkedCount} tax group(s) linked to items in Item Master)` : '';
         return res.json({
@@ -496,23 +489,21 @@ async function seedDefaultTaxGroups(req, res) {
             message: `Successfully configured standard default taxes for ${country}.${preservedMsg}`,
             data: seeded
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error seeding default tax groups:', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 }
-
 async function createTaxGroup(req, res) {
     const t = await req.propertyDb.transaction();
     try {
         const outlet_id = await resolveOutletId(req, req.body.outlet_id);
         const { group_name, group_code, is_tax_inclusive, components = [] } = req.body;
-
         let totalRate = 0;
         for (const c of components) {
             totalRate += Number(c.rate || 0);
         }
-
         const group = await req.propertyDb.models.tax_groups.create({
             outlet_id,
             group_name,
@@ -521,96 +512,84 @@ async function createTaxGroup(req, res) {
             is_tax_inclusive: !!is_tax_inclusive,
             is_active: true
         }, { transaction: t });
-
         if (Array.isArray(components) && components.length > 0) {
             const compRows = components.map((c, idx) => ({
                 tax_group_id: group.id,
                 component_code: c.component_code || `TAX_${idx + 1}`,
                 component_name: c.component_name || `Tax Component ${idx + 1}`,
                 rate: Number(c.rate || 0),
-                calculation_order: c.calculation_order || (idx + 1),
+                calculation_order: c.calculation_order || idx + 1,
                 calculation_type: c.calculation_type || 'FLAT_PERCENT',
                 gl_account_code: c.gl_account_code || null
             }));
             await req.propertyDb.models.tax_group_components.bulkCreate(compRows, { transaction: t });
         }
-
         await t.commit();
-
         const created = await req.propertyDb.models.tax_groups.findByPk(group.id, {
             include: [{ model: req.propertyDb.models.tax_group_components, as: 'components' }]
         });
-
         return res.json({ success: true, data: created });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         console.error('Error creating tax group:', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 }
-
 async function updateTaxGroup(req, res) {
     const t = await req.propertyDb.transaction();
     try {
         const { id } = req.params;
         const { group_name, group_code, is_tax_inclusive, components = [] } = req.body;
-
         const group = await req.propertyDb.models.tax_groups.findByPk(id);
         if (!group) {
             await t.rollback();
             return res.status(404).json({ success: false, message: 'Tax Group not found' });
         }
-
         let totalRate = 0;
         for (const c of components) {
             totalRate += Number(c.rate || 0);
         }
-
         await group.update({
             group_name: group_name || group.group_name,
             group_code: group_code ?? group.group_code,
             total_rate: totalRate,
             is_tax_inclusive: is_tax_inclusive ?? group.is_tax_inclusive
         }, { transaction: t });
-
         await req.propertyDb.models.tax_group_components.destroy({
             where: { tax_group_id: id },
             transaction: t
         });
-
         if (Array.isArray(components) && components.length > 0) {
             const compRows = components.map((c, idx) => ({
                 tax_group_id: id,
                 component_code: c.component_code || `TAX_${idx + 1}`,
                 component_name: c.component_name || `Tax Component ${idx + 1}`,
                 rate: Number(c.rate || 0),
-                calculation_order: c.calculation_order || (idx + 1),
+                calculation_order: c.calculation_order || idx + 1,
                 calculation_type: c.calculation_type || 'FLAT_PERCENT',
                 gl_account_code: c.gl_account_code || null
             }));
             await req.propertyDb.models.tax_group_components.bulkCreate(compRows, { transaction: t });
         }
-
         await t.commit();
-
         const updated = await req.propertyDb.models.tax_groups.findByPk(id, {
             include: [{ model: req.propertyDb.models.tax_group_components, as: 'components' }]
         });
-
         return res.json({ success: true, data: updated });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         console.error('Error updating tax group:', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 }
-
 async function deleteTaxGroup(req, res) {
     try {
         const { id } = req.params;
         const group = await req.propertyDb.models.tax_groups.findByPk(id);
-        if (!group) return res.status(404).json({ success: false, message: 'Tax Group not found' });
-
+        if (!group)
+            return res.status(404).json({ success: false, message: 'Tax Group not found' });
         // Check if any items in item_master are linked to this tax_group
         if (req.propertyDb.models.item_master) {
             const linkedItemsCount = await req.propertyDb.models.item_master.count({
@@ -623,15 +602,14 @@ async function deleteTaxGroup(req, res) {
                 });
             }
         }
-
         await group.update({ is_active: false });
         return res.json({ success: true, message: `Tax group "${group.group_name}" deleted successfully` });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Error deleting tax group:', err);
         return res.status(500).json({ success: false, message: err.message });
     }
 }
-
 module.exports = {
     getTaxGroups,
     seedDefaultTaxGroups,

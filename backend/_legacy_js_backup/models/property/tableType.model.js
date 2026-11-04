@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const TableType = sequelize.define('table_types', {
         id: {
@@ -25,6 +26,5 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'table_types',
         timestamps: false
     });
-
     return TableType;
 };

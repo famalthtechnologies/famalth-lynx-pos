@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const { Op, Sequelize } = require('sequelize');
 const { getNextNumber } = require('../../services/numbering.service');
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
+const { getPhoneSearchVariants } = require('../../utils/phone.util');
 const { isBankPayment, isBankPaymentMethod, getDefaultBankAccount, creditBankBalance, debitBankBalance } = require('../../services/bankAccount.service');
 const { createLedgerEntry, updateLedgerEntry, getOpeningBalanceForDate, upsertOpeningBalance, roundAmount, dateKey, startOfDay, recalculateLedgerBalances } = require('../../services/cashLedger.service');
 const { refreshSaleOutstanding, getRepaymentTotal, resolvePaymentStatus, extractInitialPaid } = require('../../services/salesFinance.service');
@@ -123,29 +124,32 @@ function endOfDay(value) {
 function toAmount(value) {
     return roundAmount(value);
 }
-function buildCustomerMatch(search) {
-    if (!search)
+function buildCustomerMatch(search, secondaryName = '') {
+    if (!search && !secondaryName)
         return null;
-    const cleanPhone = String(search).replace(/\D/g, '').trim();
-    const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
-    const orConditions = [
-        { customer_name: { [Op.iLike]: `%${search}%` } },
-        { customer_gstin: { [Op.iLike]: `%${search}%` } }
-    ];
-    if (last10.length >= 7) {
+    const variants = getPhoneSearchVariants(search);
+    const orConditions = [];
+    if (search) {
+        orConditions.push({ customer_name: { [Op.iLike]: `%${search}%` } }, { customer_gstin: { [Op.iLike]: `%${search}%` } });
+    }
+    if (secondaryName && secondaryName !== search) {
+        orConditions.push({ customer_name: { [Op.iLike]: `%${secondaryName}%` } });
+    }
+    if (variants.length > 0) {
+        const cleanDigits = String(search || '').replace(/\D/g, '');
         orConditions.push({
             customer_phone: {
                 [Op.or]: [
-                    { [Op.iLike]: `%${search}%` },
-                    { [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`] }
+                    { [Op.in]: variants },
+                    ...(cleanDigits.length >= 4 ? [{ [Op.iLike]: `%${cleanDigits}%` }] : [])
                 ]
             }
         });
     }
-    else {
+    else if (search) {
         orConditions.push({ customer_phone: { [Op.iLike]: `%${search}%` } });
     }
-    return { [Op.or]: orConditions };
+    return orConditions.length > 0 ? { [Op.or]: orConditions } : null;
 }
 function normalizeCustomerIdentity(payload = {}) {
     return {
@@ -1648,7 +1652,11 @@ exports.adjustBulkAdvance = async (req, res) => {
             throw new Error('Customer identification is required');
         }
         const advances = await req.propertyDb.models.customer_advances.findAll({
-            where: Object.assign({ outlet_id: req.user.outlet_id, available_amount: { [Op.gt]: 0 } }, match),
+            where: {
+                outlet_id: req.user.outlet_id,
+                available_amount: { [Op.gt]: 0 },
+                ...match
+            },
             order: [['advance_date', 'ASC'], ['id', 'ASC']],
             transaction: t
         });
@@ -1657,7 +1665,14 @@ exports.adjustBulkAdvance = async (req, res) => {
             throw new Error(`Adjustment amount (${adjustAmount.toFixed(2)}) exceeds available advance (${totalAvailable.toFixed(2)})`);
         }
         const sales = await req.propertyDb.models.sales_headers.findAll({
-            where: Object.assign({ outlet_id: req.user.outlet_id, status: 'COMPLETED', is_latest: true, is_deleted: false, balance_due: { [Op.gt]: 0 } }, match),
+            where: {
+                outlet_id: req.user.outlet_id,
+                status: 'COMPLETED',
+                is_latest: true,
+                is_deleted: false,
+                balance_due: { [Op.gt]: 0 },
+                ...match
+            },
             order: [['sale_date', 'ASC'], ['id', 'ASC']],
             transaction: t
         });
@@ -2482,10 +2497,10 @@ exports.getCustomerLedger = async (req, res) => {
         const customerPhone = String(req.query.customer_phone || req.query.phone || '').trim();
         const customerName = String(req.query.customer_name || req.query.name || '').trim();
         const search = String(req.query.customer || req.query.search || customerPhone || customerName).trim();
-        if (!search) {
+        if (!search && !customerName) {
             return res.status(400).json({ success: false, error: 'Customer phone or name is required' });
         }
-        const customerMatch = buildCustomerMatch(search);
+        const customerMatch = buildCustomerMatch(customerPhone || search, customerName);
         let customerProfile = null;
         if (req.propertyDb.models.customers) {
             customerProfile = await req.propertyDb.models.customers.findOne({
@@ -2593,7 +2608,6 @@ exports.getCustomerLedger = async (req, res) => {
                         ? (p.note || 'Settled from Advance')
                         : (p.note || 'Repayment received')
                 });
-
                 if (isAdvanceAdjust) {
                     rawTransactions.push({
                         date: p.payment_date,
@@ -2640,6 +2654,70 @@ exports.getCustomerLedger = async (req, res) => {
                         notes: `Refunded from Advance #${adv.id}`
                     });
                 }
+            }
+        }
+        // 4. Fetch subscription consumptions / advance drawdowns
+        const subIds = new Set();
+        for (const adv of advances) {
+            const match = String(adv.reference_no || '').match(/^SUBSCRIPTION-(\d+)$/i);
+            if (match) {
+                subIds.add(Number(match[1]));
+            }
+        }
+        if (req.propertyDb.models.milk_subscriptions) {
+            const subs = await req.propertyDb.models.milk_subscriptions.findAll({
+                where: {
+                    ...scope.outletWhere,
+                    ...(customerMatch || {})
+                },
+                attributes: ['id'],
+                bypassOutletFilter: true
+            });
+            for (const s of subs) {
+                subIds.add(Number(s.id));
+            }
+        }
+        const saleIds = sales.map((s) => s.id);
+        const consumptionWhereOr = [];
+        if (subIds.size > 0) {
+            consumptionWhereOr.push({ subscription_id: { [Op.in]: Array.from(subIds) } });
+        }
+        if (saleIds.length > 0) {
+            consumptionWhereOr.push({ sale_id: { [Op.in]: saleIds } });
+        }
+        if (consumptionWhereOr.length > 0 && req.propertyDb.models.milk_subscription_consumptions) {
+            const consumptions = await req.propertyDb.models.milk_subscription_consumptions.findAll({
+                where: {
+                    [Op.or]: consumptionWhereOr,
+                    covered_amount: { [Op.gt]: 0 },
+                    status: { [Op.ne]: 'CANCELLED' }
+                },
+                order: [['txn_date', 'ASC'], ['id', 'ASC']]
+            });
+            const seenConsumptions = new Set();
+            for (const c of consumptions) {
+                if (seenConsumptions.has(c.id))
+                    continue;
+                seenConsumptions.add(c.id);
+                const coveredAmt = toAmount(c.covered_amount);
+                if (coveredAmt <= 0)
+                    continue;
+                const refNo = c.sale_no || `SUB-${c.subscription_id}`;
+                const itemDesc = c.item_name
+                    ? `${c.item_name} (${toAmount(c.covered_qty)} Qty)`
+                    : 'Subscription item';
+                rawTransactions.push({
+                    date: c.created_at || c.txn_date,
+                    sort_time: c.created_at || c.txn_date,
+                    id: `sub-consume-${c.id}`,
+                    voucher_type: 'SUBSCRIPTION_ADJUSTMENT',
+                    voucher_no: refNo,
+                    description: 'Advance Adjusted for Subscription',
+                    payment_mode: 'SUBSCRIPTION',
+                    debit: coveredAmt,
+                    credit: 0,
+                    notes: `Advance adjusted for subscription consumption [${itemDesc}] in ${refNo}`
+                });
             }
         }
         rawTransactions.sort((a, b) => {
@@ -2796,44 +2874,70 @@ exports.getExpiryReport = async (req, res) => {
                     where: { outlet_id: req.user.outlet_id },
                     attributes: ['grn_no', 'receipt_date']
                 }],
-            order: [['item_code', 'ASC'], ['id', 'DESC']]
+            order: [['expiry_date', 'ASC'], ['id', 'ASC']]
         });
-        const latestByItem = new Map();
+        // Group rows by item_code
+        const itemRowsMap = new Map();
         for (const row of rows) {
             const key = String(row.item_code || '');
-            if (!latestByItem.has(key)) {
-                latestByItem.set(key, row);
+            if (!itemRowsMap.has(key)) {
+                itemRowsMap.set(key, []);
             }
+            itemRowsMap.get(key).push(row);
         }
         const today = startOfDay(new Date());
-        const data = Array.from(latestByItem.values())
-            .map((row) => {
-            const expiryDate = parseDateOnly(row.expiry_date);
-            const daysLeft = Math.floor((expiryDate - today) / (1000 * 60 * 60 * 24));
-            const expiryState = daysLeft < 0 ? 'EXPIRED' : daysLeft <= alertDays ? 'NEAR_EXPIRY' : 'SAFE';
-            return {
-                id: row.id,
-                item_code: row.item_code,
-                item_name: row.item_name,
-                qty: positiveStock.get(String(row.item_code || '')) ?? 0,
-                unit: row.unit || '',
-                expiry_date: row.expiry_date,
-                days_left: daysLeft,
-                status: expiryState,
-                grn_no: row.grn?.grn_no || '',
-                receipt_date: row.grn?.receipt_date || null
-            };
-        })
+        const data = [];
+        for (const [code, itemBatches] of itemRowsMap.entries()) {
+            const currentStock = positiveStock.get(code) ?? 0;
+            const totalReceived = itemBatches.reduce((sum, b) => sum + Number(b.qty || 0), 0);
+            let remainingSold = Math.max(0, totalReceived - currentStock);
+            // Sort batches by expiry ASC (earliest expiry first)
+            itemBatches.sort((a, b) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime());
+            let activeBatch = null;
+            for (const b of itemBatches) {
+                const bQty = Number(b.qty || 0);
+                if (remainingSold >= bQty) {
+                    remainingSold -= bQty;
+                }
+                else {
+                    activeBatch = b;
+                    break;
+                }
+            }
+            if (!activeBatch && itemBatches.length > 0) {
+                activeBatch = itemBatches[itemBatches.length - 1];
+            }
+            if (activeBatch) {
+                const expiryDate = parseDateOnly(activeBatch.expiry_date);
+                const daysLeft = Math.floor((expiryDate - today) / (1000 * 60 * 60 * 24));
+                const expiryState = daysLeft < 0 ? 'EXPIRED' : daysLeft <= alertDays ? 'NEAR_EXPIRY' : 'SAFE';
+                data.push({
+                    id: activeBatch.id,
+                    item_code: activeBatch.item_code,
+                    item_name: activeBatch.item_name,
+                    qty: currentStock,
+                    unit: activeBatch.unit || '',
+                    expiry_date: activeBatch.expiry_date,
+                    days_left: daysLeft,
+                    status: expiryState,
+                    grn_no: activeBatch.grn?.grn_no || '',
+                    receipt_date: activeBatch.grn?.receipt_date || null
+                });
+            }
+        }
+        // Sort by nearest active expiry first
+        data.sort((a, b) => a.days_left - b.days_left);
+        const filteredData = data
             .filter((row) => !search || row.item_name.toLowerCase().includes(search) || row.item_code.toLowerCase().includes(search))
             .filter((row) => status === 'ALL' || row.status === status);
         res.json({
             success: true,
             summary: {
-                total_items: data.length,
+                total_items: filteredData.length,
                 expired_count: data.filter((row) => row.status === 'EXPIRED').length,
                 near_expiry_count: data.filter((row) => row.status === 'NEAR_EXPIRY').length
             },
-            data
+            data: filteredData
         });
     }
     catch (error) {

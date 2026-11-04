@@ -1,5 +1,5 @@
+"use strict";
 const https = require('https');
-
 /**
  * Standard https request wrapper
  * @param {string} method HTTP method (GET, POST, etc.)
@@ -10,7 +10,6 @@ const https = require('https');
 function request(method, url, headers = {}, body = null) {
     return new Promise((resolve, reject) => {
         const parsedUrl = new URL(url);
-        
         const options = {
             method: method.toUpperCase(),
             hostname: parsedUrl.hostname,
@@ -21,36 +20,30 @@ function request(method, url, headers = {}, body = null) {
                 ...headers
             }
         };
-
         const req = https.request(options, (res) => {
             let data = '';
-            
             res.on('data', (chunk) => {
                 data += chunk;
             });
-            
             res.on('end', () => {
                 try {
                     const parsed = JSON.parse(data);
                     resolve({ statusCode: res.statusCode, body: parsed });
-                } catch (e) {
+                }
+                catch (e) {
                     resolve({ statusCode: res.statusCode, body: data });
                 }
             });
         });
-
         req.on('error', (err) => {
             reject(err);
         });
-
         if (body && (method === 'POST' || method === 'PUT')) {
             req.write(JSON.stringify(body));
         }
-        
         req.end();
     });
 }
-
 module.exports = {
     request
 };

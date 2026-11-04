@@ -4,9 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.extractSchemaFromMigrations = extractSchemaFromMigrations;
+exports.extractSchemaFromDatabase = extractSchemaFromDatabase;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-
 const TABLE_BUSINESS_USES = {
     item_master: {
         displayName: 'Item Master (Product Catalog)',
@@ -159,7 +159,6 @@ const TABLE_BUSINESS_USES = {
         businessUse: 'Recurring delivery subscriptions and service quota packages (e.g. clinic therapy sessions or monthly milk), quota limits, and usage balances.',
     },
 };
-
 const DOMAIN_KEYWORDS = {
     clinic: 'Clinic & Healthcare',
     appointment: 'Clinic & Healthcare',
@@ -223,14 +222,12 @@ const DOMAIN_KEYWORDS = {
     audit: 'Security & Access',
     setting: 'System & Config',
 };
-
 function formatDisplayName(tableName) {
     return tableName
         .split('_')
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' ');
 }
-
 function resolveDomain(tableName) {
     const lower = tableName.toLowerCase();
     for (const [kw, domain] of Object.entries(DOMAIN_KEYWORDS)) {
@@ -239,15 +236,12 @@ function resolveDomain(tableName) {
     }
     return 'General Operations';
 }
-
 function generateBusinessUse(tableName, domain) {
     const formatted = formatDisplayName(tableName);
     return `Stores operational data for ${formatted}. Used across the ${domain} module for transaction recording, state tracking, and auditing.`;
 }
-
 // In-memory cache for parsed schema
 let cachedSchema = null;
-
 function extractSchemaFromMigrations() {
     if (cachedSchema) {
         return cachedSchema;
@@ -381,36 +375,33 @@ function extractSchemaFromMigrations() {
     };
     return cachedSchema;
 }
-
 async function extractSchemaFromDatabase(db) {
     if (db && typeof db.query === 'function') {
         try {
             const [columns] = await db.query(`
-                SELECT 
-                  c.table_name,
-                  c.column_name,
-                  c.data_type,
-                  c.character_maximum_length,
-                  c.is_nullable,
-                  tc.constraint_type
-                FROM information_schema.columns c
-                LEFT JOIN information_schema.key_column_usage kcu
-                  ON c.table_name = kcu.table_name 
-                  AND c.column_name = kcu.column_name
-                  AND c.table_schema = kcu.table_schema
-                LEFT JOIN information_schema.table_constraints tc
-                  ON kcu.constraint_name = tc.constraint_name
-                  AND kcu.table_name = tc.table_name
-                  AND kcu.table_schema = tc.table_schema
-                WHERE c.table_schema = 'public'
-                ORDER BY c.table_name, c.ordinal_position;
-            `);
-
+        SELECT 
+          c.table_name,
+          c.column_name,
+          c.data_type,
+          c.character_maximum_length,
+          c.is_nullable,
+          tc.constraint_type
+        FROM information_schema.columns c
+        LEFT JOIN information_schema.key_column_usage kcu
+          ON c.table_name = kcu.table_name 
+          AND c.column_name = kcu.column_name
+          AND c.table_schema = kcu.table_schema
+        LEFT JOIN information_schema.table_constraints tc
+          ON kcu.constraint_name = tc.constraint_name
+          AND kcu.table_name = tc.table_name
+          AND kcu.table_schema = tc.table_schema
+        WHERE c.table_schema = 'public'
+        ORDER BY c.table_name, c.ordinal_position;
+      `);
             if (Array.isArray(columns) && columns.length > 0) {
                 const tablesMap = {};
                 const domainSet = new Set();
                 let totalCols = 0;
-
                 for (const col of columns) {
                     const tName = col.table_name.toLowerCase();
                     if (!tablesMap[tName]) {
@@ -419,13 +410,11 @@ async function extractSchemaFromDatabase(db) {
                             columns: [],
                         };
                     }
-
                     const isPk = col.constraint_type === 'PRIMARY KEY' || col.column_name === 'id';
                     const isFk = col.constraint_type === 'FOREIGN KEY' || col.column_name.endsWith('_id');
-                    const typeStr = col.character_maximum_length 
+                    const typeStr = col.character_maximum_length
                         ? `${col.data_type}(${col.character_maximum_length})`
                         : col.data_type;
-
                     tablesMap[tName].columns.push({
                         name: col.column_name,
                         type: (typeStr || 'TEXT').toUpperCase(),
@@ -436,21 +425,17 @@ async function extractSchemaFromDatabase(db) {
                     });
                     totalCols++;
                 }
-
                 const tableList = [];
                 for (const [tName, rawTable] of Object.entries(tablesMap)) {
                     const curated = TABLE_BUSINESS_USES[tName];
                     const displayName = curated ? curated.displayName : formatDisplayName(tName);
                     const domain = curated ? curated.domain : resolveDomain(tName);
                     const businessUse = curated ? curated.businessUse : generateBusinessUse(tName, domain);
-
                     const hasOutletId = rawTable.columns.some((c) => c.name.toLowerCase() === 'outlet_id');
                     const defaultQuery = hasOutletId
                         ? `SELECT * FROM ${tName} WHERE outlet_id = 1 ORDER BY 1 DESC LIMIT 25;`
                         : `SELECT * FROM ${tName} ORDER BY 1 DESC LIMIT 25;`;
-
                     domainSet.add(domain);
-
                     tableList.push({
                         tableName: tName,
                         displayName,
@@ -461,9 +446,7 @@ async function extractSchemaFromDatabase(db) {
                         columns: rawTable.columns,
                     });
                 }
-
                 tableList.sort((a, b) => a.tableName.localeCompare(b.tableName));
-
                 return {
                     totalTables: tableList.length,
                     totalColumns: totalCols,
@@ -471,16 +454,13 @@ async function extractSchemaFromDatabase(db) {
                     tables: tableList,
                 };
             }
-        } catch (err) {
+        }
+        catch (err) {
             console.warn('⚠️ [SCHEMA_EXTRACTOR] Database query fallback:', err.message);
         }
     }
-
     return extractSchemaFromMigrations();
 }
-
-exports.extractSchemaFromMigrations = extractSchemaFromMigrations;
-exports.extractSchemaFromDatabase = extractSchemaFromDatabase;
 exports.default = {
     extractSchemaFromMigrations,
     extractSchemaFromDatabase,

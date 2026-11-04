@@ -1,37 +1,22 @@
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-var diningWeb_controller_exports = {};
-__export(diningWeb_controller_exports, {
-  renderDiningWebPortal: () => renderDiningWebPortal
-});
-module.exports = __toCommonJS(diningWeb_controller_exports);
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.renderDiningWebPortal = void 0;
+/**
+ * Renders the responsive Mobile-First Dining Web App
+ * Matches the official Flutter TableDiningScreen ("same to same" UI & functions)
+ */
 const renderDiningWebPortal = (req, res) => {
-  const tableId = String(req.query.table_id || req.query.table || "");
-  const tableName = String(req.query.table_name || (tableId ? `T-${tableId}` : "Table"));
-  const outletId = String(req.query.outlet_id || req.query.outlet || "1");
-  const seatNumber = String(req.query.seat || req.query.seat_no || req.query.seat_id || "");
-  const clientTag = String(req.query.client_tag || req.query.bill || "");
-  const html = `<!DOCTYPE html>
+    const tableId = String(req.query.table_id || req.query.table || '');
+    const tableName = String(req.query.table_name || (tableId ? `T-${tableId}` : 'Table'));
+    const outletId = String(req.query.outlet_id || req.query.outlet || '1');
+    const seatNumber = String(req.query.seat || req.query.seat_no || req.query.seat_id || '');
+    const clientTag = String(req.query.client_tag || req.query.bill || '');
+    const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Digital Menu \u2022 ${tableName}</title>
+  <title>Digital Menu • ${tableName}</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23E23744'><path d='M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -711,7 +696,7 @@ const renderDiningWebPortal = (req, res) => {
 <body>
 
   <!-- Toast -->
-  <div id="toast-msg"><span>\u{1F514}</span> <span id="toast-text">Message</span></div>
+  <div id="toast-msg"><span>🔔</span> <span id="toast-text">Message</span></div>
 
   <!-- Top Sticky Header -->
   <header>
@@ -722,10 +707,10 @@ const renderDiningWebPortal = (req, res) => {
       </div>
       <div class="header-badges">
         <button class="badge-pill badge-table" onclick="openTableSwitcher()">
-          <span>\u{1FA91}</span> <span id="header-table-name">${tableName}</span>
+          <span>🪑</span> <span id="header-table-name">${tableName}</span>
         </button>
         <button class="badge-pill" onclick="openCustomerProfileModal()">
-          <span>\u{1F464}</span> <span id="header-customer-name">Guest</span>
+          <span>👤</span> <span id="header-customer-name">Guest</span>
         </button>
       </div>
     </div>
@@ -736,7 +721,7 @@ const renderDiningWebPortal = (req, res) => {
     <!-- 1.1 Book Table From Home Banner -->
     <div class="banner-reserve">
       <div class="banner-left">
-        <div class="banner-icon">\u{1F37D}\uFE0F</div>
+        <div class="banner-icon">🍽️</div>
         <div>
           <div class="banner-text-title">Book a Table from Home</div>
           <div class="banner-text-sub">Reserve your dining table online & skip waiting</div>
@@ -748,10 +733,10 @@ const renderDiningWebPortal = (req, res) => {
     <!-- 2. Main Tab Selector (Food Menu vs Order History) -->
     <div class="main-tab-nav">
       <button class="tab-btn active" id="tab-btn-menu" onclick="switchMainTab(0)">
-        <span>\u{1F37D}\uFE0F</span> <span>Food Menu</span>
+        <span>🍽️</span> <span>Food Menu</span>
       </button>
       <button class="tab-btn" id="tab-btn-orders" onclick="switchMainTab(1)">
-        <span>\u{1F9FE}</span> <span>Order History & Status</span>
+        <span>🧾</span> <span>Order History & Status</span>
         <span class="tab-badge" id="orders-count-badge" style="display:none;">0</span>
       </button>
     </div>
@@ -759,22 +744,22 @@ const renderDiningWebPortal = (req, res) => {
     <!-- 3. Quick Waiter Action Cards -->
     <div class="waiter-actions-grid">
       <div class="action-btn-card card-server" onclick="sendWaiterCall('CALL_WAITER', 'Call Server')">
-        <div class="action-icon">\u{1F6CE}\uFE0F</div>
+        <div class="action-icon">🛎️</div>
         <div class="action-title">Call Server</div>
         <div class="action-sub">Steward</div>
       </div>
       <div class="action-btn-card card-water" onclick="sendWaiterCall('WATER', 'Water Refill')">
-        <div class="action-icon">\u{1F4A7}</div>
+        <div class="action-icon">💧</div>
         <div class="action-title">Water</div>
         <div class="action-sub">Refill Glass</div>
       </div>
       <div class="action-btn-card card-bill" onclick="sendWaiterCall('BILL', 'Request Bill')">
-        <div class="action-icon">\u{1F9FE}</div>
+        <div class="action-icon">🧾</div>
         <div class="action-title">Request Bill</div>
         <div class="action-sub">Get Invoice</div>
       </div>
       <div class="action-btn-card card-orders" onclick="switchMainTab(1)">
-        <div class="action-icon">\u{1F354}</div>
+        <div class="action-icon">🍔</div>
         <div class="action-title" id="action-orders-title">Orders</div>
         <div class="action-sub" id="action-orders-sub">Active KOTs</div>
       </div>
@@ -785,9 +770,9 @@ const renderDiningWebPortal = (req, res) => {
       <!-- Search & Filters -->
       <div class="search-filter-wrap">
         <div class="search-input-box">
-          <span class="search-icon-left">\u{1F50D}</span>
+          <span class="search-icon-left">🔍</span>
           <input type="text" id="search-input" class="search-input" placeholder="Search delicious dishes..." oninput="handleSearch(this.value)">
-          <button id="search-clear" class="search-clear-btn" onclick="clearSearch()">\u2715</button>
+          <button id="search-clear" class="search-clear-btn" onclick="clearSearch()">✕</button>
         </div>
         <div class="dietary-filters">
           <button class="dietary-btn active" id="filter-all" onclick="setDietaryFilter('ALL')">All Dishes</button>
@@ -825,11 +810,11 @@ const renderDiningWebPortal = (req, res) => {
   <!-- FLOATING BOTTOM CART BAR -->
   <div class="floating-cart-bar" id="floating-cart-bar" onclick="openCartDrawer()">
     <div>
-      <div class="cart-left-count" id="cart-item-count">0 ITEMS \u2022 \u20B90.00</div>
+      <div class="cart-left-count" id="cart-item-count">0 ITEMS • ₹0.00</div>
       <div class="cart-left-sub">Extra charges / taxes may apply</div>
     </div>
     <div class="cart-right-label">
-      <span>View Cart</span> <span>\u{1F6D2}</span>
+      <span>View Cart</span> <span>🛒</span>
     </div>
   </div>
 
@@ -839,7 +824,7 @@ const renderDiningWebPortal = (req, res) => {
       <div class="drawer-handle"></div>
       <div class="drawer-header">
         <div class="drawer-title">Your Table Order (${tableName})</div>
-        <button class="btn-close" onclick="closeCartDrawer()">\u2715</button>
+        <button class="btn-close" onclick="closeCartDrawer()">✕</button>
       </div>
       <div class="drawer-body">
         <div id="cart-items-container"></div>
@@ -852,11 +837,11 @@ const renderDiningWebPortal = (req, res) => {
         <div style="margin-top:14px;background:#F8FAFC;border:1px solid var(--border);border-radius:10px;padding:12px;">
           <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:6px;">
             <span>Subtotal</span>
-            <span id="bill-subtotal">\u20B90.00</span>
+            <span id="bill-subtotal">₹0.00</span>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:900;color:var(--text-main);padding-top:6px;border-top:1px dashed var(--border);">
             <span>Estimated Total</span>
-            <span id="bill-grand-total">\u20B90.00</span>
+            <span id="bill-grand-total">₹0.00</span>
           </div>
         </div>
 
@@ -874,7 +859,7 @@ const renderDiningWebPortal = (req, res) => {
       </div>
       <div class="drawer-footer">
         <button class="btn-submit-order" id="btn-submit-order" onclick="submitDiningOrder()">
-          \u{1F680} Place Order to Kitchen
+          🚀 Place Order to Kitchen
         </button>
       </div>
     </div>
@@ -886,7 +871,7 @@ const renderDiningWebPortal = (req, res) => {
       <div class="drawer-handle"></div>
       <div class="drawer-header">
         <div class="drawer-title">Reserve Table from Home</div>
-        <button class="btn-close" onclick="closeBookTableModal()">\u2715</button>
+        <button class="btn-close" onclick="closeBookTableModal()">✕</button>
       </div>
       <div class="drawer-body">
         <div class="form-group">
@@ -927,7 +912,7 @@ const renderDiningWebPortal = (req, res) => {
       <div class="drawer-handle"></div>
       <div class="drawer-header">
         <div class="drawer-title">Switch / Select Table</div>
-        <button class="btn-close" onclick="closeTableSwitcher()">\u2715</button>
+        <button class="btn-close" onclick="closeTableSwitcher()">✕</button>
       </div>
       <div class="drawer-body" id="tables-list-container">
         <div style="text-align:center;padding:20px;color:var(--text-muted);">Loading tables...</div>
@@ -945,7 +930,7 @@ const renderDiningWebPortal = (req, res) => {
 
     let restaurant = {};
     let table = {};
-    let currencySymbol = "\u20B9";
+    let currencySymbol = "₹";
     let catalogItems = [];
     let categories = [];
     let activeOrders = [];
@@ -990,7 +975,7 @@ const renderDiningWebPortal = (req, res) => {
         if (!json.success || !json.data) {
           document.getElementById('food-catalog-list').innerHTML = 
             '<div class="empty-box">' +
-              '<div style="font-size:36px;margin-bottom:10px;">\u26A0\uFE0F</div>' +
+              '<div style="font-size:36px;margin-bottom:10px;">⚠️</div>' +
               '<div style="font-weight:800;font-size:16px;">' + (json.message || 'Could not load menu') + '</div>' +
               '<div style="color:var(--text-muted);font-size:12px;margin-top:6px;">Please check table QR code or contact staff.</div>' +
             '</div>';
@@ -1004,9 +989,9 @@ const renderDiningWebPortal = (req, res) => {
         activeOrders = json.data.active_orders || [];
 
         // Determine Global Currency
-        currencySymbol = restaurant.currency_symbol || restaurant.currency || '\u20B9';
+        currencySymbol = restaurant.currency_symbol || restaurant.currency || '₹';
         if (currencySymbol === 'KSh' && restaurant.tax_mode === 'CGST_SGST') {
-          currencySymbol = '\u20B9';
+          currencySymbol = '₹';
         }
 
         // Header info
@@ -1062,7 +1047,7 @@ const renderDiningWebPortal = (req, res) => {
       if (items.length === 0) {
         container.innerHTML = 
           '<div class="empty-box">' +
-            '<div style="font-size:32px;margin-bottom:8px;">\u{1F37D}\uFE0F</div>' +
+            '<div style="font-size:32px;margin-bottom:8px;">🍽️</div>' +
             '<div style="font-weight:800;font-size:14px;">No food items found</div>' +
             '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Try changing filters or search terms</div>' +
           '</div>';
@@ -1079,7 +1064,7 @@ const renderDiningWebPortal = (req, res) => {
         if (inCartQty > 0) {
           actionBtnHtml = 
             '<div class="qty-stepper">' +
-              '<button class="stepper-btn" onclick="updateItemCart(' + item.id + ', -1)">\u2212</button>' +
+              '<button class="stepper-btn" onclick="updateItemCart(' + item.id + ', -1)">−</button>' +
               '<span class="stepper-qty">' + inCartQty + '</span>' +
               '<button class="stepper-btn" onclick="updateItemCart(' + item.id + ', 1)">+</button>' +
             '</div>';
@@ -1132,7 +1117,7 @@ const renderDiningWebPortal = (req, res) => {
       });
 
       if (totalQty > 0 && currentMainTab === 0) {
-        document.getElementById('cart-item-count').innerText = totalQty + (totalQty === 1 ? ' ITEM \u2022 ' : ' ITEMS \u2022 ') + fmtPrice(totalPrice);
+        document.getElementById('cart-item-count').innerText = totalQty + (totalQty === 1 ? ' ITEM • ' : ' ITEMS • ') + fmtPrice(totalPrice);
         bar.classList.add('visible');
       } else {
         bar.classList.remove('visible');
@@ -1168,11 +1153,11 @@ const renderDiningWebPortal = (req, res) => {
           '<div class="cart-drawer-item">' +
             '<div style="flex:1;">' +
               '<div style="font-weight:800;font-size:13px;">' + entry.item.item_name + '</div>' +
-              '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + fmtPrice(price) + ' \xD7 ' + entry.qty + '</div>' +
+              '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + fmtPrice(price) + ' × ' + entry.qty + '</div>' +
             '</div>' +
             '<div style="display:flex;align-items:center;gap:12px;">' +
               '<div class="qty-stepper">' +
-                '<button class="stepper-btn" onclick="updateItemCart(' + entry.item.id + ', -1)">\u2212</button>' +
+                '<button class="stepper-btn" onclick="updateItemCart(' + entry.item.id + ', -1)">−</button>' +
                 '<span class="stepper-qty">' + entry.qty + '</span>' +
                 '<button class="stepper-btn" onclick="updateItemCart(' + entry.item.id + ', 1)">+</button>' +
               '</div>' +
@@ -1229,7 +1214,7 @@ const renderDiningWebPortal = (req, res) => {
 
         const data = await res.json();
         if (data.success) {
-          showToast('\u{1F389} Order placed successfully to kitchen!');
+          showToast('🎉 Order placed successfully to kitchen!');
           cart = {};
           closeCartDrawer();
           updateFloatingCartBar();
@@ -1243,7 +1228,7 @@ const renderDiningWebPortal = (req, res) => {
         showToast('Network error while placing order');
       } finally {
         submitBtn.disabled = false;
-        submitBtn.innerText = '\u{1F680} Place Order to Kitchen';
+        submitBtn.innerText = '🚀 Place Order to Kitchen';
       }
     }
 
@@ -1261,7 +1246,7 @@ const renderDiningWebPortal = (req, res) => {
           })
         });
         const data = await res.json();
-        showToast('\u{1F514} Staff notified: ' + label + '. A steward will attend shortly!');
+        showToast('🔔 Staff notified: ' + label + '. A steward will attend shortly!');
       } catch (_) {
         showToast('Staff notified! Someone will assist you shortly.');
       }
@@ -1309,7 +1294,7 @@ const renderDiningWebPortal = (req, res) => {
       if (activeOrders.length === 0) {
         container.innerHTML = 
           '<div class="empty-box">' +
-            '<div style="font-size:44px;margin-bottom:12px;">\u{1F9FE}</div>' +
+            '<div style="font-size:44px;margin-bottom:12px;">🧾</div>' +
             '<div style="font-weight:800;font-size:16px;">No Orders Placed Yet</div>' +
             '<div style="font-size:12px;color:var(--text-muted);margin:8px auto 16px auto;max-width:320px;">' +
               'Items you order on this table will appear here with live kitchen status updates.' +
@@ -1340,7 +1325,7 @@ const renderDiningWebPortal = (req, res) => {
             '<div style="font-size:13px;border-top:1px dashed var(--border);padding-top:8px;">' +
               items.map(it => 
                 '<div style="display:flex;justify-content:space-between;padding:3px 0;">' +
-                  '<span>' + it.quantity + '\xD7 ' + (it.item_name || it.item?.item_name || 'Dish') + '</span>' +
+                  '<span>' + it.quantity + '× ' + (it.item_name || it.item?.item_name || 'Dish') + '</span>' +
                   '<span style="font-weight:700;">' + fmtPrice(it.price || it.rate || 0) + '</span>' +
                 '</div>'
               ).join('') +
@@ -1372,7 +1357,7 @@ const renderDiningWebPortal = (req, res) => {
             '</div>' : ''
           ) +
           '<button class="btn-submit-order" style="background:#0F172A;" onclick="sendWaiterCall(\\'BILL\\', \\'Printed Bill\\')">' +
-            '\u{1F9FE} Request Physical Printed Bill at Table' +
+            '🧾 Request Physical Printed Bill at Table' +
           '</button>' +
         '</div>';
     }
@@ -1441,7 +1426,7 @@ const renderDiningWebPortal = (req, res) => {
         const data = await res.json();
         if (data.success) {
           closeBookTableModal();
-          showToast('\u{1F389} Table reservation requested! Restaurant will confirm shortly.');
+          showToast('🎉 Table reservation requested! Restaurant will confirm shortly.');
         } else {
           showToast(data.message || 'Could not request reservation');
         }
@@ -1517,11 +1502,8 @@ const renderDiningWebPortal = (req, res) => {
   </script>
 </body>
 </html>`;
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  return res.send(html);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
 };
-module.exports = { renderDiningWebPortal };
-// Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
-  renderDiningWebPortal
-});
+exports.renderDiningWebPortal = renderDiningWebPortal;
+module.exports = { renderDiningWebPortal: exports.renderDiningWebPortal };

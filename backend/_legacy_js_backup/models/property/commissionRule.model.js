@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const CommissionRule = sequelize.define('commission_rules', {
         id: {
@@ -56,7 +57,6 @@ module.exports = (sequelize, DataTypes) => {
         underscored: true,
         tableName: 'commission_rules'
     });
-
     CommissionRule.associate = (models) => {
         CommissionRule.belongsTo(models.sale_sources, {
             foreignKey: 'platform_id',
@@ -71,6 +71,5 @@ module.exports = (sequelize, DataTypes) => {
             as: 'product'
         });
     };
-
     return CommissionRule;
 };

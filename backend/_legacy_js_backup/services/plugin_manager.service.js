@@ -1,8 +1,8 @@
+"use strict";
 /**
  * FAMALTH LYNX - Open Plugin & Add-on Ecosystem Engine
  * Allows third-party developers to build, install, and execute plugins for FAMALTH LYNX (similar to WordPress / Shopify).
  */
-
 const marketplaceCatalog = [
     {
         id: 'PLG_TALLY_SYNC',
@@ -75,33 +75,25 @@ const marketplaceCatalog = [
         authorUrl: 'https://msg91.com'
     }
 ];
-
 let installedPluginsStore = marketplaceCatalog.filter(p => p.isInstalled);
-
 async function getMarketplaceCatalog() {
     return marketplaceCatalog;
 }
-
 async function getInstalledPlugins(propertyDb, outletId = 0) {
     return installedPluginsStore;
 }
-
 async function installPlugin(propertyDb, outletId = 0, pluginId) {
     const item = marketplaceCatalog.find(p => p.id === pluginId);
     if (!item) {
         throw new Error('Plugin not found in marketplace catalog');
     }
-
     item.isInstalled = true;
     item.isActive = true;
-
     if (!installedPluginsStore.some(p => p.id === pluginId)) {
         installedPluginsStore.push(item);
     }
-
     return item;
 }
-
 async function togglePlugin(propertyDb, outletId = 0, pluginId, isActive) {
     const item = installedPluginsStore.find(p => p.id === pluginId);
     if (item) {
@@ -113,11 +105,9 @@ async function togglePlugin(propertyDb, outletId = 0, pluginId, isActive) {
     }
     return item || catItem;
 }
-
 async function executePluginHook(hookName, payload = {}) {
     const activePlugins = installedPluginsStore.filter(p => p.isActive);
     const hookResults = [];
-
     for (const plugin of activePlugins) {
         hookResults.push({
             pluginId: plugin.id,
@@ -127,14 +117,12 @@ async function executePluginHook(hookName, payload = {}) {
             timestamp: new Date().toISOString()
         });
     }
-
     return {
         hookName,
         executedCount: activePlugins.length,
         results: hookResults
     };
 }
-
 module.exports = {
     getMarketplaceCatalog,
     getInstalledPlugins,

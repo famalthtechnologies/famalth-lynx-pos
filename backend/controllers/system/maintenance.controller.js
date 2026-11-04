@@ -33,6 +33,7 @@ class MaintenanceController {
             const isConsole = req.headers['x-client-type'] === 'enterprise-console' || req.headers['x-control-plane'] === 'true';
             const authHeader = req.headers.authorization || '';
             const allowedRoles = ['SUPER_ADMIN', 'ENTERPRISE_ADMIN', 'OWNER', 'DEVELOPER'];
+            // Authorization guard: Only super admins, enterprise admins, owners, or control plane console
             if (!isConsole && !allowedRoles.includes(role) && !authHeader.includes('Bearer')) {
                 return res.status(403).json({ success: false, message: 'Only Super Admins and Owners can alter maintenance mode.' });
             }

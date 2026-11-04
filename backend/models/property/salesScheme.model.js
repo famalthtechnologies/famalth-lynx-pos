@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('sales_schemes', {
         outlet_id: DataTypes.INTEGER,
@@ -30,3 +32,4 @@ module.exports = (sequelize, DataTypes) => {
         updatedAt: 'updated_at'
     });
 };
+exports.default = module.exports;

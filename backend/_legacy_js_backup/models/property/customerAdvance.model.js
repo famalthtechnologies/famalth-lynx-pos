@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const CustomerAdvance = sequelize.define('customer_advances', {
         outlet_id: {
@@ -34,13 +35,11 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     CustomerAdvance.associate = (models) => {
         CustomerAdvance.belongsTo(models.sales_headers, {
             foreignKey: 'source_sale_id',
             as: 'source_sale'
         });
     };
-
     return CustomerAdvance;
 };

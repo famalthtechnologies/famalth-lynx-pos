@@ -1,24 +1,22 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const { toOutletDateYmd } = require('../../utils/timezoneHelper');
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
-
 exports.getClosingReport = async (req, res) => {
-  try {
-    const reqOutlet = req.query.outlet_id || req.query.outletId;
-    const scope = await resolveOutletScope(req, reqOutlet);
-    const { from_date, to_date } = req.query;
-
-    const outletTz = req.outletTimeZone || 'Asia/Kolkata';
-    let startDate = from_date;
-    if (!startDate) {
-        startDate = req.toOutletDateYmd ? req.toOutletDateYmd(new Date()) : toOutletDateYmd(new Date(), outletTz);
-    }
-    const endDate = to_date || startDate;
-
-    const dialect = (req.propertyDb.getDialect ? req.propertyDb.getDialect() : (req.propertyDb.options?.dialect || 'sqlite'));
-    const isSqlite = dialect === 'sqlite';
-    const dateSql = isSqlite ? 'DATE(sl.txn_date)' : 'DATE(sl.txn_date AT TIME ZONE :outletTz)';
-
-    const [rows] = await req.propertyDb.query(`
+    try {
+        const reqOutlet = req.query.outlet_id || req.query.outletId;
+        const scope = await resolveOutletScope(req, reqOutlet);
+        const { from_date, to_date } = req.query;
+        const outletTz = req.outletTimeZone || 'Asia/Kolkata';
+        let startDate = from_date;
+        if (!startDate) {
+            startDate = req.toOutletDateYmd ? req.toOutletDateYmd(new Date()) : toOutletDateYmd(new Date(), outletTz);
+        }
+        const endDate = to_date || startDate;
+        const dialect = (req.propertyDb.getDialect ? req.propertyDb.getDialect() : (req.propertyDb.options?.dialect || 'sqlite'));
+        const isSqlite = dialect === 'sqlite';
+        const dateSql = isSqlite ? 'DATE(sl.txn_date)' : 'DATE(sl.txn_date AT TIME ZONE :outletTz)';
+        const [rows] = await req.propertyDb.query(`
       SELECT
         im.item_group AS "group",
         im.item_name  AS name,
@@ -85,28 +83,24 @@ exports.getClosingReport = async (req, res) => {
 
       ORDER BY im.item_group, im.item_name
     `, {
-      replacements: {
-        outletIds: scope.outletIds,
-        startDate,
-        endDate,
-        outletTz
-      }
-    });
-
-    // calculate closing in JS
-    const finalData = rows.map(r => {
-      const closing =
-        Number(r.opening)
-        + Number(r.receive)
-        - Number(r.issue);
-
-      return {
-        ...r,
-        closing
-      };
-    });
-
-    const [transactionRows] = await req.propertyDb.query(`
+            replacements: {
+                outletIds: scope.outletIds,
+                startDate,
+                endDate,
+                outletTz
+            }
+        });
+        // calculate closing in JS
+        const finalData = rows.map((r) => {
+            const closing = Number(r.opening)
+                + Number(r.receive)
+                - Number(r.issue);
+            return {
+                ...r,
+                closing
+            };
+        });
+        const [transactionRows] = await req.propertyDb.query(`
       SELECT
         sl.id,
         sl.txn_date AS "txnDate",
@@ -127,27 +121,28 @@ exports.getClosingReport = async (req, res) => {
         AND ${dateSql} BETWEEN :startDate AND :endDate
       ORDER BY sl.txn_date ASC, sl.id ASC
     `, {
-      replacements: {
-        outletIds: scope.outletIds,
-        startDate,
-        endDate,
-        outletTz
-      }
-    });
-
-    res.json({
-      success: true,
-      from_date: startDate,
-      to_date: endDate,
-      data: finalData,
-      transactions: transactionRows
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to load closing report'
-    });
-  }
+            replacements: {
+                outletIds: scope.outletIds,
+                startDate,
+                endDate,
+                outletTz
+            }
+        });
+        res.json({
+            success: true,
+            from_date: startDate,
+            to_date: endDate,
+            data: finalData,
+            transactions: transactionRows
+        });
+    }
+    catch (err) {
+        console.error(err);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to load closing report'
+        });
+    }
 };
+module.exports = exports;
+exports.default = exports;

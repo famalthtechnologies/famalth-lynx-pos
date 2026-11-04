@@ -1,8 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.renderCustomerQrPage = void 0;
 const renderCustomerQrPage = (req, res) => {
     const { amount, upi_id, payee, note } = req.query;
     const upiUri = `upi://pay?pa=${encodeURIComponent(upi_id || '')}&pn=${encodeURIComponent(payee || 'Merchant')}&am=${encodeURIComponent(amount || '0.00')}&cu=INR&tn=${encodeURIComponent(note || 'Payment')}`;
     const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUri)}`;
-
     res.setHeader('Content-Type', 'text/html');
     res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -45,5 +47,6 @@ const renderCustomerQrPage = (req, res) => {
 </body>
 </html>`);
 };
-
-module.exports = { renderCustomerQrPage };
+exports.renderCustomerQrPage = renderCustomerQrPage;
+module.exports = { renderCustomerQrPage: exports.renderCustomerQrPage };
+exports.default = { renderCustomerQrPage: exports.renderCustomerQrPage };

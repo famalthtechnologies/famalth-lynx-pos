@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const SaleSource = sequelize.define('sale_sources', {
         id: {
@@ -39,6 +40,5 @@ module.exports = (sequelize, DataTypes) => {
         underscored: true,
         tableName: 'sale_sources'
     });
-
     return SaleSource;
 };

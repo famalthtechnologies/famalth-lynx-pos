@@ -1,7 +1,7 @@
-const { Router } = require('express');
-
-const router = Router();
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const router = (0, express_1.Router)();
 // GET /api/marketplace/vendors
 // Returns ONLY registered platform outlets that have become distributors (Strictly excludes supplier_master)
 router.get('/vendors', async (req, res) => {
@@ -10,10 +10,8 @@ router.get('/vendors', async (req, res) => {
         const currentOutletId = req.user?.outlet_id || exclude_outlet_id;
         const currentOutletCode = (req.user?.outlet_code || exclude_code || '').toString().trim().toLowerCase();
         const db = req.propertyDb || require('../db/models');
-
         const vendors = [];
         const seenCodes = new Set();
-
         if (db) {
             // Fetch ONLY outlets registered on our system that are marked as distributors
             try {
@@ -43,16 +41,16 @@ router.get('/vendors', async (req, res) => {
                     outletSql += ` AND LOWER(o.outlet_code) != LOWER('${currentOutletCode.replace(/'/g, "''")}')`;
                 }
                 outletSql += ` ORDER BY o.id ASC`;
-
                 const [outlets] = await db.query(outletSql);
                 if (Array.isArray(outlets)) {
                     for (const o of outlets) {
                         const code = (o.outlet_code || `OUTLET_${o.outlet_id}`).trim();
                         const name = (o.business_name || '').trim();
-                        if (!name) continue;
-                        if (seenCodes.has(code.toLowerCase())) continue;
+                        if (!name)
+                            continue;
+                        if (seenCodes.has(code.toLowerCase()))
+                            continue;
                         seenCodes.add(code.toLowerCase());
-
                         vendors.push({
                             id: code,
                             vendor_code: code,
@@ -76,57 +74,50 @@ router.get('/vendors', async (req, res) => {
                         });
                     }
                 }
-            } catch (err) {
+            }
+            catch (err) {
                 console.warn('[MARKETPLACE] Registered distributors query warn:', err.message);
             }
         }
-
         // Apply search filter if provided
         let result = vendors;
         if (search && String(search).trim()) {
             const q = String(search).trim().toLowerCase();
-            result = result.filter(v =>
-                v.business_name.toLowerCase().includes(q) ||
+            result = result.filter(v => v.business_name.toLowerCase().includes(q) ||
                 v.trade_name.toLowerCase().includes(q) ||
                 v.gstin.toLowerCase().includes(q) ||
                 v.city.toLowerCase().includes(q) ||
                 v.address.toLowerCase().includes(q) ||
-                v.phone.includes(q)
-            );
+                v.phone.includes(q));
         }
-
         // Apply city filter if not global
         if (city && String(city).trim()) {
             const targetCity = String(city).trim().toLowerCase();
             const isGlobal = targetCity === 'all' || targetCity.includes('global') || targetCity === 'all locations (global)';
             if (!isGlobal) {
-                const matches = result.filter(v =>
-                    v.city.toLowerCase().includes(targetCity) ||
-                    v.address.toLowerCase().includes(targetCity)
-                );
+                const matches = result.filter(v => v.city.toLowerCase().includes(targetCity) ||
+                    v.address.toLowerCase().includes(targetCity));
                 if (matches.length > 0) {
+                    // Show city matches first, then any global registered distributors
                     const others = result.filter(v => !matches.includes(v));
                     result = [...matches, ...others];
                 }
             }
         }
-
         // Apply category filter
         if (category && category !== 'All') {
             const cat = String(category).toLowerCase();
-            result = result.filter(v =>
-                Array.isArray(v.categories) && v.categories.some((c) => c.toLowerCase().includes(cat))
-            );
+            result = result.filter(v => Array.isArray(v.categories) && v.categories.some((c) => c.toLowerCase().includes(cat)));
         }
-
         return res.json({ success: true, data: result });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[MARKETPLACE VENDORS ERROR]:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 });
-
 // POST /api/marketplace/distributor-status
+// Toggles whether an outlet on the platform is registered as a public distributor
 router.post('/distributor-status', async (req, res) => {
     try {
         const outletId = req.user?.outlet_id || req.body?.outlet_id;
@@ -135,16 +126,13 @@ router.post('/distributor-status', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Outlet ID is required' });
         }
         const db = req.propertyDb || require('../db/models');
-        await db.query(
-            'UPDATE outlets SET is_distributor = :is_distributor WHERE id = :outletId',
-            { replacements: { is_distributor: Boolean(is_distributor), outletId } }
-        );
+        await db.query('UPDATE outlets SET is_distributor = :is_distributor WHERE id = :outletId', { replacements: { is_distributor: Boolean(is_distributor), outletId } });
         return res.json({ success: true, message: 'Distributor status updated successfully' });
-    } catch (err) {
+    }
+    catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }
 });
-
 // GET /api/marketplace/vendors/:id/catalog
 router.get('/vendors/:id/catalog', async (req, res) => {
     try {
@@ -152,7 +140,6 @@ router.get('/vendors/:id/catalog', async (req, res) => {
         if (!db) {
             return res.json({ success: true, data: [] });
         }
-
         let sql = `
             SELECT 
                 id,
@@ -173,9 +160,10 @@ router.get('/vendors/:id/catalog', async (req, res) => {
         `;
         const [items] = await db.query(sql);
         return res.json({ success: true, data: items || [] });
-    } catch (error) {
+    }
+    catch (error) {
         return res.status(500).json({ success: false, message: error.message });
     }
 });
-
 module.exports = router;
+exports.default = router;

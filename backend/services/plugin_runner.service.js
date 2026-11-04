@@ -84,8 +84,9 @@ function transpileTypeScript(tsCode) {
     try {
         let tsCompiler = null;
         try {
-            tsCompiler = require("typescript");
-        } catch (_) {}
+            tsCompiler = require('typescript');
+        }
+        catch (_) { }
         if (tsCompiler && typeof tsCompiler.transpileModule === 'function') {
             return tsCompiler.transpileModule(tsCode, {
                 compilerOptions: {

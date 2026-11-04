@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const StockTransferItem = sequelize.define('stock_transfer_items', {
         id: {
@@ -42,6 +43,5 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     return StockTransferItem;
 };

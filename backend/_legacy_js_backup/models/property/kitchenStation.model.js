@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const KitchenStation = sequelize.define('kitchen_stations', {
         id: {
@@ -25,13 +26,11 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'kitchen_stations',
         timestamps: false
     });
-
     KitchenStation.associate = (models) => {
         KitchenStation.belongsTo(models.restaurant_printers, {
             foreignKey: 'printer_id',
             as: 'printer'
         });
     };
-
     return KitchenStation;
 };

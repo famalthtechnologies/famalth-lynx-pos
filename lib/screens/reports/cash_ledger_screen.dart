@@ -1532,8 +1532,8 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           }
 
           final screenWidth = MediaQuery.of(context).size.width;
-          final dialogWidth = (screenWidth * 0.92).clamp(320.0, 1000.0);
-          final dialogHeight = (MediaQuery.of(context).size.height * 0.88).clamp(420.0, 780.0);
+          final dialogWidth = (screenWidth * 0.94).clamp(320.0, 1120.0);
+          final dialogHeight = (MediaQuery.of(context).size.height * 0.90).clamp(420.0, 820.0);
 
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -2042,12 +2042,21 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                                         );
                                       }
 
-                                      // Full Desktop/Tablet Table View
-                                      return SingleChildScrollView(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                        child: SizedBox(
-                                          width: double.infinity,
-                                          child: DataTable(
+                                      // Full Desktop/Tablet Table View (with 2D horizontal & vertical scrolling and minWidth stretch)
+                                      return LayoutBuilder(
+                                        builder: (context, tblConstraints) {
+                                          return Scrollbar(
+                                            thumbVisibility: true,
+                                            child: SingleChildScrollView(
+                                              scrollDirection: Axis.vertical,
+                                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                              child: SingleChildScrollView(
+                                                scrollDirection: Axis.horizontal,
+                                                child: ConstrainedBox(
+                                                  constraints: BoxConstraints(
+                                                    minWidth: math.max(0.0, tblConstraints.maxWidth - 32.0),
+                                                  ),
+                                                  child: DataTable(
                                             headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F5F9)),
                                             horizontalMargin: 12,
                                             columnSpacing: 16,
@@ -2072,16 +2081,19 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                                                 cells: [
                                                   DataCell(Text(DateFormat('dd-MMM-yyyy').format(tx.date), style: const TextStyle(fontSize: 12))),
                                                   DataCell(
-                                                    Column(
-                                                      mainAxisAlignment: MainAxisAlignment.center,
-                                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                                      children: [
-                                                        Text(tx.description, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                                                        if (tx.notes.isNotEmpty)
-                                                          Text(tx.notes, style: TextStyle(fontSize: 10, color: Colors.grey.shade500), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                                      ],
-                                                    ),
-                                                  ),
+                                                     ConstrainedBox(
+                                                       constraints: const BoxConstraints(maxWidth: 300),
+                                                       child: Column(
+                                                         mainAxisAlignment: MainAxisAlignment.center,
+                                                         crossAxisAlignment: CrossAxisAlignment.start,
+                                                         children: [
+                                                           Text(tx.description, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                                           if (tx.notes.isNotEmpty)
+                                                             Text(tx.notes, style: TextStyle(fontSize: 10, color: Colors.grey.shade500), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                                         ],
+                                                       ),
+                                                     ),
+                                                   ),
                                                   DataCell(
                                                     Row(
                                                       mainAxisSize: MainAxisSize.min,
@@ -2137,8 +2149,12 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                                                 ],
                                               );
                                             }).toList(),
-                                          ),
-                                        ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        },
                                       );
                                     },
                                   ),

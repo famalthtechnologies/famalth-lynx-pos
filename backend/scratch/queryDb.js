@@ -1,6 +1,6 @@
+"use strict";
 const db = require('../db/models');
 const { Op } = require('sequelize');
-
 async function fix() {
     try {
         await db.authenticate();
@@ -13,10 +13,10 @@ async function fix() {
         console.log("=== DB CLEANUP FIXED NON-ACTIVE KOTS ===");
         console.log(result);
         process.exit(0);
-    } catch (e) {
+    }
+    catch (e) {
         console.error(e);
         process.exit(1);
     }
 }
-
 fix();

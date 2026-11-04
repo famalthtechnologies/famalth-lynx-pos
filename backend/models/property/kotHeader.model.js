@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const KotHeader = sequelize.define('kot_headers', {
         id: {
@@ -91,7 +93,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     KotHeader.associate = (models) => {
         KotHeader.belongsTo(models.restaurant_tables, {
             foreignKey: 'table_id',
@@ -118,6 +119,6 @@ module.exports = (sequelize, DataTypes) => {
             as: 'revisions'
         });
     };
-
     return KotHeader;
 };
+exports.default = module.exports;

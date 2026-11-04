@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const NightAuditRun = sequelize.define('night_audit_runs', {
         id: {
@@ -101,12 +102,10 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     NightAuditRun.associate = (models) => {
         NightAuditRun.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
         NightAuditRun.belongsTo(models.users, { foreignKey: 'performed_by', as: 'user' });
         NightAuditRun.hasMany(models.night_audit_details, { foreignKey: 'audit_run_id', as: 'details' });
     };
-
     return NightAuditRun;
 };

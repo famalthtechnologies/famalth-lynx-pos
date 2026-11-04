@@ -1,3 +1,4 @@
+import '../core/auth/control_plane_storage.dart';
 import '../screens/recovery/backup_service.dart';
 
 import '../core/settings/local_preferences.dart';
@@ -333,6 +334,26 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
   int _dialogTab = 0; // 0 = Outlet Backups, 1 = Admin Console
   Map<String, dynamic>? _adminOverview;
   bool _isAdminOverviewLoading = false;
+  bool _isEnterpriseConsole = false;
+
+  Future<void> _checkEnterpriseStatus() async {
+    final role = (await TokenStorage.getRole() ?? '').toUpperCase();
+    final isControlPlane = await ControlPlaneStorage.isAuthenticated();
+    final isSuper = role == 'SUPERADMIN' || role == 'SUPER_ADMIN' || role == 'ENTERPRISE_ADMIN';
+    final backendSaysEnterprise = widget.initialData?['isEnterpriseConsole'] == true ||
+                                  widget.initialData?['canManageAll'] == true;
+    final isEnterprise = (isSuper || isControlPlane || backendSaysEnterprise) && !AppConfig.isClientPc;
+
+    if (mounted) {
+      setState(() {
+        _isEnterpriseConsole = isEnterprise;
+        if (!_isEnterpriseConsole) {
+          _dialogTab = 0;
+          _backupScope = 'OUTLET';
+        }
+      });
+    }
+  }
 
   Future<void> _fetchAdminOverview() async {
     setState(() => _isAdminOverviewLoading = true);
@@ -684,6 +705,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
       _backupScope = 'OUTLET';
     }
     _backupsList = widget.initialData?['backupsList'] as List<dynamic>? ?? [];
+    _checkEnterpriseStatus();
     _loadCurrentOutletAndBackups();
   }
 
@@ -1366,7 +1388,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 780, maxHeight: 680),
+        constraints: const BoxConstraints(maxWidth: 860, maxHeight: 680),
         child: Padding(
           padding: const EdgeInsets.all(22),
           child: Column(
@@ -1389,7 +1411,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Granular Backup, Cloud Storage & Restore',
+                          _isEnterpriseConsole ? 'Famalth Lynx Enterprise Storage & Cloud Backup' : 'Store Cloud Storage & Granular Backup',
                           style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
@@ -1413,7 +1435,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                 ],
               ),
               const SizedBox(height: 16),
-              if (AppConfig.isLocalServer) ...[
+              if (_isEnterpriseConsole) ...[
                 Container(
                   margin: const EdgeInsets.only(bottom: 14),
                   decoration: BoxDecoration(
@@ -1434,7 +1456,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                             ),
                             child: Center(
                               child: Text(
-                                'Outlet Backups & Restore',
+                                'Store Backups & Restore',
                                 style: TextStyle(
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.bold,
@@ -1471,7 +1493,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                                   ),
                                   const SizedBox(width: 6),
                                   Text(
-                                    'Admin Console (Clients & Storage)',
+                                    'Famalth Lynx Enterprise Console',
                                     style: TextStyle(
                                       fontSize: 12.5,
                                       fontWeight: FontWeight.bold,
@@ -1639,7 +1661,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                                   children: [
                                     Row(
                                       children: [
-                                        Text(oName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                        Expanded(child: Text(oName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis)),
                                         const SizedBox(width: 8),
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
@@ -1668,7 +1690,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                                       ],
                                     ),
                                     const SizedBox(height: 2),
-                                    Text('Code: $oCode • Used: $totalUsed of $totalAlloc (${usagePct.toStringAsFixed(1)}%)', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                                     Text('Code: $oCode • Used: $totalUsed of $totalAlloc (${usagePct.toStringAsFixed(1)}%)', style: TextStyle(fontSize: 11, color: Colors.grey.shade500), maxLines: 1, overflow: TextOverflow.ellipsis),
                                   ],
                                 ),
                               ),
@@ -1835,7 +1857,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                             ),
                           ),
                         ),
-                        if (AppConfig.isLocalServer) ...[
+                        if (_isEnterpriseConsole) ...[
                           const SizedBox(width: 10),
                           Expanded(
                             child: InkWell(

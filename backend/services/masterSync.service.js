@@ -1,27 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ensureMasterDatabaseSync = exports.syncSingleOutletToMaster = void 0;
-
-const masterSync = require("../utils/masterSync");
-const syncClientsJsonToMaster = masterSync.syncClientsJsonToMaster;
-const ensureMasterDatabaseSync = masterSync.ensureMasterDatabaseSync;
-
+const masterSync_1 = require("../utils/masterSync");
+Object.defineProperty(exports, "ensureMasterDatabaseSync", { enumerable: true, get: function () { return masterSync_1.ensureMasterDatabaseSync; } });
 const syncSingleOutletToMaster = async (db, outlet, recoveryPinHash) => {
-    return syncClientsJsonToMaster(db);
+    return (0, masterSync_1.syncClientsJsonToMaster)(db);
 };
-
 exports.syncSingleOutletToMaster = syncSingleOutletToMaster;
-exports.ensureMasterDatabaseSync = ensureMasterDatabaseSync;
-
 exports.default = {
-    syncSingleOutletToMaster,
-    ensureMasterDatabaseSync
-};
-module.exports = {
-    syncSingleOutletToMaster,
-    ensureMasterDatabaseSync,
-    default: {
-        syncSingleOutletToMaster,
-        ensureMasterDatabaseSync
-    }
+    syncSingleOutletToMaster: exports.syncSingleOutletToMaster,
+    ensureMasterDatabaseSync: masterSync_1.ensureMasterDatabaseSync
 };

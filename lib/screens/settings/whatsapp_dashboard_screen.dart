@@ -433,7 +433,7 @@ class _WhatsAppDashboardScreenState extends State<WhatsAppDashboardScreen>
         final phoneCol = cols.first.trim();
         // Strip non-numeric characters except +
         final sanitizedPhone = phoneCol.replaceAll(RegExp(r'[^0-9+]'), '');
-        if (sanitizedPhone.length < 10) continue;
+        if (sanitizedPhone.length < 7) continue;
 
         final nameCol = cols.length > 1 ? cols[1].trim() : 'CSV contact';
 

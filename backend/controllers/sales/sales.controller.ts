@@ -36,26 +36,28 @@ const resolveOutletId = async (req) => {
     return resolvedId;
 };
 
+const { normalizePhoneNumber, getPhoneSearchVariants } = require('../../utils/phone.util');
+
 function normalizeCustomerIdentity(header: any = {}) {
-    let phone = String(header.customer_phone || '').replace(/\D/g, '').trim();
-    if (phone.length > 10) {
-        phone = phone.slice(-10);
-    }
+    const rawPhone = header.customer_phone || header.customerPhone || '';
     return {
-        // Keep digits-only for stable matching across UI formats like "+91 98..." / "098..." / "98-...".
-        customer_phone: phone,
-        customer_gstin: String(header.customer_gstin || '').trim().toUpperCase(),
-        customer_name: String(header.customer_name || '').trim()
+        // Standard E.164 clean phone for international compatibility (no arbitrary chopping)
+        customer_phone: normalizePhoneNumber(rawPhone),
+        customer_gstin: String(header.customer_gstin || header.customerGstin || '').trim().toUpperCase(),
+        customer_name: String(header.customer_name || header.customerName || '').trim()
     };
 }
 
 function buildCustomerScope(identity: any = {}) {
     if (identity.customer_phone) {
-        const phone = String(identity.customer_phone).replace(/\D/g, '').trim();
-        const last10 = phone.length > 10 ? phone.slice(-10) : phone;
+        const variants = getPhoneSearchVariants(identity.customer_phone);
+        const cleanDigits = String(identity.customer_phone).replace(/\D/g, '');
         return {
             customer_phone: {
-                [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`]
+                [Op.or]: [
+                    { [Op.in]: variants },
+                    ...(cleanDigits.length >= 6 ? [{ [Op.iLike]: `%${cleanDigits}%` }] : [])
+                ]
             }
         };
     }
@@ -666,13 +668,14 @@ function collectAppliedSchemeIds(header: any = {}, items: any = []) {
 function buildCustomerOrConditions(identity: any = {}) {
     const conditions = [];
     if (identity.customer_phone) {
-        const phone = String(identity.customer_phone).replace(/\D/g, '').trim();
-        const last10 = phone.length > 10 ? phone.slice(-10) : phone;
-        conditions.push({
-            customer_phone: {
-                [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`]
-            }
-        });
+        const variants = getPhoneSearchVariants(identity.customer_phone);
+        if (variants.length > 0) {
+            conditions.push({
+                customer_phone: {
+                    [Op.in]: variants
+                }
+            });
+        }
     }
     if (identity.customer_gstin) {
         conditions.push({
@@ -870,11 +873,9 @@ async function getCustomerItemConsumedQtyForDay(
 
     let customerWhere = '';
     if (normalizedIdentity.customer_phone) {
-        customerWhere = 'AND ms.customer_phone IN (:phone_last10, :phone_91, :phone_plus91, :phone_0)';
-        params.phone_last10 = normalizedIdentity.customer_phone;
-        params.phone_91 = `91${normalizedIdentity.customer_phone}`;
-        params.phone_plus91 = `+91${normalizedIdentity.customer_phone}`;
-        params.phone_0 = `0${normalizedIdentity.customer_phone}`;
+        const variants = getPhoneSearchVariants(normalizedIdentity.customer_phone);
+        customerWhere = 'AND ms.customer_phone IN (:phone_variants)';
+        params.phone_variants = variants.length > 0 ? variants : [normalizedIdentity.customer_phone];
     } else if (normalizedIdentity.customer_gstin) {
         customerWhere = 'AND ms.customer_gstin = :customer_gstin';
         params.customer_gstin = normalizedIdentity.customer_gstin;
@@ -921,11 +922,9 @@ WHERE c.outlet_id = :outlet_id
         subscription_note: '%[SUBSCRIPTION_AUTO]%'
     };
     if (normalizedIdentity.customer_phone) {
-        customerWhereFallback = 'AND sh.customer_phone IN (:phone_last10, :phone_91, :phone_plus91, :phone_0)';
-        fallbackParams.phone_last10 = normalizedIdentity.customer_phone;
-        fallbackParams.phone_91 = `91${normalizedIdentity.customer_phone}`;
-        fallbackParams.phone_plus91 = `+91${normalizedIdentity.customer_phone}`;
-        fallbackParams.phone_0 = `0${normalizedIdentity.customer_phone}`;
+        const variants = getPhoneSearchVariants(normalizedIdentity.customer_phone);
+        customerWhereFallback = 'AND sh.customer_phone IN (:phone_variants)';
+        fallbackParams.phone_variants = variants.length > 0 ? variants : [normalizedIdentity.customer_phone];
     } else if (normalizedIdentity.customer_gstin) {
         customerWhereFallback = 'AND sh.customer_gstin = :customer_gstin';
         fallbackParams.customer_gstin = normalizedIdentity.customer_gstin;
@@ -1951,13 +1950,9 @@ async function computeItemCycleProgress({
 
     let customerWhere = "";
     if (identity?.customer_phone) {
-        const phone = String(identity.customer_phone).replace(/\D/g, '').trim();
-        const last10 = phone.length > 10 ? phone.slice(-10) : phone;
-        customerWhere = "AND sh.customer_phone IN (:phone_last10, :phone_91, :phone_plus91, :phone_0)";
-        params.phone_last10 = last10;
-        params.phone_91 = `91${last10}`;
-        params.phone_plus91 = `+91${last10}`;
-        params.phone_0 = `0${last10}`;
+        const variants = getPhoneSearchVariants(identity.customer_phone);
+        customerWhere = "AND sh.customer_phone IN (:phone_variants)";
+        params.phone_variants = variants.length > 0 ? variants : [identity.customer_phone];
     } else if (identity?.customer_gstin) {
         customerWhere = "AND sh.customer_gstin = :customer_gstin";
         params.customer_gstin = identity.customer_gstin;
@@ -2062,8 +2057,8 @@ async function hasSchemeGrantedToday({
     billDate
 }) {
     const day = formatDateLocalYmd(dateOnly(billDate || new Date()));
-    const phone = String(identity?.customer_phone || '').replace(/\D/g, '').trim();
-    const last10 = phone.length > 10 ? phone.slice(-10) : phone;
+    const variants = identity?.customer_phone ? getPhoneSearchVariants(identity.customer_phone) : [];
+    const hasPhone = variants.length > 0;
     const [rows] = await req.propertyDb.query(
         `
 SELECT 1
@@ -2078,7 +2073,7 @@ WHERE sh.outlet_id = :outlet_id
   AND si.is_scheme_free = TRUE
   AND si.applied_scheme_id = :scheme_id
   AND (
-    (:phone_last10 <> '' AND sh.customer_phone IN (:phone_last10, :phone_91, :phone_plus91, :phone_0))
+    (:has_phone = TRUE AND sh.customer_phone IN (:phone_variants))
     OR (:customer_gstin <> '' AND sh.customer_gstin = :customer_gstin)
     OR (:customer_name <> '' AND sh.customer_name = :customer_name)
   )
@@ -2090,10 +2085,8 @@ LIMIT 1
                 sale_day: day,
                 item_id: itemId,
                 scheme_id: schemeId,
-                phone_last10: last10,
-                phone_91: last10 ? `91${last10}` : '',
-                phone_plus91: last10 ? `+91${last10}` : '',
-                phone_0: last10 ? `0${last10}` : '',
+                has_phone: hasPhone,
+                phone_variants: hasPhone ? variants : ['__none__'],
                 customer_gstin: identity?.customer_gstin || '',
                 customer_name: identity?.customer_name || ''
             }
@@ -3781,11 +3774,10 @@ exports.createSale = async (req, res) => {
         // Fallback: If customer_gstin or customer_address is missing on header, try looking up linked customer record
         if ((!headerForCreate.customer_gstin || !headerForCreate.customer_address) && (headerForCreate.customer_phone || headerForCreate.customer_name)) {
             try {
-                const phoneDigits = String(headerForCreate.customer_phone || '').replace(/\D/g, '').trim();
-                const last10 = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits;
+                const variants = headerForCreate.customer_phone ? getPhoneSearchVariants(headerForCreate.customer_phone) : [];
                 const custWhere: any = { outlet_id: req.user.outlet_id };
-                if (last10.length >= 7) {
-                    custWhere.customer_phone = { [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`] };
+                if (variants.length > 0) {
+                    custWhere.customer_phone = { [Op.in]: variants };
                 } else if (headerForCreate.customer_name) {
                     custWhere.customer_name = String(headerForCreate.customer_name).trim();
                 }
@@ -5586,7 +5578,7 @@ exports.listCustomers = async (req, res) => {
         const seen = new Set();
         const deduplicatedRows = [];
         for (const row of rows) {
-            const phone = row.customer_phone ? String(row.customer_phone).replace(/\D/g, '').slice(-10) : '';
+            const phone = row.customer_phone ? normalizePhoneNumber(row.customer_phone) : '';
             const name = String(row.customer_name || '').trim().toLowerCase();
             const key = phone ? `phone:${phone}` : (name ? `name:${name}` : `id:${row.id}`);
             if (seen.has(key)) continue;
@@ -5885,11 +5877,10 @@ exports.getSaleDetails = async (req, res) => {
         // Fallback: If customer_gstin or customer_address is empty, lookup customer master record
         if ((!saleJson.customer_gstin || !saleJson.customer_address) && (saleJson.customer_phone || saleJson.customer_name)) {
             try {
-                const phoneDigits = String(saleJson.customer_phone || '').replace(/\D/g, '').trim();
-                const last10 = phoneDigits.length > 10 ? phoneDigits.slice(-10) : phoneDigits;
+                const variants = saleJson.customer_phone ? getPhoneSearchVariants(saleJson.customer_phone) : [];
                 const custWhere: any = { outlet_id: outlet_id || saleJson.outlet_id };
-                if (last10) {
-                    custWhere.customer_phone = { [Op.like]: `%${last10}%` };
+                if (variants.length > 0) {
+                    custWhere.customer_phone = { [Op.in]: variants };
                 } else if (saleJson.customer_name) {
                     custWhere.customer_name = { [Op.iLike]: String(saleJson.customer_name).trim() };
                 }
@@ -6694,6 +6685,9 @@ exports.createSubscription = async (req, res) => {
             transaction: t
         });
         const duplicateMatch = existingSubscriptions.find((row) => {
+            const rowStatus = String(row.status || '').toUpperCase();
+            if (rowStatus === 'EXHAUSTED' || rowStatus === 'CANCELLED' || rowStatus === 'SETTLED' || rowStatus === 'EXPIRED') return false;
+
             // Must be the exact same item variant (item_code is unique per variant)
             const rowItemCode = row.item ? row.item.item_code : '';
             if (rowItemCode !== item.item_code) return false;
@@ -6727,6 +6721,16 @@ exports.createSubscription = async (req, res) => {
             // Must be the exact same item variant (item_code is unique per variant)
             const rowItemCode = row.item ? row.item.item_code : '';
             if (rowItemCode !== item.item_code) return false;
+
+            // Only actively running subscriptions can conflict!
+            // If the existing subscription is EXHAUSTED, SETTLED, CANCELLED, EXPIRED, or active_subscription is false, it does NOT conflict!
+            const rowStatus = String(row.status || '').toUpperCase();
+            const isRowRunning = (row.active_subscription === true || rowStatus === 'ACTIVE') &&
+                                 rowStatus !== 'EXHAUSTED' &&
+                                 rowStatus !== 'SETTLED' &&
+                                 rowStatus !== 'CANCELLED' &&
+                                 rowStatus !== 'EXPIRED';
+            if (!isRowRunning) return false;
 
             const rowIdentity = normalizeCustomerIdentity(row.toJSON());
             const samePhone = identity.customer_phone && rowIdentity.customer_phone

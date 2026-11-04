@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const RestaurantPrinter = sequelize.define('restaurant_printers', {
         id: {
@@ -33,6 +34,5 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'restaurant_printers',
         timestamps: false
     });
-
     return RestaurantPrinter;
 };

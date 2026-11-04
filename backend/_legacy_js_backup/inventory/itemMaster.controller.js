@@ -1,14 +1,13 @@
+"use strict";
 const audit = require('../../services/audit.service');
 const fs = require('fs');
 const path = require('path');
 const { Op } = require('sequelize');
 const { insertLedger } = require('../../services/stockLedger.service');
-
 async function ensureMasterData(req, { outlet_id, row, transaction }) {
     const groupName = String(row.item_group || '').trim();
     const subCategoryName = String(row.sub_category || '').trim();
     const brandName = String(row.brand || '').trim();
-
     if (groupName) {
         await req.propertyDb.models.item_groups.findOrCreate({
             where: { outlet_id, group_name: groupName },
@@ -16,7 +15,6 @@ async function ensureMasterData(req, { outlet_id, row, transaction }) {
             transaction
         });
     }
-
     let group = null;
     if (groupName) {
         group = await req.propertyDb.models.item_groups.findOne({
@@ -24,7 +22,6 @@ async function ensureMasterData(req, { outlet_id, row, transaction }) {
             transaction
         });
     }
-
     if (group && subCategoryName) {
         await req.propertyDb.models.item_subcategories.findOrCreate({
             where: {
@@ -41,7 +38,6 @@ async function ensureMasterData(req, { outlet_id, row, transaction }) {
             transaction
         });
     }
-
     if (brandName) {
         await req.propertyDb.models.brands.findOrCreate({
             where: { outlet_id, brand_name: brandName },
@@ -50,7 +46,6 @@ async function ensureMasterData(req, { outlet_id, row, transaction }) {
         });
     }
 }
-
 async function hasAnyInventoryTransactions(req, outlet_id) {
     const models = req.propertyDb.models;
     const [purchaseOrderCount, salesCount, receiptCount, requestCount, issueCount] = await Promise.all([
@@ -60,137 +55,104 @@ async function hasAnyInventoryTransactions(req, outlet_id) {
         models.request_headers.count({ where: { outlet_id } }),
         models.issue_headers.count({ where: { outlet_id } })
     ]);
-
     return (purchaseOrderCount + salesCount + receiptCount + requestCount + issueCount) > 0;
 }
-
 async function hasItemLinkedTransactions(req, itemId, outlet_id) {
     const models = req.propertyDb.models;
     const checks = [
         models.purchase_order_items?.count({
             include: [{
-                model: models.purchase_orders,
-                as: 'purchase_order',
-                where: { outlet_id }
-            }],
+                    model: models.purchase_orders,
+                    as: 'purchase_order',
+                    where: { outlet_id }
+                }],
             where: { item_id: itemId }
         }) ?? Promise.resolve(0),
         models.sales_items?.count({
             include: [{
-                model: models.sales_headers,
-                as: 'sale',
-                where: { outlet_id }
-            }],
+                    model: models.sales_headers,
+                    as: 'sale',
+                    where: { outlet_id }
+                }],
             where: { item_id: itemId }
         }) ?? Promise.resolve(0),
         models.goods_receipt_items?.count({
             include: [{
-                model: models.goods_receipts,
-                as: 'grn',
-                where: { outlet_id }
-            }],
+                    model: models.goods_receipts,
+                    as: 'grn',
+                    where: { outlet_id }
+                }],
             where: { item_id: itemId }
         }) ?? Promise.resolve(0),
         models.request_items?.count({
             include: [{
-                model: models.request_headers,
-                as: 'header',
-                where: { outlet_id }
-            }],
+                    model: models.request_headers,
+                    as: 'header',
+                    where: { outlet_id }
+                }],
             where: { item_id: itemId }
         }) ?? Promise.resolve(0),
         models.issue_items?.count({
             include: [{
-                model: models.issue_headers,
-                as: 'issue',
-                where: { outlet_id }
-            }],
+                    model: models.issue_headers,
+                    as: 'issue',
+                    where: { outlet_id }
+                }],
             where: { item_id: itemId }
         }) ?? Promise.resolve(0)
     ];
-
     const counts = await Promise.all(checks);
     return counts.some((count) => Number(count || 0) > 0);
 }
-
 function generateBarcodeValue(item) {
     const numericId = Number(item.id || 0);
     return String(200000000000 + numericId).padStart(12, '0').slice(-12);
 }
-
 function resolveImageExtension(fileName, mimeType) {
     const name = String(fileName || '').toLowerCase();
-    if (name.endsWith('.png')) return '.png';
-    if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return '.jpg';
-    if (name.endsWith('.webp')) return '.webp';
-    if (name.endsWith('.gif')) return '.gif';
+    if (name.endsWith('.png'))
+        return '.png';
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg'))
+        return '.jpg';
+    if (name.endsWith('.webp'))
+        return '.webp';
+    if (name.endsWith('.gif'))
+        return '.gif';
     const mime = String(mimeType || '').toLowerCase();
-    if (mime.includes('png')) return '.png';
-    if (mime.includes('jpeg') || mime.includes('jpg')) return '.jpg';
-    if (mime.includes('webp')) return '.webp';
-    if (mime.includes('gif')) return '.gif';
+    if (mime.includes('png'))
+        return '.png';
+    if (mime.includes('jpeg') || mime.includes('jpg'))
+        return '.jpg';
+    if (mime.includes('webp'))
+        return '.webp';
+    if (mime.includes('gif'))
+        return '.gif';
     return '.jpg';
 }
-
 async function saveItemImageFromPayload(req, item, payload) {
     const base64Data = String(payload.base64_data || payload.base64 || '').trim();
-    if (!base64Data) throw new Error('Image data is required');
-
+    if (!base64Data)
+        throw new Error('Image data is required');
     const cleanBase64 = base64Data.includes(',')
         ? base64Data.split(',').pop()
         : base64Data;
     const buffer = Buffer.from(cleanBase64, 'base64');
-    if (!buffer.length) throw new Error('Invalid image data');
-
+    if (!buffer.length)
+        throw new Error('Invalid image data');
     const ext = resolveImageExtension(payload.file_name || payload.fileName, payload.mime_type || payload.mimeType);
     const folder = path.join(process.cwd(), 'uploads', 'items', String(req.user.outlet_id));
     await fs.promises.mkdir(folder, { recursive: true });
-
     const fileName = `item_${item.id}_${Date.now()}${ext}`;
     const absolutePath = path.join(folder, fileName);
     await fs.promises.writeFile(absolutePath, buffer);
-
     const imagePath = `/uploads/items/${req.user.outlet_id}/${fileName}`;
     await item.update({ image_path: imagePath });
     return imagePath;
 }
-
-
 exports.createItem = async (req, res) => {
     try {
-        const {
-            item_code,
-            item_name,
-            hsn_sac_code,
-            item_group,
-            sub_category,
-            brand,
-            unit,
-            barcode,
-            image_path,
-            rate,
-            retail_sale_price,
-            mrp,
-            tax_type,
-            tax_percent,
-            tax_group_id,
-            discount_applicable,
-            scheme_applicable,
-            opening_balance,
-            pack_qty,
-            loose_item_code,
-            min_level,
-            max_level,
-            stockable,
-            is_saleable,
-            is_tax_inclusive,
-            is_happy_hour,
-            location,
-            kitchen_location
-        } = req.body;
-
+        const { item_code, item_name, hsn_sac_code, item_group, sub_category, brand, unit, barcode, image_path, rate, retail_sale_price, mrp, tax_type, tax_percent, tax_group_id, discount_applicable, scheme_applicable, opening_balance, pack_qty, loose_item_code, min_level, max_level, stockable, is_saleable, is_tax_inclusive, is_happy_hour, location, kitchen_location } = req.body;
         const outlet_id = req.user.outlet_id;
-
         // Item code must always be unique
         const codeConflict = await req.propertyDb.models.item_master.findOne({ where: { outlet_id, item_code } });
         if (codeConflict) {
@@ -199,7 +161,6 @@ exports.createItem = async (req, res) => {
                 message: `Item Code "${item_code}" is already used by "${codeConflict.item_name} (${codeConflict.brand})". Please use a unique item code.`
             });
         }
-
         // Same item name + same brand = duplicate (same name with different brand is allowed)
         const nameBrandConflict = await req.propertyDb.models.item_master.findOne({
             where: { outlet_id, item_name, brand: brand || '' }
@@ -210,7 +171,6 @@ exports.createItem = async (req, res) => {
                 message: `Item "${item_name}" with Brand "${brand}" already exists. Please use a different brand or a different item name.`
             });
         }
-
         const item = await req.propertyDb.models.item_master.create({
             outlet_id,
             item_code,
@@ -242,8 +202,6 @@ exports.createItem = async (req, res) => {
             is_happy_hour: is_happy_hour ?? false,
             is_active: true
         });
-
-
         await audit.log({
             req,
             module: 'ITEM_MASTER',
@@ -255,14 +213,12 @@ exports.createItem = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, data: item });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.canImportItems = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -271,11 +227,11 @@ exports.canImportItems = async (req, res) => {
             success: true,
             canImport: !hasTransactions
         });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.canResetAndImportItems = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -284,11 +240,11 @@ exports.canResetAndImportItems = async (req, res) => {
             success: true,
             canResetAndImport: !hasTransactions
         });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.deleteAllItemsForFreshImport = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
@@ -301,12 +257,7 @@ exports.deleteAllItemsForFreshImport = async (req, res) => {
                 message: 'Cannot delete all items because transactions already exist.'
             });
         }
-
-        await req.propertyDb.models.item_master.update(
-            { is_active: false },
-            { where: { outlet_id, is_active: true }, transaction: t }
-        );
-
+        await req.propertyDb.models.item_master.update({ is_active: false }, { where: { outlet_id, is_active: true }, transaction: t });
         await audit.log({
             req,
             module: 'ITEM_MASTER',
@@ -318,23 +269,19 @@ exports.deleteAllItemsForFreshImport = async (req, res) => {
             outlet_id,
             user_id: req.user.id
         });
-
         await t.commit();
         res.json({ success: true, message: 'All items deleted successfully.' });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
-
 exports.bulkImportItems = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const outlet_id = req.user.outlet_id;
         const items = req.body;
-
         const hasTransactions = await hasAnyInventoryTransactions(req, outlet_id);
         if (hasTransactions) {
             return res.status(400).json({
@@ -342,15 +289,10 @@ exports.bulkImportItems = async (req, res) => {
                 message: 'Import is blocked because transactions already exist.'
             });
         }
-
         // Simple behavior:
         // If there are no transactions, clear existing active items first,
         // then import the new Excel payload.
-        await req.propertyDb.models.item_master.update(
-            { is_active: false },
-            { where: { outlet_id, is_active: true }, transaction: t }
-        );
-
+        await req.propertyDb.models.item_master.update({ is_active: false }, { where: { outlet_id, is_active: true }, transaction: t });
         const seenCodes = new Set();
         for (const row of items) {
             const normalizedCode = String(row.item_code || '').trim();
@@ -361,9 +303,7 @@ exports.bulkImportItems = async (req, res) => {
                 throw new Error(`Duplicate item code in import file: ${normalizedCode}`);
             }
             seenCodes.add(normalizedCode.toLowerCase());
-
             await ensureMasterData(req, { outlet_id, row, transaction: t });
-
             const payload = {
                 outlet_id,
                 item_code: normalizedCode,
@@ -394,24 +334,21 @@ exports.bulkImportItems = async (req, res) => {
                 is_happy_hour: row.is_happy_hour === true || row.is_happy_hour === 'YES' || row.is_happy_hour === 'true' || row.is_happy_hour === 1,
                 is_active: true
             };
-
             const existing = await req.propertyDb.models.item_master.findOne({
                 where: { outlet_id, item_code: normalizedCode },
                 transaction: t
             });
-
             if (existing) {
                 await existing.update(payload, { transaction: t });
-            } else {
+            }
+            else {
                 await req.propertyDb.models.item_master.create(payload, { transaction: t });
             }
         }
-
         await t.commit();
-
         res.json({ success: true, message: 'Items imported successfully' });
-
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         const details = Array.isArray(err?.errors)
             ? err.errors.map((e) => e.message).join(', ')
@@ -422,21 +359,17 @@ exports.bulkImportItems = async (req, res) => {
         });
     }
 };
-
 exports.getItems = async (req, res) => {
     try {
         const { q } = req.query;
         const outlet_id = req.user.outlet_id;
-
         const where = {
             outlet_id,
             is_active: true
         };
-
         if (q) {
             if (q && q.trim() !== '') {
                 const search = q.trim();
-
                 where[Op.or] = [
                     { item_code: { [Op.iLike]: `%${search}%` } },
                     { item_name: { [Op.iLike]: `%${search}%` } },
@@ -446,9 +379,7 @@ exports.getItems = async (req, res) => {
                     { brand: { [Op.iLike]: `%${search}%` } }
                 ];
             }
-
         }
-
         const items = await req.propertyDb.models.item_master.findAll({
             where,
             include: [
@@ -484,7 +415,6 @@ exports.getItems = async (req, res) => {
             ],
             order: [['item_name', 'ASC']]
         });
-
         // Get the latest balances from stock_ledger for all items in this outlet
         const [ledgerStockRows] = await req.propertyDb.query(`
             SELECT sl.item_code, sl.balance
@@ -498,12 +428,10 @@ exports.getItems = async (req, res) => {
         `, {
             replacements: { outlet_id }
         });
-
         const ledgerStockMap = {};
         for (const row of ledgerStockRows || []) {
             ledgerStockMap[row.item_code] = Number(row.balance);
         }
-
         // Calculate dynamic held stock from active KOTs (KOT headers not billed/Closed/Cancelled/Rejected, and KOT items not Cancelled/Rejected)
         const [heldStockRows] = await req.propertyDb.query(`
             SELECT ki.item_id, COALESCE(SUM(ki.qty), 0) AS held_qty
@@ -517,37 +445,31 @@ exports.getItems = async (req, res) => {
         `, {
             replacements: { outlet_id }
         });
-
         const heldStockMap = {};
         for (const row of heldStockRows || []) {
             heldStockMap[row.item_id] = Number(row.held_qty);
         }
-
         const itemsWithAvailableStock = items.map(item => {
             const itemJson = item.toJSON();
             const heldQty = heldStockMap[item.id] || 0;
             // Get the current stock from ledger, fallback to item.opening_balance
-            const currentStock = ledgerStockMap[item.item_code] !== undefined 
-                ? ledgerStockMap[item.item_code] 
+            const currentStock = ledgerStockMap[item.item_code] !== undefined
+                ? ledgerStockMap[item.item_code]
                 : Number(item.opening_balance || 0);
-
             // Subtract held qty from currentStock to get available stock
             itemJson.opening_balance = Math.max(0, currentStock - heldQty);
             return itemJson;
         });
-
         res.json({ success: true, data: itemsWithAvailableStock });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.getItemById = async (req, res) => {
     try {
         const { id } = req.params;
         const outlet_id = req.user.outlet_id;
-
         const item = await req.propertyDb.models.item_master.findOne({
             where: { id, outlet_id },
             include: [
@@ -570,36 +492,29 @@ exports.getItemById = async (req, res) => {
                 }
             ]
         });
-
         if (!item) {
             return res.status(404).json({
                 success: false,
                 message: 'Item not found'
             });
         }
-
         res.json({ success: true, data: item });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.updateItem = async (req, res) => {
     try {
         const id = req.params.id;
         const outlet_id = req.user.outlet_id;
-
         const item = await req.propertyDb.models.item_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!item) {
             return res.status(404).json({ success: false, message: 'Item not found' });
         }
-
         const oldData = item.toJSON();
-
         const payload = {
             ...item.toJSON(),
             ...req.body
@@ -618,7 +533,6 @@ exports.updateItem = async (req, res) => {
                 message: `Item Code "${payload.item_code}" is already used by "${codeConflict.item_name} (${codeConflict.brand})". Please use a unique item code.`
             });
         }
-
         // Same item name + same brand = duplicate (excluding self)
         const nameBrandConflict = await req.propertyDb.models.item_master.findOne({
             where: { outlet_id, item_name: payload.item_name, brand: payload.brand || '', id: { [Op.ne]: id } }
@@ -629,9 +543,7 @@ exports.updateItem = async (req, res) => {
                 message: `Item "${payload.item_name}" with Brand "${payload.brand}" already exists. Please use a different brand or a different item name.`
             });
         }
-
         await item.update(payload);
-
         await audit.log({
             req,
             module: 'ITEM_MASTER',
@@ -643,11 +555,9 @@ exports.updateItem = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
-
         res.json({ success: true, data: item });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
@@ -655,15 +565,12 @@ exports.deleteItem = async (req, res) => {
     try {
         const id = req.params.id;
         const outlet_id = req.user.outlet_id;
-
         const item = await req.propertyDb.models.item_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!item) {
             return res.status(404).json({ success: false, code: 404 });
         }
-
         const hasLinkedTransactions = await hasItemLinkedTransactions(req, item.id, outlet_id);
         if (hasLinkedTransactions) {
             return res.status(400).json({
@@ -671,11 +578,7 @@ exports.deleteItem = async (req, res) => {
                 message: 'This item cannot be deleted because transaction history exists for it.'
             });
         }
-
         await item.update({ is_active: false });
-
-
-
         await audit.log({
             req,
             module: 'ITEM_MASTER',
@@ -687,33 +590,25 @@ exports.deleteItem = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
-
         res.json({ success: true, message: 'Item deactivated' });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
-
-
 };
-
 exports.openPackStock = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const outlet_id = req.user.outlet_id;
         const itemId = Number(req.params.id ?? req.body.item_id);
         const packCount = Number(req.body.pack_count ?? 1);
         const note = String(req.body.note || '').trim() || null;
-
         if (!Number.isFinite(itemId) || itemId <= 0) {
             throw new Error('Valid item id is required');
         }
         if (!Number.isFinite(packCount) || packCount <= 0) {
             throw new Error('Pack count must be greater than 0');
         }
-
         const sourceItem = await req.propertyDb.models.item_master.findOne({
             where: { id: itemId, outlet_id },
             transaction: t
@@ -721,13 +616,11 @@ exports.openPackStock = async (req, res) => {
         if (!sourceItem) {
             throw new Error('Pack item not found');
         }
-
         const packQty = Number(sourceItem.pack_qty) || 0;
         const looseItemCode = String(sourceItem.loose_item_code || '').trim();
         if (packQty <= 0 || !looseItemCode) {
             throw new Error('This item is not configured for pack-to-loose conversion');
         }
-
         const targetItem = await req.propertyDb.models.item_master.findOne({
             where: { outlet_id, item_code: looseItemCode, is_active: true },
             transaction: t
@@ -735,11 +628,9 @@ exports.openPackStock = async (req, res) => {
         if (!targetItem) {
             throw new Error(`Loose item ${looseItemCode} not found`);
         }
-
         const openQty = packQty * packCount;
         const refNo = `OPENPACK-${sourceItem.item_code}-${Date.now()}`;
         const remark = note || `Opened ${packCount} ${sourceItem.unit || 'pack'} from ${sourceItem.item_code} into ${targetItem.item_code}`;
-
         await insertLedger({
             db: req.propertyDb,
             outlet_id,
@@ -751,7 +642,6 @@ exports.openPackStock = async (req, res) => {
             qty_out: packCount,
             transaction: t
         });
-
         await insertLedger({
             db: req.propertyDb,
             outlet_id,
@@ -763,7 +653,6 @@ exports.openPackStock = async (req, res) => {
             qty_out: 0,
             transaction: t
         });
-
         await audit.log({
             req,
             module: 'ITEM_MASTER',
@@ -775,7 +664,6 @@ exports.openPackStock = async (req, res) => {
             outlet_id,
             user_id: req.user.id
         });
-
         await t.commit();
         res.json({
             success: true,
@@ -787,15 +675,14 @@ exports.openPackStock = async (req, res) => {
                 ref_no: refNo
             }
         });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(400).json({ success: false, error: err.message });
     }
 };
-
 exports.generateBarcodes = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const outlet_id = req.user.outlet_id;
         const selectedIds = Array.isArray(req.body.item_ids)
@@ -804,58 +691,48 @@ exports.generateBarcodes = async (req, res) => {
                 .filter((id) => Number.isInteger(id) && id > 0)
             : [];
         const forceRegenerate = req.body.force_regenerate === true;
-
         const where = { outlet_id, is_active: true };
         if (selectedIds.length > 0) {
             where.id = { [Op.in]: selectedIds };
         }
-
         const items = await req.propertyDb.models.item_master.findAll({
             where,
             order: [['item_name', 'ASC']],
             transaction: t
         });
-
         for (const item of items) {
             const currentBarcode = String(item.barcode || '').trim();
             if (!forceRegenerate && currentBarcode) {
                 continue;
             }
-            await item.update(
-                { barcode: generateBarcodeValue(item) },
-                { transaction: t }
-            );
+            await item.update({ barcode: generateBarcodeValue(item) }, { transaction: t });
         }
-
         await t.commit();
         res.json({
             success: true,
             data: items.map((item) => item.toJSON())
         });
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.getNextItemCode = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
-
         const items = await req.propertyDb.models.item_master.findAll({
             where: { outlet_id },
             attributes: ['item_code'],
             order: [['id', 'ASC']],
         });
-
         const usedCodes = new Set();
         let maxNum = 0;
-
         for (const row of items) {
             const code = String(row.item_code || '').trim();
-            if (!code) continue;
+            if (!code)
+                continue;
             usedCodes.add(code.toUpperCase());
-
             const match = code.match(/(\d+)$/);
             if (match) {
                 const num = parseInt(match[1], 10);
@@ -864,24 +741,21 @@ exports.getNextItemCode = async (req, res) => {
                 }
             }
         }
-
         let nextNum = maxNum + 1;
         let nextCode = `ITEM${nextNum}`;
         while (usedCodes.has(nextCode.toUpperCase())) {
             nextNum += 1;
             nextCode = `ITEM${nextNum}`;
         }
-
         res.json({
             success: true,
             data: nextCode,
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.uploadItemImage = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -889,11 +763,9 @@ exports.uploadItemImage = async (req, res) => {
         const item = await req.propertyDb.models.item_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!item) {
             return res.status(404).json({ success: false, message: 'Item not found' });
         }
-
         const imagePath = await saveItemImageFromPayload(req, item, req.body || {});
         await audit.log({
             req,
@@ -906,13 +778,12 @@ exports.uploadItemImage = async (req, res) => {
             outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, data: { image_path: imagePath } });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.deleteItemImage = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
@@ -920,11 +791,9 @@ exports.deleteItemImage = async (req, res) => {
         const item = await req.propertyDb.models.item_master.findOne({
             where: { id, outlet_id }
         });
-
         if (!item) {
             return res.status(404).json({ success: false, message: 'Item not found' });
         }
-
         const oldImagePath = item.image_path || null;
         if (oldImagePath) {
             const absolutePath = path.join(process.cwd(), oldImagePath.replace(/^\/+/, ''));
@@ -932,7 +801,6 @@ exports.deleteItemImage = async (req, res) => {
                 fs.unlinkSync(absolutePath);
             }
         }
-
         await item.update({ image_path: null });
         await audit.log({
             req,
@@ -945,35 +813,26 @@ exports.deleteItemImage = async (req, res) => {
             outlet_id,
             user_id: req.user.id
         });
-
         res.json({ success: true, data: { image_path: null } });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.bulkUpdateLocation = async (req, res) => {
     try {
         const outlet_id = req.user?.outlet_id || 1;
         const { item_ids, location } = req.body;
-
         if (!location || !String(location).trim()) {
             return res.status(400).json({ success: false, message: 'Stock Location is required' });
         }
-
         const targetLocation = String(location).trim();
         const whereClause = { outlet_id };
-
         if (Array.isArray(item_ids) && item_ids.length > 0) {
             whereClause.id = { [Op.in]: item_ids };
         }
-
         const ItemModel = req.propertyDb.models.item_master || req.propertyDb.models.items;
-        const [affectedCount] = await ItemModel.update(
-            { location: targetLocation },
-            { where: whereClause }
-        );
-
+        const [affectedCount] = await ItemModel.update({ location: targetLocation }, { where: whereClause });
         await audit.log({
             req,
             module: 'ITEM_MASTER',
@@ -985,13 +844,13 @@ exports.bulkUpdateLocation = async (req, res) => {
             outlet_id,
             user_id: req.user?.id || 1
         });
-
         return res.json({
             success: true,
             message: `Successfully updated location to "${targetLocation}" for ${affectedCount} item(s)`,
             data: { updatedCount: affectedCount, location: targetLocation }
         });
-    } catch (e) {
+    }
+    catch (e) {
         console.error('Error in bulkUpdateLocation:', e);
         return res.status(500).json({ success: false, message: e.message });
     }

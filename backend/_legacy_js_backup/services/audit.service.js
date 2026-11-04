@@ -1,14 +1,5 @@
-exports.log = async ({
-    req,
-    module,
-    action,
-    table,
-    recordId = null,
-    oldData = null,
-    newData = null,
-    outlet_id = null,
-    user_id = null
-}) => {
+"use strict";
+exports.log = async ({ req, module, action, table, recordId = null, oldData = null, newData = null, outlet_id = null, user_id = null }) => {
     try {
         await req.propertyDb.models.audit_logs.create({
             outlet_id: outlet_id ?? req.user?.outlet_id ?? req.outlet_id,
@@ -22,7 +13,8 @@ exports.log = async ({
             ip_address: req.ip,
             user_agent: req.headers['user-agent']
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('Audit log failed:', err.message);
     }
 };

@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const MilkSubscription = sequelize.define('milk_subscriptions', {
         outlet_id: {
@@ -85,33 +86,27 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     MilkSubscription.associate = (models) => {
         MilkSubscription.belongsTo(models.item_master, {
             foreignKey: 'item_id',
             as: 'item'
         });
-
         MilkSubscription.hasMany(models.milk_subscription_schemes, {
             foreignKey: 'subscription_id',
             as: 'schemes'
         });
-
         MilkSubscription.hasMany(models.milk_subscription_consumptions, {
             foreignKey: 'subscription_id',
             as: 'consumptions'
         });
-
         MilkSubscription.hasMany(models.milk_subscription_settlements, {
             foreignKey: 'subscription_id',
             as: 'settlements'
         });
-
         MilkSubscription.hasMany(models.milk_subscription_items, {
             foreignKey: 'subscription_id',
             as: 'subscription_items'
         });
     };
-
     return MilkSubscription;
 };

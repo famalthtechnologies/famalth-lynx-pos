@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const LuckyDrawCampaign = sequelize.define('lucky_draw_campaigns', {
         id: {
@@ -51,7 +53,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     LuckyDrawCampaign.associate = (models) => {
         LuckyDrawCampaign.hasMany(models.draw_vouchers, {
             foreignKey: 'campaign_id',
@@ -66,6 +67,6 @@ module.exports = (sequelize, DataTypes) => {
             as: 'winner'
         });
     };
-
     return LuckyDrawCampaign;
 };
+exports.default = module.exports;

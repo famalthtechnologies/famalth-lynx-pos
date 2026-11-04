@@ -1,12 +1,11 @@
+"use strict";
 const router = require('express').Router();
 const ctrl = require('../controllers/public/propertyInfo.controller');
-const { verifyOutletForRecovery, executeFullSystemRecovery, requestRecoveryOtp,
-    verifyRecoveryOtp, verifyAndRecoverConfig, triggerAutoReinstall } = require('../controllers/public/recoveryController');
+const { verifyOutletForRecovery, executeFullSystemRecovery, requestRecoveryOtp, verifyRecoveryOtp, verifyAndRecoverConfig, triggerAutoReinstall } = require('../controllers/public/recoveryController');
 const outletCtrl = require('../controllers/public/outlet.controller');
 const { checkSystemUpdate } = require('../controllers/public/updateController');
 const { requestPasswordResetOtp, resetPasswordWithOtp, recoverUsername } = require('../modules/passwordRecoveryController');
 const { requestSetupOtp, verifySetupOtp } = require('../modules/verificationController');
-
 router.post('/outlet/check', outletCtrl.checkOutlet);
 router.post('/outlet', outletCtrl.createOutlet);
 router.put('/outlet/module', outletCtrl.updateOutletModule);
@@ -31,7 +30,8 @@ router.get('/outlets', async (req, res) => {
             bypassOutletFilter: true
         });
         res.json({ success: true, data: outlets });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -47,16 +47,13 @@ router.post('/setup/request-otp', requestSetupOtp);
 router.post('/setup/verify-otp', verifySetupOtp);
 router.post('/verify-and-download', verifyAndRecoverConfig);
 router.post('/trigger-reinstall', triggerAutoReinstall);
-
 // Expose public sales invoice PDF downloads for Meta's servers
 const publicSalesCtrl = require('../controllers/public/publicSales.controller');
 router.get('/sales/:id/pdf', publicSalesCtrl.getInvoicePdfPublic);
-
 // Tax Groups & Component Master API Endpoints
 const taxGroupCtrl = require('../controllers/settings/taxGroup.controller');
 router.get('/settings/tax-groups', taxGroupCtrl.getTaxGroups);
 router.post('/settings/tax-groups', taxGroupCtrl.createTaxGroup);
 router.put('/settings/tax-groups/:id', taxGroupCtrl.updateTaxGroup);
 router.delete('/settings/tax-groups/:id', taxGroupCtrl.deleteTaxGroup);
-
 module.exports = router;

@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const DeliveryChallanHeader = sequelize.define('delivery_challan_headers', {
         id: {
@@ -37,6 +39,7 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.INTEGER,
             allowNull: true
         },
+        // Fleet & Transportation Fields
         vehicle_id: {
             type: DataTypes.INTEGER,
             allowNull: true
@@ -67,7 +70,7 @@ module.exports = (sequelize, DataTypes) => {
         },
         delivery_status: {
             type: DataTypes.STRING(30),
-            defaultValue: 'PENDING'
+            defaultValue: 'PENDING' // 'PENDING', 'DISPATCHED', 'IN_TRANSIT', 'DELIVERED', 'RETURNED'
         },
         delivery_otp: {
             type: DataTypes.STRING(10),
@@ -99,7 +102,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     DeliveryChallanHeader.associate = (models) => {
         if (models.users) {
             DeliveryChallanHeader.belongsTo(models.users, {
@@ -126,6 +128,6 @@ module.exports = (sequelize, DataTypes) => {
             });
         }
     };
-
     return DeliveryChallanHeader;
 };
+exports.default = module.exports;

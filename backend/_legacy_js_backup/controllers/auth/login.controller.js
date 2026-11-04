@@ -1,4 +1,4 @@
-
+"use strict";
 const bcrypt = require("bcryptjs");
 const jwt = require('../../utils/jwt.util');
 const audit = require('../../services/audit.service');
@@ -6,7 +6,6 @@ const { verifyLicenseOnline } = require('../public/licenseManager');
 const { touchClient } = require("../../modules/sheetService");
 const { internalCheckOutlet } = require("../public/outlet.controller");
 const { sendOtpEmail } = require('../../modules/emailService');
-
 const DEFAULT_ROLE_PERMISSIONS = {
     ADMIN: ['*'],
     STORE: [
@@ -34,56 +33,44 @@ const DEFAULT_ROLE_PERMISSIONS = {
         'HR_EMPLOYEES', 'HR_ATTENDANCE', 'HR_PAYROLL', 'HR_MASTERS'
     ]
 };
-
 exports.login = async (req, res, next) => {
     try {
         let licenseState = 'VALID';
         let daysRemaining = 999;
-
         const { username, password, role, outlet_code } = req.body;
         const db = req.propertyDb;
-
-
         if (!outlet_code) {
             return res.status(400).json({ success: false, message: 'Outlet code is required for login.' });
         }
-
         const currentOutlet = await db.models.outlets.findOne({
             where: {
                 outlet_code: outlet_code,
                 is_active: true
             }
         });
-
         if (!currentOutlet) {
             return res.status(401).json({ success: false, message: 'Invalid or inactive outlet code.' });
         }
-
         const user = await db.models.users.findOne({
             where: {
                 username: username,
                 outlet_id: currentOutlet.id
             }
         });
-
         if (!user || !user.is_active) {
             return res.status(401).json({ success: false, message: 'Invalid user for this outlet.' });
         }
-
         if (user.role !== role) {
             return res.status(401).json({ success: false, message: 'Invalid role selected.' });
         }
-
         const ok = await bcrypt.compare(password, user.password_hash);
         if (!ok) {
             return res.status(401).json({ success: false, message: 'Wrong password.' });
         }
-
         try {
             const licenseData = await verifyLicenseOnline(outlet_code);
             daysRemaining = licenseData.days_remaining;
             licenseState = licenseData.license_status;
-
             if (licenseState === 'EXPIRED') {
                 return res.status(403).json({
                     success: false,
@@ -91,31 +78,27 @@ exports.login = async (req, res, next) => {
                     message: 'System license expired. Please renew to continue.'
                 });
             }
-
-        } catch (err) {
+        }
+        catch (err) {
             console.warn(`[AUTH] Cloud license check bypassed: ${err.message}`);
         }
-
         let permissions = [];
         if (user.role === 'ADMIN') {
             permissions = ['*'];
-        } else {
+        }
+        else {
             const perms = await db.models.user_permissions.findAll({
                 where: { user_id: user.id }
             });
             permissions = perms.map(p => p.perm_key);
-
             if (permissions.length === 0) {
                 const defaultPerms = DEFAULT_ROLE_PERMISSIONS[user.role] || [];
                 if (defaultPerms.length > 0) {
-                    await db.models.user_permissions.bulkCreate(
-                        defaultPerms.map(p => ({ user_id: user.id, perm_key: p }))
-                    );
+                    await db.models.user_permissions.bulkCreate(defaultPerms.map(p => ({ user_id: user.id, perm_key: p })));
                     permissions = defaultPerms;
                 }
             }
         }
-
         const token = jwt.sign({
             user_id: user.id,
             username: user.username,
@@ -124,7 +107,6 @@ exports.login = async (req, res, next) => {
             outlet_code: currentOutlet.outlet_code,
             permissions
         });
-
         await audit.log({
             req,
             module: 'AUTH',
@@ -135,25 +117,19 @@ exports.login = async (req, res, next) => {
             outlet_id: currentOutlet.id,
             user_id: user.id
         });
-
         await user.update({ last_login: new Date() });
-
         const property = await db.models.property_info.findOne({
             where: { outlet_id: currentOutlet.id },
             attributes: ['property_name']
         });
-
         const outletCheck = await internalCheckOutlet(outlet_code, req.propertyDb);
-
         if (!outletCheck.success) {
             return res.status(404).json({
                 success: false,
                 message: outletCheck.message
             });
         }
-
         await touchClient(outlet_code);
-
         const ROLE_MAX_DISCOUNTS = {
             ADMIN: 100.0,
             MANAGER: 50.0,
@@ -167,11 +143,9 @@ exports.login = async (req, res, next) => {
             KDS: 0.0,
             MARKETING: 25.0
         };
-
         const resolvedMaxDiscount = (user.max_discount_percent !== null && user.max_discount_percent !== undefined)
             ? parseFloat(user.max_discount_percent)
             : (ROLE_MAX_DISCOUNTS[user.role] || 10.0);
-
         res.json({
             success: true,
             license_status: licenseState,
@@ -191,82 +165,67 @@ exports.login = async (req, res, next) => {
                 permissions
             }
         });
-
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[AUTH ERROR]', error);
         res.status(500).json({ success: false, message: 'Internal server error during login' });
     }
 };
-
 // In-memory store for supplier OTPs: "outletCode_email" -> { otp, expiresAt }
 const supplierOtpStore = new Map();
-
 exports.requestSupplierOtp = async (req, res) => {
     try {
         const { outlet_code, email } = req.body;
         const db = req.propertyDb;
-
         if (!outlet_code || !email) {
             return res.status(400).json({ success: false, message: 'Outlet code and email are required.' });
         }
-
         const currentOutlet = await db.models.outlets.findOne({
             where: {
                 outlet_code: outlet_code,
                 is_active: true
             }
         });
-
         if (!currentOutlet) {
             return res.status(404).json({ success: false, message: 'Invalid or inactive outlet code.' });
         }
-
         if (!currentOutlet.contact_email || currentOutlet.contact_email.trim().toLowerCase() !== email.trim().toLowerCase()) {
             return res.status(400).json({ success: false, message: 'The entered email does not match the registered outlet email.' });
         }
-
         // Generate 6-digit OTP
         const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
         // Store OTP in memory (valid for 10 minutes)
         const storeKey = `${outlet_code}_${email.trim().toLowerCase()}`;
         supplierOtpStore.set(storeKey, {
             otp: otpCode,
             expiresAt: Date.now() + 600000 // 10 minutes
         });
-
         // Send OTP email
         await sendOtpEmail(email.trim().toLowerCase(), otpCode, "Supplier Login Verification");
-
         res.json({
             success: true,
             message: 'Verification OTP has been sent to your registered email address.'
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[OTP REQUEST ERROR]', error);
         res.status(500).json({ success: false, message: 'Internal server error during OTP request.' });
     }
 };
-
 exports.verifySupplierOtp = async (req, res) => {
     try {
         const { outlet_code, email, otp } = req.body;
         const db = req.propertyDb;
-
         if (!outlet_code || !email || !otp) {
             return res.status(400).json({ success: false, message: 'Outlet code, email, and OTP are required.' });
         }
-
         const storeKey = `${outlet_code}_${email.trim().toLowerCase()}`;
         const record = supplierOtpStore.get(storeKey);
-
         if (!record || record.otp !== otp.toString().trim() || Date.now() > record.expiresAt) {
             return res.status(400).json({ success: false, message: 'Invalid or expired OTP.' });
         }
-
         // Clear OTP after successful verification
         supplierOtpStore.delete(storeKey);
-
         // Fetch the outlet
         const currentOutlet = await db.models.outlets.findOne({
             where: {
@@ -274,11 +233,9 @@ exports.verifySupplierOtp = async (req, res) => {
                 is_active: true
             }
         });
-
         if (!currentOutlet) {
             return res.status(404).json({ success: false, message: 'Outlet no longer exists or is inactive.' });
         }
-
         // Find the primary/first active admin or store user for this outlet
         const user = await db.models.users.findOne({
             where: {
@@ -287,11 +244,9 @@ exports.verifySupplierOtp = async (req, res) => {
                 role: ['ADMIN', 'STORE']
             }
         });
-
         if (!user) {
             return res.status(404).json({ success: false, message: 'No active manager/admin user found for this outlet.' });
         }
-
         // Generate login token
         const token = jwt.sign({
             user_id: user.id,
@@ -300,25 +255,19 @@ exports.verifySupplierOtp = async (req, res) => {
             outlet_code: currentOutlet.outlet_code,
             permissions: ['*'] // Admin permissions
         });
-
         await user.update({ last_login: new Date() });
-
         const property = await db.models.property_info.findOne({
             where: { outlet_id: currentOutlet.id },
             attributes: ['property_name']
         });
-
         const outletCheck = await internalCheckOutlet(outlet_code, db);
-
         if (!outletCheck.success) {
             return res.status(404).json({
                 success: false,
                 message: outletCheck.message
             });
         }
-
         await touchClient(outlet_code);
-
         res.json({
             success: true,
             license_status: 'VALID',
@@ -337,63 +286,51 @@ exports.verifySupplierOtp = async (req, res) => {
                 permissions: ['*']
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[OTP VERIFY ERROR]', error);
         res.status(500).json({ success: false, message: 'Internal server error during OTP verification.' });
     }
 };
-
 exports.switchOutlet = async (req, res) => {
     try {
         const db = req.propertyDb;
         const currentOutletId = req.user?.outlet_id;
         const targetRawId = req.body.target_outlet_id || req.body.outlet_id || req.body.target_outlet_code || req.body.outlet_code;
-
         if (!targetRawId) {
             return res.status(400).json({ success: false, message: 'Target outlet is required for switch' });
         }
-
         const allOutlets = await db.models.outlets.findAll({
             where: { is_active: true },
             bypassOutletFilter: true
         });
-
         let targetOutlet = null;
         if (typeof targetRawId === 'number' || !isNaN(Number(targetRawId))) {
             targetOutlet = allOutlets.find(o => o.id === Number(targetRawId));
-        } else {
+        }
+        else {
             targetOutlet = allOutlets.find(o => o.outlet_code === String(targetRawId).trim());
         }
-
         if (!targetOutlet) {
             return res.status(404).json({ success: false, message: 'Target outlet not found or inactive' });
         }
-
         const currentOutlet = allOutlets.find(o => o.id === Number(currentOutletId));
-
-        const isLinked =
-            allOutlets.length > 1 &&
-            (
-                Number(targetOutlet.id) === Number(currentOutletId) ||
+        const isLinked = allOutlets.length > 1 &&
+            (Number(targetOutlet.id) === Number(currentOutletId) ||
                 Number(targetOutlet.parent_outlet_id) === Number(currentOutletId) ||
                 Number(currentOutlet?.parent_outlet_id) === Number(targetOutlet.id) ||
                 (currentOutlet?.parent_outlet_id && Number(currentOutlet.parent_outlet_id) === Number(targetOutlet.parent_outlet_id)) ||
                 currentOutlet?.is_master ||
-                targetOutlet.is_master
-            );
-
+                targetOutlet.is_master);
         if (!isLinked) {
             return res.status(403).json({ success: false, message: 'Direct login is only allowed for linked outlets' });
         }
-
         // Fetch full details of the currently authenticated user
         const currentUser = await db.models.users.findOne({
             where: { id: req.user.user_id || req.user.id },
             bypassOutletFilter: true
         });
-
         let targetUser = null;
-
         if (currentUser?.username) {
             targetUser = await db.models.users.findOne({
                 where: {
@@ -404,7 +341,6 @@ exports.switchOutlet = async (req, res) => {
                 bypassOutletFilter: true
             });
         }
-
         if (!targetUser) {
             targetUser = await db.models.users.findOne({
                 where: {
@@ -415,7 +351,6 @@ exports.switchOutlet = async (req, res) => {
                 bypassOutletFilter: true
             });
         }
-
         if (!targetUser && currentUser) {
             targetUser = await db.models.users.create({
                 outlet_id: targetOutlet.id,
@@ -427,35 +362,30 @@ exports.switchOutlet = async (req, res) => {
                 is_active: true
             }, { bypassOutletFilter: true });
         }
-
         if (!targetUser) {
             return res.status(400).json({ success: false, message: 'No active user account found in target outlet' });
         }
-
         let permissions = [];
         if (targetUser.role === 'ADMIN') {
             permissions = ['*'];
-        } else {
+        }
+        else {
             const perms = await db.models.user_permissions.findAll({
                 where: { user_id: targetUser.id },
                 bypassOutletFilter: true
             });
             permissions = perms.map(p => p.perm_key);
-
             if (permissions.length === 0) {
                 const defaultPerms = DEFAULT_ROLE_PERMISSIONS[targetUser.role] || [];
                 if (defaultPerms.length > 0) {
                     try {
-                        await db.models.user_permissions.bulkCreate(
-                            defaultPerms.map(p => ({ user_id: targetUser.id, perm_key: p })),
-                            { bypassOutletFilter: true }
-                        );
-                    } catch (_) {}
+                        await db.models.user_permissions.bulkCreate(defaultPerms.map(p => ({ user_id: targetUser.id, perm_key: p })), { bypassOutletFilter: true });
+                    }
+                    catch (_) { }
                     permissions = defaultPerms;
                 }
             }
         }
-
         const token = jwt.sign({
             user_id: targetUser.id,
             username: targetUser.username,
@@ -464,7 +394,6 @@ exports.switchOutlet = async (req, res) => {
             outlet_code: targetOutlet.outlet_code,
             permissions
         });
-
         try {
             await audit.log({
                 req,
@@ -476,16 +405,15 @@ exports.switchOutlet = async (req, res) => {
                 outlet_id: targetOutlet.id,
                 user_id: targetUser.id
             });
-        } catch (auditErr) {
+        }
+        catch (auditErr) {
             console.warn('[SWITCH OUTLET AUDIT WARN]', auditErr.message);
         }
-
         const property = await db.models.property_info.findOne({
             where: { outlet_id: targetOutlet.id },
             attributes: ['property_name'],
             bypassOutletFilter: true
         });
-
         return res.json({
             success: true,
             message: `Direct login to ${targetOutlet.outlet_name} successful`,
@@ -504,7 +432,8 @@ exports.switchOutlet = async (req, res) => {
                 permissions
             }
         });
-    } catch (error) {
+    }
+    catch (error) {
         console.error('[SWITCH OUTLET ERROR]', error);
         return res.status(500).json({ success: false, message: 'Failed to complete direct outlet login: ' + error.message });
     }

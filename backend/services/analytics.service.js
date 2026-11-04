@@ -1,22 +1,33 @@
-const { QueryTypes } = require('sequelize');
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildRfmSegments = buildRfmSegments;
+exports.buildSalesTrend = buildSalesTrend;
+exports.buildMarketBasket = buildMarketBasket;
+exports.buildTopCustomerItems = buildTopCustomerItems;
+exports.computeAnalyticsBundle = computeAnalyticsBundle;
+exports.refreshOutletAnalytics = refreshOutletAnalytics;
+exports.getOrBuildOutletAnalytics = getOrBuildOutletAnalytics;
+exports.refreshAllAnalytics = refreshAllAnalytics;
+exports.getRfmSegments = getRfmSegments;
+exports.getSalesTrend = getSalesTrend;
+exports.getMarketBasket = getMarketBasket;
+exports.getTopCustomerItems = getTopCustomerItems;
+const sequelize_1 = require("sequelize");
 const SEGMENT_ORDER = ['Champions', 'At-Risk', 'Churned', 'New'];
 const analyticsCache = new Map();
 const inFlight = new Map();
-
 function toNumber(value) {
-    if (value === null || value === undefined) return 0;
+    if (value === null || value === undefined)
+        return 0;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
 }
-
 function formatDateKey(date) {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
 }
-
 function buildLastNDays(n) {
     const today = new Date();
     const days = [];
@@ -27,15 +38,13 @@ function buildLastNDays(n) {
     }
     return days;
 }
-
 function outletCond(field, outletId) {
-    if (outletId === 'ALL' || !outletId) return '1=1';
+    if (outletId === 'ALL' || !outletId)
+        return '1=1';
     return `${field} = :outletId`;
 }
-
 async function buildRfmSegments(db, outletId) {
-    const rows = await db.query(
-        `
+    const rows = await db.query(`
         WITH customer_base AS (
             SELECT
                 COALESCE(NULLIF(TRIM(customer_phone), ''), NULLIF(TRIM(customer_name), ''), CONCAT('CUST#', id::text)) AS customer_key,
@@ -70,26 +79,20 @@ async function buildRfmSegments(db, outletId) {
             COUNT(*)::int AS customer_count
         FROM scored
         GROUP BY 1
-        `,
-        {
-            replacements: { outletId: outletId === 'ALL' ? 0 : outletId },
-            type: QueryTypes.SELECT
-        }
-    );
-
+        `, {
+        replacements: { outletId: outletId === 'ALL' ? 0 : outletId },
+        type: sequelize_1.QueryTypes.SELECT
+    });
     const countMap = new Map(rows.map((row) => [row.segment, toNumber(row.customer_count)]));
     return SEGMENT_ORDER.map((segment) => ({
         segment,
         customerCount: countMap.get(segment) || 0
     }));
 }
-
 async function buildSalesTrend(db, outletId) {
     const lastThirtyDays = buildLastNDays(30);
     const startDate = lastThirtyDays[0];
-
-    const revenueRows = await db.query(
-        `
+    const revenueRows = await db.query(`
         SELECT
             DATE(sale_date) AS day_key,
             COALESCE(SUM(net_amount), 0)::numeric AS revenue
@@ -99,15 +102,11 @@ async function buildSalesTrend(db, outletId) {
           AND UPPER(COALESCE(status, '')) NOT IN ('DRAFT', 'CANCELLED', 'DELETED', 'VOID')
           AND DATE(sale_date) >= :startDate
         GROUP BY 1
-        `,
-        {
-            replacements: { outletId: outletId === 'ALL' ? 0 : outletId, startDate },
-            type: QueryTypes.SELECT
-        }
-    );
-
-    const subscriptionRows = await db.query(
-        `
+        `, {
+        replacements: { outletId: outletId === 'ALL' ? 0 : outletId, startDate },
+        type: sequelize_1.QueryTypes.SELECT
+    });
+    const subscriptionRows = await db.query(`
         SELECT
             txn_date AS day_key,
             COALESCE(SUM(cart_qty), 0)::numeric AS subscription_volume
@@ -115,30 +114,20 @@ async function buildSalesTrend(db, outletId) {
         WHERE ${outletCond('outlet_id', outletId)}
           AND txn_date >= :startDate
         GROUP BY 1
-        `,
-        {
-            replacements: { outletId: outletId === 'ALL' ? 0 : outletId, startDate },
-            type: QueryTypes.SELECT
-        }
-    );
-
-    const revenueByDay = new Map(
-        revenueRows.map((row) => [formatDateKey(new Date(row.day_key)), toNumber(row.revenue)])
-    );
-    const subscriptionsByDay = new Map(
-        subscriptionRows.map((row) => [formatDateKey(new Date(row.day_key)), toNumber(row.subscription_volume)])
-    );
-
+        `, {
+        replacements: { outletId: outletId === 'ALL' ? 0 : outletId, startDate },
+        type: sequelize_1.QueryTypes.SELECT
+    });
+    const revenueByDay = new Map(revenueRows.map((row) => [formatDateKey(new Date(row.day_key)), toNumber(row.revenue)]));
+    const subscriptionsByDay = new Map(subscriptionRows.map((row) => [formatDateKey(new Date(row.day_key)), toNumber(row.subscription_volume)]));
     return lastThirtyDays.map((day) => ({
         date: day,
         revenue: revenueByDay.get(day) || 0,
         subscriptionVolume: subscriptionsByDay.get(day) || 0
     }));
 }
-
 async function buildMarketBasket(db, outletId) {
-    const rows = await db.query(
-        `
+    const rows = await db.query(`
         WITH pair_rows AS (
             SELECT
                 LEAST(COALESCE(NULLIF(TRIM(i1.item_name), ''), 'Item A'), COALESCE(NULLIF(TRIM(i2.item_name), ''), 'Item B')) AS item_a,
@@ -162,22 +151,17 @@ async function buildMarketBasket(db, outletId) {
         GROUP BY item_a, item_b
         ORDER BY occurrence_count DESC, item_a ASC, item_b ASC
         LIMIT 10
-        `,
-        {
-            replacements: { outletId: outletId === 'ALL' ? 0 : outletId },
-            type: QueryTypes.SELECT
-        }
-    );
-
+        `, {
+        replacements: { outletId: outletId === 'ALL' ? 0 : outletId },
+        type: sequelize_1.QueryTypes.SELECT
+    });
     return rows.map((row) => ({
         pairName: `${row.item_a} + ${row.item_b}`,
         occurrenceCount: toNumber(row.occurrence_count)
     }));
 }
-
 async function buildTopCustomerItems(db, outletId) {
-    const rows = await db.query(
-        `
+    const rows = await db.query(`
         SELECT
             COALESCE(NULLIF(TRIM(sh.customer_name), ''), NULLIF(TRIM(sh.customer_phone), ''), 'Walk-in') AS customer_name,
             COALESCE(NULLIF(TRIM(si.item_name), ''), 'Unknown Item') AS item_name,
@@ -191,13 +175,10 @@ async function buildTopCustomerItems(db, outletId) {
         GROUP BY 1, 2
         ORDER BY total_qty DESC, bill_count DESC, customer_name ASC, item_name ASC
         LIMIT 10
-        `,
-        {
-            replacements: { outletId: outletId === 'ALL' ? 0 : outletId },
-            type: QueryTypes.SELECT
-        }
-    );
-
+        `, {
+        replacements: { outletId: outletId === 'ALL' ? 0 : outletId },
+        type: sequelize_1.QueryTypes.SELECT
+    });
     return rows.map((row) => ({
         customerName: row.customer_name || '',
         itemName: row.item_name || '',
@@ -206,7 +187,6 @@ async function buildTopCustomerItems(db, outletId) {
         label: `${row.customer_name || 'Walk-in'} - ${row.item_name || 'Unknown Item'}`
     }));
 }
-
 async function computeAnalyticsBundle(db, outletId) {
     const [rfmSegments, salesTrend, marketBasket, topCustomerItems] = await Promise.all([
         buildRfmSegments(db, outletId),
@@ -214,7 +194,6 @@ async function computeAnalyticsBundle(db, outletId) {
         buildMarketBasket(db, outletId),
         buildTopCustomerItems(db, outletId)
     ]);
-
     return {
         rfmSegments,
         salesTrend,
@@ -222,7 +201,6 @@ async function computeAnalyticsBundle(db, outletId) {
         topCustomerItems
     };
 }
-
 async function refreshOutletAnalytics(db, outletId) {
     const data = await computeAnalyticsBundle(db, outletId);
     analyticsCache.set(String(outletId), {
@@ -231,69 +209,53 @@ async function refreshOutletAnalytics(db, outletId) {
     });
     return data;
 }
-
 async function getOrBuildOutletAnalytics(db, outletId) {
     const key = String(outletId);
     const cached = analyticsCache.get(key);
     if (cached?.data) {
         return cached.data;
     }
-
     if (inFlight.has(key)) {
         return inFlight.get(key);
     }
-
     const pending = refreshOutletAnalytics(db, outletId)
         .finally(() => inFlight.delete(key));
-
     inFlight.set(key, pending);
     return pending;
 }
-
 async function refreshAllAnalytics(db) {
-    const outletRows = await db.query(
-        `
+    const outletRows = await db.query(`
         SELECT DISTINCT outlet_id::int AS outlet_id
         FROM (
             SELECT outlet_id FROM sales_headers WHERE outlet_id IS NOT NULL
             UNION
             SELECT outlet_id FROM milk_subscription_consumptions WHERE outlet_id IS NOT NULL
         ) AS outlet_union
-        `,
-        { type: QueryTypes.SELECT }
-    );
-
+        `, { type: sequelize_1.QueryTypes.SELECT });
     for (const row of outletRows) {
         const outletId = toNumber(row.outlet_id);
         if (outletId > 0) {
-            // sequential by design to reduce DB contention during nightly refresh
-            // eslint-disable-next-line no-await-in-loop
             await refreshOutletAnalytics(db, outletId);
         }
     }
 }
-
 async function getRfmSegments(db, outletId) {
     const data = await getOrBuildOutletAnalytics(db, outletId);
     return data.rfmSegments || [];
 }
-
 async function getSalesTrend(db, outletId) {
     const data = await getOrBuildOutletAnalytics(db, outletId);
     return data.salesTrend || [];
 }
-
 async function getMarketBasket(db, outletId) {
     const data = await getOrBuildOutletAnalytics(db, outletId);
     return data.marketBasket || [];
 }
-
 async function getTopCustomerItems(db, outletId) {
     const data = await getOrBuildOutletAnalytics(db, outletId);
     return data.topCustomerItems || [];
 }
-
-module.exports = {
+exports.default = {
     getRfmSegments,
     getSalesTrend,
     getMarketBasket,

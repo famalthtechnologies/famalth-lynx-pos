@@ -1,10 +1,14 @@
-const router = require('express').Router();
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const router = express_1.default.Router();
 const auth = require('../middlewares/auth.middleware');
 const license = require('../middlewares/license.middleware');
 const ctrl = require('../controllers/delivery/delivery.controller');
-
 const adminAuth = [auth, license('INVENTORY')];
-
 // Customer app endpoints (accessible from Customer App)
 router.get('/catalog', ctrl.listCatalogProducts);
 router.post('/orders', ctrl.placeOrder);
@@ -19,7 +23,6 @@ router.post('/orders/:id/cancel', ctrl.cancelOrderAsCustomer);
 router.post('/orders/:id/feedback', ctrl.submitOrderFeedback);
 router.get('/customer/notifications', ctrl.getCustomerNotifications);
 router.get('/sales/:id', ctrl.getSaleDetailsPublic);
-
 // Rider app endpoints (accessible from Rider App)
 router.post('/rider/register', ctrl.registerRiderFromApp);
 router.post('/rider/login', ctrl.loginRider);
@@ -27,7 +30,6 @@ router.put('/rider/orders/:id/status', ctrl.updateOrderDeliveryStatus);
 router.put('/rider/orders/:id/handover-return', ctrl.handoverReturn);
 router.put('/rider/status', ctrl.updateRiderStatus);
 router.get('/rider/notifications', ctrl.getRiderNotifications);
-
 // Retailer dashboard endpoints (Require admin auth and inventory license)
 router.get('/retailer/orders', adminAuth, ctrl.listOrders);
 router.get('/retailer/riders', adminAuth, ctrl.listRiders);
@@ -50,6 +52,5 @@ router.get('/retailer/transactions', adminAuth, ctrl.listTransactions);
 router.post('/retailer/orders/:id/refund-gateway', adminAuth, ctrl.refundGatewayPayment);
 router.get('/retailer/orders/:id/pending-refunds', adminAuth, ctrl.getOrderPendingRefunds);
 router.post('/retailer/orders/:id/refund-via-creditnote', adminAuth, ctrl.refundGatewayViaCreditNote);
-
-
 module.exports = router;
+exports.default = router;

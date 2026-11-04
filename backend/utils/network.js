@@ -1,28 +1,15 @@
-const dns = require("dns");
-
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isOnline = isOnline;
+const dns_1 = __importDefault(require("dns"));
 function isOnline() {
     return new Promise((resolve) => {
-        dns.lookup("google.com", (err) => {
+        dns_1.default.lookup("google.com", (err) => {
             resolve(!err);
         });
     });
 }
-
-// async function logActivity(client_id, action, status = "SUCCESS") {
-//     const sheets = google.sheets({ version: "v4", auth });
-
-//     await sheets.spreadsheets.values.append({
-//         spreadsheetId: SHEET_ID,
-//         range: "Logs!A:D",
-//         requestBody: {
-//             values: [[
-//                 client_id,
-//                 action,
-//                 status,
-//                 new Date().toISOString()
-//             ]]
-//         }
-//     });
-// }
-
-module.exports = { isOnline };
+exports.default = { isOnline };

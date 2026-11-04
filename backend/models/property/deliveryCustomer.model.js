@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const DeliveryCustomer = sequelize.define('delivery_customers', {
         id: {
@@ -50,6 +52,6 @@ module.exports = (sequelize, DataTypes) => {
             }
         ]
     });
-
     return DeliveryCustomer;
 };
+exports.default = module.exports;

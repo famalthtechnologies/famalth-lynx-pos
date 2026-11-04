@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const SalesCreditNote = sequelize.define('sales_credit_notes', {
         outlet_id: {
@@ -98,13 +99,11 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     SalesCreditNote.associate = (models) => {
         SalesCreditNote.belongsTo(models.sales_headers, {
             foreignKey: 'sale_id',
             as: 'sale'
         });
     };
-
     return SalesCreditNote;
 };

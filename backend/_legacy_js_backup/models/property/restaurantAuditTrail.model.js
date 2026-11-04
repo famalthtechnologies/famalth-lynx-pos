@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const RestaurantAuditTrail = sequelize.define('restaurant_audit_trail', {
         id: {
@@ -29,13 +30,11 @@ module.exports = (sequelize, DataTypes) => {
         tableName: 'restaurant_audit_trail',
         timestamps: false
     });
-
     RestaurantAuditTrail.associate = (models) => {
         RestaurantAuditTrail.belongsTo(models.users, {
             foreignKey: 'user_id',
             as: 'user'
         });
     };
-
     return RestaurantAuditTrail;
 };

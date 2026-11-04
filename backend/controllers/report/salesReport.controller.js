@@ -1,57 +1,54 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const { Op } = require('sequelize');
 const { toOutletDateYmd, getOutletDateBounds } = require('../../utils/timezoneHelper');
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
-
+const { normalizePhoneNumber, getPhoneSearchVariants } = require('../../utils/phone.util');
 const SALES_ZONES = [
     { key: 'MORNING', label: 'Morning', startHour: 5, endHour: 11 },
     { key: 'AFTERNOON', label: 'Afternoon', startHour: 12, endHour: 16 },
     { key: 'EVENING', label: 'Evening', startHour: 17, endHour: 20 },
     { key: 'NIGHT', label: 'Night', startHour: 21, endHour: 4 }
 ];
-
 function toNumber(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
 }
-
 function roundAmount(value) {
     return Number(toNumber(value).toFixed(2));
 }
-
 function safeArray(value) {
     return Array.isArray(value) ? value : [];
 }
-
 function normalizeDate(value) {
     const date = value instanceof Date ? value : new Date(value);
     return Number.isNaN(date.getTime()) ? new Date() : date;
 }
-
 function resolveSaleZone(dateValue, timeZone = 'Asia/Kolkata') {
     let hour = 0;
     try {
         const dt = dateValue instanceof Date ? dateValue : new Date(dateValue);
         const hourStr = dt.toLocaleTimeString('en-US', { timeZone, hour12: false, hour: '2-digit' });
         hour = parseInt(hourStr, 10);
-    } catch (_) {
+    }
+    catch (_) {
         hour = normalizeDate(dateValue).getHours();
     }
-
-    if (hour >= 5 && hour <= 11) return SALES_ZONES[0];
-    if (hour >= 12 && hour <= 16) return SALES_ZONES[1];
-    if (hour >= 17 && hour <= 20) return SALES_ZONES[2];
+    if (hour >= 5 && hour <= 11)
+        return SALES_ZONES[0];
+    if (hour >= 12 && hour <= 16)
+        return SALES_ZONES[1];
+    if (hour >= 17 && hour <= 20)
+        return SALES_ZONES[2];
     return SALES_ZONES[3];
 }
-
 function formatDayKey(dateValue, timeZone = 'Asia/Kolkata') {
     return toOutletDateYmd(dateValue, timeZone);
 }
-
 function formatMonthKey(dateValue, timeZone = 'Asia/Kolkata') {
     const ymd = toOutletDateYmd(dateValue, timeZone);
     return ymd.slice(0, 7);
 }
-
 function formatWeekKey(dateValue, timeZone = 'Asia/Kolkata') {
     const ymd = toOutletDateYmd(dateValue, timeZone);
     const [y, m, d] = ymd.split('-').map(Number);
@@ -64,60 +61,50 @@ function formatWeekKey(dateValue, timeZone = 'Asia/Kolkata') {
     const wd = String(dt.getUTCDate()).padStart(2, '0');
     return `${wy}-${wm}-${wd}`;
 }
-
 function sumChargeTotals(charges) {
     let packingCharges = 0;
     let otherCharges = 0;
     let negativeChargeDiscount = 0;
-
     for (const charge of safeArray(charges)) {
         const amount = toNumber(charge.amount);
         if (amount < 0) {
             negativeChargeDiscount += Math.abs(amount);
             continue;
         }
-
         const name = String(charge.name || charge.code || '').toUpperCase();
-
         if (name.includes('PACK')) {
             packingCharges += amount;
-        } else {
+        }
+        else {
             otherCharges += amount;
         }
     }
-
     return { packingCharges, otherCharges, negativeChargeDiscount };
 }
-
 function aggregateTaxes({ sale, taxAccumulator }) {
     const saleBreakup = safeArray(sale.tax_breakup);
-
     let gst = 0;
     let vat = 0;
     let otherTaxes = 0;
-
     for (const tax of saleBreakup) {
         const code = String(tax.code || tax.label || '').toUpperCase();
         const amount = toNumber(tax.tax_amount);
-
         if (code.includes('CGST') || code.includes('SGST') || code.includes('IGST') || code.includes('GST')) {
             gst += amount;
-        } else if (code.includes('VAT')) {
+        }
+        else if (code.includes('VAT')) {
             vat += amount;
-        } else {
+        }
+        else {
             otherTaxes += amount;
         }
-
         const summaryKey = String(tax.label || tax.code || 'Other Tax');
         taxAccumulator[summaryKey] = (taxAccumulator[summaryKey] || 0) + amount;
     }
-
     return { gst, vat, otherTaxes };
 }
-
 function buildPeriodComparison(entries) {
     const ordered = entries.sort((a, b) => a.period.localeCompare(b.period));
-
     return ordered.map((entry, index) => {
         const previous = ordered[index - 1];
         return {
@@ -129,14 +116,11 @@ function buildPeriodComparison(entries) {
         };
     });
 }
-
 exports.getSalesReport = async (req, res) => {
     try {
         const reqOutlet = req.query.outlet_id || req.query.outletId;
         const { from_date, to_date, payment_mode, search } = req.query;
-
         const scope = await resolveOutletScope(req, reqOutlet);
-
         // Query sales headers
         const where = {
             status: { [Op.in]: ['COMPLETED', 'RETURNED'] },
@@ -144,7 +128,6 @@ exports.getSalesReport = async (req, res) => {
             is_latest: true,
             ...scope.outletWhere
         };
-
         const outletTz = req.outletTimeZone || 'Asia/Kolkata';
         if (from_date && to_date) {
             const { startDate, endDate } = req.getDateBounds ? req.getDateBounds(from_date, to_date) : getOutletDateBounds(from_date, to_date, outletTz);
@@ -154,29 +137,25 @@ exports.getSalesReport = async (req, res) => {
                 };
             }
         }
-
         if (payment_mode) {
             where.payment_mode = payment_mode;
         }
-
         if (search) {
-            const cleanPhone = String(search).replace(/\D/g, '').trim();
-            const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
+            const variants = getPhoneSearchVariants(search);
             const searchOr = [
                 { sale_no: { [Op.iLike]: `%${search}%` } },
                 { customer_name: { [Op.iLike]: `%${search}%` } },
                 { customer_phone: { [Op.iLike]: `%${search}%` } }
             ];
-            if (last10.length >= 7) {
+            if (variants.length > 0) {
                 searchOr.push({
                     customer_phone: {
-                        [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`]
+                        [Op.in]: variants
                     }
                 });
             }
             where[Op.or] = searchOr;
         }
-
         const sales = await req.propertyDb.models.sales_headers.findAll({
             where,
             bypassOutletFilter: true,
@@ -185,10 +164,10 @@ exports.getSalesReport = async (req, res) => {
                     model: req.propertyDb.models.sales_items,
                     as: 'items',
                     include: [{
-                        model: req.propertyDb.models.item_master,
-                        as: 'item',
-                        attributes: ['rate', 'retail_sale_price', 'item_group', 'sub_category', 'brand', 'is_tax_inclusive']
-                    }]
+                            model: req.propertyDb.models.item_master,
+                            as: 'item',
+                            attributes: ['rate', 'retail_sale_price', 'item_group', 'sub_category', 'brand', 'is_tax_inclusive']
+                        }]
                 },
                 {
                     model: req.propertyDb.models.milk_subscription_consumptions,
@@ -201,74 +180,64 @@ exports.getSalesReport = async (req, res) => {
                     required: false
                 },
                 ...(req.propertyDb.models.customer_advances ? [{
-                    model: req.propertyDb.models.customer_advances,
-                    as: 'advances',
-                    required: false
-                }] : [])
+                        model: req.propertyDb.models.customer_advances,
+                        as: 'advances',
+                        required: false
+                    }] : [])
             ],
             order: [['sale_date', 'DESC'], ['id', 'DESC']]
         });
-
         // Query sales credit notes in parallel
         const cnWhere = { ...scope.outletWhere };
-
         if (from_date && to_date) {
             cnWhere.credit_note_date = {
                 [Op.between]: [from_date, to_date]
             };
         }
         if (search) {
-            const cleanPhone = String(search).replace(/\D/g, '').trim();
-            const last10 = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
+            const variants = getPhoneSearchVariants(search);
             const searchOr = [
                 { credit_note_no: { [Op.iLike]: `%${search}%` } },
                 { customer_name: { [Op.iLike]: `%${search}%` } },
                 { customer_phone: { [Op.iLike]: `%${search}%` } }
             ];
-            if (last10.length >= 7) {
+            if (variants.length > 0) {
                 searchOr.push({
                     customer_phone: {
-                        [Op.in]: [last10, `91${last10}`, `+91${last10}`, `0${last10}`]
+                        [Op.in]: variants
                     }
                 });
             }
             cnWhere[Op.or] = searchOr;
         }
-
         const cnInclude = [{
-            model: req.propertyDb.models.sales_headers,
-            as: 'sale'
-        }];
+                model: req.propertyDb.models.sales_headers,
+                as: 'sale'
+            }];
         if (payment_mode) {
             cnInclude[0].where = { payment_mode };
         }
-
         const creditNotes = await req.propertyDb.models.sales_credit_notes.findAll({
             where: cnWhere,
             bypassOutletFilter: Boolean(reqOutlet),
             include: cnInclude,
             order: [['credit_note_date', 'DESC'], ['id', 'DESC']]
         });
-
         let totalSubscriptionAmount = 0;
-
         const paymentModeSummary = {};
-        const timeZoneMap = Object.fromEntries(
-            SALES_ZONES.map((zone) => [zone.key, {
+        const timeZoneMap = Object.fromEntries(SALES_ZONES.map((zone) => [zone.key, {
                 zone: zone.key,
                 label: zone.label,
                 sales_count: 0,
                 total_sales: 0,
                 taxable_amount: 0,
                 profit: 0
-            }])
-        );
+            }]));
         const itemZoneMap = {};
         const taxAccumulator = {};
         const monthMap = {};
         const weekMap = {};
         const dayMap = {};
-
         let totalQty = 0;
         let grossSales = 0;
         let taxableAmount = 0;
@@ -283,7 +252,6 @@ exports.getSalesReport = async (req, res) => {
         let estimatedCost = 0;
         let profit = 0;
         let loss = 0;
-
         // Pre-fetch customer master details for sales headers missing GSTIN or address
         const phonesToLookup = new Set();
         const namesToLookup = new Set();
@@ -291,9 +259,9 @@ exports.getSalesReport = async (req, res) => {
             const rawGstin = String(s.customer_gstin || '').trim();
             if (!rawGstin) {
                 if (s.customer_phone) {
-                    const cleanP = String(s.customer_phone).replace(/\D/g, '').trim();
-                    const last10 = cleanP.length > 10 ? cleanP.slice(-10) : cleanP;
-                    if (last10) phonesToLookup.add(last10);
+                    const normPhone = normalizePhoneNumber(s.customer_phone);
+                    if (normPhone)
+                        phonesToLookup.add(normPhone);
                 }
                 if (s.customer_name) {
                     namesToLookup.add(String(s.customer_name).trim().toUpperCase());
@@ -318,33 +286,31 @@ exports.getSalesReport = async (req, res) => {
                 });
                 for (const c of custRows) {
                     if (c.customer_phone) {
-                        const cleanP = String(c.customer_phone).replace(/\D/g, '').trim();
-                        const last10 = cleanP.length > 10 ? cleanP.slice(-10) : cleanP;
-                        if (last10) customerMasterByPhone.set(last10, c);
+                        const normPhone = normalizePhoneNumber(c.customer_phone);
+                        if (normPhone)
+                            customerMasterByPhone.set(normPhone, c);
                     }
                     if (c.customer_name) {
                         customerMasterByName.set(String(c.customer_name).trim().toUpperCase(), c);
                     }
                 }
-            } catch (_) {}
+            }
+            catch (_) { }
         }
-
         // Combine sales and credit notes into a unified array, sorted by date DESC
         const allRecords = [
-            ...sales.map(s => ({ type: 'SALE', record: s, date: new Date(s.sale_date) })),
-            ...creditNotes.map(cn => ({ type: 'CN', record: cn, date: new Date(cn.credit_note_date) }))
+            ...sales.map((s) => ({ type: 'SALE', record: s, date: new Date(s.sale_date) })),
+            ...creditNotes.map((cn) => ({ type: 'CN', record: cn, date: new Date(cn.credit_note_date) }))
         ];
-        allRecords.sort((a, b) => b.date - a.date);
-
+        allRecords.sort((a, b) => b.date.getTime() - a.date.getTime());
         const data = allRecords.map((rec) => {
             if (rec.type === 'SALE') {
                 const sale = rec.record;
                 let resolvedGstin = String(sale.customer_gstin || '').trim().toUpperCase();
                 let resolvedAddress = String(sale.customer_address || '').trim();
                 if (!resolvedGstin) {
-                    const cleanP = String(sale.customer_phone || '').replace(/\D/g, '').trim();
-                    const last10 = cleanP.length > 10 ? cleanP.slice(-10) : cleanP;
-                    const matchCust = (last10 ? customerMasterByPhone.get(last10) : null) ||
+                    const normPhone = normalizePhoneNumber(sale.customer_phone);
+                    const matchCust = (normPhone ? customerMasterByPhone.get(normPhone) : null) ||
                         (sale.customer_name ? customerMasterByName.get(String(sale.customer_name).trim().toUpperCase()) : null);
                     if (matchCust && matchCust.customer_gstin) {
                         resolvedGstin = String(matchCust.customer_gstin).trim().toUpperCase();
@@ -361,44 +327,46 @@ exports.getSalesReport = async (req, res) => {
                         effectivePaymentMode = latestRepayment.payment_mode.toUpperCase();
                     }
                 }
-                
                 // Subscription calculations
-                const subItems = sale.items.filter(i => i.is_advance_free);
+                const subItems = (sale.items || []).filter((i) => i.is_advance_free);
                 const subscriptionSubtotal = subItems.reduce((sum, i) => sum + toNumber(i.amount), 0);
                 const subscriptionTax = subItems.reduce((sum, i) => sum + toNumber(i.tax_amount), 0);
                 const subscriptionTaxable = subItems.reduce((sum, i) => sum + toNumber(i.taxable_amount), 0);
                 const subscriptionNet = subItems.reduce((sum, i) => {
                     const dbNet = toNumber(i.net_amount);
-                    if (dbNet > 0) return sum + dbNet;
+                    if (dbNet > 0)
+                        return sum + dbNet;
                     const dbLineTotal = toNumber(i.line_total);
-                    if (dbLineTotal > 0) return sum + dbLineTotal;
+                    if (dbLineTotal > 0)
+                        return sum + dbLineTotal;
                     const isInclusive = i.tax_type === 'GST_INCLUSIVE' || i.is_tax_inclusive === true || i.isTaxInclusive === true;
                     if (isInclusive) {
                         const amt = toNumber(i.amount);
-                        if (amt > 0) return sum + amt;
+                        if (amt > 0)
+                            return sum + amt;
                         const taxable = toNumber(i.taxable_amount);
                         const taxAmt = toNumber(i.tax_amount);
-                        if (taxable > 0 && taxAmt > 0) return sum + taxable + taxAmt;
+                        if (taxable > 0 && taxAmt > 0)
+                            return sum + taxable + taxAmt;
                         return sum + taxable;
-                    } else {
+                    }
+                    else {
                         const taxPct = toNumber(i.tax_percent || i.taxPercent);
                         const taxAmt = toNumber(i.tax_amount) > 0 ? toNumber(i.tax_amount) : (toNumber(i.taxable_amount) * (taxPct / 100));
                         const calcNet = toNumber(i.taxable_amount) + taxAmt;
                         return sum + (calcNet > 0 ? calcNet : (toNumber(i.amount) * (1 + taxPct / 100)));
                     }
                 }, 0);
-
                 // Add subscription back to taxable, GST, and net_amount, and subtract subtotal from discount
                 const isFullSubscriptionSale = sale.payment_mode === 'SUBSCRIPTION';
                 sale.total_discount = isFullSubscriptionSale ? 0 : Math.max(toNumber(sale.total_discount) - subscriptionSubtotal, 0);
                 sale.taxable_amount = toNumber(sale.taxable_amount) + subscriptionTaxable;
                 sale.total_tax = toNumber(sale.total_tax);
                 sale.net_amount = toNumber(sale.net_amount) + subscriptionNet;
-
                 const saleDate = normalizeDate(sale.sale_date);
                 const rawCharges = safeArray(sale.charges);
                 let computedChargeTaxTotal = 0;
-                const charges = rawCharges.map(ch => {
+                const charges = rawCharges.map((ch) => {
                     const amt = toNumber(ch.amount);
                     const taxPct = toNumber(ch.tax_percent || ch.taxPercent);
                     let taxAmt = toNumber(ch.tax_amount || ch.taxAmount);
@@ -420,7 +388,6 @@ exports.getSalesReport = async (req, res) => {
                 const zone = resolveSaleZone(saleDate, outletTz);
                 const chargeSplit = sumChargeTotals(charges);
                 const saleTaxSplit = aggregateTaxes({ sale, taxAccumulator });
-
                 // Add subscription tax to the GST split and tax summary map
                 saleTaxSplit.gst += subscriptionTax;
                 subItems.forEach((item) => {
@@ -430,40 +397,33 @@ exports.getSalesReport = async (req, res) => {
                         taxAccumulator[summaryKey] = (taxAccumulator[summaryKey] || 0) + amount;
                     });
                 });
-
-                const lineItems = sale.items.map((item) => {
+                const lineItems = (sale.items || []).map((item) => {
                     const qty = toNumber(item.qty);
                     const saleRate = toNumber(item.rate);
                     const lineAmount = toNumber(item.amount);
                     const dbNetAmount = toNumber(item.net_amount);
-                    
                     let effectiveDiscount = 0;
                     let effectiveNetAmount = 0;
                     let effectiveTaxableAmount = 0;
                     let effectiveTaxAmount = 0;
-
                     if (item.is_advance_free) {
                         effectiveDiscount = 0; // Subscription is not a discount!
                         const calculatedItemNet = toNumber(item.taxable_amount) + toNumber(item.tax_amount);
                         effectiveNetAmount = dbNetAmount > 0 ? dbNetAmount : (calculatedItemNet > 0 ? calculatedItemNet : lineAmount);
                         effectiveTaxableAmount = toNumber(item.taxable_amount);
                         effectiveTaxAmount = toNumber(item.tax_amount);
-                    } else {
-                        // For tax-inclusive items the gross amount already contains the embedded
-                        // tax, so adding tax_amount again would over-count it.
-                        // Correct formula:
-                        //   exclusive: discount = gross_excl + tax - net  = lineAmount + taxAmount - netAmount
-                        //   inclusive: discount = gross_incl - net         = lineAmount - netAmount
+                    }
+                    else {
                         const isTaxInclusive = !!(item.item?.is_tax_inclusive);
                         if (isTaxInclusive) {
                             effectiveDiscount = Math.max(lineAmount - dbNetAmount, 0);
-                        } else {
+                        }
+                        else {
                             effectiveDiscount = Math.max(lineAmount + toNumber(item.tax_amount) - dbNetAmount, 0);
                         }
                         effectiveNetAmount = dbNetAmount;
                         effectiveTaxableAmount = toNumber(item.taxable_amount);
                         effectiveTaxAmount = toNumber(item.tax_amount);
-
                         if (isTaxInclusive && effectiveNetAmount > 0) {
                             if (effectiveTaxableAmount === 0 || effectiveTaxableAmount >= effectiveNetAmount) {
                                 const taxPct = toNumber(item.tax_percent || item.taxPercent || 18);
@@ -472,14 +432,11 @@ exports.getSalesReport = async (req, res) => {
                             effectiveTaxAmount = roundAmount(effectiveNetAmount - effectiveTaxableAmount);
                         }
                     }
-
                     const itemCostRate = toNumber(item.item?.rate);
                     const lineCost = itemCostRate * qty;
                     const lineProfit = effectiveNetAmount - lineCost;
-
                     totalQty += qty;
                     estimatedCost += lineCost;
-
                     const itemName = item.item_name;
                     if (!itemZoneMap[itemName]) {
                         itemZoneMap[itemName] = {
@@ -490,17 +447,9 @@ exports.getSalesReport = async (req, res) => {
                             total_sales: 0
                         };
                     }
-
-                    itemZoneMap[itemName].zones[zone.key] = roundAmount(
-                        itemZoneMap[itemName].zones[zone.key] + effectiveNetAmount
-                    );
-                    itemZoneMap[itemName].total_qty = roundAmount(
-                        itemZoneMap[itemName].total_qty + qty
-                    );
-                    itemZoneMap[itemName].total_sales = roundAmount(
-                        itemZoneMap[itemName].total_sales + effectiveNetAmount
-                    );
-
+                    itemZoneMap[itemName].zones[zone.key] = roundAmount(itemZoneMap[itemName].zones[zone.key] + effectiveNetAmount);
+                    itemZoneMap[itemName].total_qty = roundAmount(itemZoneMap[itemName].total_qty + qty);
+                    itemZoneMap[itemName].total_sales = roundAmount(itemZoneMap[itemName].total_sales + effectiveNetAmount);
                     let itemTaxBreakup = safeArray(item.tax_breakup);
                     const itemTaxPct = effectiveTaxableAmount > 0 ? roundAmount((effectiveTaxAmount / effectiveTaxableAmount) * 100) : toNumber(item.tax_percent || item.taxPercent);
                     if (effectiveTaxAmount > 0) {
@@ -515,7 +464,6 @@ exports.getSalesReport = async (req, res) => {
                             ];
                         }
                     }
-
                     return {
                         item_code: item.item_code,
                         item_name: item.item_name,
@@ -542,7 +490,6 @@ exports.getSalesReport = async (req, res) => {
                         item_remark: item.item_remark || null
                     };
                 });
-
                 const saleGross = toNumber(sale.sub_total);
                 const saleTaxable = toNumber(sale.taxable_amount);
                 const saleDiscount = toNumber(sale.total_discount);
@@ -554,7 +501,6 @@ exports.getSalesReport = async (req, res) => {
                 const saleProfit = saleNetRevenue - saleEstimatedCost;
                 const saleLoss = saleProfit < 0 ? Math.abs(saleProfit) : 0;
                 const salePositiveProfit = saleProfit > 0 ? saleProfit : 0;
-
                 grossSales = roundAmount(grossSales + saleGross);
                 taxableAmount = roundAmount(taxableAmount + saleTaxable);
                 totalDiscount = roundAmount(totalDiscount + saleDiscount);
@@ -567,22 +513,13 @@ exports.getSalesReport = async (req, res) => {
                 otherTaxes = roundAmount(otherTaxes + saleTaxSplit.otherTaxes);
                 profit = roundAmount(profit + salePositiveProfit);
                 loss = roundAmount(loss + saleLoss);
-
                 timeZoneMap[zone.key].sales_count += 1;
-                timeZoneMap[zone.key].total_sales = roundAmount(
-                    timeZoneMap[zone.key].total_sales + saleNetRevenue
-                );
-                timeZoneMap[zone.key].taxable_amount = roundAmount(
-                    timeZoneMap[zone.key].taxable_amount + saleTaxable
-                );
-                timeZoneMap[zone.key].profit = roundAmount(
-                    timeZoneMap[zone.key].profit + saleProfit
-                );
-
+                timeZoneMap[zone.key].total_sales = roundAmount(timeZoneMap[zone.key].total_sales + saleNetRevenue);
+                timeZoneMap[zone.key].taxable_amount = roundAmount(timeZoneMap[zone.key].taxable_amount + saleTaxable);
+                timeZoneMap[zone.key].profit = roundAmount(timeZoneMap[zone.key].profit + saleProfit);
                 const monthKey = formatMonthKey(saleDate, outletTz);
                 const weekKey = formatWeekKey(saleDate, outletTz);
                 const dayKey = formatDayKey(saleDate, outletTz);
-
                 for (const [key, store] of [[monthKey, monthMap], [weekKey, weekMap], [dayKey, dayMap]]) {
                     if (!store[key]) {
                         store[key] = { period: key, sales: 0, profit: 0, loss: 0 };
@@ -591,16 +528,14 @@ exports.getSalesReport = async (req, res) => {
                     store[key].profit = roundAmount(store[key].profit + salePositiveProfit);
                     store[key].loss = roundAmount(store[key].loss + saleLoss);
                 }
-
                 let subscriptionAmount = (sale.consumptions || [])
-                    .filter(c => !(c.status === 'PENDING' && toNumber(c.excess_qty) > 0 && sale.payment_mode !== 'SUBSCRIPTION'))
+                    .filter((c) => !(c.status === 'PENDING' && toNumber(c.excess_qty) > 0 && sale.payment_mode !== 'SUBSCRIPTION'))
                     .reduce((sum, c) => sum + toNumber(c.covered_amount), 0);
                 if (subscriptionAmount === 0 && subscriptionNet > 0) {
                     subscriptionAmount = subscriptionNet;
                 }
                 subscriptionAmount = Math.min(subscriptionAmount, saleNetRevenue);
                 totalSubscriptionAmount = roundAmount(totalSubscriptionAmount + subscriptionAmount);
-
                 let cashAmount = 0;
                 let cardAmount = 0;
                 let upiAmount = 0;
@@ -608,12 +543,10 @@ exports.getSalesReport = async (req, res) => {
                 let otherAmount = 0;
                 let advanceAmount = 0;
                 let advanceAdjustmentAmount = 0;
-
                 const repayments = Array.isArray(sale.repayments) ? sale.repayments : [];
                 const methodMap = {};
                 const ref = String(sale.payment_reference || '').trim();
                 let hasPosPay = false;
-
                 if (ref.startsWith('POSPAY:')) {
                     try {
                         const lines = JSON.parse(ref.substring(7));
@@ -627,13 +560,12 @@ exports.getSalesReport = async (req, res) => {
                                 }
                             }
                         }
-                    } catch (_) {}
+                    }
+                    catch (_) { }
                 }
-
                 if (repayments.length > 0) {
                     const actualBalDue = Math.max(0, toNumber(sale.balance_due));
                     const recordedCredit = methodMap['CREDIT'] || 0;
-
                     if (recordedCredit > actualBalDue + 0.009 || (!hasPosPay && String(sale.payment_mode).toUpperCase() === 'CREDIT')) {
                         delete methodMap['CREDIT'];
                         for (const rep of repayments) {
@@ -646,41 +578,49 @@ exports.getSalesReport = async (req, res) => {
                         if (actualBalDue > 0.009) {
                             methodMap['CREDIT'] = actualBalDue;
                         }
-                    } else if (!methodMap['CREDIT'] && actualBalDue > 0.009) {
+                    }
+                    else if (!methodMap['CREDIT'] && actualBalDue > 0.009) {
                         methodMap['CREDIT'] = actualBalDue;
                     }
                 }
-
                 if (Object.keys(methodMap).length > 0) {
                     for (const [method, amt] of Object.entries(methodMap)) {
-                        if (method === 'CASH') cashAmount += amt;
-                        else if (method === 'CARD') cardAmount += amt;
-                        else if (method === 'UPI') upiAmount += amt;
-                        else if (method === 'CREDIT') creditAmount += amt;
-                        else if (method === 'ADVANCE_ADDED' || method === 'ADVANCE_DEPOSIT') advanceAmount += amt;
-                        else if (method === 'ADVANCE' || method === 'ADVANCE_ADJUSTMENT' || method === 'ADVANCE_APPLY' || method === 'SUBSCRIPTION') advanceAdjustmentAmount += amt;
-                        else otherAmount += amt;
+                        if (method === 'CASH')
+                            cashAmount += amt;
+                        else if (method === 'CARD')
+                            cardAmount += amt;
+                        else if (method === 'UPI')
+                            upiAmount += amt;
+                        else if (method === 'CREDIT')
+                            creditAmount += amt;
+                        else if (method === 'ADVANCE_ADDED' || method === 'ADVANCE_DEPOSIT')
+                            advanceAmount += amt;
+                        else if (method === 'ADVANCE' || method === 'ADVANCE_ADJUSTMENT' || method === 'ADVANCE_APPLY' || method === 'SUBSCRIPTION')
+                            advanceAdjustmentAmount += amt;
+                        else
+                            otherAmount += amt;
                     }
                 }
-
                 if (advanceAmount <= 0.009) {
                     advanceAmount = toNumber(sale.advance_amount);
                     if (advanceAmount <= 0.009 && Array.isArray(sale.advances) && sale.advances.length > 0) {
                         advanceAmount = sale.advances.reduce((s, a) => s + toNumber(a.original_amount), 0);
                     }
                 }
-
                 if (advanceAmount > 0.009) {
                     const overpay = Math.max(0, (cashAmount + cardAmount + upiAmount + otherAmount) - Math.max(0, saleNetRevenue - advanceAdjustmentAmount));
                     if (overpay > 0.009) {
                         const deduct = Math.min(advanceAmount, overpay);
-                        if (cashAmount >= deduct) cashAmount -= deduct;
-                        else if (upiAmount >= deduct) upiAmount -= deduct;
-                        else if (cardAmount >= deduct) cardAmount -= deduct;
-                        else if (otherAmount >= deduct) otherAmount -= deduct;
+                        if (cashAmount >= deduct)
+                            cashAmount -= deduct;
+                        else if (upiAmount >= deduct)
+                            upiAmount -= deduct;
+                        else if (cardAmount >= deduct)
+                            cardAmount -= deduct;
+                        else if (otherAmount >= deduct)
+                            otherAmount -= deduct;
                     }
                 }
-
                 if (subscriptionNet > 0 && advanceAdjustmentAmount === 0) {
                     advanceAdjustmentAmount = subscriptionNet;
                 }
@@ -691,51 +631,64 @@ exports.getSalesReport = async (req, res) => {
                     const mode = String(sale.payment_mode || 'CASH').toUpperCase();
                     if (mode === 'CREDIT' || balDue >= nonSubNetRevenue - 0.01) {
                         creditAmount = balDue > 0 ? balDue : nonSubNetRevenue;
-                    } else if (mode === 'CASH') cashAmount = nonSubNetRevenue;
-                    else if (mode === 'CARD') cardAmount = nonSubNetRevenue;
-                    else if (mode === 'UPI') upiAmount = nonSubNetRevenue;
-                    else if (mode === 'ADVANCE' || mode === 'ADVANCE_ADJUSTMENT' || mode === 'SUBSCRIPTION') advanceAdjustmentAmount = saleNetRevenue;
-                    else if (mode === 'ADVANCE_ADDED') advanceAmount = nonSubNetRevenue;
-                    else otherAmount = nonSubNetRevenue;
+                    }
+                    else if (mode === 'CASH')
+                        cashAmount = nonSubNetRevenue;
+                    else if (mode === 'CARD')
+                        cardAmount = nonSubNetRevenue;
+                    else if (mode === 'UPI')
+                        upiAmount = nonSubNetRevenue;
+                    else if (mode === 'ADVANCE' || mode === 'ADVANCE_ADJUSTMENT' || mode === 'SUBSCRIPTION')
+                        advanceAdjustmentAmount = saleNetRevenue;
+                    else if (mode === 'ADVANCE_ADDED')
+                        advanceAmount = nonSubNetRevenue;
+                    else
+                        otherAmount = nonSubNetRevenue;
                 }
-
                 const effectiveLines = [];
-                if (cashAmount > 0.009) effectiveLines.push({ method: 'CASH', amount: roundAmount(cashAmount) });
-                if (cardAmount > 0.009) effectiveLines.push({ method: 'CARD', amount: roundAmount(cardAmount) });
-                if (upiAmount > 0.009) effectiveLines.push({ method: 'UPI', amount: roundAmount(upiAmount) });
-                if (creditAmount > 0.009) effectiveLines.push({ method: 'CREDIT', amount: roundAmount(creditAmount) });
-                if (otherAmount > 0.009) effectiveLines.push({ method: 'OTHER', amount: roundAmount(otherAmount) });
-                if (advanceAmount > 0.009) effectiveLines.push({ method: 'ADVANCE_DEPOSIT', amount: roundAmount(advanceAmount) });
-                if (advanceAdjustmentAmount > 0.009) effectiveLines.push({ method: 'ADVANCE_ADJUSTMENT', amount: roundAmount(advanceAdjustmentAmount) });
-
+                if (cashAmount > 0.009)
+                    effectiveLines.push({ method: 'CASH', amount: roundAmount(cashAmount) });
+                if (cardAmount > 0.009)
+                    effectiveLines.push({ method: 'CARD', amount: roundAmount(cardAmount) });
+                if (upiAmount > 0.009)
+                    effectiveLines.push({ method: 'UPI', amount: roundAmount(upiAmount) });
+                if (creditAmount > 0.009)
+                    effectiveLines.push({ method: 'CREDIT', amount: roundAmount(creditAmount) });
+                if (otherAmount > 0.009)
+                    effectiveLines.push({ method: 'OTHER', amount: roundAmount(otherAmount) });
+                if (advanceAmount > 0.009)
+                    effectiveLines.push({ method: 'ADVANCE_DEPOSIT', amount: roundAmount(advanceAmount) });
+                if (advanceAdjustmentAmount > 0.009)
+                    effectiveLines.push({ method: 'ADVANCE_ADJUSTMENT', amount: roundAmount(advanceAdjustmentAmount) });
                 let effectivePaymentReference = sale.payment_reference;
                 if (effectiveLines.length > 0) {
                     effectivePaymentReference = `POSPAY:${JSON.stringify(effectiveLines)}`;
                 }
-
                 if (creditAmount > 0.009) {
                     if (effectiveLines.length > 1) {
                         effectivePaymentMode = 'SPLIT';
-                    } else {
+                    }
+                    else {
                         effectivePaymentMode = 'CREDIT';
                     }
-                } else {
+                }
+                else {
                     const nonCreditLines = effectiveLines.filter(l => l.method !== 'CREDIT' && l.method !== 'ADVANCE_DEPOSIT' && l.method !== 'ADVANCE_ADDED');
                     if (nonCreditLines.length === 1) {
                         effectivePaymentMode = nonCreditLines[0].method;
-                    } else if (nonCreditLines.length > 1) {
+                    }
+                    else if (nonCreditLines.length > 1) {
                         effectivePaymentMode = 'SPLIT';
-                    } else if (sale.payment_mode) {
+                    }
+                    else if (sale.payment_mode) {
                         effectivePaymentMode = sale.payment_mode;
                     }
                 }
-
                 // Accumulate accurate payment mode breakdown from actual split breakdown:
                 const paymentSplits = [];
                 if (subscriptionNet > 0) {
                     paymentSplits.push({ mode: 'SUBSCRIPTION', amount: subscriptionNet });
                 }
-
                 // In Payment Wise, cash/tender received includes advance deposited at the time of sale.
                 let advMode = 'CASH';
                 if (Array.isArray(sale.advances) && sale.advances.length > 0) {
@@ -743,39 +696,44 @@ exports.getSalesReport = async (req, res) => {
                     if (firstAdv.payment_mode) {
                         advMode = String(firstAdv.payment_mode).toUpperCase();
                     }
-                } else if (sale.payment_mode && String(sale.payment_mode).toUpperCase() !== 'SPLIT') {
+                }
+                else if (sale.payment_mode && String(sale.payment_mode).toUpperCase() !== 'SPLIT') {
                     advMode = String(sale.payment_mode).toUpperCase();
                 }
-
                 let effectiveCash = cashAmount;
                 let effectiveCard = cardAmount;
                 let effectiveUpi = upiAmount;
                 let effectiveOther = otherAmount;
-
                 if (advanceAmount > 0.009) {
                     if (advMode === 'CARD') {
                         effectiveCard += advanceAmount;
-                    } else if (advMode === 'UPI') {
+                    }
+                    else if (advMode === 'UPI') {
                         effectiveUpi += advanceAmount;
-                    } else if (advMode === 'CASH') {
+                    }
+                    else if (advMode === 'CASH') {
                         effectiveCash += advanceAmount;
-                    } else {
+                    }
+                    else {
                         effectiveOther += advanceAmount;
                     }
                 }
-
-                if (effectiveCash > 0.009) paymentSplits.push({ mode: 'CASH', amount: roundAmount(effectiveCash) });
-                if (effectiveCard > 0.009) paymentSplits.push({ mode: 'CARD', amount: roundAmount(effectiveCard) });
-                if (effectiveUpi > 0.009) paymentSplits.push({ mode: 'UPI', amount: roundAmount(effectiveUpi) });
-                if (creditAmount > 0.009) paymentSplits.push({ mode: 'CREDIT', amount: roundAmount(creditAmount) });
-                if (effectiveOther > 0.009) paymentSplits.push({ mode: 'OTHER', amount: roundAmount(effectiveOther) });
-                if (advanceAdjustmentAmount > 0.009) paymentSplits.push({ mode: 'ADVANCE ADJUSTED', amount: roundAmount(advanceAdjustmentAmount) });
-
+                if (effectiveCash > 0.009)
+                    paymentSplits.push({ mode: 'CASH', amount: roundAmount(effectiveCash) });
+                if (effectiveCard > 0.009)
+                    paymentSplits.push({ mode: 'CARD', amount: roundAmount(effectiveCard) });
+                if (effectiveUpi > 0.009)
+                    paymentSplits.push({ mode: 'UPI', amount: roundAmount(effectiveUpi) });
+                if (creditAmount > 0.009)
+                    paymentSplits.push({ mode: 'CREDIT', amount: roundAmount(creditAmount) });
+                if (effectiveOther > 0.009)
+                    paymentSplits.push({ mode: 'OTHER', amount: roundAmount(effectiveOther) });
+                if (advanceAdjustmentAmount > 0.009)
+                    paymentSplits.push({ mode: 'ADVANCE ADJUSTED', amount: roundAmount(advanceAdjustmentAmount) });
                 if (paymentSplits.length === 0 && saleNetRevenue > 0) {
                     const mode = String(effectivePaymentMode || 'CASH').toUpperCase();
                     paymentSplits.push({ mode: mode, amount: saleNetRevenue });
                 }
-
                 for (const item of paymentSplits) {
                     const pKey = item.mode;
                     if (!paymentModeSummary[pKey]) {
@@ -785,35 +743,30 @@ exports.getSalesReport = async (req, res) => {
                             sales_count: 0
                         };
                     }
-                    paymentModeSummary[pKey].amount = roundAmount(
-                        paymentModeSummary[pKey].amount + item.amount
-                    );
+                    paymentModeSummary[pKey].amount = roundAmount(paymentModeSummary[pKey].amount + item.amount);
                     paymentModeSummary[pKey].sales_count += 1;
                 }
-
                 let billCgst = lineItems.reduce((sum, item) => {
                     const itemCgst = safeArray(item.tax_breakup)
-                        .filter(t => String(t.code || t.label || '').toUpperCase().includes('CGST'))
+                        .filter((t) => String(t.code || t.label || '').toUpperCase().includes('CGST'))
                         .reduce((s, t) => s + toNumber(t.tax_amount), 0);
                     return sum + (itemCgst > 0 ? itemCgst : (toNumber(item.tax_amount) / 2));
                 }, 0);
                 let billSgst = lineItems.reduce((sum, item) => {
                     const itemSgst = safeArray(item.tax_breakup)
-                        .filter(t => String(t.code || t.label || '').toUpperCase().includes('SGST'))
+                        .filter((t) => String(t.code || t.label || '').toUpperCase().includes('SGST'))
                         .reduce((s, t) => s + toNumber(t.tax_amount), 0);
                     return sum + (itemSgst > 0 ? itemSgst : (toNumber(item.tax_amount) / 2));
                 }, 0);
                 let billIgst = lineItems.reduce((sum, item) => {
                     const itemIgst = safeArray(item.tax_breakup)
-                        .filter(t => String(t.code || t.label || '').toUpperCase().includes('IGST'))
+                        .filter((t) => String(t.code || t.label || '').toUpperCase().includes('IGST'))
                         .reduce((s, t) => s + toNumber(t.tax_amount), 0);
                     return sum + itemIgst;
                 }, 0);
-
                 billCgst = roundAmount(billCgst);
                 billSgst = roundAmount(billSgst);
                 billIgst = roundAmount(billIgst);
-
                 return {
                     id: sale.id,
                     sale_no: sale.sale_no,
@@ -857,12 +810,12 @@ exports.getSalesReport = async (req, res) => {
                     tax_breakup: saleTaxBreakup,
                     items: lineItems
                 };
-            } else {
+            }
+            else {
                 // Process Credit Note as a negative sale entry to reduce monthly returns
                 const cn = rec.record;
                 const cnDate = normalizeDate(cn.credit_note_date);
                 const zone = resolveSaleZone(cnDate, outletTz);
-
                 const cnTaxBreakup = [];
                 const cgst = toNumber(cn.cgst_amount);
                 const sgst = toNumber(cn.sgst_amount);
@@ -879,7 +832,6 @@ exports.getSalesReport = async (req, res) => {
                     taxAccumulator['IGST'] = (taxAccumulator['IGST'] || 0) - igst;
                     cnTaxBreakup.push({ code: 'IGST', label: 'IGST', tax_amount: -igst });
                 }
-
                 const lineItems = safeArray(cn.items).map((item) => {
                     const qty = -toNumber(item.qty);
                     const saleRate = toNumber(item.rate);
@@ -889,9 +841,7 @@ exports.getSalesReport = async (req, res) => {
                     const lineDiscount = 0;
                     const lineCost = 0;
                     const lineProfit = lineNetAmount;
-
                     totalQty += qty;
-
                     const itemName = item.item_name;
                     if (!itemZoneMap[itemName]) {
                         itemZoneMap[itemName] = {
@@ -902,22 +852,13 @@ exports.getSalesReport = async (req, res) => {
                             total_sales: 0
                         };
                     }
-
-                    itemZoneMap[itemName].zones[zone.key] = roundAmount(
-                        itemZoneMap[itemName].zones[zone.key] + lineNetAmount
-                    );
-                    itemZoneMap[itemName].total_qty = roundAmount(
-                        itemZoneMap[itemName].total_qty + qty
-                    );
-                    itemZoneMap[itemName].total_sales = roundAmount(
-                        itemZoneMap[itemName].total_sales + lineNetAmount
-                    );
-
-                    const itemTaxBreakup = safeArray(item.tax_breakup).map(t => ({
+                    itemZoneMap[itemName].zones[zone.key] = roundAmount(itemZoneMap[itemName].zones[zone.key] + lineNetAmount);
+                    itemZoneMap[itemName].total_qty = roundAmount(itemZoneMap[itemName].total_qty + qty);
+                    itemZoneMap[itemName].total_sales = roundAmount(itemZoneMap[itemName].total_sales + lineNetAmount);
+                    const itemTaxBreakup = safeArray(item.tax_breakup).map((t) => ({
                         ...t,
                         tax_amount: -toNumber(t.tax_amount)
                     }));
-
                     return {
                         item_code: item.item_code,
                         item_name: item.item_name,
@@ -941,7 +882,6 @@ exports.getSalesReport = async (req, res) => {
                         tax_breakup: itemTaxBreakup
                     };
                 });
-
                 const saleGross = -toNumber(cn.sub_total);
                 const saleTaxable = -toNumber(cn.taxable_amount);
                 const saleDiscount = 0;
@@ -952,14 +892,12 @@ exports.getSalesReport = async (req, res) => {
                 const saleProfit = saleNetRevenue;
                 const saleLoss = 0;
                 const salePositiveProfit = saleProfit;
-
                 grossSales = roundAmount(grossSales + saleGross);
                 taxableAmount = roundAmount(taxableAmount + saleTaxable);
                 totalDiscount = roundAmount(totalDiscount + saleDiscount);
                 totalRevenue = roundAmount(totalRevenue + saleNetRevenue);
                 gst = roundAmount(gst - cgst - sgst - igst);
                 profit = roundAmount(profit + salePositiveProfit);
-
                 const paymentKey = String(cn.sale?.payment_mode || 'CREDIT_NOTE').trim().toUpperCase() || 'UNKNOWN';
                 if (!paymentModeSummary[paymentKey]) {
                     paymentModeSummary[paymentKey] = {
@@ -968,26 +906,15 @@ exports.getSalesReport = async (req, res) => {
                         sales_count: 0
                     };
                 }
-                paymentModeSummary[paymentKey].amount = roundAmount(
-                    paymentModeSummary[paymentKey].amount + saleNetRevenue
-                );
+                paymentModeSummary[paymentKey].amount = roundAmount(paymentModeSummary[paymentKey].amount + saleNetRevenue);
                 paymentModeSummary[paymentKey].sales_count -= 1;
-
                 timeZoneMap[zone.key].sales_count -= 1;
-                timeZoneMap[zone.key].total_sales = roundAmount(
-                    timeZoneMap[zone.key].total_sales + saleNetRevenue
-                );
-                timeZoneMap[zone.key].taxable_amount = roundAmount(
-                    timeZoneMap[zone.key].taxable_amount + saleTaxable
-                );
-                timeZoneMap[zone.key].profit = roundAmount(
-                    timeZoneMap[zone.key].profit + saleProfit
-                );
-
+                timeZoneMap[zone.key].total_sales = roundAmount(timeZoneMap[zone.key].total_sales + saleNetRevenue);
+                timeZoneMap[zone.key].taxable_amount = roundAmount(timeZoneMap[zone.key].taxable_amount + saleTaxable);
+                timeZoneMap[zone.key].profit = roundAmount(timeZoneMap[zone.key].profit + saleProfit);
                 const monthKey = formatMonthKey(cnDate, outletTz);
                 const weekKey = formatWeekKey(cnDate, outletTz);
                 const dayKey = formatDayKey(cnDate, outletTz);
-
                 for (const [key, store] of [[monthKey, monthMap], [weekKey, weekMap], [dayKey, dayMap]]) {
                     if (!store[key]) {
                         store[key] = { period: key, sales: 0, profit: 0, loss: 0 };
@@ -995,7 +922,6 @@ exports.getSalesReport = async (req, res) => {
                     store[key].sales = roundAmount(store[key].sales + saleNetRevenue);
                     store[key].profit = roundAmount(store[key].profit + salePositiveProfit);
                 }
-
                 return {
                     id: -toNumber(cn.id),
                     sale_no: cn.credit_note_no,
@@ -1034,15 +960,12 @@ exports.getSalesReport = async (req, res) => {
                 };
             }
         });
-
         const zoneSummary = Object.values(timeZoneMap);
         const highZone = [...zoneSummary].sort((a, b) => b.total_sales - a.total_sales)[0] || null;
         const lowZone = [...zoneSummary].sort((a, b) => a.total_sales - b.total_sales)[0] || null;
-
         const itemZoneHeatmap = Object.values(itemZoneMap)
             .sort((a, b) => b.total_sales - a.total_sales)
             .slice(0, 12);
-
         const summary = {
             total_bills: sales.length, // Count only actual sales bills
             total_qty: roundAmount(totalQty),
@@ -1062,12 +985,11 @@ exports.getSalesReport = async (req, res) => {
             estimated_profit: roundAmount(profit),
             estimated_loss: roundAmount(loss)
         };
-
         res.json({
             success: true,
             count: data.length,
             summary,
-            payment_mode_breakdown: Object.values(paymentModeSummary).filter(entry => entry.sales_count !== 0 || entry.amount !== 0),
+            payment_mode_breakdown: Object.values(paymentModeSummary).filter((entry) => entry.sales_count !== 0 || entry.amount !== 0),
             time_zone_breakdown: zoneSummary,
             insights: {
                 highest_sale_zone: highZone,
@@ -1087,7 +1009,10 @@ exports.getSalesReport = async (req, res) => {
             },
             data
         });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
-};;
+};
+module.exports = exports;
+exports.default = exports;

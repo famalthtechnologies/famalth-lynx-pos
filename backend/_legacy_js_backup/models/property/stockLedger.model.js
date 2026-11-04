@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('stock_ledger', {
         outlet_id: DataTypes.INTEGER,

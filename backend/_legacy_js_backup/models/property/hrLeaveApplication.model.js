@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const HrLeaveApplication = sequelize.define('hr_leave_applications', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -16,12 +17,10 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     HrLeaveApplication.associate = (models) => {
         HrLeaveApplication.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
         HrLeaveApplication.belongsTo(models.hr_employees, { foreignKey: 'employee_id', as: 'employee' });
         HrLeaveApplication.belongsTo(models.hr_leave_types, { foreignKey: 'leave_type_id', as: 'leaveType' });
     };
-
     return HrLeaveApplication;
 };

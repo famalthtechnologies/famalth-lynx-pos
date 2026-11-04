@@ -66,7 +66,6 @@ function generateSubscriptionInvoicePdf(data) {
             const buffers = [];
             doc.on('data', buffers.push.bind(buffers));
             doc.on('end', () => resolve(Buffer.concat(buffers)));
-
             let fontBold = 'Helvetica-Bold';
             let fontRegular = 'Helvetica';
             if (fontBoldPath && fontRegularPath) {
@@ -146,7 +145,7 @@ function generateSubscriptionInvoicePdf(data) {
             billY += 14;
             // Right: Summary Card (Google style right-aligned financial card)
             let sumY = y;
-            doc.fillColor('#202124').fontSize(9).font(fontBold).text(`Famalth Cloud POS • ${(data.license && data.license.tierName) || 'PROFESSIONAL'} Edition`, rightX, sumY, { width: rightW });
+            doc.fillColor('#202124').fontSize(9).font(fontBold).text(`Famalth Cloud POS • ${data.license?.tierName || 'PROFESSIONAL'} Edition`, rightX, sumY, { width: rightW });
             sumY += 14;
             // Top line above total
             doc.rect(rightX, sumY, rightW, 0.6).fill('#DADCE0');
@@ -218,6 +217,7 @@ function generateSubscriptionInvoicePdf(data) {
                     doc.fillColor('#202124').fontSize(8.5).text(value, valX, yPos);
                 }
                 else {
+                    // Multi-line safe wrap: dynamically compute row height to guarantee zero overlap
                     const valX = rightBound - maxValW;
                     const dotStart = leftX + labelW + 4;
                     const dotEnd = valX - 4;

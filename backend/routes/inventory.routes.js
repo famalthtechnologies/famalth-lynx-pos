@@ -1,4 +1,10 @@
-const router = require('express').Router();
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const router = express_1.default.Router();
 const auth = require('../middlewares/auth.middleware');
 const license = require('../middlewares/license.middleware');
 const ctrlprop = require('../controllers/public/propertyInfo.controller');
@@ -28,33 +34,22 @@ const stateCtrl = require('../controllers/system/state.controller');
 const backupController = require('../controllers/public/backup.controller');
 const syncDatabase = require('../modules/sheetService');
 const expiryCtrl = require('../controllers/inventory/expiry.controller');
-
 // Public endpoint for recovery flow (no login required).
 router.post('/backup/restore-local-enc', backupController.restoreFromLocalEnc);
-
 router.use(auth, license('INVENTORY'));
-
 // Expiry Tracker & Batch Ledger
 router.get('/expiry-tracker', expiryCtrl.getExpiryTracker);
 router.get('/expiry-ledger/:itemId', expiryCtrl.getExpiryLedgerByItem);
 router.post('/expiry-alerts/trigger', expiryCtrl.triggerExpiryNotifications);
-
-console.log({
-    response: "reached"
-})
-
-
 router.get('/property-info', ctrlprop.getPropertyInfo);
 router.post('/property-info', ctrlprop.savePropertyInfo);
 router.get('/onboarding-status', settingsctrl.getOnboardingStatus);
-
 // ATTRIBUTES & TEMPLATES
 router.get('/attributes', attributeCtrl.getAttributes);
 router.post('/attributes', attributeCtrl.createAttribute);
 router.post('/attributes/:id/values', attributeCtrl.createAttributeValue);
 router.get('/product-templates', templateCtrl.getProductTemplates);
 router.post('/product-templates', templateCtrl.createProductTemplate);
-
 // ITEM MASTER
 router.get('/items/can-import', itemCtrl.canImportItems);
 router.get('/items/can-reset-and-import', itemCtrl.canResetAndImportItems);
@@ -74,19 +69,16 @@ router.put('/items/:id/restore', itemCtrl.restoreItem);
 router.post('/items/:id/restore', itemCtrl.restoreItem);
 router.post('/items/:id/image', itemCtrl.uploadItemImage);
 router.delete('/items/:id/image', itemCtrl.deleteItemImage);
-
 // BOM ENDPOINTS
 router.get('/boms/:parentItemId', bomCtrl.getBOM);
 router.post('/boms', bomCtrl.saveBOM);
 router.post('/boms/:parentItemId/update-cost', bomCtrl.updateParentCost);
-
 // ASSEMBLY ENDPOINTS
 router.get('/assemblies/next-no', assemblyCtrl.getNextAssemblyNo);
 router.post('/assemblies', assemblyCtrl.createAssembly);
 router.get('/assemblies', assemblyCtrl.listAssemblies);
 router.get('/assemblies/:id', assemblyCtrl.getAssemblyDetails);
 router.put('/assemblies/:id/stop', assemblyCtrl.stopAssembly);
-
 // SETTINGS
 router.get('/settings', settingsctrl.getSettings);
 router.post('/settings', settingsctrl.saveSettings);
@@ -99,7 +91,6 @@ router.post('/toggle', backupController.toggleBackup);
 router.get('/sync-latest', syncDatabase.syncDatabaseOnly);
 router.post('/backup/upload-latest', backupController.uploadBackupOnDemand);
 router.get('/backup/local-enc', backupController.createLocalEncBackup);
-
 // STOCK LOCATIONS
 router.get('/locations/next-code', locationCtrl.getNextLocationCode);
 router.post('/locations', locationCtrl.createLocation);
@@ -107,28 +98,22 @@ router.get('/locations', locationCtrl.getLocations);
 router.get('/locations/:id', locationCtrl.getLocationById);
 router.put('/locations/:id', locationCtrl.updateLocation);
 router.delete('/locations/:id', locationCtrl.deleteLocation);
-
 // SUPPLIER
 router.get('/suppliers/can-import', supplierCtrl.canImportSuppliers);
 router.get('/suppliers/next-code', supplierCtrl.getNextSupplierCode);
 router.post('/suppliers/bulk-import', supplierCtrl.bulkImportSuppliers);
 router.post('/suppliers', supplierCtrl.createSupplier);
 router.get('/suppliers', supplierCtrl.getSuppliers);
-// router.get('/suppliers/:id', supplierCtrl.getSupplierById);
 router.put('/suppliers/:id', supplierCtrl.updateSupplier);
 router.delete('/suppliers/:id', supplierCtrl.deleteSupplier);
-
 router.get('/suppliers/bills/list', billCtrl.getSupplierBills);
 router.get('/suppliers/bills/:billId', billCtrl.getSupplierBillDetails);
 router.post('/suppliers/bills/pay', billCtrl.paySupplierBill);
 router.get('/suppliers/bills/:billId/payments', billCtrl.getBillPayments);
-
 // NUMBERING
 router.get('/numbering', numberingCtrl.getSettings);
 router.post('/numbering', numberingCtrl.saveSettings);
 router.get('/numbering/next', numberingCtrl.getNextNumber);
-
-
 // ISSUE
 router.get('/issue/next-issue-no', issueCtrl.getNextIssueNo);
 router.get('/issue/departments', issueCtrl.getDepartments);
@@ -137,25 +122,18 @@ router.get('/issue/:id', issueCtrl.getIssueDetails);
 router.put('/issue/:id', issueCtrl.modifyIssue);
 router.post('/issue', issueCtrl.createIssue);
 router.get('/issue/stock/:itemCode', issueCtrl.getAvailableStock);
-
-
 router.post('/groups', groupCtrl.create);
 router.get('/groups', groupCtrl.getAll);
 router.put('/groups/:id', groupCtrl.update);
 router.delete('/groups/:id', groupCtrl.delete);
-
 router.post('/subcategories', subCtrl.create);
 router.get('/subcategories', subCtrl.getAll);
 router.put('/subcategories/:id', subCtrl.update);
 router.delete('/subcategories/:id', subCtrl.delete);
-
 router.post('/brands', brandCtrl.create);
 router.get('/brands', brandCtrl.getAll);
 router.put('/brands/:id', brandCtrl.update);
 router.delete('/brands/:id', brandCtrl.delete);
-
-
-
 // DAMAGE
 router.get('/damage/next-no', damageCtrl.getNextDamageNo);
 router.post('/damage', damageCtrl.createDamage);
@@ -164,8 +142,6 @@ router.put('/damage/:id/approve', damageCtrl.approveDamage);
 router.put('/damage/:id/reject', damageCtrl.rejectDamage);
 router.put('/damage/item/:id', damageCtrl.updateDamageItem);
 router.delete('/damage/item/:id', damageCtrl.deleteDamageItem);
-
-
 // RETURNS
 router.get('/returns/returned-sum/:issueItemId', returnCtrl.getReturnedQty);
 router.get('/returns/indents', returnCtrl.getIndentsByDate);
@@ -173,10 +149,7 @@ router.get('/returns/issued-items/:issueId', returnCtrl.getIssuedItems);
 router.post('/returns', returnCtrl.saveReturn);
 router.put('/returns/item/:id', returnCtrl.updateReturnItem);
 router.delete('/returns/item/:id', returnCtrl.deleteReturnItem);
-
-
 router.put('/returns/:id/cancel', returnCtrl.cancelReturn);
-
 // SUPPLIER RETURNS
 router.get('/supplier-returns/grns', supplierReturnCtrl.getGrnsByDate);
 router.get('/supplier-returns/received-items/:grnId', supplierReturnCtrl.getReceivedItems);
@@ -185,12 +158,8 @@ router.post('/supplier-returns', supplierReturnCtrl.saveSupplierReturn);
 router.get('/supplier-returns', supplierReturnCtrl.listSupplierReturns);
 router.get('/supplier-returns/:returnId/refunds', supplierReturnCtrl.getRefunds);
 router.post('/supplier-returns/:id/refunds', supplierReturnCtrl.receiveRefund);
-
 // REQUESTS
 router.get('/requests/by-date', requestCtrl.getRequestsByDate);
-
-
-// REQUESTS
 router.get('/requests/next-no', requestCtrl.getNextRequestNo);
 router.post('/requests', requestCtrl.createRequest);
 router.get('/requests', requestCtrl.listRequests);
@@ -199,9 +168,6 @@ router.put('/requests/:id/approve', requestCtrl.approveRequest);
 router.put('/requests/:id/reject', requestCtrl.rejectRequest);
 router.put('/requests/:id/modify', requestCtrl.modifyRequest);
 router.put('/requests/:id/cancel', requestCtrl.cancelRequest);
-
-
-
 // STOCK TRANSFERS & OUTLET HIERARCHY
 router.get('/stock-transfers/hierarchy', stockTransferCtrl.getOutletsHierarchy);
 router.post('/stock-transfers/hierarchy/role', stockTransferCtrl.setOutletRole);
@@ -217,22 +183,18 @@ router.get('/stock-transfers/outlet-progress', stockTransferCtrl.getIndividualOu
 router.get('/stock-transfers/outlet-progress/:outlet_id', stockTransferCtrl.getIndividualOutletProgress);
 router.get('/stock-transfers', stockTransferCtrl.listTransfers);
 router.get('/stock-transfers/:id', stockTransferCtrl.getTransferDetails);
-
 // STOCK TAKING (PHYSICAL INVENTORY AUDIT)
 router.get('/stock-taking/items', stockTakingCtrl.getStockTakingItems);
 router.post('/stock-taking/save', stockTakingCtrl.saveStockTakingAudit);
 router.get('/stock-taking/reports', stockTakingCtrl.getStockTakingReports);
-
 // ITEM MODIFIERS / ADD-ONS CRUD
 router.get('/modifiers', modifierCtrl.getModifiers);
 router.post('/modifiers', modifierCtrl.createModifier);
 router.put('/modifiers/:id', modifierCtrl.updateModifier);
 router.delete('/modifiers/:id', modifierCtrl.deleteModifier);
-
 // STATES & CUSTOM REGIONS
 router.get('/states', stateCtrl.getStates);
 router.post('/states', stateCtrl.createState);
 router.delete('/states/:id', stateCtrl.deleteState);
-
 module.exports = router;
-
+exports.default = router;

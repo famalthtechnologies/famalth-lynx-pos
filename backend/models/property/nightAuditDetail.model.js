@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const NightAuditDetail = sequelize.define('night_audit_details', {
         id: {
@@ -32,11 +34,10 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     NightAuditDetail.associate = (models) => {
         NightAuditDetail.belongsTo(models.night_audit_runs, { foreignKey: 'audit_run_id', as: 'auditRun' });
         NightAuditDetail.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
     };
-
     return NightAuditDetail;
 };
+exports.default = module.exports;

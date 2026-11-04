@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('users', {
         username: { type: DataTypes.STRING, allowNull: false },
@@ -5,7 +7,6 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.INTEGER,
             allowNull: false
         },
-
         password_hash: DataTypes.TEXT,
         pin_code: {
             type: DataTypes.STRING(100),
@@ -66,3 +67,4 @@ module.exports = (sequelize, DataTypes) => {
         ]
     });
 };
+exports.default = module.exports;

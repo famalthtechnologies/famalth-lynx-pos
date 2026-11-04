@@ -1,10 +1,9 @@
+"use strict";
 const router = require('express').Router();
 const auth = require('../middlewares/auth.middleware');
 const license = require('../middlewares/license.middleware');
 const advancedCtrl = require('../controllers/finance/advancedFinance.controller');
-
 router.use(auth, license('REPORTS'));
-
 router.post('/expenses', advancedCtrl.createExpense);
 router.put('/expenses/:id', advancedCtrl.updateExpense);
 router.delete('/expenses/:id', advancedCtrl.deleteExpense);
@@ -35,11 +34,9 @@ router.get('/credit-report', advancedCtrl.getCreditReport);
 router.get('/delivery-report', advancedCtrl.getDeliveryReport);
 router.get('/expiry-report', advancedCtrl.getExpiryReport);
 router.get('/payment-flow', advancedCtrl.getPaymentFlowReport);
-
 // Recurring Expenses Endpoints
 router.get('/recurring-expenses', advancedCtrl.getRecurringExpenses);
 router.post('/recurring-expenses', advancedCtrl.createRecurringExpense);
 router.put('/recurring-expenses/:id', advancedCtrl.updateRecurringExpense);
 router.delete('/recurring-expenses/:id', advancedCtrl.deleteRecurringExpense);
-
 module.exports = router;

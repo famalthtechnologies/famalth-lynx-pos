@@ -38,6 +38,10 @@ exports.default = (sequelize) => {
             type: sequelize_1.DataTypes.JSONB,
             defaultValue: [],
         },
+        is_read_by_support: {
+            type: sequelize_1.DataTypes.BOOLEAN,
+            defaultValue: false,
+        },
     }, {
         sequelize,
         tableName: 'ticket_messages',

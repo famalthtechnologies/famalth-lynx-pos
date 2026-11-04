@@ -1,12 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const audit = require('../../services/audit.service');
 const { upsertClient } = require("../../modules/driveService");
 const loadConfig = require("../../utils/decryptConfig");
 const { resolveBusinessModule } = require('../../utils/moduleHelper');
-
 exports.getPropertyInfo = async (req, res) => {
     try {
         let actualOutletId = req.user?.outlet_id || req.query?.outlet_id || req.body?.outlet_id || req.query?.outlet_code || req.body?.outlet_code;
-
         // If it's a string code (like OUTLET001), resolve it to integer id
         if (typeof actualOutletId === 'string' && isNaN(Number(actualOutletId))) {
             const outlet = await req.propertyDb.models.outlets.findOne({
@@ -19,7 +19,6 @@ exports.getPropertyInfo = async (req, res) => {
         if (actualOutletId) {
             actualOutletId = parseInt(actualOutletId, 10);
         }
-
         // Fallback: if still null/undefined, find the first active outlet
         if (!actualOutletId) {
             const defaultOutlet = await req.propertyDb.models.outlets.findOne({
@@ -29,16 +28,13 @@ exports.getPropertyInfo = async (req, res) => {
                 actualOutletId = defaultOutlet.id;
             }
         }
-
         // If still no outlet found (e.g. brand new installation with 0 outlets registered), return empty data
         if (!actualOutletId) {
             return res.json({ success: true, data: {} });
         }
-
         const info = await req.propertyDb.models.property_info.findOne({
             where: { outlet_id: actualOutletId }
         });
-
         const infoObj = info ? info.toJSON() : {};
         if (actualOutletId && req.propertyDb.models.outlets) {
             const outletObj = await req.propertyDb.models.outlets.findByPk(actualOutletId);
@@ -65,7 +61,6 @@ exports.getPropertyInfo = async (req, res) => {
                 }
             }
         }
-
         if (actualOutletId && req.propertyDb.models.app_branding) {
             const branding = await req.propertyDb.models.app_branding.findOne({
                 where: { outlet_id: actualOutletId }
@@ -75,7 +70,6 @@ exports.getPropertyInfo = async (req, res) => {
                 infoObj.home_bg_image_size = branding.home_bg_image_size;
             }
         }
-
         if (actualOutletId && req.propertyDb.models.system_settings) {
             const sysSettings = await req.propertyDb.models.system_settings.findOne({
                 where: { outlet_id: actualOutletId }
@@ -93,14 +87,13 @@ exports.getPropertyInfo = async (req, res) => {
                 }
             }
         }
-
         res.json({ success: true, data: infoObj });
-    } catch (err) {
+    }
+    catch (err) {
         console.error("GET PROPERTY INFO ERROR STACK:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.savePropertyInfo = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
@@ -110,19 +103,16 @@ exports.savePropertyInfo = async (req, res) => {
                 where: { outlet_code: outlet_id },
                 transaction: t
             });
-            if (outlet) outlet_id = outlet.id;
+            if (outlet)
+                outlet_id = outlet.id;
         }
         outlet_id = parseInt(outlet_id, 10) || 1;
-
         const Model = req.propertyDb.models.property_info;
-
         const existing = await Model.findOne({
             where: { outlet_id },
             transaction: t
         });
-
         const oldData = existing ? existing.toJSON() : null;
-
         const payload = {
             outlet_id,
             property_name: req.body.property_name,
@@ -155,15 +145,13 @@ exports.savePropertyInfo = async (req, res) => {
             print_upi_qr: req.body.print_upi_qr !== undefined ? req.body.print_upi_qr : false,
             print_digital_signature: req.body.print_digital_signature !== undefined ? req.body.print_digital_signature : false
         };
-
         let record;
-
         if (existing) {
             record = await existing.update(payload, { transaction: t });
-        } else {
+        }
+        else {
             record = await Model.create(payload, { transaction: t });
         }
-
         await audit.log({
             req,
             module: 'PROPERTY_INFO',
@@ -175,7 +163,6 @@ exports.savePropertyInfo = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
         if (req.propertyDb.models.outlets) {
             const outletObj = await req.propertyDb.models.outlets.findOne({
                 where: { id: outlet_id },
@@ -194,20 +181,24 @@ exports.savePropertyInfo = async (req, res) => {
                 if (req.body.outlet_module) {
                     outletUpdates.outlet_module = req.body.outlet_module;
                     outletUpdates.business_module = req.body.outlet_module;
-                } else if (req.body.business_type && !req.body.outlet_module) {
+                }
+                else if (req.body.business_type && !req.body.outlet_module) {
                     const resolvedMod = resolveBusinessModule('', req.body.business_type);
                     outletUpdates.business_module = resolvedMod;
                 }
-                if (req.body.recovery_pin) outletUpdates.recovery_pin = req.body.recovery_pin;
-                if (req.body.mobile) outletUpdates.contact_phone = req.body.mobile;
-                if (req.body.email) outletUpdates.contact_email = req.body.email;
-                if (req.body.gst_no) outletUpdates.tax_id = req.body.gst_no;
+                if (req.body.recovery_pin)
+                    outletUpdates.recovery_pin = req.body.recovery_pin;
+                if (req.body.mobile)
+                    outletUpdates.contact_phone = req.body.mobile;
+                if (req.body.email)
+                    outletUpdates.contact_email = req.body.email;
+                if (req.body.gst_no)
+                    outletUpdates.tax_id = req.body.gst_no;
                 if (Object.keys(outletUpdates).length > 0) {
-                    await outletObj.update(outletUpdates, { transaction: t }).catch(() => {});
+                    await outletObj.update(outletUpdates, { transaction: t }).catch(() => { });
                 }
             }
         }
-
         if (req.propertyDb.models.system_settings) {
             const sysSettings = await req.propertyDb.models.system_settings.findOne({
                 where: { outlet_id },
@@ -217,7 +208,6 @@ exports.savePropertyInfo = async (req, res) => {
                 const currentCustom = sysSettings.custom_settings ? { ...sysSettings.custom_settings } : {};
                 const prevGateways = currentCustom.payment_gateways ? { ...currentCustom.payment_gateways } : {};
                 const prevUpi = prevGateways.upi ? { ...prevGateways.upi } : {};
-
                 prevGateways.upi = {
                     ...prevUpi,
                     enabled: prevUpi.enabled !== undefined ? prevUpi.enabled : true,
@@ -229,20 +219,17 @@ exports.savePropertyInfo = async (req, res) => {
                     updated_at: new Date().toISOString()
                 };
                 currentCustom.payment_gateways = prevGateways;
-
                 const sysUpdates = {
                     custom_settings: currentCustom
                 };
                 if (payload.upi_id !== undefined) {
                     sysUpdates.merchant_upi_id = String(payload.upi_id).trim();
                 }
-
                 await sysSettings.update(sysUpdates, { transaction: t }).catch((e) => {
                     console.warn("Could not sync UPI to system_settings:", e.message);
                 });
             }
         }
-
         await upsertClient({
             outlet_id: req.user.outlet_id,
             outlet_code: req.user.outlet_code || req.body.outlet_code || "",
@@ -257,13 +244,14 @@ exports.savePropertyInfo = async (req, res) => {
             tax_id: req.body.gst_no || req.body.pan_no || "",
             pin: req.body.recovery_pin || ""
         });
-
         await t.commit();
         res.json({ success: true, message: 'Property information saved' });
-
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
-        console.log(err.message)
+        console.log(err.message);
     }
 };
+module.exports = exports;
+exports.default = exports;

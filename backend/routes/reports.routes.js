@@ -1,7 +1,12 @@
-const router = require('express').Router();
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const router = express_1.default.Router();
 const auth = require('../middlewares/auth.middleware');
 const license = require('../middlewares/license.middleware');
-
 const dashboard = require('../controllers/report/dashboard.controller');
 const stockIn = require('../controllers/report/stockInReport.controller');
 const stockOut = require('../controllers/report/stockReport.controller');
@@ -18,13 +23,7 @@ const schemeCtrl = require('../controllers/report/schemeReport.controller');
 const loyaltyCtrl = require('../controllers/report/loyaltyReport.controller');
 const supplierReportCtrl = require('../controllers/report/supplierReport.controller');
 const commissionCtrl = require('../controllers/report/commissionReport.controller');
-
-
-
-
 router.use(auth, license('REPORTS'));
-
-
 router.get('/inventory-dashboard', dashboard.inventoryDashboard);
 router.get('/purchase-orders', purCtrl.getPurchaseOrderReport);
 router.get('/return', returnCtrl.getReturnReport);
@@ -44,6 +43,5 @@ router.get('/closing', closing.getClosingReport);
 router.get('/dmgsummery', dmgCtrl.getDamageReport);
 router.get('/supplier-payments', supplierReportCtrl.getSupplierPaymentsReport);
 router.get('/commission', commissionCtrl.getCommissionReport);
-
-
 module.exports = router;
+exports.default = router;

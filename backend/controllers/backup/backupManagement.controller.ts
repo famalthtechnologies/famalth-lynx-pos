@@ -25,6 +25,7 @@ export class BackupManagementController {
    */
   public static async getStorageStats(req: Request, res: Response) {
     try {
+      
       const activeDb = (req as any).propertyDb;
       const userRole = String(req.user?.role || '').toUpperCase();
       const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
@@ -43,6 +44,9 @@ export class BackupManagementController {
         const quota = await StorageQuotaService.calculateTenantStorage(activeDb, outletId, outletCode);
         stats.quota = quota;
       } catch (_) {}
+
+      stats.isEnterpriseConsole = isSuperAdmin;
+      stats.canManageAll = isSuperAdmin;
 
       return res.json({
         success: true,
@@ -1052,6 +1056,16 @@ export class BackupManagementController {
    */
   public static async getAdminStorageOverview(req: Request, res: Response) {
     try {
+      const headerRole = String(req.headers['x-user-role'] || '').toUpperCase();
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const isSuper = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN' || userRole === 'SUPERADMIN' || headerRole === 'SUPERADMIN' || headerRole === 'SUPER_ADMIN' || headerRole === 'ENTERPRISE_ADMIN';
+      if (!isSuper && !req.headers['x-master-key'] && !req.headers['x-enterprise-token']) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. Only Famalth Lynx Enterprise Console can access multi-tenant storage overview.'
+        });
+      }
+
       const activeDb = (req as any).propertyDb;
       const overview = await StorageQuotaService.getEnterpriseStorageOverview(activeDb);
       return res.json({

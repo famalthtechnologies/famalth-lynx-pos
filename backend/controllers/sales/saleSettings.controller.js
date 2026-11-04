@@ -1,17 +1,22 @@
-const Sequelize = require('sequelize');
-
-exports.listSaleSources = async (req, res) => {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.deletePaymentMethod = exports.updatePaymentMethod = exports.createPaymentMethod = exports.listPaymentMethods = exports.deleteSaleSource = exports.updateSaleSource = exports.createSaleSource = exports.listSaleSources = void 0;
+const listSaleSources = async (req, res) => {
     try {
         const sources = await req.propertyDb.models.sale_sources.findAll({
-            order: [['is_system', 'DESC'], ['name', 'ASC']]
+            order: [
+                ['is_system', 'DESC'],
+                ['name', 'ASC']
+            ]
         });
-        res.json({ success: true, data: sources });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        return res.json({ success: true, data: sources });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
-
-exports.createSaleSource = async (req, res) => {
+exports.listSaleSources = listSaleSources;
+const createSaleSource = async (req, res) => {
     try {
         const { name, commission_rate, gst_rate_on_commission, tds_rate, tcs_rate } = req.body;
         if (!name || name.trim().length === 0) {
@@ -33,13 +38,14 @@ exports.createSaleSource = async (req, res) => {
             tds_rate: parseFloat(tds_rate || 0),
             tcs_rate: parseFloat(tcs_rate || 0)
         });
-        res.json({ success: true, data: created });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        return res.json({ success: true, data: created });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
-
-exports.updateSaleSource = async (req, res) => {
+exports.createSaleSource = createSaleSource;
+const updateSaleSource = async (req, res) => {
     try {
         const { id } = req.params;
         const { name, is_active, commission_rate, gst_rate_on_commission, tds_rate, tcs_rate } = req.body;
@@ -50,19 +56,18 @@ exports.updateSaleSource = async (req, res) => {
         if (source.is_system) {
             return res.status(400).json({ success: false, message: 'System sources cannot be modified' });
         }
-        
         const trimmedName = name ? name.trim() : source.name;
         const nameChanged = trimmedName !== source.name;
-
         if (nameChanged) {
             // Check if any bills are made with this source name
             const usedInBills = await req.propertyDb.models.sales_headers.findOne({
                 where: { sale_source: source.name }
             });
             if (usedInBills) {
-                return res.status(400).json({ success: false, message: 'Cannot edit source name as it has already been used in sales' });
+                return res
+                    .status(400)
+                    .json({ success: false, message: 'Cannot edit source name as it has already been used in sales' });
             }
-
             const existing = await req.propertyDb.models.sale_sources.findOne({
                 where: { name: trimmedName }
             });
@@ -70,22 +75,24 @@ exports.updateSaleSource = async (req, res) => {
                 return res.status(400).json({ success: false, message: 'Source name already exists' });
             }
         }
-
         await source.update({
             name: trimmedName,
             is_active: is_active !== undefined ? is_active : source.is_active,
             commission_rate: commission_rate !== undefined ? parseFloat(commission_rate || 0) : source.commission_rate,
-            gst_rate_on_commission: gst_rate_on_commission !== undefined ? parseFloat(gst_rate_on_commission || 0) : source.gst_rate_on_commission,
+            gst_rate_on_commission: gst_rate_on_commission !== undefined
+                ? parseFloat(gst_rate_on_commission || 0)
+                : source.gst_rate_on_commission,
             tds_rate: tds_rate !== undefined ? parseFloat(tds_rate || 0) : source.tds_rate,
             tcs_rate: tcs_rate !== undefined ? parseFloat(tcs_rate || 0) : source.tcs_rate
         });
-        res.json({ success: true, data: source });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        return res.json({ success: true, data: source });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
-
-exports.deleteSaleSource = async (req, res) => {
+exports.updateSaleSource = updateSaleSource;
+const deleteSaleSource = async (req, res) => {
     try {
         const { id } = req.params;
         const source = await req.propertyDb.models.sale_sources.findByPk(id);
@@ -100,27 +107,34 @@ exports.deleteSaleSource = async (req, res) => {
             where: { sale_source: source.name }
         });
         if (usedInBills) {
-            return res.status(400).json({ success: false, message: 'Cannot delete source as it has already been used in sales' });
+            return res
+                .status(400)
+                .json({ success: false, message: 'Cannot delete source as it has already been used in sales' });
         }
         await source.destroy();
-        res.json({ success: true, message: 'Source deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        return res.json({ success: true, message: 'Source deleted successfully' });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
-
-exports.listPaymentMethods = async (req, res) => {
+exports.deleteSaleSource = deleteSaleSource;
+const listPaymentMethods = async (req, res) => {
     try {
         const methods = await req.propertyDb.models.payment_methods.findAll({
-            order: [['is_system', 'DESC'], ['name', 'ASC']]
+            order: [
+                ['is_system', 'DESC'],
+                ['name', 'ASC']
+            ]
         });
-        res.json({ success: true, data: methods });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        return res.json({ success: true, data: methods });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
-
-exports.createPaymentMethod = async (req, res) => {
+exports.listPaymentMethods = listPaymentMethods;
+const createPaymentMethod = async (req, res) => {
     try {
         const { name } = req.body;
         if (!name || name.trim().length === 0) {
@@ -138,13 +152,14 @@ exports.createPaymentMethod = async (req, res) => {
             is_system: false,
             is_active: true
         });
-        res.json({ success: true, data: created });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        return res.json({ success: true, data: created });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
-
-exports.updatePaymentMethod = async (req, res) => {
+exports.createPaymentMethod = createPaymentMethod;
+const updatePaymentMethod = async (req, res) => {
     try {
         const { id } = req.params;
         const { name, is_active } = req.body;
@@ -164,7 +179,9 @@ exports.updatePaymentMethod = async (req, res) => {
             where: { payment_mode: method.name }
         });
         if (usedInBills) {
-            return res.status(400).json({ success: false, message: 'Cannot edit payment method as it has already been used in sales' });
+            return res
+                .status(400)
+                .json({ success: false, message: 'Cannot edit payment method as it has already been used in sales' });
         }
         const uppercaseName = name ? name.trim().toUpperCase() : method.name;
         if (name && uppercaseName !== method.name) {
@@ -179,13 +196,14 @@ exports.updatePaymentMethod = async (req, res) => {
             name: uppercaseName,
             is_active: is_active !== undefined ? is_active : method.is_active
         });
-        res.json({ success: true, data: method });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        return res.json({ success: true, data: method });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
-
-exports.deletePaymentMethod = async (req, res) => {
+exports.updatePaymentMethod = updatePaymentMethod;
+const deletePaymentMethod = async (req, res) => {
     try {
         const { id } = req.params;
         const method = await req.propertyDb.models.payment_methods.findByPk(id);
@@ -200,11 +218,25 @@ exports.deletePaymentMethod = async (req, res) => {
             where: { payment_mode: method.name }
         });
         if (usedInBills) {
-            return res.status(400).json({ success: false, message: 'Cannot delete payment method as it has already been used in sales' });
+            return res
+                .status(400)
+                .json({ success: false, message: 'Cannot delete payment method as it has already been used in sales' });
         }
         await method.destroy();
-        res.json({ success: true, message: 'Payment method deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        return res.json({ success: true, message: 'Payment method deleted successfully' });
     }
+    catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+exports.deletePaymentMethod = deletePaymentMethod;
+module.exports = {
+    listSaleSources: exports.listSaleSources,
+    createSaleSource: exports.createSaleSource,
+    updateSaleSource: exports.updateSaleSource,
+    deleteSaleSource: exports.deleteSaleSource,
+    listPaymentMethods: exports.listPaymentMethods,
+    createPaymentMethod: exports.createPaymentMethod,
+    updatePaymentMethod: exports.updatePaymentMethod,
+    deletePaymentMethod: exports.deletePaymentMethod
 };

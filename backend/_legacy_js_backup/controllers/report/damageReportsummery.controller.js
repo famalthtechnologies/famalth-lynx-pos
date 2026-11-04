@@ -1,38 +1,34 @@
+"use strict";
 const { Op } = require('sequelize');
 const { resolveOutletScope } = require('../../utils/outletScopeHelper');
-
 exports.getDamageReport = async (req, res) => {
     try {
         const { from_date, to_date, item_id } = req.query;
         const reqOutlet = req.query.outlet_id || req.query.outletId;
         const scope = await resolveOutletScope(req, reqOutlet);
-
         if (!from_date || !to_date) {
             return res.status(400).json({
                 success: false,
                 message: 'from_date and to_date required'
             });
         }
-
         const whereHeader = {
             ...scope.outletWhere,
             damage_date: {
                 [Op.between]: [from_date, to_date]
             }
         };
-
         // 🔒 Enforce user isolation if the user is not an ADMIN
         if (req.user.role !== 'ADMIN') {
             whereHeader.created_by = req.user.id;
-        } else if (req.query.created_by) {
+        }
+        else if (req.query.created_by) {
             whereHeader.created_by = req.query.created_by;
         }
-
         const whereItem = {};
         if (item_id) {
             whereItem.item_id = item_id;
         }
-
         const damages = await req.propertyDb.models.damage_headers.findAll({
             where: whereHeader,
             include: [
@@ -50,7 +46,6 @@ exports.getDamageReport = async (req, res) => {
             ],
             order: [['damage_date', 'DESC']]
         });
-
         const data = damages.map((damage) => {
             const items = (damage.items || []).map((i) => {
                 const itemData = i.toJSON ? i.toJSON() : i;
@@ -65,7 +60,6 @@ exports.getDamageReport = async (req, res) => {
                     amount: Number(i.amount || (Number(i.qty || 0) * Number(i.rate || 0)))
                 };
             });
-
             return {
                 id: damage.id,
                 damage_no: damage.damage_no,
@@ -81,13 +75,12 @@ exports.getDamageReport = async (req, res) => {
                 items
             };
         });
-
         res.json({
             success: true,
             data
         });
-
-    } catch (err) {
+    }
+    catch (err) {
         console.error(err);
         res.status(500).json({
             success: false,

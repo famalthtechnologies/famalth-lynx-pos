@@ -1,3 +1,5 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 module.exports = (sequelize, DataTypes) => {
     const CashLedger = sequelize.define('cash_ledger', {
         outlet_id: {
@@ -41,6 +43,6 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: false
     });
-
     return CashLedger;
 };
+exports.default = module.exports;

@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const ItemBom = sequelize.define('item_boms', {
         id: {
@@ -27,7 +28,6 @@ module.exports = (sequelize, DataTypes) => {
         underscored: true,
         tableName: 'item_boms'
     });
-
     ItemBom.associate = (models) => {
         ItemBom.belongsTo(models.item_master, {
             foreignKey: 'parent_item_id',
@@ -38,6 +38,5 @@ module.exports = (sequelize, DataTypes) => {
             as: 'component_item'
         });
     };
-
     return ItemBom;
 };

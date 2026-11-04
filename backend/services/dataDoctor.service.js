@@ -9,6 +9,7 @@ const propertyDb_1 = __importDefault(require("../db/propertyDb"));
 const master_1 = __importDefault(require("../models/master"));
 const migrationSchemaExtractor_1 = require("../utils/migrationSchemaExtractor");
 class DataDoctorService {
+    static parser = new node_sql_parser_1.Parser();
     /**
      * Validates and enforces security rules on support queries:
      * 1. Only SELECT, UPDATE, DELETE allowed.
@@ -78,8 +79,8 @@ class DataDoctorService {
             }
             catch (_) { }
         }
-        // Enforce non-trivial WHERE clause for UPDATE and DELETE
-        if (opType === 'UPDATE' || opType === 'DELETE') {
+        // Enforce non-trivial WHERE clause for UPDATE
+        if (opType === 'UPDATE') {
             if (!stmt.where) {
                 return {
                     isAllowed: false,
@@ -202,11 +203,14 @@ class DataDoctorService {
             else {
                 if (metadata && typeof metadata.rowCount === 'number') {
                     affectedRows = metadata.rowCount;
-                } else if (typeof metadata === 'number') {
+                }
+                else if (typeof metadata === 'number') {
                     affectedRows = metadata;
-                } else if (results && typeof results.rowCount === 'number') {
+                }
+                else if (results && typeof results.rowCount === 'number') {
                     affectedRows = results.rowCount;
-                } else {
+                }
+                else {
                     affectedRows = Array.isArray(results) ? results.length : 0;
                 }
                 queryResult = { affectedRows, status: 'SUCCESS' };
@@ -245,5 +249,4 @@ class DataDoctorService {
     }
 }
 exports.DataDoctorService = DataDoctorService;
-DataDoctorService.parser = new node_sql_parser_1.Parser();
 exports.default = DataDoctorService;

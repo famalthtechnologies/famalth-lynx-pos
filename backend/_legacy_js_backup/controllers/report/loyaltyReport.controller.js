@@ -1,16 +1,13 @@
+"use strict";
 const { QueryTypes } = require('sequelize');
-
 function normalizeSearch(value) {
     return String(value || '').trim().toLowerCase();
 }
-
 exports.getLoyaltyMasterReport = async (req, res) => {
     try {
         const outletId = req.user.outlet_id;
         const search = normalizeSearch(req.query.search);
-
-        const rows = await req.propertyDb.query(
-            `
+        const rows = await req.propertyDb.query(`
 WITH sales_base AS (
   SELECT
     outlet_id,
@@ -65,33 +62,29 @@ merged AS (
 SELECT *
 FROM merged
 ORDER BY customer_name ASC, customer_key ASC
-            `,
-            {
-                replacements: { outlet_id: outletId },
-                type: QueryTypes.SELECT
-            }
-        );
-
+            `, {
+            replacements: { outlet_id: outletId },
+            type: QueryTypes.SELECT
+        });
         const filtered = !search
             ? rows
             : rows.filter((row) => {
-                  const haystack = [
-                      row.customer_name,
-                      row.customer_phone,
-                      row.customer_gstin,
-                      row.customer_key
-                  ]
-                      .join(' ')
-                      .toLowerCase();
-                  return haystack.includes(search);
-              });
-
+                const haystack = [
+                    row.customer_name,
+                    row.customer_phone,
+                    row.customer_gstin,
+                    row.customer_key
+                ]
+                    .join(' ')
+                    .toLowerCase();
+                return haystack.includes(search);
+            });
         res.json({ success: true, data: filtered });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-
 exports.getCustomerLoyaltyLedger = async (req, res) => {
     try {
         const outletId = req.user.outlet_id;
@@ -102,9 +95,7 @@ exports.getCustomerLoyaltyLedger = async (req, res) => {
                 message: 'customer_key is required'
             });
         }
-
-        const rows = await req.propertyDb.query(
-            `
+        const rows = await req.propertyDb.query(`
 SELECT
   id,
   transaction_date,
@@ -122,18 +113,16 @@ FROM customer_loyalty_ledger
 WHERE outlet_id = :outlet_id
   AND customer_key = :customer_key
 ORDER BY transaction_date ASC, id ASC
-            `,
-            {
-                replacements: {
-                    outlet_id: outletId,
-                    customer_key: customerKey
-                },
-                type: QueryTypes.SELECT
-            }
-        );
-
+            `, {
+            replacements: {
+                outlet_id: outletId,
+                customer_key: customerKey
+            },
+            type: QueryTypes.SELECT
+        });
         res.json({ success: true, data: rows });
-    } catch (error) {
+    }
+    catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };

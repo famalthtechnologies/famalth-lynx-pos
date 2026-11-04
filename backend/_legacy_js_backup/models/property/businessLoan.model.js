@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     const BusinessLoan = sequelize.define('business_loans', {
         id: {
@@ -55,6 +56,5 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
-
     return BusinessLoan;
 };

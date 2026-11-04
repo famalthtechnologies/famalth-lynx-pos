@@ -1,3 +1,4 @@
+"use strict";
 module.exports = (sequelize, DataTypes) => {
     return sequelize.define('user_permissions', {
         id: {
@@ -9,8 +10,6 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.INTEGER,
             allowNull: false
         },
-
-
         perm_key: DataTypes.STRING
     }, {
         tableName: 'user_permissions',

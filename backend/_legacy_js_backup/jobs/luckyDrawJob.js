@@ -1,9 +1,9 @@
+"use strict";
 const cron = require('node-cron');
 const { Op } = require('sequelize');
-
 function startLuckyDrawJob(db) {
-    if (!db) return;
-
+    if (!db)
+        return;
     console.log('Initializing lucky draw lifecycle cron: 0 0 * * *');
     // Run daily at midnight
     cron.schedule('0 0 * * *', async () => {
@@ -16,11 +16,9 @@ function startLuckyDrawJob(db) {
                     }
                 }
             });
-
             for (const campaign of activeCampaigns) {
                 // Update status to PENDING_RESULT
                 await campaign.update({ status: 'PENDING_RESULT' });
-
                 // Create a system notification alert for the retailer
                 await db.models.system_notification.create({
                     outlet_id: campaign.outlet_id,
@@ -31,13 +29,12 @@ function startLuckyDrawJob(db) {
                     entity_id: campaign.id,
                     is_read: false
                 });
-
                 console.log(`[LUCKY DRAW] Campaign "${campaign.name}" (ID: ${campaign.id}) draw date reached. Status changed to PENDING_RESULT.`);
             }
-        } catch (error) {
+        }
+        catch (error) {
             console.error(`[LUCKY DRAW] Lifecycle cron failed: ${error.message}`);
         }
     });
 }
-
 module.exports = { startLuckyDrawJob };

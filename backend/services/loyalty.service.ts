@@ -1,4 +1,5 @@
 import { Op } from 'sequelize';
+import { normalizePhoneNumber } from '../utils/phone.util';
 
 export function toAmount(value: any, fallback = 0): number {
     const parsed = Number(value);
@@ -12,12 +13,8 @@ export function toWhole(value: any, fallback = 0): number {
 }
 
 export function normalizeCustomerIdentity(payload: any = {}) {
-    let phone = String(payload.customer_phone || payload.customerPhone || '')
-        .replace(/\D/g, '')
-        .trim();
-    if (phone.length > 10) {
-        phone = phone.slice(-10);
-    }
+    const raw = payload.customer_phone || payload.customerPhone || '';
+    const phone = normalizePhoneNumber(raw);
     const gstin = String(payload.customer_gstin || payload.customerGstin || '')
         .trim()
         .toUpperCase();
