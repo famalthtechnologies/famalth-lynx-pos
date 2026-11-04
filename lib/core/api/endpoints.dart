@@ -51,6 +51,16 @@ class ApiEndpoints {
   static const createTenantBackup = '/api/backup/tenant-backup';
   static const restoreTenantBackup = '/api/backup/restore-tenant-backup';
   static const downloadBackupBase = '/api/backup/download';
+  static const createFambakBackup = '/api/backup/create-fambak';
+  static const inspectBackup = '/api/backup/inspect-backup';
+  static const restoreFambak = '/api/backup/restore-fambak';
+  static const cloudBackups = '/api/backup/cloud-backups';
+  static const restoreCloudBackup = '/api/backup/restore-cloud-backup';
+  static const emailBackupLink = '/api/backup/email-backup-link';
+  static const emailBackupDownload = '/api/backup/email-download';
+  static const clearTransactionData = '/api/inventory/settings/clear-transaction-data';
+  static const providerRetentionPreview = '/api/backup/provider/retention-preview';
+  static const providerRetentionPurge = '/api/backup/provider/retention-purge';
 
   static const String settings = '/api/inventory/settings';
   static const String taxGroups = '/api/settings/tax-groups';

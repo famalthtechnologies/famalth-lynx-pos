@@ -1,3 +1,4 @@
+import '../../core/settings/local_preferences.dart';
 import 'package:flutter/material.dart';
 import '../../core/auth/token_storage.dart';
 import '../../core/services/cloud_migration_service.dart';
@@ -37,6 +38,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
   String _errorMessage = "";
   Map<String, dynamic> _migratedStats = {};
   String _migratedOutletCode = "";
+  String _migrationScope = 'OUTLET'; // 'OUTLET' or 'ALL'
 
   @override
   void initState() {
@@ -74,7 +76,8 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
       return;
     }
 
-    if (_direction == MigrationDirection.cloudToOffline && outletCode.isEmpty) {
+    final isAllScope = _migrationScope == 'ALL';
+    if (_direction == MigrationDirection.cloudToOffline && !isAllScope && outletCode.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Outlet Code is required to download cloud store data')),
       );
@@ -105,7 +108,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
           _statusMessage = "Packaging local products, customers, transactions and settings...";
         });
 
-        final exportRes = await CloudMigrationService.exportLocalStoreBundle();
+        final exportRes = await CloudMigrationService.exportLocalStoreBundle(scope: _migrationScope);
         if (exportRes['success'] != true || exportRes['bundle'] == null) {
           setState(() {
             _currentStep = MigrationStep.failed;
@@ -151,6 +154,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
           token: token,
           user: importRes['user'],
         );
+        await LocalPreferences.setLastOutletCode(finalOutlet);
 
         setState(() {
           _currentStep = MigrationStep.completed;
@@ -168,8 +172,9 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
 
         final pullRes = await CloudMigrationService.pullOnlineToOffline(
           cloudUrl: cloudUrl,
-          outletCode: outletCode,
+          outletCode: isAllScope ? 'ALL' : outletCode,
           adminPassword: adminPass.isNotEmpty ? adminPass : null,
+          scope: _migrationScope,
         );
 
         if (pullRes['success'] != true) {
@@ -191,6 +196,7 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
           token: pullRes['token'],
           user: pullRes['user'],
         );
+        await LocalPreferences.setLastOutletCode(outletCode);
 
         setState(() {
           _currentStep = MigrationStep.completed;
@@ -372,7 +378,98 @@ class _CloudMigrationScreenState extends State<CloudMigrationScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
+
+        // Migration Scope Selector
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.tune_rounded, size: 15, color: Color(0xFF0284C7)),
+                  SizedBox(width: 6),
+                  Text('Migration Scope Selector:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => setState(() => _migrationScope = 'OUTLET'),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _migrationScope == 'OUTLET'
+                              ? (isDark ? const Color(0xFF0284C7).withValues(alpha: 0.2) : Colors.blue.shade50)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: _migrationScope == 'OUTLET' ? const Color(0xFF0284C7) : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _migrationScope == 'OUTLET' ? Icons.radio_button_checked : Icons.radio_button_off,
+                              size: 15,
+                              color: _migrationScope == 'OUTLET' ? const Color(0xFF0284C7) : Colors.grey,
+                            ),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text('Selected Outlet Only', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => setState(() => _migrationScope = 'ALL'),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _migrationScope == 'ALL'
+                              ? (isDark ? Colors.green.withValues(alpha: 0.2) : Colors.green.shade50)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: _migrationScope == 'ALL' ? Colors.green.shade600 : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _migrationScope == 'ALL' ? Icons.radio_button_checked : Icons.radio_button_off,
+                              size: 15,
+                              color: _migrationScope == 'ALL' ? Colors.green.shade600 : Colors.grey,
+                            ),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text('All Outlets (Enterprise DB)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
 
         // Header Description
         Row(

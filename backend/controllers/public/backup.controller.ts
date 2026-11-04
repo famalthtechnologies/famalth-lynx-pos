@@ -102,10 +102,10 @@ exports.restoreFromLocalEnc = async (req: any, res: any) => {
         }
         const filename = String(body.filename || "").trim();
         const base64 = String(body.base64 || "").trim();
-        if (!filename.toLowerCase().endsWith(".enc")) {
+        if (!filename.toLowerCase().endsWith(".enc") && !filename.toLowerCase().endsWith(".fambak") && !filename.toLowerCase().endsWith(".posbak")) {
             return res.status(400).json({
                 success: false,
-                message: "Only .enc backup files are allowed."
+                message: "Only .fambak, .posbak, or .enc backup files are allowed."
             });
         }
         if (!base64) {
@@ -206,7 +206,7 @@ exports.uploadBackupOnDemand = async (req, res) => {
             // Rotate enterprise server backups - preserve latest 30 snapshots
             try {
                 const files = fs.readdirSync(BACKUP_DIR)
-                    .filter(f => f.startsWith('backup_') && f.endsWith('.enc'))
+                    .filter(f => f.endsWith('.enc') || f.endsWith('.fambak') || f.endsWith('.posbak'))
                     .map(f => ({ name: f, time: fs.statSync(path.join(BACKUP_DIR, f)).mtime.getTime() }))
                     .sort((a, b) => b.time - a.time);
 

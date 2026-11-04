@@ -200,11 +200,45 @@ export async function restoreLatestBackup(folderId: string, db_name: string): Pr
     }
 }
 
+export async function uploadFambakToDrive(filePath: string, fileName: string, outletCode?: string): Promise<{ success: boolean; message: string; fileId?: string }> {
+    try {
+        if (!(await isOnline())) {
+            return { success: false, message: 'No internet connection detected; Google Drive sync skipped.' };
+        }
+        let folderId = ROOT_FOLDER_ID;
+        if (outletCode && outletCode !== 'ALL' && outletCode !== 'ENTERPRISE_ALL') {
+            try {
+                folderId = await createClientFolder(outletCode);
+            } catch (_) {
+                folderId = ROOT_FOLDER_ID;
+            }
+        }
+        if (!folderId) {
+            return { success: false, message: 'Google Drive folder ID not configured in system credentials.' };
+        }
+        const base64Data = fs.readFileSync(filePath).toString('base64');
+        const res = await sendToGoogleScript({
+            action: 'upload_backup',
+            folderId: folderId,
+            filename: fileName,
+            mimeType: 'application/octet-stream',
+            base64: base64Data
+        });
+        await cleanOldBackups(folderId).catch(() => {});
+        log('Fambak archive ' + fileName + ' stored on Google Drive (File ID: ' + (res?.fileId || 'ok') + ')');
+        return { success: true, message: 'Backup successfully stored on Google Drive!', fileId: res?.fileId };
+    } catch (err: any) {
+        console.warn('[DRIVE_SERVICE] uploadFambakToDrive error:', err.message);
+        return { success: false, message: 'Google Drive upload failed: ' + err.message };
+    }
+}
+
 export default {
     sendToGoogleScript,
     upsertClient,
     createClientFolder,
     uploadBackupViaScript,
     cleanOldBackups,
-    restoreLatestBackup
+    restoreLatestBackup,
+    uploadFambakToDrive
 };

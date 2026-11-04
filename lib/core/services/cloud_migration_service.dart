@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../api/api_client.dart';
 import '../auth/token_storage.dart';
 import '../config/app_config.dart';
+import '../settings/local_preferences.dart';
 
 class CloudMigrationService {
   /// Test reachability and compatibility of the destination cloud server
@@ -41,11 +42,12 @@ class CloudMigrationService {
   }
 
   /// Package and export all local store data from the offline backend
-  static Future<Map<String, dynamic>> exportLocalStoreBundle() async {
+  static Future<Map<String, dynamic>> exportLocalStoreBundle({String scope = 'OUTLET'}) async {
     try {
       final outletCode = await TokenStorage.getOutletCode() ?? '';
       final res = await ApiClient.post('/api/public/migration/export-bundle', {
-        'outlet_code': outletCode,
+        'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
+        'scope': scope,
       });
 
       if (res['success'] == true && res['bundle'] != null) {
@@ -145,6 +147,7 @@ class CloudMigrationService {
     }
     if (outletCode.isNotEmpty) {
       await TokenStorage.saveOutletCode(outletCode);
+      await LocalPreferences.setLastOutletCode(outletCode);
     }
   }
 
@@ -153,12 +156,14 @@ class CloudMigrationService {
     required String cloudUrl,
     required String outletCode,
     String? adminPassword,
+    String scope = 'OUTLET',
   }) async {
     try {
       final res = await ApiClient.post('/api/public/migration/sync-online-to-offline', {
         'cloud_url': cloudUrl,
-        'outlet_code': outletCode,
+        'outlet_code': scope == 'ALL' ? 'ALL' : outletCode,
         'admin_password': adminPassword,
+        'scope': scope,
       });
 
       if (res['success'] == true) {

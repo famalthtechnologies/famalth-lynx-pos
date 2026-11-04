@@ -23,6 +23,24 @@ class LocalPreferences {
   static const _fontSizeAdjustmentKey = 'ui_font_size_adjustment';
   static const _virtualKeyboardDisabledKey = 'virtual_keyboard_disabled';
   static const _timeZoneKey = 'app_time_zone';
+  static const _lastOutletCodeKey = 'last_selected_outlet_code';
+
+  static Future<String?> getLastOutletCode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final code = prefs.getString(_lastOutletCodeKey);
+    if (code != null && code.trim().isNotEmpty) {
+      return code.trim();
+    }
+    return null;
+  }
+
+  static Future<void> setLastOutletCode(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    final clean = value.trim();
+    if (clean.isNotEmpty) {
+      await prefs.setString(_lastOutletCodeKey, clean);
+    }
+  }
 
   static Future<String> getTimeZone() async {
     final prefs = await SharedPreferences.getInstance();

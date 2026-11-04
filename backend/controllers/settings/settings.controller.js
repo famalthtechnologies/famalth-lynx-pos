@@ -1,6 +1,8 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 const audit = require('../../services/audit.service');
+const DataRetentionService = require('../../services/dataRetention.service').default || require('../../services/dataRetention.service');
 const { resolveBusinessModule } = require('../../utils/moduleHelper');
-
 const TRANSACTION_TABLES = [
     // KOT & Restaurant transactional tables (dependent children first)
     'kot_revisions',
@@ -8,59 +10,46 @@ const TRANSACTION_TABLES = [
     'kot_headers',
     'restaurant_audit_trail',
     'table_reservations',
-
     // Lucky Draw Campaign tables (dependent children first)
     'draw_vouchers',
     'customer_draw_progress',
     'lucky_draw_campaigns',
-
     // WhatsApp tables (dependent children first)
     'whatsapp_logs',
     'whatsapp_campaigns',
-
     // 1. Supplier Return tables (dependent children first)
     'supplier_return_refunds',
     'supplier_return_items',
     'supplier_return_headers',
-
     // 2. Goods Receipt tables (dependent children first)
     'goods_receipt_items',
     'goods_receipts',
-
     // 3. Supplier Payments & Bills
     'supplier_payments',
     'supplier_bills',
-
     // 4. Purchase Orders
     'purchase_order_items',
     'purchase_orders',
-
     // 5. Return Headers & Items (reference issue_headers)
     'return_items',
     'return_headers',
-
     // 6. Issue Headers & Items
     'issue_items',
     'issue_headers',
-
     // 7. Damage Headers & Items
     'damage_items',
     'damage_headers',
-
     // 8. Assembly Headers & Items
     'assembly_items',
     'assembly_headers',
-
     // 9. Request Headers & Items
     'request_items',
     'request_headers',
-
     // Milk Subscription tables
     'milk_subscription_consumptions',
     'milk_subscription_settlements',
     'milk_subscription_schemes',
     'milk_subscriptions',
-
     // HRMS tables (dependent children first)
     'hr_loan_transactions',
     'hr_loans',
@@ -81,7 +70,6 @@ const TRANSACTION_TABLES = [
     'hr_shifts',
     'hr_designations',
     'hr_holidays',
-
     // 11. Sales & Customer Advances tables
     'sales_items',
     'customer_repayments',
@@ -91,7 +79,6 @@ const TRANSACTION_TABLES = [
     'sales_credit_notes',
     'customer_orders',
     'sales_headers',
-
     // 12. Miscellaneous/Independent tables
     'sales_scheme_customers',
     'customer_loyalty_ledger',
@@ -109,38 +96,32 @@ const TRANSACTION_TABLES = [
     'audit_logs',
     'commission_rules'
 ];
-
 const PROTECTED_TABLES = new Set([
     'schema_version',
 ]);
-
-const WIPE_TABLES = [...new Set(TRANSACTION_TABLES)].filter(
-    (tableName) => !PROTECTED_TABLES.has(tableName)
-);
+const WIPE_TABLES = [...new Set(TRANSACTION_TABLES)].filter((tableName) => !PROTECTED_TABLES.has(tableName));
 exports.getSettings = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
-
         let settings = null;
         try {
             settings = await req.propertyDb.models.system_settings.findOne({
                 where: { outlet_id }
             });
-        } catch (dbErr) {
+        }
+        catch (dbErr) {
             console.warn("⚠️ System settings query failed in getSettings, trying fallback without merchant_upi_id:", dbErr.message);
             try {
-                const attributes = Object.keys(req.propertyDb.models.system_settings.rawAttributes).filter(
-                    attr => attr !== 'merchant_upi_id'
-                );
+                const attributes = Object.keys(req.propertyDb.models.system_settings.rawAttributes).filter(attr => attr !== 'merchant_upi_id');
                 settings = await req.propertyDb.models.system_settings.findOne({
                     where: { outlet_id },
                     attributes: attributes
                 });
-            } catch (fallbackErr) {
+            }
+            catch (fallbackErr) {
                 console.error("❌ Fallback query in getSettings failed:", fallbackErr.stack);
             }
         }
-
         // first time → defaults
         if (!settings) {
             return res.json({
@@ -188,7 +169,6 @@ exports.getSettings = async (req, res) => {
                 }
             });
         }
-
         let settingsData = settings.toJSON ? settings.toJSON() : settings;
         if (!settingsData.merchant_upi_id && req.propertyDb.models.property_info) {
             const propInfo = await req.propertyDb.models.property_info.findOne({
@@ -201,42 +181,37 @@ exports.getSettings = async (req, res) => {
         if (typeof settingsData.device_printer_mappings === 'string') {
             try {
                 settingsData.device_printer_mappings = JSON.parse(settingsData.device_printer_mappings);
-            } catch (e) {
+            }
+            catch (e) {
                 settingsData.device_printer_mappings = {};
             }
         }
-
         res.json({ success: true, data: settingsData });
-    } catch (err) {
+    }
+    catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 exports.saveSettings = async (req, res) => {
     const t = await req.propertyDb.transaction();
-
     try {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
-
         const Model = req.propertyDb.models.system_settings;
-
         const existing = await Model.findOne({
             where: { outlet_id },
             transaction: t
         });
-
         const oldData = existing ? existing.toJSON() : null;
-
         let rawMappings = req.body.device_printer_mappings;
         if (typeof rawMappings === 'string') {
             try {
                 rawMappings = JSON.parse(rawMappings);
-            } catch (e) {
+            }
+            catch (e) {
                 rawMappings = null;
             }
         }
-
         const payload = {
             outlet_id,
             auto_reorder: req.body.auto_reorder,
@@ -299,18 +274,16 @@ exports.saveSettings = async (req, res) => {
                 ? rawMappings
                 : (existing?.device_printer_mappings || {})
         };
-
         if (req.body.outlet_max_discount_percent !== undefined) {
             payload.outlet_max_discount_percent = req.body.outlet_max_discount_percent;
         }
-
         let record;
         if (existing) {
             record = await existing.update(payload, { transaction: t });
-        } else {
+        }
+        else {
             record = await Model.create(payload, { transaction: t });
         }
-
         await audit.log({
             req,
             module: 'SYSTEM_SETTINGS',
@@ -322,27 +295,23 @@ exports.saveSettings = async (req, res) => {
             outlet_id: req.user.outlet_id,
             user_id: req.user.id
         });
-
-
         if (req.body.merchant_upi_id !== undefined && req.propertyDb.models.property_info) {
             const propInfo = await req.propertyDb.models.property_info.findOne({
                 where: { outlet_id },
                 transaction: t
             });
             if (propInfo) {
-                await propInfo.update({ upi_id: req.body.merchant_upi_id }, { transaction: t }).catch(() => {});
+                await propInfo.update({ upi_id: req.body.merchant_upi_id }, { transaction: t }).catch(() => { });
             }
         }
-
         await t.commit();
         res.json({ success: true, message: 'Settings saved successfully', data: record });
-
-    } catch (err) {
+    }
+    catch (err) {
         await t.rollback();
         res.status(500).json({ success: false, error: err.message });
     }
 };
-
 const PRESERVED_MODELS = new Set([
     'schema_version',
     'system_settings',
@@ -378,196 +347,114 @@ const PRESERVED_MODELS = new Set([
     'attribute_values',
     'hsn_master'
 ]);
-
 exports.clearTransactionData = async (req, res) => {
     try {
-        const confirmText = String(req.body.confirm_text || '').trim().toUpperCase();
-        if (confirmText !== 'DELETE ALL DATA') {
-            return res.status(400).json({
-                success: false,
-                message: 'Type DELETE ALL DATA to confirm the wipe'
-            });
-        }
-
-        const outletId = Number(
-            req.outlet_id ||
+        const outletId = Number(req.outlet_id ||
             req.user?.outlet_id ||
             req.headers['x-outlet-id'] ||
             req.body?.outlet_id ||
-            req.query?.outlet_id
-        );
-
+            req.query?.outlet_id ||
+            1);
+        const outletCode = String(req.outlet_code ||
+            req.user?.outlet_code ||
+            req.headers['x-outlet-code'] ||
+            req.body?.outlet_code ||
+            `OUT_${outletId}`);
         if (!outletId || isNaN(outletId)) {
             return res.status(400).json({
                 success: false,
-                message: 'Outlet ID is required to clear transaction data'
+                message: 'Outlet ID is required to manage transaction data'
             });
         }
-
-        const isPostgres = req.propertyDb.options?.dialect === 'postgres';
-
-        // Order matters: child/dependent tables deleted first
-        const deleteQueries = [
-            // 1. Restaurant / KOT child & header tables
-            `DELETE FROM "kot_revisions" WHERE kot_header_id IN (SELECT id FROM "kot_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "kot_items" WHERE outlet_id = :outletId OR kot_header_id IN (SELECT id FROM "kot_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "kot_headers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "restaurant_audit_trail" WHERE outlet_id = :outletId`,
-            `DELETE FROM "table_reservations" WHERE outlet_id = :outletId`,
-
-            // 2. Lucky Draw Campaign & WhatsApp tables
-            `DELETE FROM "draw_vouchers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "customer_draw_progress" WHERE outlet_id = :outletId`,
-            `DELETE FROM "lucky_draw_campaigns" WHERE outlet_id = :outletId`,
-            `DELETE FROM "whatsapp_logs" WHERE outlet_id = :outletId`,
-            `DELETE FROM "whatsapp_campaigns" WHERE outlet_id = :outletId`,
-
-            // 3. Supplier Returns & Goods Receipts
-            `DELETE FROM "supplier_return_refunds" WHERE outlet_id = :outletId OR return_id IN (SELECT id FROM "supplier_return_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "supplier_return_items" WHERE return_id IN (SELECT id FROM "supplier_return_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "supplier_return_headers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "goods_receipt_items" WHERE grn_id IN (SELECT id FROM "goods_receipts" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "goods_receipts" WHERE outlet_id = :outletId`,
-            `DELETE FROM "supplier_payments" WHERE outlet_id = :outletId`,
-            `DELETE FROM "supplier_bills" WHERE outlet_id = :outletId`,
-
-            // 4. Purchase Orders
-            `DELETE FROM "purchase_order_items" WHERE po_id IN (SELECT id FROM "purchase_orders" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "purchase_orders" WHERE outlet_id = :outletId`,
-
-            // 5. Stock Issues / Returns / Damages / Assembly / Requests / Delivery Challans
-            `DELETE FROM "return_items" WHERE return_id IN (SELECT id FROM "return_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "return_headers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "issue_items" WHERE issue_id IN (SELECT id FROM "issue_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "issue_headers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "damage_items" WHERE damage_id IN (SELECT id FROM "damage_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "damage_headers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "assembly_items" WHERE outlet_id = :outletId OR assembly_id IN (SELECT id FROM "assembly_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "assembly_headers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "request_items" WHERE request_id IN (SELECT id FROM "request_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "request_headers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "delivery_challan_items" WHERE challan_id IN (SELECT id FROM "delivery_challan_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "delivery_challan_headers" WHERE outlet_id = :outletId`,
-
-            // 6. Milk Subscriptions
-            `DELETE FROM "milk_subscription_consumptions" WHERE outlet_id = :outletId`,
-            `DELETE FROM "milk_subscription_settlements" WHERE outlet_id = :outletId`,
-            `DELETE FROM "milk_subscription_schemes" WHERE outlet_id = :outletId`,
-            `DELETE FROM "milk_subscriptions" WHERE outlet_id = :outletId`,
-
-            // 7. HRMS Transactional Tables
-            `DELETE FROM "hr_loan_transactions" WHERE loan_id IN (SELECT id FROM "hr_loans" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "hr_loans" WHERE outlet_id = :outletId`,
-            `DELETE FROM "hr_sales_commissions" WHERE outlet_id = :outletId`,
-            `DELETE FROM "hr_cashier_handovers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "hr_payroll_details" WHERE payroll_run_id IN (SELECT id FROM "hr_payroll_runs" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "hr_payroll_runs" WHERE outlet_id = :outletId`,
-            `DELETE FROM "hr_salary_revisions" WHERE outlet_id = :outletId`,
-            `DELETE FROM "hr_arrears" WHERE outlet_id = :outletId`,
-            `DELETE FROM "hr_attendance_punches" WHERE outlet_id = :outletId`,
-            `DELETE FROM "hr_leave_balances" WHERE outlet_id = :outletId`,
-            `DELETE FROM "hr_leave_applications" WHERE outlet_id = :outletId`,
-
-            // 8. Sales & Customer Transactions
-            `DELETE FROM "sales_items" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "sales_refunds" WHERE outlet_id = :outletId OR sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "sales_credit_notes" WHERE outlet_id = :outletId`,
-            `DELETE FROM "customer_repayments" WHERE outlet_id = :outletId`,
-            `DELETE FROM "customer_item_advances" WHERE outlet_id = :outletId`,
-            `DELETE FROM "customer_advances" WHERE outlet_id = :outletId`,
-            `DELETE FROM "customer_orders" WHERE outlet_id = :outletId`,
-            `DELETE FROM "sales_headers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "sales_scheme_customers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "customer_loyalty_ledger" WHERE outlet_id = :outletId`,
-            `DELETE FROM "loyalty_master_config" WHERE outlet_id = :outletId`,
-
-            // 9. Finance, Expenses & Accounting
-            `DELETE FROM "cash_ledger" WHERE outlet_id = :outletId`,
-            `DELETE FROM "expense_taxes" WHERE expense_id IN (SELECT id FROM "expenses" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "expense_deductions" WHERE expense_id IN (SELECT id FROM "expenses" WHERE outlet_id = :outletId)`,
-            `DELETE FROM "expense_entries" WHERE outlet_id = :outletId`,
-            `DELETE FROM "expenses" WHERE outlet_id = :outletId`,
-            `DELETE FROM "expense_categories" WHERE outlet_id = :outletId`,
-            `DELETE FROM "daily_opening_balances" WHERE outlet_id = :outletId`,
-            `DELETE FROM "accounting_vouchers" WHERE outlet_id = :outletId`,
-            `DELETE FROM "business_day_status" WHERE outlet_id = :outletId`,
-            `UPDATE "bank_accounts" SET opening_balance = 0.00, current_balance = 0.00 WHERE outlet_id = :outletId`,
-
-            // 10. Stock Ledger, Notifications, Audits, Night Audit
-            `DELETE FROM "stock_ledger" WHERE outlet_id = :outletId`,
-            `DELETE FROM "system_notifications" WHERE outlet_id = :outletId`,
-            `DELETE FROM "audit_logs" WHERE outlet_id = :outletId`,
-            `DELETE FROM "commission_rules" WHERE outlet_id = :outletId`,
-            `DELETE FROM "night_audit_details" WHERE audit_run_id IN (SELECT id FROM "night_audit_runs" WHERE outlet_id = :outletId) OR outlet_id = :outletId`,
-            `DELETE FROM "night_audit_runs" WHERE outlet_id = :outletId`
-        ];
-
-        if (!isPostgres) {
-            await req.propertyDb.query('PRAGMA foreign_keys = OFF;').catch(() => {});
+        const isDryRun = req.body?.dry_run === true || req.query?.dry_run === 'true';
+        const retentionType = req.body?.date_filter_type || (req.body?.older_than_years ? 'OLDER_THAN' : 'ALL_TIME');
+        const olderThanYears = Number(req.body?.older_than_years || 5);
+        const startDate = req.body?.start_date;
+        const endDate = req.body?.end_date;
+        const modules = Array.isArray(req.body?.modules) && req.body.modules.length > 0 ? req.body.modules : ['ALL'];
+        // MODE 1: DRY RUN PREVIEW (Before user clicks delete)
+        if (isDryRun) {
+            const preview = await DataRetentionService.previewRetentionPurge(req.propertyDb, {
+                outletId,
+                outletCode,
+                allOutlets: false,
+                retentionType,
+                olderThanYears,
+                startDate,
+                endDate,
+                modules,
+            });
+            return res.json({
+                success: true,
+                dry_run: true,
+                preview,
+                outlet_id: outletId,
+                outlet_code: outletCode,
+            });
         }
-
-        for (const queryStr of deleteQueries) {
-            try {
-                await req.propertyDb.query(queryStr, {
-                    replacements: { outletId }
-                });
-            } catch (err) {
-                // Ignore errors if table or column doesn't exist in a specific schema
-                console.warn(`[ClearData] Warning executing query on outlet #${outletId}: ${err.message}`);
-            }
+        // MODE 2: ACTUAL RETENTION PURGE EXECUTION
+        const confirmText = String(req.body.confirm_text || '').trim().toUpperCase();
+        if (confirmText !== 'DELETE ALL DATA' && confirmText !== 'DELETE CONFIRMED') {
+            return res.status(400).json({
+                success: false,
+                message: 'Type DELETE CONFIRMED to execute transactional data purge.'
+            });
         }
-
-        if (!isPostgres) {
-            await req.propertyDb.query('PRAGMA foreign_keys = ON;').catch(() => {});
-        }
-
+        const createBackupFirst = req.body?.backup_first !== false;
+        const recipientEmail = String(req.body?.recipient_email || req.user?.email || '').trim();
+        const result = await DataRetentionService.executeRetentionPurge(req.propertyDb, {
+            outletId,
+            outletCode,
+            allOutlets: false, // CLIENT END: Strictly scoped to this single outlet!
+            retentionType,
+            olderThanYears,
+            startDate,
+            endDate,
+            modules,
+            createBackupFirst,
+            recipientEmail: recipientEmail || undefined,
+            req,
+        });
         try {
             await audit.log(req, 'CLEAR_TRANSACTION_DATA', {
-                details: `Cleared transaction data specifically for outlet ID #${outletId}`
+                details: `Pruned ${result.totalDeletedRecords} records for outlet #${outletId} (${result.retentionPolicy})`
             });
-        } catch (_) {}
-
-        res.json({
+        }
+        catch (_) { }
+        return res.json({
             success: true,
-            message: `All transaction data for outlet #${outletId} cleared successfully`,
+            message: `Cleared ${result.totalDeletedRecords.toLocaleString()} records for outlet ${outletCode} successfully (${result.retentionPolicy}).`,
             outlet_id: outletId,
-            preserved: ['masters', 'customer_master', 'system_settings', 'other_outlets']
+            outlet_code: outletCode,
+            total_deleted: result.totalDeletedRecords,
+            tables_affected: result.tablesAffected,
+            retention_policy: result.retentionPolicy,
+            backup_secured: Boolean(result.backupResult),
+            backup_filename: result.backupResult?.filename,
+            preserved: ['catalogs', 'customers_master', 'system_settings', 'other_outlets_data']
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error("❌ Error clearing transaction data:", err);
-        res.status(500).json({ success: false, message: err.message || 'Failed to clear transaction data' });
+        return res.status(500).json({ success: false, message: err.message || 'Failed to clear transaction data' });
     }
 };
-
 exports.getOnboardingStatus = async (req, res) => {
     try {
         let outletId = req.user?.outlet_id || req.query?.outlet_id || req.body?.outlet_id;
         const db = req.propertyDb;
-
         if (typeof outletId === 'string' && outletId.startsWith('OUTLET') && db.models.outlets) {
             const outlet = await db.models.outlets.findOne({ where: { outlet_code: outletId } }).catch(() => null);
-            if (outlet) outletId = outlet.id;
+            if (outlet)
+                outletId = outlet.id;
         }
-
         if (!outletId && db.models.outlets) {
             const defaultOutlet = await db.models.outlets.findOne({ where: { is_active: true } }).catch(() => null);
-            if (defaultOutlet) outletId = defaultOutlet.id;
+            if (defaultOutlet)
+                outletId = defaultOutlet.id;
         }
-
         outletId = parseInt(outletId, 10) || 1;
-
-        const [
-            propInfo,
-            systemSettings,
-            taxGroupsCount,
-            sequencesCount,
-            locationsCount,
-            itemsCount,
-            suppliersCount,
-            tablesCount,
-            usersCount,
-            outletObj
-        ] = await Promise.all([
+        const [propInfo, systemSettings, taxGroupsCount, sequencesCount, locationsCount, itemsCount, suppliersCount, tablesCount, usersCount, outletObj] = await Promise.all([
             db.models.property_info ? db.models.property_info.findOne({
                 where: { outlet_id: outletId },
                 attributes: ['property_name', 'business_type']
@@ -585,11 +472,8 @@ exports.getOnboardingStatus = async (req, res) => {
             db.models.users ? db.models.users.count({ where: { outlet_id: outletId } }).catch(() => 0) : 0,
             db.models.outlets ? db.models.outlets.findByPk(outletId).catch(() => null) : null
         ]);
-
-        const propConfigured = !!(
-            (propInfo?.property_name && propInfo.property_name.toString().trim().length > 0) ||
-            (outletObj?.outlet_name && outletObj.outlet_name.toString().trim().length > 0)
-        );
+        const propConfigured = !!((propInfo?.property_name && propInfo.property_name.toString().trim().length > 0) ||
+            (outletObj?.outlet_name && outletObj.outlet_name.toString().trim().length > 0));
         const settingsConfigured = !!(systemSettings && (systemSettings.base_currency_symbol || systemSettings.billing_country));
         const taxGroupConfigured = (taxGroupsCount > 0);
         const sequenceConfigured = (sequencesCount > 0);
@@ -598,12 +482,7 @@ exports.getOnboardingStatus = async (req, res) => {
         const supplierConfigured = (suppliersCount > 0);
         const restaurantConfigured = (tablesCount > 0);
         const usersConfigured = (usersCount > 1);
-
-        const businessType = resolveBusinessModule(
-            outletObj?.business_module || req.user?.business_module,
-            propInfo?.business_type || req.user?.outlet_type || outletObj?.outlet_type
-        );
-
+        const businessType = resolveBusinessModule(outletObj?.business_module || req.user?.business_module, propInfo?.business_type || req.user?.outlet_type || outletObj?.outlet_type);
         res.json({
             success: true,
             data: {
@@ -619,11 +498,11 @@ exports.getOnboardingStatus = async (req, res) => {
                 users_configured: usersConfigured
             }
         });
-    } catch (err) {
+    }
+    catch (err) {
         console.error('[ONBOARDING STATUS ERROR]', err);
         res.status(500).json({ success: false, message: 'Failed to fetch onboarding status: ' + err.message });
     }
 };
-
 module.exports = exports;
-
+exports.default = exports;

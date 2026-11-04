@@ -92,6 +92,7 @@ class _LoginScreenState extends State<LoginScreen>
     } else if (AppConfig.outlets.isNotEmpty) {
       _selectedOutlet = AppConfig.outlets.first;
     }
+    _initLastSelectedOutlet();
 
     if (widget.initialUsername != null && widget.initialUsername!.isNotEmpty) {
       _usernameCtrl.text = widget.initialUsername!;
@@ -108,6 +109,23 @@ class _LoginScreenState extends State<LoginScreen>
     _logoCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 800));
     _logoCtrl.forward();
+  }
+
+  Future<void> _initLastSelectedOutlet() async {
+    try {
+      final lastCode = await LocalPreferences.getLastOutletCode();
+      if (lastCode != null && lastCode.isNotEmpty) {
+        if (!AppConfig.outlets.contains(lastCode)) {
+          AppConfig.outlets.insert(0, lastCode);
+        }
+        if (mounted && (widget.initialOutletCode == null || widget.initialOutletCode!.isEmpty)) {
+          setState(() {
+            _selectedOutlet = lastCode;
+          });
+          _loadOutletLogo();
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _checkServerHealth() async {
@@ -1217,6 +1235,7 @@ class _LoginScreenState extends State<LoginScreen>
                   .toList(),
               onChanged: (v) {
                 setState(() => _selectedOutlet = v);
+                if (v != null) LocalPreferences.setLastOutletCode(v);
                 _loadOutletLogo();
               },
               validator: (v) => v == null ? 'Required' : null,

@@ -30,7 +30,9 @@ export const ping = async (req: Request, res: Response) => {
  */
 export const exportBundle = async (req: Request, res: Response) => {
     try {
-        const outletCode = req.user?.outlet_code || (req as any).outlet_code || req.body.outlet_code;
+        const reqScope = String(req.body?.scope || '').toUpperCase();
+        const isAllScope = reqScope === 'ALL' || req.body?.outlet_code === 'ALL';
+        const outletCode = isAllScope ? 'ALL' : (req.user?.outlet_code || (req as any).outlet_code || req.body.outlet_code);
         const db = (req as any).propertyDb;
 
         if (!db) {
@@ -42,21 +44,23 @@ export const exportBundle = async (req: Request, res: Response) => {
         // 1. Fetch Outlet record
         let outletRecord = null;
         let outletId: number | null = null;
-        if (outletCode && db.models.outlets) {
-            outletRecord = await db.models.outlets.findOne({
-                where: { outlet_code: outletCode },
-                raw: true
-            });
+        let allOutlets: any[] = [];
+        if (db.models.outlets) {
+            allOutlets = await db.models.outlets.findAll({ raw: true }).catch(() => []);
+        }
+
+        if (!isAllScope && outletCode && outletCode !== 'ALL' && db.models.outlets) {
+            outletRecord = allOutlets.find((o: any) => o.outlet_code === outletCode) || null;
             if (outletRecord) outletId = outletRecord.id;
         }
 
-        const outletFilter = outletId ? { outlet_id: outletId } : {};
+        const outletFilter = (isAllScope || !outletId) ? {} : { outlet_id: outletId };
 
         // 2. Fetch Users
         let users: any[] = [];
         if (db.models.users) {
             users = await db.models.users.findAll({
-                where: outletCode ? { outlet_code: outletCode } : {},
+                where: (isAllScope || !outletCode || outletCode === 'ALL') ? {} : { outlet_code: outletCode },
                 attributes: ['id', 'username', 'password', 'role', 'outlet_code', 'outlet_id', 'is_active', 'full_name', 'email', 'mobile', 'pos_pin'],
                 raw: true
             });
@@ -214,6 +218,8 @@ export const exportBundle = async (req: Request, res: Response) => {
             hrEmployees,
             hrDesignations,
             hrShifts,
+            outlets: allOutlets,
+            scope: isAllScope ? 'ALL' : 'OUTLET',
             database_enc_base64: encBase64
         };
 
@@ -879,10 +885,14 @@ export const importBundle = async (req: Request, res: Response) => {
  */
 export const syncOnlineToOffline = async (req: Request, res: Response) => {
     try {
-        const { cloud_url, outlet_code, admin_password } = req.body;
+        const { cloud_url, outlet_code, admin_password, scope } = req.body;
 
-        if (!cloud_url || !outlet_code) {
-            return res.status(400).json({ success: false, message: "Cloud URL and Outlet Code are required." });
+        if (!cloud_url) {
+            return res.status(400).json({ success: false, message: "Cloud URL is required." });
+        }
+        const effectiveScope = String(scope || (outlet_code === 'ALL' ? 'ALL' : 'OUTLET')).toUpperCase();
+        if (effectiveScope !== 'ALL' && !outlet_code) {
+            return res.status(400).json({ success: false, message: "Outlet Code is required for single outlet sync." });
         }
 
         let cleanCloudUrl = cloud_url.trim();
@@ -900,7 +910,7 @@ export const syncOnlineToOffline = async (req: Request, res: Response) => {
             const fetchRes = await fetch(`${cleanCloudUrl}/api/public/migration/export-bundle`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ outlet_code }),
+                body: JSON.stringify({ outlet_code, scope: effectiveScope }),
                 signal: abortCtrl.signal
             });
             cloudExportRes = await fetchRes.json();

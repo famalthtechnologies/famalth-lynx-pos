@@ -1,8 +1,21 @@
 import { Request, Response } from 'express';
 import TenantBackupService from '../../services/tenantBackup.service';
+import DataRetentionService from '../../services/dataRetention.service';
 import fs from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
+const { sendMail } = require('../../services/email.service');
+const jwtUtil = require('../../utils/jwt.util');
+
+function formatBytes(bytes: number, decimals: number = 2): string {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
 
 export class BackupManagementController {
   /**
@@ -267,6 +280,633 @@ export class BackupManagementController {
     } catch (err: any) {
       console.error('restoreSystemBackup error:', err);
       return res.status(500).json({ success: false, message: err.message || 'System restore failed.' });
+    }
+  }
+
+  /**
+   * 8. Create Granular .fambak Backup (All Outlets or Particular Outlet Only)
+   * POST /api/backup/create-fambak
+   */
+  public static async createFambakBackup(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const scope = (String(req.body?.scope || 'OUTLET').toUpperCase() === 'ALL') ? 'ALL' : 'OUTLET';
+      const outletId = Number(req.body?.outletId || (req as any).outlet_id || req.user?.outlet_id || 1);
+      const outletCode = String(req.body?.outletCode || (req as any).outlet_code || req.user?.outlet_code || `OUT_${outletId}`);
+      const outletMeta = (req as any).outlet || {};
+      const saveToDrive = req.body?.saveToDrive === true || req.query?.saveToDrive === 'true';
+
+      const result = await TenantBackupService.createFambakBackup(activeDb, {
+        scope,
+        outletId,
+        outletCode,
+        outletMeta,
+        saveToDrive,
+      });
+
+      let emailResult: any = null;
+      const recipientEmail = String(req.body?.recipientEmail || (req.body?.sendEmailLink ? (req.user?.email || process.env.ADMIN_EMAIL) : '') || '').trim();
+      if (recipientEmail && recipientEmail.includes('@')) {
+        try {
+          emailResult = await BackupManagementController.sendDisasterRecoveryEmail({
+            activeDb,
+            filePath: result.filePath,
+            filename: result.filename,
+            recipientEmail,
+            outletCode,
+            outletId,
+            req,
+            scope,
+          });
+        } catch (eErr: any) {
+          console.warn('Auto-email backup link failed:', eErr.message);
+        }
+      }
+
+      return res.json({
+        success: true,
+        message: scope === 'ALL'
+          ? `Complete Enterprise backup (.fambak) secured successfully (${result.totalRecords} records across all outlets).`
+          : `Granular outlet backup (.fambak) for ${outletCode} secured successfully (${result.totalRecords} records).`,
+        data: result,
+      });
+    } catch (err: any) {
+      console.error('createFambakBackup error:', err);
+      return res.status(500).json({
+        success: false,
+        message: err.message || 'Failed to generate .fambak backup archive.',
+      });
+    }
+  }
+
+  /**
+   * 9. Pre-Inspect Backup Manifest (.fambak, .posbak, .zip, .enc, .json)
+   * POST /api/backup/inspect-backup
+   */
+  public static async inspectBackupManifest(req: Request, res: Response) {
+    try {
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+      const outletCode = String((req as any).outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
+
+      const { base64, filename } = req.body;
+      let fileBuffer: Buffer | null = null;
+
+      if (base64) {
+        fileBuffer = Buffer.from(base64, 'base64');
+      } else if (filename) {
+        const filePath = TenantBackupService.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
+        if (filePath && fs.existsSync(filePath)) {
+          fileBuffer = await fsPromises.readFile(filePath);
+        }
+      }
+
+      if (!fileBuffer || fileBuffer.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No backup payload or valid filename provided for pre-inspection.',
+        });
+      }
+
+      const manifest = await TenantBackupService.inspectBackupManifest(fileBuffer);
+
+      return res.json({
+        success: true,
+        manifest,
+      });
+    } catch (err: any) {
+      console.error('inspectBackupManifest error:', err);
+      return res.status(500).json({
+        success: false,
+        message: err.message || 'Failed to pre-inspect backup archive manifest.',
+      });
+    }
+  }
+
+  /**
+   * 10. Restore .fambak Backup (Selective Outlet Restore or Full Enterprise)
+   * POST /api/backup/restore-fambak
+   */
+  public static async restoreFambakBackup(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+      const userOutletCode = String((req as any).outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
+
+      const {
+        base64,
+        filename,
+        scope,
+        selectedOutletCode,
+        targetOutletId,
+        targetOutletCode,
+        overwriteExisting
+      } = req.body;
+
+      let fileBuffer: Buffer | null = null;
+      if (base64) {
+        fileBuffer = Buffer.from(base64, 'base64');
+      } else if (filename) {
+        const filePath = TenantBackupService.resolveBackupFilePath(filename, userOutletCode, isSuperAdmin);
+        if (filePath && fs.existsSync(filePath)) {
+          fileBuffer = await fsPromises.readFile(filePath);
+        }
+      }
+
+      if (!fileBuffer || fileBuffer.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No backup file payload or valid filename provided for restore.',
+        });
+      }
+
+      const effectiveTargetId = Number(targetOutletId || (req as any).outlet_id || req.user?.outlet_id || 1);
+      const effectiveTargetCode = String(targetOutletCode || userOutletCode || `OUT_${effectiveTargetId}`);
+
+      const result = await TenantBackupService.restoreFambakBackup(activeDb, fileBuffer, {
+        scope: scope ? (String(scope).toUpperCase() === 'ALL' ? 'ALL' : 'OUTLET') : undefined,
+        selectedOutletCode: selectedOutletCode ? String(selectedOutletCode).trim() : undefined,
+        targetOutletId: effectiveTargetId,
+        targetOutletCode: effectiveTargetCode,
+        overwriteExisting: overwriteExisting === true,
+      });
+
+      return res.json({
+        success: true,
+        message: overwriteExisting === true
+          ? `Point-in-Time Rollback completed successfully: Restored ${result.totalRecordsRestored} records into outlet ${result.restoredOutletCode}.`
+          : `Safe Merge completed successfully: Restored ${result.totalRecordsRestored} records into outlet ${result.restoredOutletCode}. Newer transactions were preserved.`,
+        data: result,
+      });
+    } catch (err: any) {
+      console.error('restoreFambakBackup error:', err);
+      return res.status(500).json({
+        success: false,
+        message: err.message || 'Failed to execute backup restoration.',
+      });
+    }
+  }
+
+  /**
+   * 11. List Cloud & Remote Snapshots History
+   * GET /api/backup/cloud-backups
+   */
+  public static async listCloudBackups(req: Request, res: Response) {
+    try {
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+      const outletCode = String(
+        req.query?.outlet_code ||
+        (req as any).outlet_code ||
+        req.user?.outlet_code ||
+        req.outlet?.outlet_code ||
+        req.outlet?.code ||
+        ''
+      );
+
+      const snapshots = await TenantBackupService.listCloudSnapshots(outletCode, isSuperAdmin);
+
+      return res.json({
+        success: true,
+        data: snapshots,
+      });
+    } catch (err: any) {
+      console.error('listCloudBackups error:', err);
+      return res.status(500).json({
+        success: false,
+        message: err.message || 'Failed to list cloud snapshots.',
+      });
+    }
+  }
+
+  /**
+   * 12. 1-Click Restore Cloud Backup Snapshot
+   * POST /api/backup/restore-cloud-backup
+   */
+  public static async restoreCloudBackup(req: Request, res: Response) {
+    try {
+      return await BackupManagementController.restoreFambakBackup(req, res);
+    } catch (err: any) {
+      console.error('restoreCloudBackup error:', err);
+      return res.status(500).json({
+        success: false,
+        message: err.message || '1-Click cloud restore failed.',
+      });
+    }
+  }
+
+  /**
+   * Helper: Send Off-Server Disaster Recovery Email with Signed 7-Day Download Token
+   */
+  public static async sendDisasterRecoveryEmail(options: {
+    activeDb: any;
+    filePath: string;
+    filename: string;
+    recipientEmail: string;
+    outletCode: string;
+    outletId: number;
+    req: Request;
+    scope?: string;
+  }): Promise<{ success: boolean; message: string; downloadUrl: string; expiresAt: string; checksum: string }> {
+    const { activeDb, filePath, filename, recipientEmail, outletCode, outletId, req } = options;
+    const stat = await fsPromises.stat(filePath);
+    const fileBuffer = await fsPromises.readFile(filePath);
+    const checksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+    const sizePretty = formatBytes(stat.size);
+
+    let scope = options.scope || 'OUTLET';
+    let totalRecords = 0;
+    let outletsSummary = '';
+    try {
+      const manifest = await TenantBackupService.inspectBackupManifest(fileBuffer);
+      scope = manifest.scope || scope;
+      totalRecords = manifest.totalRecords || 0;
+      if (manifest.outlets && manifest.outlets.length > 0) {
+        outletsSummary = manifest.outlets.map((o: any) => `${o.name} (${o.code})`).join(', ');
+      }
+    } catch (_) {}
+
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const downloadToken = (jwtUtil as any).sign(
+      {
+        action: 'DISASTER_RECOVERY_DOWNLOAD',
+        filename: path.basename(filename),
+        outletCode,
+        scope,
+        sizeBytes: stat.size,
+        checksum,
+      },
+      { expiresIn: '7d' }
+    );
+
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol || 'http';
+    const downloadUrl = `${protocol}://${host}/api/backup/email-download?token=${encodeURIComponent(downloadToken)}`;
+
+    let offsiteS3Status = false;
+    let offsiteDriveStatus: any = null;
+
+    try {
+      const { isS3Configured, uploadBackupToS3 } = require('../../modules/s3BackupService');
+      if (isS3Configured()) {
+        offsiteS3Status = await uploadBackupToS3(filePath, path.basename(filename));
+      }
+    } catch (_) {}
+
+    try {
+      const { uploadFambakToDrive } = require('../../modules/driveService');
+      offsiteDriveStatus = await uploadFambakToDrive(filePath, path.basename(filename), outletCode);
+    } catch (_) {}
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Disaster Recovery Backup Archive</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 24px; color: #2d3748; }
+    .card { max-width: 620px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }
+    .header { background: linear-gradient(135deg, #1e3a8a, #2563eb); padding: 32px 28px; text-align: center; color: #ffffff; }
+    .header h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+    .header p { margin: 6px 0 0; font-size: 14px; opacity: 0.9; }
+    .content { padding: 32px 28px; }
+    .badge { display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 600; border-radius: 9999px; text-transform: uppercase; }
+    .badge-all { background: #dbeafe; color: #1e40af; }
+    .badge-outlet { background: #fef3c7; color: #92400e; }
+    .info-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }
+    .info-table td { padding: 10px 12px; border-bottom: 1px solid #edf2f7; }
+    .info-table td.label { font-weight: 600; color: #718096; width: 38%; }
+    .info-table td.value { font-family: 'SFMono-Regular', Consolas, Menlo, monospace; color: #1a202c; word-break: break-all; }
+    .btn-container { text-align: center; margin: 30px 0 20px; }
+    .btn { display: inline-block; background: #2563eb; color: #ffffff !important; padding: 14px 32px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 15px; box-shadow: 0 3px 8px rgba(37,99,235,0.3); }
+    .instructions { background: #f8fafc; border-left: 4px solid #3b82f6; padding: 16px; border-radius: 4px; margin-top: 24px; font-size: 13px; line-height: 1.6; color: #4a5568; }
+    .instructions h4 { margin: 0 0 8px; color: #1a202c; font-size: 14px; }
+    .code-box { background: #1e293b; color: #38bdf8; padding: 10px 14px; border-radius: 6px; font-family: monospace; font-size: 12px; margin-top: 8px; overflow-x: auto; }
+    .footer { text-align: center; padding: 20px; font-size: 12px; color: #a0aec0; border-top: 1px solid #edf2f7; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1>🛡️ Disaster Recovery Backup Archive Ready</h1>
+      <p>Secure Off-Server Snapshot Ready for Download</p>
+    </div>
+    <div class="content">
+      <p>Hello Administrator,</p>
+      <p>A new secure disaster recovery backup archive has been generated for your POS & ERP system. We email this direct link so you can download and preserve an independent copy on your personal computer or offline cold storage.</p>
+      
+      <table class="info-table">
+        <tr>
+          <td class="label">Scope</td>
+          <td class="value"><span class="badge ${scope === 'ALL' ? 'badge-all' : 'badge-outlet'}">${scope === 'ALL' ? '🌐 Complete Enterprise (All Outlets)' : '🏪 Single Outlet Scoped'}</span></td>
+        </tr>
+        <tr>
+          <td class="label">Archive Filename</td>
+          <td class="value">${path.basename(filename)}</td>
+        </tr>
+        <tr>
+          <td class="label">Archive Size</td>
+          <td class="value">${sizePretty}</td>
+        </tr>
+        <tr>
+          <td class="label">Secured Records</td>
+          <td class="value">${totalRecords > 0 ? totalRecords.toLocaleString() : 'All Active Records'}</td>
+        </tr>
+        ${outletsSummary ? `<tr><td class="label">Outlets Covered</td><td class="value">${outletsSummary}</td></tr>` : ''}
+        <tr>
+          <td class="label">SHA-256 Checksum</td>
+          <td class="value" style="font-size: 11px;">${checksum}</td>
+        </tr>
+        <tr>
+          <td class="label">DigitalOcean Spaces / S3</td>
+          <td class="value">${offsiteS3Status ? '✅ Uploaded & Redundant' : 'Not configured'}</td>
+        </tr>
+        <tr>
+          <td class="label">Google Drive Cloud</td>
+          <td class="value">${offsiteDriveStatus?.success ? '✅ Redundant Copy Stored' : (offsiteDriveStatus?.message || 'Offline / Skipped')}</td>
+        </tr>
+        <tr>
+          <td class="label">Token Validity</td>
+          <td class="value">Expires in 7 days (JWT Signed)</td>
+        </tr>
+      </table>
+
+      <div class="btn-container">
+        <a href="${downloadUrl}" class="btn" target="_blank">📥 Download Backup Archive (.fambak)</a>
+      </div>
+
+      <div class="instructions">
+        <h4>🚨 What if your DigitalOcean droplet crashes or server is destroyed?</h4>
+        <p>1. Keep this downloaded <code>${path.basename(filename)}</code> file safe on your local drive or USB backup disk.</p>
+        <p>2. If your cloud droplet ever fails, launch a fresh server instance, checkout the project, and run the 1-line bare-metal recovery command:</p>
+        <div class="code-box">node disaster_recovery.js restore ${path.basename(filename)}</div>
+        <p style="margin-top: 8px;">Your PostgreSQL tables, transaction history, inventory, user accounts, and sequence numbers will be restored in under 2 minutes.</p>
+      </div>
+    </div>
+    <div class="footer">
+      Sent automatically by Retail POS Enterprise Disaster Recovery System.<br/>
+      If you did not request this backup, please check your administrator activity logs immediately.
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    const emailSent = await sendMail({
+      db: activeDb,
+      outlet_id: outletId,
+      to: recipientEmail,
+      subject: `[Backup Ready] Disaster Recovery Archive: ${path.basename(filename)} (${sizePretty})`,
+      html: htmlContent,
+    });
+
+    return {
+      success: emailSent,
+      message: emailSent
+        ? `Disaster recovery backup link successfully emailed to ${recipientEmail}.`
+        : `Backup link generated, but email delivery failed. Verify SMTP / Gmail credentials.`,
+      downloadUrl,
+      expiresAt,
+      checksum,
+    };
+  }
+
+  /**
+   * 13. Off-Server Disaster Recovery: Email Backup Download Link
+   * POST /api/backup/email-backup-link
+   */
+  public static async emailBackupLink(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+      const outletCode = String(
+        req.body?.outletCode ||
+        (req as any).outlet_code ||
+        req.user?.outlet_code ||
+        req.outlet?.outlet_code ||
+        'DEFAULT'
+      );
+      const outletId = Number(req.body?.outletId || (req as any).outlet_id || req.user?.outlet_id || 1);
+
+      const filename = String(req.body?.filename || '').trim();
+      const recipientEmail = String(
+        req.body?.recipientEmail ||
+        req.user?.email ||
+        process.env.ADMIN_EMAIL ||
+        process.env.EMAIL_USER ||
+        ''
+      ).trim();
+
+      if (!filename) {
+        return res.status(400).json({ success: false, message: 'Backup filename is required.' });
+      }
+
+      if (!recipientEmail || !recipientEmail.includes('@')) {
+        return res.status(400).json({ success: false, message: 'Valid recipient email address is required.' });
+      }
+
+      const filePath = TenantBackupService.resolveBackupFilePath(filename, outletCode, isSuperAdmin);
+      if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ success: false, message: 'Backup archive file not found on server.' });
+      }
+
+      const emailResult = await BackupManagementController.sendDisasterRecoveryEmail({
+        activeDb,
+        filePath,
+        filename,
+        recipientEmail,
+        outletCode,
+        outletId,
+        req,
+        scope: req.body?.scope,
+      });
+
+      return res.json({
+        success: true,
+        message: emailResult.message,
+        downloadUrl: emailResult.downloadUrl,
+        expiresAt: emailResult.expiresAt,
+        checksum: emailResult.checksum,
+        emailSent: emailResult.success,
+      });
+    } catch (err: any) {
+      console.error('emailBackupLink error:', err);
+      return res.status(500).json({
+        success: false,
+        message: err.message || 'Failed to email backup download link.',
+      });
+    }
+  }
+
+  /**
+   * 14. Download Backup Archive Via Signed Token (Token-Authenticated Public URL)
+   * GET /api/backup/email-download?token=...
+   */
+  public static async downloadViaEmailToken(req: Request, res: Response) {
+    try {
+      const token = String(req.query?.token || '').trim();
+      if (!token) {
+        return res.status(401).send(`
+          <div style="font-family: sans-serif; padding: 40px; text-align: center;">
+            <h2 style="color: #dc2626;">Unauthorized Access</h2>
+            <p style="color: #4b5563;">Missing download token. Please use the complete link provided in your disaster recovery email.</p>
+          </div>
+        `);
+      }
+
+      let payload: any;
+      try {
+        payload = (jwtUtil as any).verify(token);
+      } catch (tokenErr: any) {
+        return res.status(403).send(`
+          <div style="font-family: sans-serif; padding: 40px; text-align: center;">
+            <h2 style="color: #dc2626;">Link Expired or Invalid</h2>
+            <p style="color: #4b5563;">The download token has expired or is invalid (${tokenErr.message}). Please generate a fresh backup link from your POS Settings console.</p>
+          </div>
+        `);
+      }
+
+      if (!payload || payload.action !== 'DISASTER_RECOVERY_DOWNLOAD' || !payload.filename) {
+        return res.status(403).send(`
+          <div style="font-family: sans-serif; padding: 40px; text-align: center;">
+            <h2 style="color: #dc2626;">Invalid Token Payload</h2>
+            <p style="color: #4b5563;">The provided token is not authorized for disaster recovery downloads.</p>
+          </div>
+        `);
+      }
+
+      const filename = path.basename(String(payload.filename));
+      const filePath = TenantBackupService.resolveBackupFilePath(filename, payload.outletCode, true);
+
+      if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).send(`
+          <div style="font-family: sans-serif; padding: 40px; text-align: center;">
+            <h2 style="color: #dc2626;">Backup Archive Not Found</h2>
+            <p style="color: #4b5563;">The requested backup file (<code>${filename}</code>) is no longer available on this server's storage disk.</p>
+          </div>
+        `);
+      }
+
+      const stat = await fsPromises.stat(filePath);
+
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', stat.size);
+      res.setHeader('X-Disaster-Recovery-Scope', payload.scope || 'ALL');
+
+      const readStream = fs.createReadStream(filePath);
+      return readStream.pipe(res);
+    } catch (err: any) {
+      console.error('downloadViaEmailToken error:', err);
+      return res.status(500).send(`
+        <div style="font-family: sans-serif; padding: 40px; text-align: center;">
+          <h2 style="color: #dc2626;">Server Error</h2>
+          <p style="color: #4b5563;">An unexpected error occurred while streaming the backup archive.</p>
+        </div>
+      `);
+    }
+  }
+
+
+  /**
+   * 15. Provider Control Plane: Preview Cloud Data Retention Pruning
+   * POST /api/backup/provider/retention-preview
+   */
+  public static async previewProviderRetention(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+
+      if (!isSuperAdmin) {
+        return res.status(403).json({ success: false, message: 'Provider console access denied: Super Admin role required.' });
+      }
+
+      const allOutlets = req.body?.allOutlets === true;
+      const outletCode = req.body?.outletCode;
+      const outletId = req.body?.outletId ? Number(req.body.outletId) : undefined;
+      const retentionType = req.body?.retentionType || (req.body?.olderThanYears ? 'OLDER_THAN' : 'ALL_TIME');
+      const olderThanYears = Number(req.body?.olderThanYears || 5);
+      const startDate = req.body?.startDate;
+      const endDate = req.body?.endDate;
+      const modules = req.body?.modules;
+
+      const preview = await DataRetentionService.previewRetentionPurge(activeDb, {
+        allOutlets,
+        outletId,
+        outletCode,
+        retentionType,
+        olderThanYears,
+        startDate,
+        endDate,
+        modules,
+      });
+
+      return res.json({
+        success: true,
+        preview,
+      });
+    } catch (err: any) {
+      console.error('previewProviderRetention error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Failed to preview provider retention.' });
+    }
+  }
+
+  /**
+   * 16. Provider Control Plane: Execute Cloud Data Retention Pruning
+   * POST /api/backup/provider/retention-purge
+   */
+  public static async executeProviderRetention(req: Request, res: Response) {
+    try {
+      const activeDb = (req as any).propertyDb;
+      const userRole = String(req.user?.role || '').toUpperCase();
+      const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
+
+      if (!isSuperAdmin) {
+        return res.status(403).json({ success: false, message: 'Provider console access denied: Super Admin role required.' });
+      }
+
+      const confirmText = String(req.body?.confirmText || '').trim().toUpperCase();
+      if (confirmText !== 'PURGE CONFIRMED' && confirmText !== 'DELETE ALL DATA') {
+        return res.status(400).json({ success: false, message: 'Type PURGE CONFIRMED to execute cloud retention purge.' });
+      }
+
+      const allOutlets = req.body?.allOutlets === true;
+      const outletCode = req.body?.outletCode;
+      const outletId = req.body?.outletId ? Number(req.body.outletId) : undefined;
+      const retentionType = req.body?.retentionType || (req.body?.olderThanYears ? 'OLDER_THAN' : 'ALL_TIME');
+      const olderThanYears = Number(req.body?.olderThanYears || 5);
+      const startDate = req.body?.startDate;
+      const endDate = req.body?.endDate;
+      const modules = req.body?.modules;
+      const createBackupFirst = req.body?.createBackupFirst !== false;
+      const recipientEmail = req.body?.recipientEmail || req.user?.email;
+
+      const result = await DataRetentionService.executeRetentionPurge(activeDb, {
+        allOutlets,
+        outletId,
+        outletCode,
+        retentionType,
+        olderThanYears,
+        startDate,
+        endDate,
+        modules,
+        createBackupFirst,
+        recipientEmail,
+        req,
+      });
+
+      return res.json({
+        success: true,
+        message: `Provider retention purge completed: ${result.totalDeletedRecords.toLocaleString()} records removed.`,
+        data: result,
+      });
+    } catch (err: any) {
+      console.error('executeProviderRetention error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Failed to execute provider retention purge.' });
     }
   }
 }

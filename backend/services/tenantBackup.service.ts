@@ -159,7 +159,7 @@ export class TenantBackupService {
     } catch (_) {}
 
     // Backups directory audit
-    const backupAllowed = ['.posbak', '.enc', '.zip', '.sql', '.gz'];
+    const backupAllowed = ['.fambak', '.posbak', '.enc', '.zip', '.sql', '.gz'];
     let backupDirData: { size: number; count: number; files: { path: string; name: string; size: number; mtime: Date }[] };
 
     if (!isSuperAdmin && outletCode && outletCode !== 'ALL' && outletCode !== 'DEFAULT') {
@@ -169,7 +169,7 @@ export class TenantBackupService {
 
       for (const root of getBackupSearchRoots()) {
         const outletSubdir = path.join(root, 'outlets', outletCode);
-        const subData = await getDirectorySizeAndFiles(outletSubdir, ['.posbak', '.zip', '.gz']);
+        const subData = await getDirectorySizeAndFiles(outletSubdir, ['.fambak', '.posbak', '.zip', '.gz']);
         for (const sf of subData.files) {
           if (!clientFiles.some(f => f.name === sf.name)) {
             clientFiles.push(sf);
@@ -307,7 +307,7 @@ export class TenantBackupService {
     const outletStorageList: OutletStorageDetail[] = [];
 
     // Scan root backups directory once for performance
-    const rootBackupCheck = await getDirectorySizeAndFiles(BACKUP_BASE_DIR, ['.posbak', '.enc']);
+    const rootBackupCheck = await getDirectorySizeAndFiles(BACKUP_BASE_DIR, ['.fambak', '.posbak', '.enc']);
 
     for (const o of outletList) {
       const oId = Number(o.id);
@@ -321,7 +321,7 @@ export class TenantBackupService {
 
       // Check physical backups in outlet-specific subfolder
       const outletBackupDir = path.join(BACKUP_BASE_DIR, 'outlets', oCode);
-      const backupData = await getDirectorySizeAndFiles(outletBackupDir, ['.posbak', '.enc', '.zip', '.sql']);
+      const backupData = await getDirectorySizeAndFiles(outletBackupDir, ['.fambak', '.posbak', '.enc', '.zip', '.sql']);
 
       const matchingRootBackups = rootBackupCheck.files.filter(f => f.name.includes(oCode));
       const totalBackupsBytes = backupData.size + matchingRootBackups.reduce((acc, f) => acc + f.size, 0);
@@ -713,6 +713,8 @@ export class TenantBackupService {
     const searchRoots = getBackupSearchRoots();
 
     for (const root of searchRoots) {
+      const entCandidate = path.join(root, 'enterprise', sanitized);
+      if (fs.existsSync(entCandidate)) return entCandidate;
       if (outletCode) {
         const outletPath = path.join(root, 'outlets', outletCode, sanitized);
         if (fs.existsSync(outletPath)) return outletPath;
@@ -1090,6 +1092,655 @@ export class TenantBackupService {
       tablesRestored,
       uploadsRestored,
     };
+  }
+
+  /**
+   * 10. Create Granular .fambak Backup (All Outlets or Particular Outlet)
+   * Supports local file storage, versioned enterprise paths, and Google Drive sync.
+   */
+  public static async createFambakBackup(
+    activeDb: any,
+    options: {
+      scope: 'ALL' | 'OUTLET';
+      outletId?: number;
+      outletCode?: string;
+      outletMeta?: any;
+      saveToDrive?: boolean;
+    }
+  ): Promise<{
+    filename: string;
+    filePath: string;
+    sizeBytes: number;
+    sizePretty: string;
+    totalRecords: number;
+    scope: 'ALL' | 'OUTLET';
+    outlets: any[];
+    downloadUrl: string;
+    driveStatus?: { success: boolean; message: string; fileId?: string };
+    s3Status?: boolean;
+  }> {
+    const isAll = options.scope === 'ALL';
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
+
+    const tablesToExport = [
+      'outlets', 'users', 'system_settings', 'app_branding', 'tax_groups', 'tax_group_components',
+      'item_groups', 'subcategories', 'brands', 'item_master', 'batches', 'stock_locations',
+      'stock_ledger', 'item_modifiers', 'item_boms', 'customers', 'customer_advances', 'customer_repayments',
+      'sales_headers', 'sales_items', 'restaurant_tables', 'table_reservations', 'kot_headers', 'kot_items',
+      'purchase_orders', 'purchase_order_items', 'goods_receipts', 'goods_receipt_items', 'supplier_master',
+      'supplier_bills', 'supplier_payments', 'clinic_appointments', 'hr_employees', 'hr_attendance_punches',
+      'hr_biometric_devices', 'expenses', 'accounting_vouchers', 'voucher_lines', 'bank_accounts', 'cash_ledger',
+      'milk_subscriptions', 'milk_subscription_consumptions', 'milk_subscription_items', 'user_notes',
+      'numbering_settings', 'paymentMethod', 'saleSource'
+    ];
+
+    const backupData: Record<string, any[]> = {};
+    let totalRecords = 0;
+    const outletsList: any[] = [];
+    let filename = '';
+    let targetDirectory = '';
+
+    if (isAll) {
+      targetDirectory = path.join(BACKUP_BASE_DIR, 'enterprise');
+      await fsPromises.mkdir(targetDirectory, { recursive: true });
+      filename = `enterprise_backup_all_${timestamp}.fambak`;
+
+      // Read all records for each table
+      for (const tbl of tablesToExport) {
+        try {
+          const rows: any[] = await activeDb.query(`SELECT * FROM "${tbl}";`, { type: QueryTypes.SELECT }).catch(() => []);
+          const rowList = Array.isArray(rows) ? rows : (rows?.[0] || []);
+          backupData[tbl] = rowList;
+          totalRecords += rowList.length;
+        } catch (_) {
+          backupData[tbl] = [];
+        }
+      }
+
+      // Build outlets manifest
+      const allOutlets = backupData.outlets || [];
+      if (allOutlets.length > 0) {
+        for (const o of allOutlets) {
+          const oId = Number(o.id);
+          let oCount = 0;
+          for (const [tName, rows] of Object.entries(backupData)) {
+            if (tName === 'outlets' || !Array.isArray(rows)) continue;
+            oCount += rows.filter(r => r && (r.outlet_id === oId || r.outlet_code === o.outlet_code)).length;
+          }
+          outletsList.push({
+            id: oId,
+            code: o.outlet_code || `OUT_${oId}`,
+            name: o.outlet_name || o.name || `Outlet #${oId}`,
+            business_module: o.business_module || 'ALL',
+            recordCount: oCount,
+          });
+        }
+      } else {
+        outletsList.push({
+          id: 1,
+          code: 'DEFAULT',
+          name: 'Primary Enterprise Store',
+          business_module: 'ALL',
+          recordCount: totalRecords,
+        });
+      }
+    } else {
+      // Scoped Single Outlet
+      const outletId = Number(options.outletId || 1);
+      const outletCode = String(options.outletCode || `OUT_${outletId}`);
+      targetDirectory = path.join(BACKUP_BASE_DIR, 'outlets', outletCode);
+      await fsPromises.mkdir(targetDirectory, { recursive: true });
+      filename = `outlet_backup_${outletCode}_${timestamp}.fambak`;
+
+      const outletScopedTables = [
+        'item_master', 'batches', 'stock_locations', 'stock_ledger', 'item_modifiers', 'item_boms',
+        'customers', 'customer_advances', 'customer_repayments', 'sales_headers', 'restaurant_tables',
+        'table_reservations', 'kot_headers', 'purchase_orders', 'goods_receipts', 'supplier_master',
+        'supplier_bills', 'supplier_payments', 'clinic_appointments', 'hr_employees', 'hr_attendance_punches',
+        'hr_biometric_devices', 'expenses', 'accounting_vouchers', 'bank_accounts', 'cash_ledger',
+        'milk_subscriptions', 'milk_subscription_consumptions', 'user_notes', 'numbering_settings'
+      ];
+
+      for (const tbl of outletScopedTables) {
+        try {
+          const rows: any[] = await activeDb.query(
+            `SELECT * FROM "${tbl}" WHERE outlet_id = :targetOutletId;`,
+            { replacements: { targetOutletId: outletId }, type: QueryTypes.SELECT }
+          ).catch(() => []);
+          const rowList = Array.isArray(rows) ? rows : (rows?.[0] || []);
+          backupData[tbl] = rowList;
+          totalRecords += rowList.length;
+        } catch (_) {
+          backupData[tbl] = [];
+        }
+      }
+
+      // Child tables
+      const childTables = [
+        { name: 'sales_items', fk: 'sale_id', parentTable: 'sales_headers' },
+        { name: 'kot_items', fk: 'kot_header_id', parentTable: 'kot_headers' },
+        { name: 'purchase_order_items', fk: 'po_id', parentTable: 'purchase_orders' },
+        { name: 'goods_receipt_items', fk: 'grn_id', parentTable: 'goods_receipts' },
+        { name: 'voucher_lines', fk: 'voucher_id', parentTable: 'accounting_vouchers' },
+        { name: 'milk_subscription_items', fk: 'subscription_id', parentTable: 'milk_subscriptions' },
+      ];
+
+      for (const child of childTables) {
+        try {
+          const rows: any[] = await activeDb.query(
+            `SELECT c.* FROM "${child.name}" c 
+             JOIN "${child.parentTable}" p ON c."${child.fk}" = p.id 
+             WHERE p.outlet_id = :targetOutletId;`,
+            { replacements: { targetOutletId: outletId }, type: QueryTypes.SELECT }
+          ).catch(() => []);
+          const rowList = Array.isArray(rows) ? rows : (rows?.[0] || []);
+          backupData[child.name] = rowList;
+          totalRecords += rowList.length;
+        } catch (_) {
+          backupData[child.name] = [];
+        }
+      }
+
+      // Scoped users & global references
+      try {
+        const usersRows: any[] = await activeDb.query(
+          `SELECT * FROM "users" WHERE outlet_id = :targetOutletId OR outlet_code = :outletCode;`,
+          { replacements: { targetOutletId: outletId, outletCode }, type: QueryTypes.SELECT }
+        ).catch(() => []);
+        backupData['users'] = Array.isArray(usersRows) ? usersRows : (usersRows?.[0] || []);
+        totalRecords += backupData['users'].length;
+      } catch (_) { backupData['users'] = []; }
+
+      const refTables = ['system_settings', 'app_branding', 'tax_groups', 'tax_group_components', 'item_groups', 'subcategories', 'brands', 'paymentMethod', 'saleSource'];
+      for (const rt of refTables) {
+        try {
+          const rows: any[] = await activeDb.query(`SELECT * FROM "${rt}";`, { type: QueryTypes.SELECT }).catch(() => []);
+          backupData[rt] = Array.isArray(rows) ? rows : (rows?.[0] || []);
+        } catch (_) { backupData[rt] = []; }
+      }
+
+      // Read outlet record
+      let outletRec: any = null;
+      try {
+        const [oRows]: any = await activeDb.query(
+          `SELECT * FROM outlets WHERE id = :outletId OR outlet_code = :outletCode LIMIT 1;`,
+          { replacements: { outletId, outletCode }, type: QueryTypes.SELECT }
+        ).catch(() => []);
+        outletRec = oRows;
+      } catch (_) {}
+
+      outletsList.push({
+        id: outletId,
+        code: outletCode,
+        name: outletRec?.outlet_name || options.outletMeta?.outlet_name || options.outletMeta?.name || `Outlet #${outletId}`,
+        business_module: outletRec?.business_module || options.outletMeta?.business_module || 'ALL',
+        recordCount: totalRecords,
+      });
+      backupData['outlets'] = outletRec ? [outletRec] : [];
+    }
+
+    const payload = {
+      format: 'FAMALTH_ENTERPRISE_BACKUP_V3',
+      version: '3.0',
+      scope: isAll ? 'ALL' : 'OUTLET',
+      exportedAt: new Date().toISOString(),
+      sourceOutletId: isAll ? null : (options.outletId || 1),
+      sourceOutletCode: isAll ? 'ENTERPRISE_ALL' : (options.outletCode || `OUT_${options.outletId || 1}`),
+      outlets: outletsList,
+      totalRecords,
+      tables: backupData,
+      metadata: {
+        nodeVersion: process.version,
+        platform: process.platform,
+        generator: 'Famalth Enterprise Backup Engine v3.0'
+      }
+    };
+
+    const jsonString = JSON.stringify(payload);
+    const compressedBuffer = zlib.gzipSync(Buffer.from(jsonString, 'utf8'), { level: 9 });
+    const filePath = path.join(targetDirectory, filename);
+    await fsPromises.writeFile(filePath, compressedBuffer);
+
+    // Also place in root BACKUP_BASE_DIR for quick access
+    const rootPath = path.join(BACKUP_BASE_DIR, filename);
+    try {
+      await fsPromises.copyFile(filePath, rootPath);
+    } catch (_) {}
+
+    let driveStatus: { success: boolean; message: string; fileId?: string } | undefined;
+    if (options.saveToDrive) {
+      try {
+        const { uploadFambakToDrive } = require('../modules/driveService');
+        driveStatus = await uploadFambakToDrive(filePath, filename, isAll ? 'ALL' : (options.outletCode || 'DEFAULT'));
+      } catch (dErr: any) {
+        driveStatus = { success: false, message: dErr.message };
+      }
+    }
+
+    return {
+      filename,
+      filePath,
+      sizeBytes: compressedBuffer.length,
+      sizePretty: formatBytes(compressedBuffer.length),
+      totalRecords,
+      scope: isAll ? 'ALL' : 'OUTLET',
+      outlets: outletsList,
+      downloadUrl: `/api/backup/download/${encodeURIComponent(filename)}`,
+      driveStatus,
+    };
+  }
+
+  /**
+   * 11. Pre-Inspect Backup Manifest (.fambak, .posbak, .zip, .enc, .json)
+   * Safely unpacks and parses manifest without modifying database.
+   */
+  public static async inspectBackupManifest(fileBuffer: Buffer): Promise<{
+    format: string;
+    version: string;
+    scope: 'ALL' | 'OUTLET';
+    exportedAt: string;
+    sourceOutletCode: string;
+    totalRecords: number;
+    outlets: { id: number; code: string; name: string; business_module: string; recordCount: number }[];
+    tables: { name: string; count: number }[];
+  }> {
+    let jsonText = '';
+
+    if (fileBuffer.length >= 2 && fileBuffer[0] === 0x1f && fileBuffer[1] === 0x8b) {
+      jsonText = zlib.gunzipSync(fileBuffer).toString('utf8');
+    } else if (fileBuffer.length >= 4 && fileBuffer[0] === 0x50 && fileBuffer[1] === 0x4B) {
+      const unzipper = require('unzipper');
+      const directory = await unzipper.Open.buffer(fileBuffer);
+      for (const f of directory.files) {
+        if (f.path === 'database.json' || f.path === 'manifest.json') {
+          jsonText = (await f.buffer()).toString('utf8');
+          break;
+        }
+      }
+    } else {
+      jsonText = fileBuffer.toString('utf8');
+    }
+
+    let payload: any;
+    try {
+      payload = JSON.parse(jsonText);
+    } catch (e: any) {
+      throw new Error(`Invalid or corrupted backup archive: ${e.message}`);
+    }
+
+    const tables = payload.tables || {};
+    const tableSummaries: { name: string; count: number }[] = [];
+    let calculatedTotal = 0;
+
+    for (const [tName, rows] of Object.entries(tables)) {
+      if (Array.isArray(rows)) {
+        tableSummaries.push({ name: tName, count: rows.length });
+        calculatedTotal += rows.length;
+      }
+    }
+
+    let outlets: any[] = payload.outlets || [];
+    if (!Array.isArray(outlets) || outlets.length === 0) {
+      if (tables.outlets && Array.isArray(tables.outlets) && tables.outlets.length > 0) {
+        outlets = tables.outlets.map((o: any) => ({
+          id: o.id || 1,
+          code: o.outlet_code || `OUT_${o.id || 1}`,
+          name: o.outlet_name || o.name || `Outlet #${o.id || 1}`,
+          business_module: o.business_module || 'ALL',
+          recordCount: calculatedTotal,
+        }));
+      } else if (payload.sourceOutletId || payload.outletCode || payload.sourceOutletCode) {
+        outlets = [{
+          id: payload.sourceOutletId || 1,
+          code: payload.sourceOutletCode || payload.outletCode || 'DEFAULT',
+          name: payload.outletMeta?.name || 'Store',
+          business_module: payload.outletMeta?.business_module || 'ALL',
+          recordCount: calculatedTotal,
+        }];
+      }
+    }
+
+    const scope: 'ALL' | 'OUTLET' = payload.scope === 'ALL' || (outlets.length > 1) ? 'ALL' : 'OUTLET';
+
+    return {
+      format: payload.format || 'FAMALTH_ARCHIVE',
+      version: payload.version || '3.0',
+      scope,
+      exportedAt: payload.exportedAt || payload.createdAt || new Date().toISOString(),
+      sourceOutletCode: payload.sourceOutletCode || payload.outletCode || (scope === 'ALL' ? 'ENTERPRISE_ALL' : 'SINGLE_OUTLET'),
+      totalRecords: payload.totalRecords || calculatedTotal,
+      outlets,
+      tables: tableSummaries,
+    };
+  }
+
+  /**
+   * 12. Upgraded Granular Restore (.fambak)
+   * Supports Selective Outlet Restore from Complete Backup or Single Outlet Backup,
+   * safe rollback-capable database transaction, and auto-sequence synchronization.
+   */
+  public static async restoreFambakBackup(
+    activeDb: any,
+    fileBuffer: Buffer,
+    options: {
+      scope?: 'ALL' | 'OUTLET';
+      selectedOutletCode?: string;
+      targetOutletId?: number;
+      targetOutletCode?: string;
+      overwriteExisting?: boolean;
+    } = {}
+  ): Promise<{
+    success: boolean;
+    totalRecordsRestored: number;
+    tablesRestored: string[];
+    restoredOutletCode: string;
+    targetOutletId: number | null;
+  }> {
+    const manifest = await this.inspectBackupManifest(fileBuffer);
+
+    let jsonText = '';
+    if (fileBuffer.length >= 2 && fileBuffer[0] === 0x1f && fileBuffer[1] === 0x8b) {
+      jsonText = zlib.gunzipSync(fileBuffer).toString('utf8');
+    } else if (fileBuffer.length >= 4 && fileBuffer[0] === 0x50 && fileBuffer[1] === 0x4B) {
+      const unzipper = require('unzipper');
+      const directory = await unzipper.Open.buffer(fileBuffer);
+      for (const f of directory.files) {
+        if (f.path === 'database.json') {
+          jsonText = (await f.buffer()).toString('utf8');
+          break;
+        }
+      }
+    } else {
+      jsonText = fileBuffer.toString('utf8');
+    }
+
+    const payload = JSON.parse(jsonText);
+    const tables = payload.tables || {};
+    let totalRecordsRestored = 0;
+    const tablesRestored: string[] = [];
+
+    const colMap = new Map<string, Map<string, string>>();
+    try {
+      const [tableCols]: any = await activeDb.query(`
+        SELECT table_name, column_name, data_type 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public'
+      `);
+      for (const c of tableCols) {
+        if (!colMap.has(c.table_name)) colMap.set(c.table_name, new Map());
+        colMap.get(c.table_name)!.set(c.column_name, c.data_type);
+      }
+    } catch (_) {}
+
+    const isSelectiveOutlet = Boolean(options.selectedOutletCode) || options.scope === 'OUTLET' || manifest.scope === 'OUTLET';
+
+    if (isSelectiveOutlet) {
+      const selectedCode = (options.selectedOutletCode || manifest.sourceOutletCode || (manifest.outlets[0]?.code) || '').trim();
+      const matchedOutlet = manifest.outlets.find(o => String(o.code).toLowerCase() === selectedCode.toLowerCase()) || manifest.outlets[0];
+      const sourceOutletId = matchedOutlet ? Number(matchedOutlet.id) : Number(manifest.outlets[0]?.id || 1);
+
+      const destOutletId = Number(options.targetOutletId || sourceOutletId || 1);
+      const destOutletCode = String(options.targetOutletCode || selectedCode || `OUT_${destOutletId}`);
+
+      await activeDb.transaction(async (t: any) => {
+        const [existingOutlet]: any = await activeDb.query(
+          `SELECT id, outlet_code FROM outlets WHERE id = :destOutletId OR outlet_code = :destOutletCode LIMIT 1;`,
+          { replacements: { destOutletId, destOutletCode }, type: QueryTypes.SELECT, transaction: t }
+        ).catch(() => []);
+
+        if (!existingOutlet) {
+          await activeDb.query(
+            `INSERT INTO outlets (id, outlet_code, outlet_name, business_module, created_at, updated_at)
+             VALUES (:destOutletId, :destOutletCode, :name, :bizModule, NOW(), NOW())
+             ON CONFLICT (id) DO UPDATE SET outlet_code = :destOutletCode;`,
+            {
+              replacements: {
+                destOutletId,
+                destOutletCode,
+                name: matchedOutlet?.name || `Outlet ${destOutletCode}`,
+                bizModule: matchedOutlet?.business_module || 'ALL',
+              },
+              transaction: t,
+            }
+          ).catch(() => {});
+        }
+
+        if (options.overwriteExisting) {
+          const childDeletes = [
+            `DELETE FROM "sales_items" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :destOutletId)`,
+            `DELETE FROM "kot_items" WHERE kot_header_id IN (SELECT id FROM "kot_headers" WHERE outlet_id = :destOutletId)`,
+            `DELETE FROM "purchase_order_items" WHERE po_id IN (SELECT id FROM "purchase_orders" WHERE outlet_id = :destOutletId)`,
+            `DELETE FROM "goods_receipt_items" WHERE grn_id IN (SELECT id FROM "goods_receipts" WHERE outlet_id = :destOutletId)`,
+            `DELETE FROM "voucher_lines" WHERE voucher_id IN (SELECT id FROM "accounting_vouchers" WHERE outlet_id = :destOutletId)`,
+            `DELETE FROM "milk_subscription_items" WHERE subscription_id IN (SELECT id FROM "milk_subscriptions" WHERE outlet_id = :destOutletId)`,
+            `DELETE FROM "sales_headers" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "kot_headers" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "purchase_orders" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "goods_receipts" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "stock_ledger" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "batches" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "stock_locations" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "customers" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "customer_advances" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "customer_repayments" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "supplier_bills" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "supplier_payments" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "expenses" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "accounting_vouchers" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "cash_ledger" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "clinic_appointments" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "hr_attendance_punches" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "hr_employees" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "restaurant_tables" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "milk_subscriptions" WHERE outlet_id = :destOutletId`,
+            `DELETE FROM "user_notes" WHERE outlet_id = :destOutletId`
+          ];
+          for (const q of childDeletes) {
+            try { await activeDb.query(q, { replacements: { destOutletId }, transaction: t }).catch(() => {}); } catch (_) {}
+          }
+        }
+
+        const restoreOrder = [
+          'tax_groups', 'tax_group_components', 'item_groups', 'subcategories', 'brands',
+          'system_settings', 'app_branding', 'paymentMethod', 'saleSource', 'numbering_settings',
+          'stock_locations', 'batches', 'item_master', 'item_modifiers', 'item_boms',
+          'customers', 'customer_advances', 'customer_repayments',
+          'supplier_master', 'supplier_bills', 'supplier_payments',
+          'sales_headers', 'sales_items', 'restaurant_tables', 'table_reservations',
+          'kot_headers', 'kot_items', 'purchase_orders', 'purchase_order_items',
+          'goods_receipts', 'goods_receipt_items', 'clinic_appointments',
+          'hr_employees', 'hr_attendance_punches', 'hr_biometric_devices',
+          'expenses', 'accounting_vouchers', 'voucher_lines', 'bank_accounts', 'cash_ledger',
+          'stock_ledger', 'milk_subscriptions', 'milk_subscription_consumptions', 'milk_subscription_items',
+          'user_notes', 'users'
+        ];
+
+        for (const tbl of restoreOrder) {
+          const rawRows = tables[tbl];
+          if (!Array.isArray(rawRows) || rawRows.length === 0) continue;
+          const validColMap = colMap.get(tbl);
+          if (colMap.size > 0 && !validColMap) continue;
+
+          // Filter rows for this specific outlet
+          const scopedRows = rawRows.filter(row => {
+            if (!row || typeof row !== 'object') return false;
+            if ('outlet_id' in row) return Number(row.outlet_id) === sourceOutletId;
+            if ('outlet_code' in row) return String(row.outlet_code).toLowerCase() === selectedCode.toLowerCase();
+            return true; // Global master table rows included
+          });
+
+          if (scopedRows.length === 0) continue;
+
+          for (const row of scopedRows) {
+            const rowCopy = { ...row };
+            if ('outlet_id' in rowCopy) rowCopy.outlet_id = destOutletId;
+            if ('outlet_code' in rowCopy) rowCopy.outlet_code = destOutletCode;
+
+            const cols = Object.keys(rowCopy).filter(c => !validColMap || validColMap.has(c));
+            if (cols.length === 0) continue;
+
+            const colList = cols.map(c => `"${c}"`).join(', ');
+            const valPlaceholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
+            const values = cols.map(c => {
+              const val = rowCopy[c];
+              const dtype = validColMap ? validColMap.get(c) : null;
+              if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
+                return JSON.stringify(val);
+              }
+              if (dtype === 'json' || dtype === 'jsonb') {
+                return typeof val === 'string' ? val : JSON.stringify(val);
+              }
+              return val;
+            });
+
+            try {
+              await activeDb.query(
+                `INSERT INTO "${tbl}" (${colList}) VALUES (${valPlaceholders}) ON CONFLICT DO NOTHING;`,
+                { bind: values, transaction: t }
+              );
+              totalRecordsRestored++;
+            } catch (_) {}
+          }
+
+          tablesRestored.push(tbl);
+        }
+
+        // Sequence reset
+        try {
+          await activeDb.query(`
+            DO $$
+            DECLARE
+              r RECORD;
+            BEGIN
+              FOR r IN (
+                SELECT c.table_name, c.column_name, pg_get_serial_sequence(c.table_name, c.column_name) AS seq_name
+                FROM information_schema.columns c
+                WHERE c.table_schema = 'public' AND pg_get_serial_sequence(c.table_name, c.column_name) IS NOT NULL
+              ) LOOP
+                EXECUTE format('SELECT setval(''%s'', COALESCE((SELECT MAX(%I) FROM %I), 1), true)', r.seq_name, r.column_name, r.table_name);
+              END LOOP;
+            END $$;
+          `, { transaction: t });
+        } catch (_) {}
+      });
+
+      return {
+        success: true,
+        totalRecordsRestored,
+        tablesRestored,
+        restoredOutletCode: destOutletCode,
+        targetOutletId: destOutletId,
+      };
+    } else {
+      // Full Enterprise Restore
+      await activeDb.transaction(async (t: any) => {
+        for (const [tbl, rows] of Object.entries(tables)) {
+          if (!Array.isArray(rows) || rows.length === 0) continue;
+          const validColMap = colMap.get(tbl);
+          if (colMap.size > 0 && !validColMap) continue;
+
+          for (const row of rows as any[]) {
+            const cols = Object.keys(row).filter(c => !validColMap || validColMap.has(c));
+            if (cols.length === 0) continue;
+
+            const colList = cols.map(c => `"${c}"`).join(', ');
+            const valPlaceholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
+            const values = cols.map(c => {
+              const val = row[c];
+              const dtype = validColMap ? validColMap.get(c) : null;
+              if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
+                return JSON.stringify(val);
+              }
+              if (dtype === 'json' || dtype === 'jsonb') {
+                return typeof val === 'string' ? val : JSON.stringify(val);
+              }
+              return val;
+            });
+
+            try {
+              await activeDb.query(
+                `INSERT INTO "${tbl}" (${colList}) VALUES (${valPlaceholders}) ON CONFLICT DO NOTHING;`,
+                { bind: values, transaction: t }
+              );
+              totalRecordsRestored++;
+            } catch (_) {}
+          }
+          tablesRestored.push(tbl);
+        }
+
+        try {
+          await activeDb.query(`
+            DO $$
+            DECLARE
+              r RECORD;
+            BEGIN
+              FOR r IN (
+                SELECT c.table_name, c.column_name, pg_get_serial_sequence(c.table_name, c.column_name) AS seq_name
+                FROM information_schema.columns c
+                WHERE c.table_schema = 'public' AND pg_get_serial_sequence(c.table_name, c.column_name) IS NOT NULL
+              ) LOOP
+                EXECUTE format('SELECT setval(''%s'', COALESCE((SELECT MAX(%I) FROM %I), 1), true)', r.seq_name, r.column_name, r.table_name);
+              END LOOP;
+            END $$;
+          `, { transaction: t });
+        } catch (_) {}
+      });
+
+      return {
+        success: true,
+        totalRecordsRestored,
+        tablesRestored,
+        restoredOutletCode: 'ALL',
+        targetOutletId: null,
+      };
+    }
+  }
+
+  /**
+   * 13. List Cloud Snapshots & Remote Backups
+   */
+  public static async listCloudSnapshots(
+    outletCode?: string,
+    isSuperAdmin: boolean = false
+  ): Promise<any[]> {
+    const searchRoots = getBackupSearchRoots();
+    const allowed = ['.fambak', '.posbak', '.enc', '.zip'];
+    const collected: any[] = [];
+    const seenFiles = new Set<string>();
+
+    for (const root of searchRoots) {
+      const allFiles = await getDirectorySizeAndFiles(root, allowed);
+      for (const f of allFiles.files) {
+        if (seenFiles.has(f.name)) continue;
+        seenFiles.add(f.name);
+
+        const isEnterprise = f.name.includes('all') || f.name.includes('enterprise') || f.name.includes('system_full');
+        let fileOutlet = 'ALL';
+        if (!isEnterprise) {
+          const match = f.name.match(/(?:outlet_backup|tenant_backup)_([^_]+)_/);
+          if (match && match[1]) fileOutlet = match[1];
+        }
+
+        if (!isSuperAdmin && outletCode && outletCode !== 'ALL' && !isEnterprise && fileOutlet !== outletCode) {
+          continue;
+        }
+
+        collected.push({
+          filename: f.name,
+          sizeBytes: f.size,
+          sizePretty: formatBytes(f.size),
+          createdAt: f.mtime.toISOString(),
+          timeAgo: timeSince(f.mtime),
+          scope: isEnterprise ? 'ALL' : 'OUTLET',
+          outletCode: fileOutlet,
+          storageLocation: f.path.includes('enterprise') ? 'ENTERPRISE_CLOUD' : (f.path.includes('outlets') ? 'TENANT_ISOLATED' : 'LOCAL_SERVER'),
+          downloadUrl: `/api/backup/download/${encodeURIComponent(f.name)}`,
+        });
+      }
+    }
+
+    return collected.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 }
 

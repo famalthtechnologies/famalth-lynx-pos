@@ -63,7 +63,7 @@ function cleanOldLocalBackups(dir: string, maxKeep: number = 5): void {
     if (!fs.existsSync(dir)) return;
 
     const files = fs.readdirSync(dir)
-        .filter(f => f.startsWith('backup_') && f.endsWith('.enc'))
+        .filter(f => f.endsWith('.enc') || f.endsWith('.fambak') || f.endsWith('.posbak'))
         .map(f => ({
             path: path.join(dir, f),
             time: fs.statSync(path.join(dir, f)).mtime.getTime()

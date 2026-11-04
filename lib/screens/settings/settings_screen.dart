@@ -451,159 +451,472 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _showClearTransactionDataDialog() async {
     final confirmController = TextEditingController();
+    String dateFilterType = 'OLDER_THAN'; // 'OLDER_THAN', 'DATE_RANGE', 'ALL_TIME'
+    int olderThanYears = 5;
+    DateTime? startDate;
+    DateTime? endDate;
+    bool createBackupFirst = true;
+    bool emailBackupToOperator = true;
+    String recipientEmail = '';
+    final Set<String> selectedModules = {'SALES', 'INVENTORY', 'PURCHASES', 'FINANCE', 'HRMS', 'AUDIT_LOGS'};
+    int previewRecordCount = 0;
+    bool isPreviewLoading = true;
+    String? previewError;
+
+    try {
+      final user = await TokenStorage.getUser();
+      if (user != null && user['email'] != null) {
+        recipientEmail = user['email'].toString();
+      }
+    } catch (_) {}
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void fetchPreview() async {
+              setDialogState(() {
+                isPreviewLoading = true;
+                previewError = null;
+              });
+              try {
+                final preview = await BackupService.previewRetentionPurge(
+                  dateFilterType: dateFilterType,
+                  olderThanYears: olderThanYears,
+                  startDate: startDate,
+                  endDate: endDate,
+                  modules: selectedModules.toList(),
+                );
+                if (dialogContext.mounted) {
+                  setDialogState(() {
+                    previewRecordCount = (preview['totalMatchingRecords'] as num?)?.toInt() ?? 0;
+                    isPreviewLoading = false;
+                  });
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  setDialogState(() {
+                    previewError = e.toString();
+                    isPreviewLoading = false;
+                  });
+                }
+              }
+            }
+
+            // Initial fetch
+            if (isPreviewLoading && previewError == null && previewRecordCount == 0) {
+              Future.microtask(fetchPreview);
+            }
+
+            String? inlineError;
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 580),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(Icons.delete_forever,
-                            color: Colors.red, size: 26),
-                      ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Text(
-                          'Clear Transaction Data',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'This permanently removes stock, sales, purchase, finance, and report records ONLY for the current outlet. Other outlets data will not be affected. Master data, settings, and schema version are preserved.',
-                    style: TextStyle(color: Color(0xFF64748B), height: 1.4),
-                  ),
-                  const SizedBox(height: 18),
-                  StatefulBuilder(
-                    builder: (context, setDialogState) {
-                      String? inlineError;
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(16),
+                            width: 44,
+                            height: 44,
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                              color: Colors.red.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12),
                             ),
+                            child: const Icon(Icons.auto_delete_rounded, color: Colors.red, size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
-                                  'Type DELETE ALL DATA to continue',
-                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                Text(
+                                  'Data Retention & Scoped Purge',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                                 ),
-                                const SizedBox(height: 10),
-                                TextField(
-                                  controller: confirmController,
-                                  decoration: InputDecoration(
-                                    hintText: 'DELETE ALL DATA',
-                                    errorText: inlineError,
-                                    border: const OutlineInputBorder(),
-                                  ),
-                                  onChanged: (_) {
-                                    if (inlineError != null) {
-                                      setDialogState(() => inlineError = null);
-                                    }
-                                  },
+                                Text(
+                                  'Manage statutory retention policy or prune historical transactions',
+                                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(height: 18),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(dialogContext, false),
-                                child: const Text('Cancel'),
-                              ),
-                              const SizedBox(width: 12),
-                              FilledButton.icon(
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: Colors.red,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 14,
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Retention / Date Range Filter Section
+                      const Text('1. Retention Policy & Date Filter:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          children: [
+                            RadioListTile<String>(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Older than 5 Years (Standard 5-Year Data Policy)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                              subtitle: const Text('Complies with corporate audit standards. Preserves recent 5 years of activity.', style: TextStyle(fontSize: 11)),
+                              value: 'OLDER_THAN',
+                              groupValue: dateFilterType,
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  dateFilterType = val!;
+                                  olderThanYears = 5;
+                                });
+                                fetchPreview();
+                              },
+                            ),
+                            RadioListTile<String>(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Older than 3 Years', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                              value: 'OLDER_THAN_3',
+                              groupValue: dateFilterType == 'OLDER_THAN' && olderThanYears == 3 ? 'OLDER_THAN_3' : '',
+                              onChanged: (_) {
+                                setDialogState(() {
+                                  dateFilterType = 'OLDER_THAN';
+                                  olderThanYears = 3;
+                                });
+                                fetchPreview();
+                              },
+                            ),
+                            RadioListTile<String>(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Custom Date Range', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                              value: 'DATE_RANGE',
+                              groupValue: dateFilterType,
+                              onChanged: (val) {
+                                setDialogState(() => dateFilterType = val!);
+                                fetchPreview();
+                              },
+                            ),
+                            if (dateFilterType == 'DATE_RANGE') ...[
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      icon: const Icon(Icons.date_range, size: 16),
+                                      label: Text(
+                                        startDate == null ? 'Start Date' : startDate!.toString().split(' ')[0],
+                                        style: const TextStyle(fontSize: 11.5),
+                                      ),
+                                      onPressed: () async {
+                                        final picked = await showDatePicker(
+                                          context: context,
+                                          initialDate: startDate ?? DateTime(2020),
+                                          firstDate: DateTime(2015),
+                                          lastDate: DateTime.now(),
+                                        );
+                                        if (picked != null) {
+                                          setDialogState(() => startDate = picked);
+                                          fetchPreview();
+                                        }
+                                      },
+                                    ),
                                   ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      icon: const Icon(Icons.event, size: 16),
+                                      label: Text(
+                                        endDate == null ? 'End Date' : endDate!.toString().split(' ')[0],
+                                        style: const TextStyle(fontSize: 11.5),
+                                      ),
+                                      onPressed: () async {
+                                        final picked = await showDatePicker(
+                                          context: context,
+                                          initialDate: endDate ?? DateTime.now(),
+                                          firstDate: DateTime(2015),
+                                          lastDate: DateTime.now(),
+                                        );
+                                        if (picked != null) {
+                                          setDialogState(() => endDate = picked);
+                                          fetchPreview();
+                                        }
+                                      },
+                                    ),
                                   ),
-                                ),
-                                onPressed: () {
-                                  final text = confirmController.text.trim().toUpperCase();
-                                  if (text != 'DELETE ALL DATA') {
-                                    setDialogState(() {
-                                      inlineError = 'Please type DELETE ALL DATA to confirm';
-                                    });
-                                    return;
-                                  }
-                                  Navigator.pop(dialogContext, true);
-                                },
-                                icon: const Icon(Icons.delete_forever, size: 18),
-                                label: const Text('Delete Now'),
+                                ],
                               ),
                             ],
+                            RadioListTile<String>(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('All Historical Transactions (Complete Wipe)', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Colors.red)),
+                              subtitle: const Text('Permanently purges all transactional tables for this outlet.', style: TextStyle(fontSize: 11)),
+                              value: 'ALL_TIME',
+                              groupValue: dateFilterType,
+                              onChanged: (val) {
+                                setDialogState(() => dateFilterType = val!);
+                                fetchPreview();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Module Selector Chips
+                      const Text('2. Modules to Include in Purge:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          {'code': 'SALES', 'label': 'Sales & Invoices'},
+                          {'code': 'INVENTORY', 'label': 'Stock Ledger'},
+                          {'code': 'PURCHASES', 'label': 'Purchases & GRNs'},
+                          {'code': 'FINANCE', 'label': 'Expenses & Cash'},
+                          {'code': 'HRMS', 'label': 'Attendance & Payroll'},
+                          {'code': 'AUDIT_LOGS', 'label': 'Audit Logs'},
+                        ].map((mod) {
+                          final isSelected = selectedModules.contains(mod['code']!);
+                          return FilterChip(
+                            label: Text(mod['label']!, style: TextStyle(fontSize: 11, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+                            selected: isSelected,
+                            selectedColor: Colors.red.shade100,
+                            checkmarkColor: Colors.red.shade900,
+                            onSelected: (selected) {
+                              setDialogState(() {
+                                if (selected) {
+                                  selectedModules.add(mod['code']!);
+                                } else if (selectedModules.length > 1) {
+                                  selectedModules.remove(mod['code']!);
+                                }
+                              });
+                              fetchPreview();
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Live Matching Preview Indicator
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isPreviewLoading ? Colors.blue.shade50 : (previewRecordCount > 0 ? Colors.amber.shade50 : Colors.green.shade50),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: isPreviewLoading ? Colors.blue.shade200 : (previewRecordCount > 0 ? Colors.amber.shade300 : Colors.green.shade200)),
+                        ),
+                        child: Row(
+                          children: [
+                            if (isPreviewLoading)
+                              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                            else
+                              Icon(previewRecordCount > 0 ? Icons.info_outline : Icons.check_circle_outline,
+                                  size: 18, color: previewRecordCount > 0 ? Colors.amber.shade900 : Colors.green.shade800),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                isPreviewLoading
+                                    ? 'Scanning database records matching selected criteria...'
+                                    : (previewRecordCount > 0
+                                        ? '$previewRecordCount records match this filter in your outlet.'
+                                        : 'No records found matching this retention criteria.'),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: isPreviewLoading ? Colors.blue.shade900 : (previewRecordCount > 0 ? Colors.amber.shade900 : Colors.green.shade900),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Mandatory Pre-Purge Safety Backup Card
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFBFDBFE)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.shield_rounded, size: 18, color: Color(0xFF1D4ED8)),
+                                const SizedBox(width: 8),
+                                const Text('Automatic Safety Backup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF1E3A8A))),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Before deleting historical records, we strongly advise saving an encrypted snapshot archive so your data can be restored if needed.',
+                              style: TextStyle(fontSize: 11, color: Color(0xFF1E40AF)),
+                            ),
+                            const SizedBox(height: 8),
+                            InkWell(
+                              onTap: () => setDialogState(() => createBackupFirst = !createBackupFirst),
+                              child: Row(
+                                children: [
+                                  Checkbox(
+                                    value: createBackupFirst,
+                                    onChanged: (v) => setDialogState(() => createBackupFirst = v ?? true),
+                                    activeColor: const Color(0xFF1D4ED8),
+                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  const Expanded(
+                                    child: Text(
+                                      'Create safety backup snapshot before deleting (Recommended)',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (createBackupFirst) ...[
+                              InkWell(
+                                onTap: () => setDialogState(() => emailBackupToOperator = !emailBackupToOperator),
+                                child: Row(
+                                  children: [
+                                    Checkbox(
+                                      value: emailBackupToOperator,
+                                      onChanged: (v) => setDialogState(() => emailBackupToOperator = v ?? true),
+                                      activeColor: const Color(0xFF1D4ED8),
+                                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    const Expanded(
+                                      child: Text(
+                                        'Email backup download link to operator inbox',
+                                        style: TextStyle(fontSize: 11.5),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Confirmation Input
+                      const Text('Type DELETE CONFIRMED to verify:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: confirmController,
+                        decoration: InputDecoration(
+                          hintText: 'DELETE CONFIRMED',
+                          errorText: inlineError,
+                          isDense: true,
+                          border: const OutlineInputBorder(),
+                        ),
+                        onChanged: (_) {
+                          if (inlineError != null) {
+                            setDialogState(() => inlineError = null);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Action Buttons
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(dialogContext, false),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 12),
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.red.shade700,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.delete_forever, size: 18),
+                            label: Text(createBackupFirst ? 'Backup & Purge' : 'Purge Data'),
+                            onPressed: () {
+                              final text = confirmController.text.trim().toUpperCase();
+                              if (text != 'DELETE CONFIRMED' && text != 'DELETE ALL DATA') {
+                                setDialogState(() {
+                                  inlineError = 'Type DELETE CONFIRMED to proceed';
+                                });
+                                return;
+                              }
+                              Navigator.pop(dialogContext, true);
+                            },
                           ),
                         ],
-                      );
-                    },
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
 
     if (confirmed != true) return;
 
-    final confirmText = confirmController.text.trim();
-    if (confirmText.toUpperCase() != 'DELETE ALL DATA') {
-      showErrorSnackbar('Please type DELETE ALL DATA to continue');
+    final confirmText = confirmController.text.trim().toUpperCase();
+    if (confirmText != 'DELETE CONFIRMED' && confirmText != 'DELETE ALL DATA') {
+      showErrorSnackbar('Please type DELETE CONFIRMED to continue');
       return;
     }
 
     try {
-      final res = await ApiClient.post('/api/inventory/settings/clear-transaction-data', {
-        'confirm_text': confirmText,
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Executing retention policy purge... Please wait.'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+
+      final res = await BackupService.executeRetentionPurge(
+        confirmText: confirmText,
+        dateFilterType: dateFilterType,
+        olderThanYears: olderThanYears,
+        startDate: startDate,
+        endDate: endDate,
+        modules: selectedModules.toList(),
+        backupFirst: createBackupFirst,
+        recipientEmail: emailBackupToOperator ? recipientEmail : null,
+      );
+
       if (!mounted) return;
       if (res['success'] == true) {
+        final totalDel = res['total_deleted'] ?? 0;
+        final policy = res['retention_policy'] ?? 'Retention';
+        final backupMsg = res['backup_secured'] == true
+            ? ' • Safety backup archive created: ${res['backup_filename'] ?? ""}'
+            : '';
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Transaction data deleted successfully')),
+          SnackBar(
+            content: Text('Retention purge complete: $totalDel records removed ($policy)$backupMsg'),
+            backgroundColor: Colors.green.shade700,
+            duration: const Duration(seconds: 8),
+          ),
         );
       } else {
-        showErrorSnackbar(res['message'] ?? 'Failed to delete transaction data');
+        showErrorSnackbar(res['message'] ?? 'Failed to execute retention purge');
       }
     } catch (e) {
       if (mounted) {
-        showErrorSnackbar('Failed to delete transaction data: $e');
+        showErrorSnackbar('Failed to execute retention purge: $e');
       }
     }
   }
@@ -1231,7 +1544,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 buildTabBody([
                   _customSection(
                     'Storage & Tenant Backups',
-                    'Discourse-style storage analytics, portable outlet snapshots, and server migration.',
+                    'Enterprise storage analytics, portable outlet snapshots, and server migration.',
                     [
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 8),
