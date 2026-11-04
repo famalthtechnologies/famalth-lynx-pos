@@ -222,4 +222,15 @@ This matrix provides a 100% verified audit of all UI screens, Backend route modu
 
 ---
 
-*Last Verified: October 2026 | Total Project UI and Backend Feature Coverage: 100% Complete across all 20 Modules*
+### 21. Delivery Challan, Fleet Vehicles & Transport Logistics
+| UI Screen / Feature | Backend Route | Non-Technical User Guide | Technical Developer Guide | Audit Status |
+| :--- | :--- | :--- | :--- | :--- |
+| **Delivery Challan Console** (`delivery_challan_screen.dart`) | `/api/restaurant/challan/*` | [Delivery Challan Guide](./User-Guide-Delivery-Challan-And-Transport-Logistics.md) | [Transport Logistics Architecture](./Developer-Guide-Delivery-Challan-And-Transport-Logistics.md) | 🟢 100% Covered |
+| **Fleet Vehicle Management** (`delivery_challan_screen.dart`) | `/api/transport/vehicles` | [Transport Guide](./User-Guide-Delivery-Challan-And-Transport-Logistics.md#2-managing-fleet-vehicles--drivers) | [Transport Logistics Architecture](./Developer-Guide-Delivery-Challan-And-Transport-Logistics.md#3-transport-rest-api-reference-apitransport) | 🟢 100% Covered |
+| **Driver Assignment & Manifest** (`delivery_challan_screen.dart`) | `/api/transport/assign-trip` | [Trip Manifest Guide](./User-Guide-Delivery-Challan-And-Transport-Logistics.md#4-assigning-trips--dispatch-manifest-loading-sheet) | [Transport Logistics Architecture](./Developer-Guide-Delivery-Challan-And-Transport-Logistics.md#5-trip-assignment--loading-manifest-engine) | 🟢 100% Covered |
+| **Doorstep Delivery Verification** (`delivery_challan_screen.dart`) | `/api/transport/verify-delivery` | [Delivery Verification Guide](./User-Guide-Delivery-Challan-And-Transport-Logistics.md#5-doorstep-delivery-verification-otp--signature) | [Transport Logistics Architecture](./Developer-Guide-Delivery-Challan-And-Transport-Logistics.md) | 🟢 100% Covered |
+| **Challan POS Billing Conversion** (`salescreen.dart`) | `/api/restaurant/challan/:id/convert-to-sale` | [POS Conversion Guide](./User-Guide-Delivery-Challan-And-Transport-Logistics.md#6-converting-challans-to-billed-invoices-in-pos) | [POS Conversion Pipeline](./Developer-Guide-Delivery-Challan-And-Transport-Logistics.md#6-pos-conversion-pipeline-_openinbillingscreen) | 🟢 100% Covered |
+
+---
+
+*Last Verified: November 2026 | Total Project UI and Backend Feature Coverage: 100% Complete across all 21 Modules*

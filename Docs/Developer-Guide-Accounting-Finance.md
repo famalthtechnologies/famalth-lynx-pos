@@ -140,6 +140,51 @@ In `backend/controllers/inventory/receiving.controller.ts` and `lib/models/inven
   $$\text{Net Rate} = \begin{cases} \frac{\text{Purchase Rate}}{1 + \frac{\text{Tax \%}}{100}} & \text{if } \text{is\_tax\_inclusive} = \text{true} \\ \text{Purchase Rate} & \text{if } \text{is\_tax\_inclusive} = \text{false} \end{cases}$$
 - The resulting cost basis is posted to `stock_ledger.valuation_rate` and input GST accounts without rounding drift.
 
+### 5. Bulk FIFO Advance Adjustment Engine
+Located in `backend/controllers/finance/advancedFinance.controller.ts`:
+- When executing `adjustBulkAdvance`, unallocated customer advances are applied to open receivables using a First-In, First-Out (FIFO) algorithm:
+```typescript
+exports.adjustBulkAdvance = async (req: any, res: any) => {
+  const t = await req.propertyDb.transaction();
+  try {
+    const { customer_id, advance_amount } = req.body;
+    let remainingAdvance = Number(advance_amount);
+
+    // Fetch unpaid sales ordered chronologically by sale_date ASC
+    const unpaidSales = await req.propertyDb.models.sales_headers.findAll({
+      where: { customer_id, balance_due: { [Op.gt]: 0 }, status: { [Op.ne]: 'Cancelled' } },
+      order: [['sale_date', 'ASC'], ['id', 'ASC']],
+      transaction: t
+    });
+
+    for (const sale of unpaidSales) {
+      if (remainingAdvance <= 0) break;
+      const due = Number(sale.balance_due);
+      const applyAmount = Math.min(due, remainingAdvance);
+
+      // Record repayment allocation
+      await createRepaymentEntry({ sale_id: sale.id, amount: applyAmount, transaction: t });
+      const balance = await refreshSaleOutstanding({ sale, transaction: t });
+      await updateSaleLedgerOutstanding({ sale, balance, transaction: t });
+
+      remainingAdvance -= applyAmount;
+    }
+    await t.commit();
+    res.json({ success: true, remainingAdvance });
+  } catch (err) {
+    await t.rollback();
+    throw err;
+  }
+};
+```
+
+### 6. Inter-State IGST Auto-Resolution & Place of Supply Invariant
+In `lib/core/printing/pos_invoice_printer.dart` and `lib/screens/inventory/salescreen.dart`:
+- The system evaluates tax jurisdiction via `_isIgstMode(order.billingTaxMode)`:
+  - If `data.buyerState != null && data.buyerState != data.sellerState`, the tax engine forces `IGST` mode.
+  - Generates thermal and A4 metadata rows declaring the customer's state as the **Place of Supply**.
+  - Suppresses split CGST/SGST columns and routes the entire tax amount directly to `taxes_payable_igst`.
+
 ---
 
 ## 📡 REST API Endpoint Specifications

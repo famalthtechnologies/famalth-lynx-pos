@@ -538,4 +538,32 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 ---
 
-*Last Updated: October 2026 | Covers 100% of all 45 Express Route Modules & Developer Subsystems*
+## 46. Transport Logistics & Fleet Management (`/api/transport`)
+
+- `GET /api/transport/vehicles` — List fleet vehicles with model, ownership type, and operational status.
+- `POST /api/transport/vehicles` — Register new commercial delivery vehicle.
+- `PUT /api/transport/vehicles/:id` — Update fleet vehicle details and maintenance status.
+- `DELETE /api/transport/vehicles/:id` — Deactivate / archive delivery vehicle.
+- `GET /api/transport/drivers` — List active commercial transport drivers.
+- `POST /api/transport/drivers` — Register driver profile with license number and contact.
+- `PUT /api/transport/drivers/:id` — Update driver details and duty availability.
+- `DELETE /api/transport/drivers/:id` — Deactivate driver profile.
+- `POST /api/transport/assign-trip` — Group delivery challans into a truck run and assign vehicle + driver.
+- `POST /api/transport/verify-delivery` — Verify doorstep recipient drop-off with customer code and notes.
+- `POST /api/transport/release-trip` — Release vehicle and driver back to available fleet upon route completion.
+- `GET /api/transport/active-trips` — Monitor real-time transit status of all dispatched logistics routes.
+
+---
+
+## 47. Delivery Challan Subsystem (`/api/restaurant/challan`)
+
+- `GET /api/restaurant/challan` — Search and filter delivery challans by status, customer, and date range.
+- `POST /api/restaurant/challan` — Create and issue official transport Delivery Challan under GST Rule 55.
+- `GET /api/restaurant/challan/:id` — Retrieve full delivery challan with itemized quantities and vehicle dispatch info.
+- `PUT /api/restaurant/challan/:id` — Amend draft delivery challan before dispatch.
+- `PATCH /api/restaurant/challan/:id/status` — Update challan workflow status (`ISSUED`, `DISPATCHED`, `DELIVERED`, `BILLED`, `CANCELLED`).
+- `POST /api/restaurant/challan/:id/convert-to-sale` — Convert delivered goods challan into an official POS sales invoice.
+
+---
+
+*Last Updated: November 2026 | Covers 100% of all 47 Express Route Modules & Developer Subsystems*

@@ -144,8 +144,12 @@ Monitor real-time cash inflows, disbursements, and running bank/cash balances in
   - Displays **Debit (Charges / Cash Out)** in red and **Credit (Receipts / Cash In)** in green side-by-side with an accurate cumulative **Running Balance**.
 - **Print Ledger Balance**:
   - Click **Print Ledger** to generate a thermal receipt or A4 statement displaying the Opening Balance, Date-wise Debit/Credit activity, Total Debits, Total Credits, and Net Closing Balance.
-- **Advance Deposit Reporting**:
+- **Advance Deposit Reporting & Bulk FIFO Advance Adjustment**:
   - Advance customer deposits and layaway down-payments are tracked in a dedicated ledger column, preventing premature recognition as completed sales before goods delivery.
+  - **Bulk FIFO Advance Settlement**: When a customer makes a lump-sum payment or has accumulated advance credit, the **Adjust Bulk Advance** feature automatically settles unpaid invoices in chronological order (Oldest Due Date First), updating individual sale balances and customer ledger outstandings atomically.
+- **Dynamic Property State & Inter-State GST (IGST) Auto-Detection**:
+  - The billing and accounting engines automatically read the store's home state from Company Profile and compare it with the buyer's billing state.
+  - If the buyer's state differs from the store's registered state, the system automatically activates **IGST Mode**, suppresses CGST/SGST splits, prints the customer's state as the official **Place of Supply**, and posts tax output to the Inter-State Tax Ledger without manual cashier intervention.
 
 ---
 

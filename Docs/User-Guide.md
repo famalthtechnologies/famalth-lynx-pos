@@ -51,6 +51,7 @@ Click on any guide below for comprehensive step-by-step instructions:
 | 🏢 **[Enterprise SaaS Control Plane & Fleet Management](./User-Guide-Enterprise-Control-Plane-And-SaaS-Management.md)** | Master tenant governance, 30-day quota guard, relationship manager assignments, support ticket helpdesk, and PDF subscription invoices. |
 | 🏥 **[Clinic Management, OPD Queue & Digital Prescriptions](./User-Guide-Clinic-Management-And-OPD.md)** | Doctor consultation desk, vitals recording, live stock medicine prescribing, lab test orders, fee billing, and public patient portal. |
 | 🛠️ **[System Maintenance Mode & Emergency Lockout](./User-Guide-Maintenance-Mode-And-Lockout.md)** | Non-dismissible lockout modal, advance scheduled maintenance warning banners, and automatic client terminal resumption. |
+| 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./User-Guide-Delivery-Challan-And-Transport-Logistics.md)** | Issuing goods in transit challans, registering fleet vehicles/drivers, trip route manifests, doorstep verification, and 1-tap POS billing conversion. |
 | 🛡️ **[Enterprise Disaster Recovery & Cloud Backup](./Disaster-Recovery-Documentation.md)** | Complete guide to automated AES-256 Google Drive backups, sync status tracking, and 1-click bare-metal store restoration. |
 
 ---
