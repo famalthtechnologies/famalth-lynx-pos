@@ -444,17 +444,38 @@ class TenantBackupService {
         const tableKeys = Object.keys(tables);
         let totalRecordsRestored = 0;
         const tablesRestored = [];
+        // Cache valid table columns and types from information_schema
+        const colMap = new Map();
+        try {
+            const [tableCols] = await activeDb.query(`
+        SELECT table_name, column_name, data_type 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public'
+      `);
+            for (const c of tableCols) {
+                if (!colMap.has(c.table_name)) colMap.set(c.table_name, new Map());
+                colMap.get(c.table_name).set(c.column_name, c.data_type);
+            }
+        }
+        catch (schemaErr) {
+            console.warn('⚠️ Could not query information_schema for backup restore validation:', schemaErr.message);
+        }
         // Execute restore inside transaction to ensure atomicity
         await activeDb.transaction(async (t) => {
             // If overwrite requested, clean target outlet data first
             if (options.overwriteExisting) {
                 // Child tables first
                 const childDeleteList = [
-                    'sales_items', 'kot_items', 'purchase_order_items', 'goods_receipt_items', 'voucher_lines', 'milk_subscription_items'
+                    `DELETE FROM "sales_items" WHERE sale_id IN (SELECT id FROM "sales_headers" WHERE outlet_id = :destOutletId)`,
+                    `DELETE FROM "kot_items" WHERE kot_header_id IN (SELECT id FROM "kot_headers" WHERE outlet_id = :destOutletId)`,
+                    `DELETE FROM "purchase_order_items" WHERE po_id IN (SELECT id FROM "purchase_orders" WHERE outlet_id = :destOutletId)`,
+                    `DELETE FROM "goods_receipt_items" WHERE grn_id IN (SELECT id FROM "goods_receipts" WHERE outlet_id = :destOutletId)`,
+                    `DELETE FROM "voucher_lines" WHERE voucher_id IN (SELECT id FROM "accounting_vouchers" WHERE outlet_id = :destOutletId)`,
+                    `DELETE FROM "milk_subscription_items" WHERE subscription_id IN (SELECT id FROM "milk_subscriptions" WHERE outlet_id = :destOutletId)`
                 ];
-                for (const tbl of childDeleteList) {
+                for (const q of childDeleteList) {
                     try {
-                        await activeDb.query(`DELETE FROM "${tbl}" WHERE id IN (SELECT id FROM "${tbl}" WHERE outlet_id = :destOutletId);`, { replacements: { destOutletId }, transaction: t }).catch(() => { });
+                        await activeDb.query(q, { replacements: { destOutletId }, transaction: t }).catch(() => { });
                     }
                     catch (_) { }
                 }
@@ -499,16 +520,33 @@ class TenantBackupService {
                 const rows = tables[tbl];
                 if (!Array.isArray(rows) || rows.length === 0)
                     continue;
+                const validColMap = colMap.get(tbl);
+                if (colMap.size > 0 && !validColMap)
+                    continue;
                 for (const row of rows) {
                     const rowCopy = { ...row };
                     // STRICT OUTLET REMAPPING: Force row to destination outlet
                     if ('outlet_id' in rowCopy) {
                         rowCopy.outlet_id = destOutletId;
                     }
-                    const cols = Object.keys(rowCopy);
+                    // Filter row properties to only columns that physically exist in the database table
+                    const cols = Object.keys(rowCopy).filter((c) => !validColMap || validColMap.has(c));
+                    if (cols.length === 0)
+                        continue;
                     const colList = cols.map((c) => `"${c}"`).join(', ');
                     const valPlaceholders = cols.map((_, idx) => `$${idx + 1}`).join(', ');
-                    const values = Object.values(rowCopy);
+                    const values = cols.map((c) => {
+                        const val = rowCopy[c];
+                        const dtype = validColMap ? validColMap.get(c) : null;
+                        if (val !== null && typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
+                            return JSON.stringify(val);
+                        }
+                        if (dtype === 'json' || dtype === 'jsonb') {
+                            if (typeof val === 'string') return val;
+                            return JSON.stringify(val);
+                        }
+                        return val;
+                    });
                     try {
                         await activeDb.query(`INSERT INTO "${tbl}" (${colList}) VALUES (${valPlaceholders}) ON CONFLICT DO NOTHING;`, { bind: values, transaction: t });
                         totalRecordsRestored++;

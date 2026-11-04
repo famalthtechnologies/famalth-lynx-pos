@@ -4253,10 +4253,16 @@ exports.finalReceiveReturn = async (req, res) => {
                         });
                     }
 
-                    if (tax_val > 0 && (cgst_amount + sgst_amount + igst_amount) === 0) {
+                    if (tax_val > 0 && tax_breakup.length === 0) {
                         const headerMode = String(sale.billing_tax_mode || sale.billingTaxMode || '').trim().toUpperCase();
+                        const isIgstHeader = headerMode === 'IGST' 
+                          || headerMode.startsWith('IGST') 
+                          || headerMode.includes('INTERSTATE') 
+                          || headerMode.includes('INTER_STATE') 
+                          || headerMode.includes('INTER STATE');
+                        const isIndiaCountry = String(sale.billing_country || '').trim().toUpperCase() === 'INDIA' || !sale.billing_country;
                         const taxPercent = Number(saleItem.tax_percent || 0);
-                        if (headerMode === 'IGST') {
+                        if (isIgstHeader) {
                             igst_amount = tax_val;
                             tax_breakup = [{
                                 code: 'IGST',
@@ -4267,7 +4273,7 @@ exports.finalReceiveReturn = async (req, res) => {
                                 tax_amount: tax_val,
                                 taxAmount: tax_val
                             }];
-                        } else {
+                        } else if (isIndiaCountry && (headerMode === 'CGST_SGST' || headerMode === 'GST' || !headerMode)) {
                             const halfTax = toAmount(tax_val / 2);
                             cgst_amount = halfTax;
                             sgst_amount = toAmount(tax_val - halfTax);
@@ -4290,6 +4296,19 @@ exports.finalReceiveReturn = async (req, res) => {
                                     taxableAmount: taxable_val,
                                     tax_amount: sgst_amount,
                                     taxAmount: sgst_amount
+                                }
+                            ];
+                        } else {
+                            const tName = headerMode === 'VAT' ? 'VAT' : (headerMode === 'SALES_TAX' ? 'Sales Tax' : (headerMode || 'Tax'));
+                            tax_breakup = [
+                                {
+                                    code: headerMode || 'TAX',
+                                    label: `${tName} ${taxPercent % 1 === 0 ? taxPercent.toFixed(0) : taxPercent.toFixed(2)}%`,
+                                    taxType: headerMode || 'TAX',
+                                    rate: taxPercent,
+                                    taxableAmount: taxable_val,
+                                    tax_amount: tax_val,
+                                    taxAmount: tax_val
                                 }
                             ];
                         }

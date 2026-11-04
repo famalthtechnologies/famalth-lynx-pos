@@ -4842,8 +4842,8 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
     final subjectController = TextEditingController(text: '[$ticketNum] Support Update: $subject');
     final bodyController = TextEditingController(
       text: defaultResolution != null && defaultResolution.isNotEmpty
-          ? 'Dear Customer ($outletCode),\n\nYour support ticket #$ticketNum ("$subject") has been resolved and closed by Central Support.\n\nResolution Summary:\n$defaultResolution\n\nIf you have any further questions or require new assistance, please open a new ticket directly from your POS terminal.\n\nThank you for choosing Retail POS,\nCentral Enterprise Support Team'
-          : 'Dear Customer ($outletCode),\n\nRegarding your support ticket #$ticketNum ("$subject"):\n\n\n\nThank you,\nCentral Enterprise Support Team',
+          ? 'Dear Customer ($outletCode),\n\nYour support ticket #$ticketNum ("$subject") has been resolved and closed by Central Support.\n\nResolution Summary:\n$defaultResolution\n\nIf you have any further questions or require new assistance, please open a new ticket directly from your POS terminal.\n\nThank you for choosing FAMALTH LYNX,\nFAMALTH LYNX Enterprise Support Team'
+          : 'Dear Customer ($outletCode),\n\nRegarding your support ticket #$ticketNum ("$subject"):\n\n\n\nThank you,\nFAMALTH LYNX Enterprise Support Team',
     );
 
     bool isSending = false;

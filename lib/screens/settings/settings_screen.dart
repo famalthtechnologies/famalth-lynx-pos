@@ -176,14 +176,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'CUSTOM',
     'NONE',
   ];
-  static const _billFormats = [
-    'A4',
-    'A5',
-    'THERMAL_58',
-    'THERMAL_72',
-    'THERMAL_76',
-    'THERMAL_80',
-  ];
   static const _taxTypes = ['GST', 'VAT', 'SALES_TAX', 'US_SALES_TAX', 'CESS', 'OTHER'];
   static const _printModes = [
     'PRINT_DIALOG',
@@ -204,23 +196,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loadingSettingsData = false;
 
   bool get _isAdmin => PermissionService.user?.role == 'ADMIN';
-
-  String _billFormatLabel(String format) {
-    switch (format) {
-      case 'A5':
-        return 'A5 Invoice';
-      case 'THERMAL_58':
-        return '58mm Thermal';
-      case 'THERMAL_72':
-        return '72mm Thermal';
-      case 'THERMAL_76':
-        return '76mm Thermal';
-      case 'THERMAL_80':
-        return '80mm Thermal';
-      default:
-        return 'A4 Invoice';
-    }
-  }
 
   @override
   void initState() {
@@ -1076,18 +1051,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _settingRow(
                         title: 'Enable Salesperson Tagging',
                         description: 'Show salesperson selector and calculate commission on sale',
+                        isLast: true,
                         control: Switch.adaptive(
                           value: s.enableSalespersonTagging,
                           onChanged: (v) => setState(() => s.enableSalespersonTagging = v),
-                        ),
-                      ),
-                      _settingRow(
-                        title: 'Show Brand Name in Print / Bills',
-                        description: 'Display and print the product brand name on KOTs, receipts, and invoices',
-                        isLast: true,
-                        control: Switch.adaptive(
-                          value: s.showBrandName,
-                          onChanged: (v) => setState(() => s.showBrandName = v),
                         ),
                       ),
                     ],
@@ -1966,71 +1933,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ),
                       _settingRow(
-                        title: 'Default Billing Tax Mode',
-                        description: 'Default tax group applied automatically to new sales & invoices (Only created Tax Groups are listed)',
-                        control: SizedBox(
-                          width: 280,
-                          child: Builder(builder: (_) {
-                            final items = <DropdownMenuItem<String>>[];
-                            final knownValues = <String>{};
-
-                            // Always include NONE / Tax Exempt
-                            knownValues.add('NONE');
-                            items.add(const DropdownMenuItem(
-                              value: 'NONE',
-                              child: Text('None / Tax Exempt (0%)'),
-                            ));
-
-                            // Only show created Tax Groups
-                            for (final g in _loadedTaxGroups) {
-                              final key = g.groupCode != null && g.groupCode!.trim().isNotEmpty
-                                  ? g.groupCode!.trim().toUpperCase()
-                                  : (g.groupName.trim().isNotEmpty ? g.groupName.trim() : g.id);
-                              if (!knownValues.contains(key)) {
-                                knownValues.add(key);
-                                items.add(DropdownMenuItem(
-                                  value: key,
-                                  child: Text('${g.groupName} (${g.totalRate.toStringAsFixed(2)}%)', overflow: TextOverflow.ellipsis),
-                                ));
-                              }
-                            }
-
-                            String selectedVal = s.billingTaxMode.trim();
-                            if (!knownValues.contains(selectedVal)) {
-                              final match = _loadedTaxGroups.where((g) =>
-                                  g.groupName.trim().toLowerCase() == selectedVal.toLowerCase() ||
-                                  g.id == selectedVal ||
-                                  (g.groupCode != null && g.groupCode!.trim().toUpperCase() == selectedVal.toUpperCase())).firstOrNull;
-                              if (match != null) {
-                                selectedVal = match.groupCode != null && match.groupCode!.trim().isNotEmpty
-                                    ? match.groupCode!.trim().toUpperCase()
-                                    : match.groupName;
-                              } else if (items.length > 1) {
-                                selectedVal = items[1].value!;
-                              } else {
-                                selectedVal = 'NONE';
-                              }
-                            }
-
-                            return DropdownButtonFormField<String>(
-                              value: selectedVal,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              ),
-                              items: items,
-                              onChanged: (value) {
-                                if (value != null) {
-                                  setState(() => s.billingTaxMode = value);
-                                }
-                              },
-                            );
-                          }),
-                        ),
-                      ),
-                      _settingRow(
                         title: 'Tax Groups & Sub-Tax Components',
                         description: 'Build custom Tax Groups and add stacked sub-tax components (State Tax, City Tax, Transit Tax, GST, PST, CTL)',
+                        isLast: true,
                         control: ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2563EB),
@@ -2043,28 +1948,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ).then((_) => _loadSettingsData()),
                           icon: const Icon(Icons.account_balance_wallet, size: 16),
                           label: const Text('Manage Tax Groups & Components'),
-                        ),
-                      ),
-                      _settingRow(
-                        title: 'Default Invoice Output Format',
-                        description: 'Select invoice document paper dimensions',
-                        isLast: true,
-                        control: SizedBox(
-                          width: 280,
-                          child: DropdownButtonFormField<String>(
-                            value: s.billFormat,
-                            items: _billFormats
-                                .map((format) => DropdownMenuItem(
-                                      value: format,
-                                      child: Text(_billFormatLabel(format)),
-                                    ))
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => s.billFormat = value);
-                              }
-                            },
-                          ),
                         ),
                       ),
                     ],

@@ -65,36 +65,50 @@ function resolveCurrencySymbol(currency: string, explicitSym?: string): string {
 export function generateSubscriptionInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({
-        size: 'A4',
-        margins: { top: 48, bottom: 40, left: 54, right: 54 },
-        bufferPages: true,
-      });
-      const buffers: Buffer[] = [];
-      doc.on('data', buffers.push.bind(buffers));
-      doc.on('end', () => resolve(Buffer.concat(buffers)));
-
-      // REGISTER FONTS
+      // REGISTER FONTS BEFORE INITIALIZING PDFDocument TO PREVENT HELVETICA.AFM CRASH
       const possibleFontDirs = [
         path.resolve(__dirname, '../assets/fonts'),
         path.resolve(__dirname, '../../assets/fonts'),
+        path.resolve(__dirname, '../../../backend/assets/fonts'),
         path.resolve(process.cwd(), 'assets/fonts'),
         path.resolve(process.cwd(), 'backend/assets/fonts'),
       ];
 
-      let fontBold = 'Helvetica-Bold';
-      let fontRegular = 'Helvetica';
+      let fontBoldPath: string | null = null;
+      let fontRegularPath: string | null = null;
 
       for (const fDir of possibleFontDirs) {
         const b = path.join(fDir, 'Roboto-Bold.ttf');
         const r = path.join(fDir, 'Roboto-Regular.ttf');
         if (fs.existsSync(b) && fs.existsSync(r)) {
-          doc.registerFont('Google-Roboto-Bold', b);
-          doc.registerFont('Google-Roboto-Regular', r);
-          fontBold = 'Google-Roboto-Bold';
-          fontRegular = 'Google-Roboto-Regular';
+          fontBoldPath = b;
+          fontRegularPath = r;
           break;
         }
+      }
+
+      const docOptions: any = {
+        size: 'A4',
+        margins: { top: 48, bottom: 40, left: 54, right: 54 },
+        bufferPages: true,
+      };
+      if (fontRegularPath) {
+        docOptions.font = fontRegularPath;
+      }
+
+      const doc = new PDFDocument(docOptions);
+      const buffers: Buffer[] = [];
+      doc.on('data', buffers.push.bind(buffers));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+      let fontBold = 'Helvetica-Bold';
+      let fontRegular = 'Helvetica';
+
+      if (fontBoldPath && fontRegularPath) {
+        doc.registerFont('Google-Roboto-Bold', fontBoldPath);
+        doc.registerFont('Google-Roboto-Regular', fontRegularPath);
+        fontBold = 'Google-Roboto-Bold';
+        fontRegular = 'Google-Roboto-Regular';
       }
 
       const currency = (data.pricing.currency || 'INR').toUpperCase();
@@ -193,7 +207,7 @@ export function generateSubscriptionInvoicePdf(data: InvoicePdfData): Promise<Bu
       // Right: Summary Card (Google style right-aligned financial card)
       let sumY = y;
       doc.fillColor('#202124').fontSize(9).font(fontBold).text(
-        `Famalth Cloud POS • ${data.license.tierName} Edition`,
+        `Famalth Cloud POS • ${data.license?.tierName || 'PROFESSIONAL'} Edition`,
         rightX,
         sumY,
         { width: rightW }

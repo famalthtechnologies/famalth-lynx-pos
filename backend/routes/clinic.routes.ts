@@ -7,7 +7,7 @@ router.use(auth);
 
 // Appointments
 router.get('/appointments', clinicCtrl.getAppointments);
-router.post('/appointments', clinicCtrl.createAppointment);
+router.post(['/appointments', '/appointment'], clinicCtrl.createAppointment);
 router.patch('/appointments/:id/status', clinicCtrl.updateAppointmentStatus);
 router.post('/appointments/:id/prescription', clinicCtrl.savePrescription);
 router.post('/appointments/:id/send-to-billing', clinicCtrl.sendToBillingDraft);

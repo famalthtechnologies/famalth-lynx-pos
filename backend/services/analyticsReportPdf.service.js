@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const PDFDocument = require('pdfkit');
 
 /**
@@ -9,7 +11,33 @@ const PDFDocument = require('pdfkit');
 function generateAnalyticsReportPdf(summaryText, rows) {
     return new Promise((resolve, reject) => {
         try {
-            const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
+            const possibleFontDirs = [
+                path.resolve(__dirname, '../assets/fonts'),
+                path.resolve(__dirname, '../../assets/fonts'),
+                path.resolve(__dirname, '../../../backend/assets/fonts'),
+                path.resolve(process.cwd(), 'assets/fonts'),
+                path.resolve(process.cwd(), 'backend/assets/fonts'),
+            ];
+
+            let fontBoldPath = null;
+            let fontRegularPath = null;
+
+            for (const fDir of possibleFontDirs) {
+                const b = path.join(fDir, 'Roboto-Bold.ttf');
+                const r = path.join(fDir, 'Roboto-Regular.ttf');
+                if (fs.existsSync(b) && fs.existsSync(r)) {
+                    fontBoldPath = b;
+                    fontRegularPath = r;
+                    break;
+                }
+            }
+
+            const docOptions = { size: 'A4', margin: 40, bufferPages: true };
+            if (fontRegularPath) {
+                docOptions.font = fontRegularPath;
+            }
+
+            const doc = new PDFDocument(docOptions);
             const buffers = [];
 
             doc.on('data', buffers.push.bind(buffers));
@@ -17,20 +45,30 @@ function generateAnalyticsReportPdf(summaryText, rows) {
                 resolve(Buffer.concat(buffers));
             });
 
+            let fontBold = 'Helvetica-Bold';
+            let fontRegular = 'Helvetica';
+
+            if (fontBoldPath && fontRegularPath) {
+                doc.registerFont('Roboto-Bold', fontBoldPath);
+                doc.registerFont('Roboto-Regular', fontRegularPath);
+                fontBold = 'Roboto-Bold';
+                fontRegular = 'Roboto-Regular';
+            }
+
             // ---------------- PAGE 1: TITLE & EXECUTIVE SUMMARY ----------------
             // Title Header Banner
             doc.rect(40, 40, 515, 60).fill('#1e3a8a');
-            doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(20).text('AI BUSINESS INTELLIGENCE REPORT', 55, 60);
-            doc.fillColor('#93c5fd').font('Helvetica').fontSize(10).text('Analytics Engine Intelligence Summary', 55, 82);
+            doc.fillColor('#ffffff').font(fontBold).fontSize(20).text('AI BUSINESS INTELLIGENCE REPORT', 55, 60);
+            doc.fillColor('#93c5fd').font(fontRegular).fontSize(10).text('Analytics Engine Intelligence Summary', 55, 82);
 
             doc.y = 120; // reset cursor after banner
 
             // Generation Date
-            doc.fillColor('#6b7280').font('Helvetica').fontSize(8).text(`Generated on: ${new Date().toLocaleString()}`, { align: 'right' });
+            doc.fillColor('#6b7280').font(fontRegular).fontSize(8).text(`Generated on: ${new Date().toLocaleString()}`, { align: 'right' });
             doc.moveDown(1.5);
 
             // Executive Summary Title
-            doc.fillColor('#1f2937').font('Helvetica-Bold').fontSize(14).text('Executive Summary Analysis');
+            doc.fillColor('#1f2937').font(fontBold).fontSize(14).text('Executive Summary Analysis');
             doc.moveDown(0.8);
 
             // Print AI Summary Text
@@ -40,14 +78,14 @@ function generateAnalyticsReportPdf(summaryText, rows) {
                 .replace(/>/g, '')
                 .trim();
 
-            doc.fillColor('#374151').font('Helvetica').fontSize(10.5).text(cleanSummary, { align: 'justify', lineGap: 3 });
+            doc.fillColor('#374151').font(fontRegular).fontSize(10.5).text(cleanSummary, { align: 'justify', lineGap: 3 });
             doc.moveDown(2);
 
             // ---------------- PAGE 2+: DATA RECORDS TABLE ----------------
             doc.addPage();
 
             // Table Title
-            doc.fillColor('#1e3a8a').font('Helvetica-Bold').fontSize(14).text('Complete Dataset Records');
+            doc.fillColor('#1e3a8a').font(fontBold).fontSize(14).text('Complete Dataset Records');
             doc.moveDown(0.8);
 
             if (rows && rows.length > 0) {
@@ -60,7 +98,7 @@ function generateAnalyticsReportPdf(summaryText, rows) {
 
                 // Draw Table Header
                 doc.rect(40, currentY, tableWidth, 20).fill('#1e3a8a');
-                doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.5);
+                doc.fillColor('#ffffff').font(fontBold).fontSize(8.5);
 
                 for (let i = 0; i < displayKeys.length; i++) {
                     // Title casing columns
@@ -71,7 +109,7 @@ function generateAnalyticsReportPdf(summaryText, rows) {
                 }
 
                 currentY += 20;
-                doc.fillColor('#374151').font('Helvetica').fontSize(8.5);
+                doc.fillColor('#374151').font(fontRegular).fontSize(8.5);
 
                 // Print rows
                 let index = 0;
@@ -83,7 +121,7 @@ function generateAnalyticsReportPdf(summaryText, rows) {
 
                         // Redraw Table Header
                         doc.rect(40, currentY, tableWidth, 20).fill('#1e3a8a');
-                        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.5);
+                        doc.fillColor('#ffffff').font(fontBold).fontSize(8.5);
 
                         for (let i = 0; i < displayKeys.length; i++) {
                             const headerName = String(displayKeys[i])
@@ -93,7 +131,7 @@ function generateAnalyticsReportPdf(summaryText, rows) {
                         }
 
                         currentY += 20;
-                        doc.fillColor('#374151').font('Helvetica').fontSize(8.5);
+                        doc.fillColor('#374151').font(fontRegular).fontSize(8.5);
                     }
 
                     // Alternating backgrounds
@@ -117,7 +155,7 @@ function generateAnalyticsReportPdf(summaryText, rows) {
                 // If rows exceed display limits, notify at end of PDF
                 if (keys.length > 6) {
                     doc.moveDown(1);
-                    doc.fillColor('#6b7280').font('Helvetica-Oblique').fontSize(8).text(`* Note: Table displays the first 6 columns of the dataset. Full columns are exported inside the CSV format file.`, 40, currentY + 10);
+                    doc.fillColor('#6b7280').font(fontRegular).fontSize(8).text(`* Note: Table displays the first 6 columns of the dataset. Full columns are exported inside the CSV format file.`, 40, currentY + 10);
                 }
 
             } else {

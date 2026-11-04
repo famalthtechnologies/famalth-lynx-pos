@@ -95,9 +95,10 @@ async function computeCycleProgress({ req, scheme, enrollment, asOfDate }: { req
   const startDate = enrollment?.start_date ? new Date(enrollment.start_date) : null;
   const today = dateOnly(asOfDate) || dateOnly(new Date());
   const cycleDays = Math.max(1, Number(scheme.cycle_days) || 30);
-  const itemId = Number(scheme.item_id);
+  const itemId = Number(scheme.item_id) || 0;
+  const schemeId = Number(scheme.id) || 0;
 
-  if (!startDate || !today || !Number.isFinite(itemId)) return null;
+  if (!startDate || !today) return null;
 
   const start = dateOnly(startDate);
   if (!start) return null;
@@ -123,13 +124,16 @@ WHERE sh.outlet_id = :outlet_id
   AND sh.status = 'COMPLETED'
   AND sh.is_latest = TRUE
   AND sh.is_deleted = FALSE
-  AND si.item_id = :item_id
-  AND COALESCE(si.is_scheme_free, FALSE) = FALSE
+  AND (
+    (:item_id > 0 AND si.item_id = :item_id)
+    OR si.applied_scheme_id = :scheme_id
+    OR sh.scheme_id = :scheme_id
+  )
   AND DATE(sh.sale_date) BETWEEN :from_day AND :to_day
   AND (
-    (:customer_phone <> '' AND sh.customer_phone = :customer_phone)
+    (:customer_phone <> '' AND (sh.customer_phone = :customer_phone OR sh.customer_phone LIKE :phone_like))
     OR (:customer_gstin <> '' AND sh.customer_gstin = :customer_gstin)
-    OR (:customer_name <> '' AND sh.customer_name = :customer_name)
+    OR (:customer_name <> '' AND LOWER(TRIM(sh.customer_name)) = LOWER(TRIM(:customer_name)))
   )
 GROUP BY DATE(sh.sale_date)
 ORDER BY sale_day ASC
@@ -138,9 +142,11 @@ ORDER BY sale_day ASC
       replacements: {
         outlet_id: req.user.outlet_id,
         item_id: itemId,
+        scheme_id: schemeId,
         from_day: formatDateLocalYmd(cycleStart),
         to_day: formatDateLocalYmd(dateToCheck),
         customer_phone: identity.customer_phone || '',
+        phone_like: identity.customer_phone ? `%${identity.customer_phone}%` : '',
         customer_gstin: identity.customer_gstin || '',
         customer_name: identity.customer_name || '',
       },
@@ -272,26 +278,29 @@ WHERE outlet_id = :outlet_id
 async function loadCycleWindowDetails({ req, scheme, enrollment, identity, progress, asOfDate }: { req: any; scheme: any; enrollment: any; identity: any; progress: any; asOfDate: any }) {
   const cycleStart = dateOnly(progress?.cycle_start) || dateOnly(enrollment?.start_date) || dateOnly(asOfDate);
   const cycleEnd = dateOnly(progress?.cycle_end) || dateOnly(asOfDate);
-  const itemId = Number(scheme.item_id);
-  if (!cycleStart || !cycleEnd || !Number.isFinite(itemId)) return [];
+  const itemId = Number(scheme.item_id) || 0;
+  const schemeId = Number(scheme.id) || 0;
+  if (!cycleStart || !cycleEnd) return [];
 
-  const replacements = {
+  const replacements: any = {
     outlet_id: req.user.outlet_id,
     item_id: itemId,
+    scheme_id: schemeId,
     from_day: formatDateLocalYmd(cycleStart),
     to_day: formatDateLocalYmd(cycleEnd),
     customer_phone: identity.customer_phone || '',
+    phone_like: identity.customer_phone ? `%${identity.customer_phone}%` : '',
     customer_gstin: identity.customer_gstin || '',
     customer_name: identity.customer_name || '',
   };
 
   let customerWhere = '';
   if (identity.customer_phone) {
-    customerWhere = "AND sh.customer_phone = :customer_phone";
+    customerWhere = "AND (sh.customer_phone = :customer_phone OR sh.customer_phone LIKE :phone_like)";
   } else if (identity.customer_gstin) {
     customerWhere = "AND sh.customer_gstin = :customer_gstin";
   } else if (identity.customer_name) {
-    customerWhere = "AND sh.customer_name = :customer_name";
+    customerWhere = "AND LOWER(TRIM(sh.customer_name)) = LOWER(TRIM(:customer_name))";
   }
 
   const [billRows] = await req.propertyDb.query(
@@ -302,13 +311,16 @@ async function loadCycleWindowDetails({ req, scheme, enrollment, identity, progr
          COALESCE(SUM(si.qty), 0) AS qty,
          COALESCE(SUM(si.net_amount), 0) AS amount
   FROM sales_headers sh
-JOIN sales_items si ON si.sale_id = sh.id
+  JOIN sales_items si ON si.sale_id = sh.id
   WHERE sh.outlet_id = :outlet_id
     AND sh.status = 'COMPLETED'
     AND sh.is_latest = TRUE
     AND sh.is_deleted = FALSE
-    AND si.item_id = :item_id
-    AND COALESCE(si.is_scheme_free, FALSE) = FALSE
+    AND (
+      (:item_id > 0 AND si.item_id = :item_id)
+      OR si.applied_scheme_id = :scheme_id
+      OR sh.scheme_id = :scheme_id
+    )
     AND DATE(sh.sale_date) BETWEEN :from_day AND :to_day
     ${customerWhere}
   GROUP BY DATE(sh.sale_date), sh.id, sh.sale_no

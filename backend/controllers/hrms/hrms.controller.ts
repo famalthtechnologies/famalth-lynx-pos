@@ -1251,8 +1251,8 @@ const activeDaysInPeriod = calcEnd.diff(calcStart, 'days') + 1;
         const arrs = await hr_arrears.findAll({
           where: {
             employee_id: emp.id,
-            payment_month: pay_period,
-            status: 'Pending',
+            payment_month: { [Op.lte]: pay_period },
+            status: { [Op.in]: ['Pending', 'Pending Approval', 'Approved'] },
             outlet_id: req.user.outlet_id
           }
         });
@@ -1588,7 +1588,7 @@ exports.runPayroll = async (req, res) => {
       if (d.bonuses > 0 && hr_arrears) {
         await hr_arrears.update(
           { status: 'Paid' },
-          { where: { employee_id: d.employee_id, payment_month: pay_period, status: 'Pending', outlet_id: req.user.outlet_id } }
+          { where: { employee_id: d.employee_id, payment_month: { [Op.lte]: pay_period }, status: { [Op.in]: ['Pending', 'Pending Approval', 'Approved'] }, outlet_id: req.user.outlet_id } }
         );
       }
     }
@@ -3116,15 +3116,28 @@ exports.bulkImportAttendance = async (req: any, res: any) => {
         status = row.status || 'Absent';
       }
 
-      // Check lateness against shift
+      // Check lateness and shift duration
       let latenessMins = 0;
-      if (matchedEmp.shift && matchedEmp.shift.start_time && punchInDate) {
+      let shiftDurationHours = 9.0;
+      if (matchedEmp.shift && matchedEmp.shift.start_time) {
         const shiftStart = moment(`${punchDate} ${matchedEmp.shift.start_time}`, 'YYYY-MM-DD HH:mm:ss');
         const inMoment = moment(punchInDate);
         if (inMoment.isAfter(shiftStart)) {
           latenessMins = inMoment.diff(shiftStart, 'minutes');
         }
+        if (matchedEmp.shift.end_time) {
+          const shiftEnd = moment(`${punchDate} ${matchedEmp.shift.end_time}`, 'YYYY-MM-DD HH:mm:ss');
+          let shiftDurationMins = shiftEnd.diff(shiftStart, 'minutes');
+          if (shiftDurationMins < 0) shiftDurationMins += 24 * 60;
+          if (shiftDurationMins > 0) {
+            shiftDurationHours = parseFloat((shiftDurationMins / 60).toFixed(2));
+          }
+        }
       }
+
+      const calculatedOvertime = hoursWorked > shiftDurationHours
+        ? parseFloat((hoursWorked - shiftDurationHours).toFixed(2))
+        : 0.0;
 
       const [record, created] = await hr_attendance_punches.findOrCreate({
         where: {
@@ -3139,7 +3152,7 @@ exports.bulkImportAttendance = async (req: any, res: any) => {
           punch_in: punchInDate,
           punch_out: punchOutDate,
           hours_worked: hoursWorked,
-          overtime_hours: Math.max(0, hoursWorked - 8),
+          overtime_hours: calculatedOvertime,
           lateness_mins: latenessMins,
           status,
           punch_source: 'Excel_Import',
@@ -3154,6 +3167,7 @@ exports.bulkImportAttendance = async (req: any, res: any) => {
           punch_in: punchInDate || record.punch_in,
           punch_out: punchOutDate || record.punch_out,
           hours_worked: hoursWorked > 0 ? hoursWorked : record.hours_worked,
+          overtime_hours: calculatedOvertime,
           status: status || record.status,
           punch_source: 'Excel_Import',
           remarks: row.remarks || record.remarks,
@@ -3340,7 +3354,7 @@ exports.syncBiometricPunches = async (req: any, res: any) => {
 
 exports.receiveBiometricPushWebhook = async (req: any, res: any) => {
   try {
-    const { hr_attendance_punches, hr_employees } = req.propertyDb.models;
+    const { hr_attendance_punches, hr_employees, hr_shifts } = req.propertyDb.models;
     const outlet_id = req.user?.outlet_id || req.headers['x-outlet-id'] || 1;
     const body = req.body;
 
@@ -3358,13 +3372,25 @@ exports.receiveBiometricPushWebhook = async (req: any, res: any) => {
             { employee_code: empCode },
             { id: parseInt(empCode) || 0 }
           ]
-        }
+        },
+        include: [{ model: hr_shifts, as: 'shift' }]
       });
       if (!emp) continue;
 
       const punchTime = p.punch_time || p.timestamp || p.time || new Date();
       const punchDate = moment(punchTime).format('YYYY-MM-DD');
       const punchInDate = moment(punchTime).toDate();
+
+      let shiftDurationHours = 9.0;
+      if (emp.shift && emp.shift.start_time && emp.shift.end_time) {
+        const shiftStart = moment(`${punchDate} ${emp.shift.start_time}`, 'YYYY-MM-DD HH:mm:ss');
+        const shiftEnd = moment(`${punchDate} ${emp.shift.end_time}`, 'YYYY-MM-DD HH:mm:ss');
+        let shiftDurationMins = shiftEnd.diff(shiftStart, 'minutes');
+        if (shiftDurationMins < 0) shiftDurationMins += 24 * 60;
+        if (shiftDurationMins > 0) {
+          shiftDurationHours = parseFloat((shiftDurationMins / 60).toFixed(2));
+        }
+      }
 
       const [record, created] = await hr_attendance_punches.findOrCreate({
         where: { outlet_id, employee_id: emp.id, punch_date: punchDate },
@@ -3383,10 +3409,13 @@ exports.receiveBiometricPushWebhook = async (req: any, res: any) => {
         const inTime = record.punch_in ? new Date(record.punch_in).getTime() : punchInDate.getTime();
         const outTime = punchInDate.getTime();
         const hoursWorked = Math.max(0, parseFloat(((outTime - inTime) / (1000 * 3600)).toFixed(2)));
+        const calculatedOvertime = hoursWorked > shiftDurationHours
+          ? parseFloat((hoursWorked - shiftDurationHours).toFixed(2))
+          : 0.0;
         await record.update({
           punch_out: punchInDate,
           hours_worked: hoursWorked,
-          overtime_hours: Math.max(0, hoursWorked - 8),
+          overtime_hours: calculatedOvertime,
           punch_source: 'Biometric_Machine'
         });
       }

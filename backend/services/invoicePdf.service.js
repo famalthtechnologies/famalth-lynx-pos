@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const PDFDocument = require('pdfkit');
 
 /**
@@ -9,7 +11,33 @@ const PDFDocument = require('pdfkit');
 function generateInvoicePdf(saleHeader, saleItems) {
     return new Promise((resolve, reject) => {
         try {
-            const doc = new PDFDocument({ size: 'A4', margin: 40 });
+            const possibleFontDirs = [
+                path.resolve(__dirname, '../assets/fonts'),
+                path.resolve(__dirname, '../../assets/fonts'),
+                path.resolve(__dirname, '../../../backend/assets/fonts'),
+                path.resolve(process.cwd(), 'assets/fonts'),
+                path.resolve(process.cwd(), 'backend/assets/fonts'),
+            ];
+
+            let fontBoldPath = null;
+            let fontRegularPath = null;
+
+            for (const fDir of possibleFontDirs) {
+                const b = path.join(fDir, 'Roboto-Bold.ttf');
+                const r = path.join(fDir, 'Roboto-Regular.ttf');
+                if (fs.existsSync(b) && fs.existsSync(r)) {
+                    fontBoldPath = b;
+                    fontRegularPath = r;
+                    break;
+                }
+            }
+
+            const docOptions = { size: 'A4', margin: 40 };
+            if (fontRegularPath) {
+                docOptions.font = fontRegularPath;
+            }
+
+            const doc = new PDFDocument(docOptions);
             const buffers = [];
 
             doc.on('data', buffers.push.bind(buffers));
@@ -18,19 +46,29 @@ function generateInvoicePdf(saleHeader, saleItems) {
                 resolve(pdfData);
             });
 
+            let fontBold = 'Helvetica-Bold';
+            let fontRegular = 'Helvetica';
+
+            if (fontBoldPath && fontRegularPath) {
+                doc.registerFont('Roboto-Bold', fontBoldPath);
+                doc.registerFont('Roboto-Regular', fontRegularPath);
+                fontBold = 'Roboto-Bold';
+                fontRegular = 'Roboto-Regular';
+            }
+
             // ---------------- HEADER / LOGO ----------------
-            doc.fillColor('#1e3a8a').fontSize(22).font('Helvetica-Bold').text('INVOICE', { align: 'right' });
-            doc.fillColor('#4b5563').fontSize(10).font('Helvetica').text('Retail Store POS Alert Engine', { align: 'right' });
+            doc.fillColor('#1e3a8a').fontSize(22).font(fontBold).text('INVOICE', { align: 'right' });
+            doc.fillColor('#4b5563').fontSize(10).font(fontRegular).text('Retail Store POS Alert Engine', { align: 'right' });
             doc.moveDown(1.5);
 
             // ---------------- SENDER / RECEIVER ----------------
             const startY = doc.y;
-            doc.fillColor('#1f2937').fontSize(11).font('Helvetica-Bold').text('Billed From:', 40, startY);
-            doc.font('Helvetica').fontSize(10).text(`Outlet ID: ${saleHeader.outlet_id}`);
+            doc.fillColor('#1f2937').fontSize(11).font(fontBold).text('Billed From:', 40, startY);
+            doc.font(fontRegular).fontSize(10).text(`Outlet ID: ${saleHeader.outlet_id}`);
             doc.text(`Billing Country: ${saleHeader.billing_country || 'India'}`);
 
-            doc.font('Helvetica-Bold').fontSize(11).text('Billed To:', 280, startY);
-            doc.font('Helvetica').fontSize(10).text(`Customer: ${saleHeader.customer_name || 'Walk-in Customer'}`);
+            doc.font(fontBold).fontSize(11).text('Billed To:', 280, startY);
+            doc.font(fontRegular).fontSize(10).text(`Customer: ${saleHeader.customer_name || 'Walk-in Customer'}`);
             if (saleHeader.customer_phone) {
                 doc.text(`Phone: ${saleHeader.customer_phone}`, 280);
             }
@@ -42,8 +80,8 @@ function generateInvoicePdf(saleHeader, saleItems) {
 
             // ---------------- TRANSACTION DETAILS ----------------
             const detailsY = doc.y;
-            doc.font('Helvetica-Bold').text('Transaction Details:', 40, detailsY);
-            doc.font('Helvetica').text(`Invoice Number: ${saleHeader.sale_no}`);
+            doc.font(fontBold).text('Transaction Details:', 40, detailsY);
+            doc.font(fontRegular).text(`Invoice Number: ${saleHeader.sale_no}`);
             doc.text(`Invoice Date: ${new Date(saleHeader.sale_date).toLocaleDateString()}`);
             doc.text(`Payment Mode: ${saleHeader.payment_mode || 'Cash'}`);
 
@@ -54,7 +92,7 @@ function generateInvoicePdf(saleHeader, saleItems) {
             
             // Header Row
             doc.rect(40, currentY, 515, 20).fill('#1e3a8a');
-            doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10);
+            doc.fillColor('#ffffff').font(fontBold).fontSize(10);
             doc.text('Item Name', 50, currentY + 5, { width: 220 });
             doc.text('Qty', 280, currentY + 5, { width: 60, align: 'right' });
             doc.text('Rate', 350, currentY + 5, { width: 80, align: 'right' });
@@ -63,7 +101,7 @@ function generateInvoicePdf(saleHeader, saleItems) {
             currentY += 20;
 
             // Data Rows
-            doc.fillColor('#374151').font('Helvetica').fontSize(10);
+            doc.fillColor('#374151').font(fontRegular).fontSize(10);
             let index = 0;
             for (const item of saleItems) {
                 // Alternating backgrounds
@@ -86,7 +124,7 @@ function generateInvoicePdf(saleHeader, saleItems) {
             // ---------------- TOTALS SECTION ----------------
             const totalY = doc.y;
             doc.rect(340, totalY, 215, 60).fill('#f9fafb');
-            doc.fillColor('#111827').font('Helvetica-Bold');
+            doc.fillColor('#111827').font(fontBold);
             
             doc.text('Subtotal:', 350, totalY + 10);
             doc.text(Number(saleHeader.sub_total || saleHeader.amount || saleHeader.net_amount).toFixed(2), 450, totalY + 10, { align: 'right', width: 90 });
@@ -96,7 +134,7 @@ function generateInvoicePdf(saleHeader, saleItems) {
             doc.text(Number(saleHeader.net_amount).toFixed(2), 450, totalY + 35, { align: 'right', width: 90 });
 
             // ---------------- FOOTER ----------------
-            doc.fillColor('#9ca3af').fontSize(8).font('Helvetica').text('Thank you for shopping with us! This is an automated system-generated billing record.', 40, doc.page.height - 50, { align: 'center', width: 515 });
+            doc.fillColor('#9ca3af').fontSize(8).font(fontRegular).text('Thank you for shopping with us! This is an automated system-generated billing record.', 40, doc.page.height - 50, { align: 'center', width: 515 });
 
             doc.end();
         } catch (e) {

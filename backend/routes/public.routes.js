@@ -117,7 +117,7 @@ router.get("/clinic/specialities", clinicCtrl.getPublicSpecialities);
 router.get("/clinic/doctors", clinicCtrl.getPublicDoctors);
 router.post("/clinic/request-email-otp", clinicCtrl.requestPatientEmailOtp);
 router.post("/clinic/verify-email-otp", clinicCtrl.verifyPatientEmailOtp);
-router.post("/clinic/appointment", clinicCtrl.bookAppointmentPublic);
+router.post(["/clinic/appointment", "/clinic/appointments"], clinicCtrl.bookAppointmentPublic);
 router.get("/clinic/patient-history", clinicCtrl.getPatientHistoryPublic);
 router.post("/clinic/cancel-appointment", clinicCtrl.cancelAppointmentPublic);
 router.get("/clinic/operating-status", clinicCtrl.getClinicOperatingStatusPublic);

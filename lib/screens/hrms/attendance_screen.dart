@@ -621,8 +621,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                                         hrs = double.tryParse(punch['hours_worked']?.toString() ?? '0') ?? 0.0;
                                       }
                                       final reqHrs = _getEmployeeShiftDuration(empId);
-                                      final savedOt = punch['overtime_hours'] != null ? double.tryParse(punch['overtime_hours'].toString()) : null;
-                                      final ot = savedOt ?? (hrs > reqHrs ? (hrs - reqHrs) : 0.0);
+                                      final double ot;
+                                      if (reqHrs > 0 && hrs <= reqHrs) {
+                                        ot = 0.0;
+                                      } else {
+                                        final savedOt = punch['overtime_hours'] != null ? double.tryParse(punch['overtime_hours'].toString()) : null;
+                                        ot = savedOt ?? (hrs > reqHrs ? (hrs - reqHrs) : 0.0);
+                                      }
                                       return Text(
                                         '${ot.toStringAsFixed(2)} hrs',
                                         style: TextStyle(

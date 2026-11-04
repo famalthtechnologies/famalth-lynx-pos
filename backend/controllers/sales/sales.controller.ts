@@ -281,8 +281,10 @@ function calculateTaxesForAmount({
                 }
             ];
         case 'GST':
-        default:
-            if (taxMode === 'IGST') {
+        default: {
+            const tmUpper = String(taxMode || '').trim().toUpperCase();
+            const isInterstateMode = tmUpper === 'IGST' || tmUpper.startsWith('IGST') || tmUpper.includes('INTERSTATE') || tmUpper.includes('INTER_STATE') || tmUpper.includes('INTER STATE');
+            if (isInterstateMode) {
                 return [
                     {
                         code: 'IGST',
@@ -339,6 +341,7 @@ function calculateTaxesForAmount({
                     taxable_amount: taxableAmount
                 }
             ];
+        }
     }
 }
 
@@ -2972,7 +2975,13 @@ async function createSaleVersion({
             : [];
 
         const headerTaxMode = String(header.billing_tax_mode || header.billingTaxMode || 'CGST_SGST').trim().toUpperCase();
-        if (headerTaxMode === 'IGST') {
+        const isInterstateIgst = headerTaxMode === 'IGST' 
+          || headerTaxMode.startsWith('IGST') 
+          || headerTaxMode.includes('INTERSTATE') 
+          || headerTaxMode.includes('INTER_STATE') 
+          || headerTaxMode.includes('INTER STATE');
+
+        if (isInterstateIgst) {
             if (taxPercent > 0) {
                 rowTaxes = [
                     {
@@ -5418,7 +5427,15 @@ exports.listSales = async (req, res) => {
             if (!where.status) {
                 where.status = { [Op.ne]: 'DRAFT' };
             }
-            where.sale_no = { [Op.notILike]: 'DRAFT-%' };
+            where.sale_no = {
+                [Op.and]: [
+                    { [Op.notILike]: 'DRAFT-%' },
+                    { [Op.notILike]: 'APPT-%' }
+                ]
+            };
+            if (!where.order_type) {
+                where.order_type = { [Op.ne]: 'CLINIC_APPOINTMENT' };
+            }
         }
 
         if (source && source !== 'ALL') {
@@ -5908,13 +5925,16 @@ exports.getSaleDetails = async (req, res) => {
             const raw = typeof cn.toJSON === 'function' ? cn.toJSON() : cn;
             return {
                 ...raw,
+                billing_country: sale.billing_country || sale.billingCountry || 'India',
                 billing_tax_mode: sale.billing_tax_mode || sale.billingTaxMode || 'CGST_SGST',
                 sale: {
                     id: sale.id,
                     sale_no: sale.sale_no,
                     sale_date: sale.sale_date,
                     bill_format: sale.bill_format,
-                    billing_tax_mode: sale.billing_tax_mode || sale.billingTaxMode || 'CGST_SGST'
+                    billing_country: sale.billing_country || sale.billingCountry || 'India',
+                    billing_tax_mode: sale.billing_tax_mode || sale.billingTaxMode || 'CGST_SGST',
+                    items: sale.items
                 }
             };
         });
@@ -8060,9 +8080,15 @@ exports.returnSale = async (req, res) => {
                 });
             }
 
-            if (tax_amount > 0 && (cgst_amount + sgst_amount + igst_amount) === 0) {
+            if (tax_amount > 0 && tax_breakup.length === 0) {
                 const headerMode = String(sale.billing_tax_mode || sale.billingTaxMode || '').trim().toUpperCase();
-                if (headerMode === 'IGST') {
+                const isIgstHeader = headerMode === 'IGST' 
+                  || headerMode.startsWith('IGST') 
+                  || headerMode.includes('INTERSTATE') 
+                  || headerMode.includes('INTER_STATE') 
+                  || headerMode.includes('INTER STATE');
+                const isIndiaCountry = String(sale.billing_country || '').trim().toUpperCase() === 'INDIA' || !sale.billing_country;
+                if (isIgstHeader) {
                     igst_amount = tax_amount;
                     tax_breakup = [
                         {
@@ -8075,7 +8101,7 @@ exports.returnSale = async (req, res) => {
                             taxAmount: tax_amount
                         }
                     ];
-                } else {
+                } else if (isIndiaCountry && (headerMode === 'CGST_SGST' || headerMode === 'GST' || !headerMode)) {
                     const halfTax = toAmount(tax_amount / 2);
                     cgst_amount = halfTax;
                     sgst_amount = toAmount(tax_amount - halfTax);
@@ -8098,6 +8124,19 @@ exports.returnSale = async (req, res) => {
                             taxableAmount: rawTaxable,
                             tax_amount: sgst_amount,
                             taxAmount: sgst_amount
+                        }
+                    ];
+                } else {
+                    const tName = headerMode === 'VAT' ? 'VAT' : (headerMode === 'SALES_TAX' ? 'Sales Tax' : (headerMode || 'Tax'));
+                    tax_breakup = [
+                        {
+                            code: headerMode || 'TAX',
+                            label: `${tName} ${tax_percent % 1 === 0 ? tax_percent.toFixed(0) : tax_percent.toFixed(2)}%`,
+                            taxType: headerMode || 'TAX',
+                            rate: tax_percent,
+                            taxableAmount: rawTaxable,
+                            tax_amount: tax_amount,
+                            taxAmount: tax_amount
                         }
                     ];
                 }

@@ -5389,7 +5389,9 @@ class _SaleScreenState extends State<SaleScreen> {
   }
 
   Future<void> _showTaxModeDialog() async {
-    String selectedMode = _taxMode == 'IGST' ? 'IGST' : (_taxMode == 'NONE' ? 'NONE' : 'CGST_SGST');
+    final String tmUpper = _taxMode.trim().toUpperCase();
+    final bool isCurrentlyIgst = tmUpper == 'IGST' || tmUpper.startsWith('IGST') || tmUpper.contains('INTERSTATE') || tmUpper.contains('INTER_STATE');
+    String selectedMode = isCurrentlyIgst ? 'IGST' : (_taxMode == 'NONE' ? 'NONE' : 'CGST_SGST');
     String? tempIgstState = _selectedIgstState;
 
     final knownModes = <String>{};
@@ -7750,7 +7752,12 @@ class _SaleScreenState extends State<SaleScreen> {
         }
       }
     }
-    if (_taxMode == 'IGST' && _selectedIgstState != null) {
+    final String currentTaxModeUpper = _taxMode.trim().toUpperCase();
+    final bool isInterstateMode = currentTaxModeUpper == 'IGST' ||
+        currentTaxModeUpper.startsWith('IGST') ||
+        currentTaxModeUpper.contains('INTERSTATE') ||
+        currentTaxModeUpper.contains('INTER_STATE');
+    if (isInterstateMode && _selectedIgstState != null) {
       if (addr.isEmpty) {
         addr = 'State: ${_titleCase(_selectedIgstState!)}';
       } else if (!addr.toLowerCase().contains(_selectedIgstState!.toLowerCase())) {
@@ -11570,11 +11577,18 @@ class _SaleScreenState extends State<SaleScreen> {
                   _miniInfoCard('Charges', _invoice.chargeTotal),
                 if (_invoice.chargeTaxTotal > 0)
                   _miniInfoCard('Charges Tax', _invoice.chargeTaxTotal),
-                if (_invoice.taxSummary.isNotEmpty)
-                  for (final tax in _invoice.taxSummary)
-                    _miniInfoCard(tax.label, tax.taxAmount)
-                else if (_invoice.totalTax > 0)
-                  _miniInfoCard('Total Tax', _invoice.totalTax),
+                if (_invoice.totalTax > 0.009 || _invoice.taxSummary.isNotEmpty)
+                  InkWell(
+                    onTap: _invoice.taxSummary.isNotEmpty
+                        ? () => _showTaxBreakdownDialog(_invoice)
+                        : null,
+                    borderRadius: BorderRadius.circular(16),
+                    child: _miniInfoCard(
+                      'Total Tax',
+                      _invoice.totalTax,
+                      subtitle: _invoice.taxSummary.isNotEmpty ? 'Tap for breakdown' : null,
+                    ),
+                  ),
                 _miniInfoCard('Total', _invoice.netAmount, highlight: true),
               ],
             );
@@ -12045,11 +12059,32 @@ class _SaleScreenState extends State<SaleScreen> {
                       _summaryRow('Non-taxable Amount', nonTaxableSum, compact: true),
                     if (invoice.chargeTotal > 0)
                       _summaryRow('Charges', invoice.chargeTotal, compact: true),
-                    if (invoice.taxSummary.isNotEmpty)
-                      for (final tax in invoice.taxSummary)
-                        _summaryRow(tax.label, tax.taxAmount, compact: true)
-                    else if (invoice.totalTax > 0)
-                      _summaryRow('Total Tax', invoice.totalTax, compact: true),
+                    if (invoice.totalTax > 0.009 || invoice.taxSummary.isNotEmpty)
+                      _summaryRow(
+                        'Total Tax',
+                        invoice.totalTax,
+                        compact: true,
+                        trailingLabel: invoice.taxSummary.isNotEmpty
+                            ? Tooltip(
+                                message: 'View Tax Breakdown',
+                                child: InkWell(
+                                  onTap: () => _showTaxBreakdownDialog(invoice),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                    child: Icon(
+                                      Icons.info_outline_rounded,
+                                      size: 15,
+                                      color: Color(0xFF2563EB),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : null,
+                        onTap: invoice.taxSummary.isNotEmpty
+                            ? () => _showTaxBreakdownDialog(invoice)
+                            : null,
+                      ),
                   ];
                 })(),
                 const Divider(height: 14),
@@ -13315,11 +13350,311 @@ class _SaleScreenState extends State<SaleScreen> {
                   : 'Tax',
               invoice.totalTax,
               compact: true,
+              trailingLabel: invoice.taxSummary.isNotEmpty
+                  ? Tooltip(
+                      message: 'View Tax Breakdown',
+                      child: InkWell(
+                        onTap: () => _showTaxBreakdownDialog(invoice),
+                        borderRadius: BorderRadius.circular(12),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          child: Icon(
+                            Icons.info_outline_rounded,
+                            size: 15,
+                            color: Color(0xFF2563EB),
+                          ),
+                        ),
+                      ),
+                    )
+                  : null,
+              onTap: invoice.taxSummary.isNotEmpty
+                  ? () => _showTaxBreakdownDialog(invoice)
+                  : null,
             ),
           const Divider(height: 14),
           _summaryRow('Total', _payableInvoiceTotal, emphasized: true),
         ],
       ),
+    );
+  }
+
+  Future<void> _showTaxBreakdownDialog(InvoiceComputation invoice) async {
+    final taxName = CountryTaxHelper.taxName();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogCtx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.receipt_long_rounded,
+                          color: Color(0xFF2563EB),
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '$taxName Breakdown',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            Text(
+                              'Mode: $_taxMode  •  ${invoice.taxSummary.length} ${invoice.taxSummary.length == 1 ? 'component' : 'components'} applied',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(dialogCtx).pop(),
+                        icon: const Icon(Icons.close, size: 20, color: Color(0xFF64748B)),
+                        splashRadius: 20,
+                        tooltip: 'Close',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  // Table Header
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Expanded(
+                          flex: 5,
+                          child: Text(
+                            'Tax Component',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF475569),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            'Taxable Amt',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF475569),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            'Tax Amt',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF475569),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  // Table List
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: invoice.taxSummary.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(
+                                child: Text(
+                                  'No tax breakdown available',
+                                  style: TextStyle(color: Color(0xFF94A3B8)),
+                                ),
+                              ),
+                            )
+                          : Column(
+                              children: List.generate(invoice.taxSummary.length, (idx) {
+                                final tax = invoice.taxSummary[idx];
+                                final isEven = idx % 2 == 0;
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                                  decoration: BoxDecoration(
+                                    color: isEven ? Colors.white : const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 5,
+                                        child: Text(
+                                          tax.label,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF1E293B),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 3,
+                                        child: Text(
+                                          CurrencyService.format(tax.taxableAmount),
+                                          textAlign: TextAlign.right,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: Color(0xFF475569),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 3,
+                                        child: Text(
+                                          CurrencyService.format(tax.taxAmount),
+                                          textAlign: TextAlign.right,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF0F172A),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                            ),
+                    ),
+                  ),
+                  if (invoice.chargeTaxTotal > 0.009) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, size: 16, color: Color(0xFFB45309)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Includes Charges Tax: ${CurrencyService.format(invoice.chargeTaxTotal)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF92400E),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  // Totals footer
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Total Taxable Value',
+                              style: TextStyle(fontSize: 13, color: Color(0xFF475569)),
+                            ),
+                            Text(
+                              CurrencyService.format(invoice.taxableAmount),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1E293B),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Total $taxName Amount',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            Text(
+                              CurrencyService.format(invoice.totalTax),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF2563EB),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        backgroundColor: const Color(0xFF2563EB),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () => Navigator.of(dialogCtx).pop(),
+                      child: const Text('Close', style: TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -13331,24 +13666,38 @@ class _SaleScreenState extends State<SaleScreen> {
     Color? labelColor,
     Color? valueColor,
     String? subtitle,
+    Widget? trailingLabel,
+    VoidCallback? onTap,
   }) {
     final style = TextStyle(
       fontWeight: emphasized ? FontWeight.w800 : FontWeight.w600,
       fontSize: emphasized ? 18 : (compact ? 13 : 14),
       color: const Color(0xFF0F172A),
     );
-    return Padding(
+    final rowContent = Padding(
       padding: EdgeInsets.symmetric(vertical: compact ? 2 : (emphasized ? 4 : 3)),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  label,
-                  style: style.copyWith(color: labelColor),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        label,
+                        style: style.copyWith(color: labelColor),
+                      ),
+                    ),
+                    if (trailingLabel != null) ...[
+                      const SizedBox(width: 4),
+                      trailingLabel,
+                    ],
+                  ],
                 ),
                 if (subtitle != null && subtitle.isNotEmpty) ...[
                   const SizedBox(height: 1),
@@ -13371,6 +13720,15 @@ class _SaleScreenState extends State<SaleScreen> {
         ],
       ),
     );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: rowContent,
+      );
+    }
+    return rowContent;
   }
 
   Widget _buildSchemeStrip() {

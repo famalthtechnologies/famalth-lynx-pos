@@ -498,7 +498,7 @@ class PosInvoicePrinter {
                   ? '--'
                   : order.patientName!.trim(),
             ),
-          if (order.billingTaxMode == 'IGST' || (data.buyerState != null && data.buyerState!.isNotEmpty))
+          if (_isIgstMode(order.billingTaxMode) || (data.buyerState != null && data.buyerState!.isNotEmpty))
             _thermalMetaRow(
               'Place of Supply',
               data.buyerState != null && data.buyerState!.isNotEmpty
@@ -1906,10 +1906,19 @@ class PosInvoicePrinter {
     );
   }
 
+  static bool _isIgstMode(String mode) {
+    final m = mode.trim().toUpperCase();
+    return m == 'IGST' ||
+        m.startsWith('IGST') ||
+        m.contains('INTERSTATE') ||
+        m.contains('INTER_STATE') ||
+        m.contains('INTER STATE');
+  }
+
   static bool _isInterStateSale(SaleOrder order) {
     if (order.igstAmount > 0) return true;
     final mode = order.billingTaxMode.trim().toUpperCase();
-    if (mode == 'IGST' || mode == 'INTER_STATE') return true;
+    if (_isIgstMode(mode)) return true;
     return false;
   }
 
@@ -3278,7 +3287,7 @@ class PosInvoicePrinter {
         continue;
       }
 
-      if (billingMode == 'IGST' || normalizedType == 'IGST') {
+      if (_isIgstMode(billingMode) || normalizedType == 'IGST') {
         addTax(
           TaxBreakdown(
             code: 'IGST',
@@ -3488,7 +3497,7 @@ class PosInvoicePrinter {
 
     final bool isIndia = CountryTaxHelper.isIndiaCountry(order.billingCountry);
     final billingMode = order.billingTaxMode.trim().toUpperCase();
-    final bool isIgst = billingMode == 'IGST';
+    final bool isIgst = _isIgstMode(billingMode);
 
     // Inter-State supply: If IGST mode is selected, all GST-taxable items MUST be taxed as IGST at full rate
     if (isIgst) {
@@ -3646,7 +3655,7 @@ class PosInvoicePrinter {
         ),
       ];
     }
-    if (billingMode == 'IGST') {
+    if (_isIgstMode(billingMode)) {
       return [
         TaxBreakdown(
           code: 'IGST',
@@ -4489,60 +4498,202 @@ class PosInvoicePrinter {
     await Printing.layoutPdf(name: creditNote['credit_note_no'] ?? 'CreditNote', onLayout: (_) async => pdfBytes);
   }
 
+  static Map<String, dynamic>? _findSaleItem(Map<String, dynamic>? originalSale, Map<String, dynamic> it) {
+    if (originalSale == null) return null;
+    final saleItems = originalSale['items'];
+    if (saleItems is! List) return null;
+    final itId = it['item_id']?.toString();
+    final itCode = it['item_code']?.toString();
+    for (final sItem in saleItems) {
+      if (sItem is Map) {
+        if (itId != null && itId.isNotEmpty && sItem['item_id']?.toString() == itId) {
+          return Map<String, dynamic>.from(sItem);
+        }
+        if (itCode != null && itCode.isNotEmpty && sItem['item_code']?.toString() == itCode) {
+          return Map<String, dynamic>.from(sItem);
+        }
+      }
+    }
+    return null;
+  }
+
+  static List<TaxBreakdown> _resolveCnItemTaxBreakup(
+    Map<String, dynamic> it, {
+    String? billingTaxMode,
+    String? billingCountry,
+    Map<String, dynamic>? originalSaleItem,
+  }) {
+    final List<TaxBreakdown> results = [];
+    final rawTaxable = double.tryParse((it['taxable_amount'] ?? 0).toString()) ?? 0.0;
+    final taxPercent = double.tryParse((it['tax_percent'] ?? 0).toString()) ?? 0.0;
+    final taxAmount = double.tryParse((it['tax_amount'] ?? 0).toString()) ?? 0.0;
+    final total = double.tryParse((it['line_total'] ?? 0).toString()) ?? 0.0;
+    final qty = double.tryParse((it['qty'] ?? 0).toString()) ?? 0.0;
+    final isIndia = CountryTaxHelper.isIndiaCountry(billingCountry);
+    final mode = (billingTaxMode ?? it['billing_tax_mode'] ?? '').toString().trim().toUpperCase();
+
+    dynamic breakupRaw = it['tax_breakup'];
+    if ((breakupRaw == null || (breakupRaw is List && breakupRaw.isEmpty)) && originalSaleItem != null) {
+      breakupRaw = originalSaleItem['tax_breakup'];
+    }
+
+    if (breakupRaw is List && breakupRaw.isNotEmpty) {
+      final origQty = double.tryParse((originalSaleItem?['qty'] ?? 0).toString()) ?? 0.0;
+      final scale = (origQty > 0 && qty > 0 && (origQty - qty).abs() > 0.001) ? (qty / origQty) : 1.0;
+
+      for (final b in breakupRaw) {
+        if (b is Map) {
+          final code = (b['code'] ?? b['tax_type'] ?? '').toString().trim().toUpperCase();
+          final label = (b['label'] ?? b['name'] ?? b['code'] ?? 'Tax').toString().trim();
+          final rate = double.tryParse((b['rate'] ?? b['tax_rate'] ?? 0).toString()) ?? 0.0;
+          final taxable = (double.tryParse((b['taxable_amount'] ?? b['taxableAmount'] ?? 0).toString()) ?? rawTaxable) * scale;
+          double amt = (double.tryParse((b['tax_amount'] ?? b['taxAmount'] ?? b['amount'] ?? 0).toString()) ?? 0.0) * scale;
+          if (amt <= 0 && rate > 0 && taxable > 0) {
+            amt = double.parse((taxable * rate / 100.0).toStringAsFixed(2));
+          }
+          final taxType = (b['tax_type'] ?? b['taxType'] ?? 'TAX').toString().trim();
+          results.add(TaxBreakdown(
+            code: code.isNotEmpty ? code : 'TAX',
+            label: label,
+            taxType: taxType,
+            rate: rate,
+            taxableAmount: taxable,
+            taxAmount: amt,
+          ));
+        }
+      }
+    }
+
+    final bool hasOnlyGstBreakup = results.isNotEmpty && results.every((t) => t.code == 'CGST' || t.code == 'SGST' || t.code == 'IGST');
+    final bool originalSaleHasNonGst = originalSaleItem != null &&
+        originalSaleItem['tax_breakup'] is List &&
+        (originalSaleItem['tax_breakup'] as List).any((b) =>
+            b is Map && !['CGST', 'SGST', 'IGST', 'UTGST', 'GST'].contains((b['code'] ?? '').toString().trim().toUpperCase()));
+
+    if (hasOnlyGstBreakup && originalSaleHasNonGst) {
+      results.clear();
+      final origQty = double.tryParse((originalSaleItem['qty'] ?? 0).toString()) ?? 0.0;
+      final scale = (origQty > 0 && qty > 0) ? (qty / origQty) : 1.0;
+      for (final b in (originalSaleItem['tax_breakup'] as List)) {
+        if (b is Map) {
+          final code = (b['code'] ?? b['tax_type'] ?? '').toString().trim().toUpperCase();
+          final label = (b['label'] ?? b['name'] ?? b['code'] ?? 'Tax').toString().trim();
+          final rate = double.tryParse((b['rate'] ?? b['tax_rate'] ?? 0).toString()) ?? 0.0;
+          final taxable = (double.tryParse((b['taxable_amount'] ?? b['taxableAmount'] ?? 0).toString()) ?? rawTaxable) * scale;
+          double amt = (double.tryParse((b['tax_amount'] ?? b['taxAmount'] ?? b['amount'] ?? 0).toString()) ?? 0.0) * scale;
+          if (amt <= 0 && rate > 0 && taxable > 0) {
+            amt = double.parse((taxable * rate / 100.0).toStringAsFixed(2));
+          }
+          final taxType = (b['tax_type'] ?? b['taxType'] ?? 'TAX').toString().trim();
+          results.add(TaxBreakdown(
+            code: code.isNotEmpty ? code : 'TAX',
+            label: label,
+            taxType: taxType,
+            rate: rate,
+            taxableAmount: taxable,
+            taxAmount: amt,
+          ));
+        }
+      }
+    }
+
+    if (results.isNotEmpty) {
+      return results;
+    }
+
+    final effectiveTax = taxAmount > 0
+        ? taxAmount
+        : (rawTaxable > 0 && taxPercent > 0
+            ? double.parse((rawTaxable * taxPercent / 100.0).toStringAsFixed(2))
+            : (total > 0 && taxPercent > 0
+                ? double.parse((total - (total / (1 + (taxPercent / 100.0)))).toStringAsFixed(2))
+                : 0.0));
+
+    if (effectiveTax <= 0 && taxPercent <= 0) {
+      return const [];
+    }
+
+    final isIgst = isIndia && _isIgstMode(mode);
+    final isDualGst = isIndia && !isIgst && mode != 'VAT' && mode != 'SALES_TAX' && mode != 'SINGLE';
+
+    if (isDualGst) {
+      final halfTax = double.parse((effectiveTax / 2.0).toStringAsFixed(2));
+      final halfRate = taxPercent / 2.0;
+      return [
+        TaxBreakdown(
+          code: 'CGST',
+          label: 'CGST',
+          taxType: 'GST',
+          rate: halfRate,
+          taxableAmount: rawTaxable,
+          taxAmount: halfTax,
+        ),
+        TaxBreakdown(
+          code: 'SGST',
+          label: 'SGST',
+          taxType: 'GST',
+          rate: halfRate,
+          taxableAmount: rawTaxable,
+          taxAmount: double.parse((effectiveTax - halfTax).toStringAsFixed(2)),
+        ),
+      ];
+    } else if (isIgst) {
+      return [
+        TaxBreakdown(
+          code: 'IGST',
+          label: 'IGST',
+          taxType: 'GST',
+          rate: taxPercent,
+          taxableAmount: rawTaxable,
+          taxAmount: effectiveTax,
+        ),
+      ];
+    } else {
+      final taxName = CountryTaxHelper.taxName(billingCountry, billingTaxMode);
+      final label = taxName.isNotEmpty ? taxName : (mode.isNotEmpty ? mode : 'Tax');
+      return [
+        TaxBreakdown(
+          code: mode.isNotEmpty ? mode : 'TAX',
+          label: label,
+          taxType: mode.isNotEmpty ? mode : 'TAX',
+          rate: taxPercent,
+          taxableAmount: rawTaxable,
+          taxAmount: effectiveTax,
+        ),
+      ];
+    }
+  }
+
   static Map<String, double> _resolveCnItemTaxes(
     Map<String, dynamic> it, {
     String? billingTaxMode,
+    String? billingCountry,
+    Map<String, dynamic>? originalSaleItem,
   }) {
-    double cgst = double.tryParse((it['cgst_amount'] ?? 0).toString()) ?? 0.0;
-    double sgst = double.tryParse((it['sgst_amount'] ?? 0).toString()) ?? 0.0;
-    double igst = double.tryParse((it['igst_amount'] ?? 0).toString()) ?? 0.0;
-    final taxPercent = double.tryParse((it['tax_percent'] ?? 0).toString()) ?? 0.0;
-    final total = double.tryParse((it['line_total'] ?? 0).toString()) ?? 0.0;
-    final rawTaxable = double.tryParse((it['taxable_amount'] ?? 0).toString()) ?? 0.0;
-    double taxAmount = double.tryParse((it['tax_amount'] ?? 0).toString()) ?? 0.0;
+    final taxes = _resolveCnItemTaxBreakup(
+      it,
+      billingTaxMode: billingTaxMode,
+      billingCountry: billingCountry,
+      originalSaleItem: originalSaleItem,
+    );
 
-    if (cgst <= 0 && sgst <= 0 && igst <= 0 && it['tax_breakup'] is List) {
-      final breakupList = it['tax_breakup'] as List;
-      for (final b in breakupList) {
-        if (b is Map) {
-          final code = (b['code'] ?? '').toString().trim().toUpperCase();
-          final amt = double.tryParse((b['tax_amount'] ?? b['taxAmount'] ?? b['amount'] ?? 0).toString()) ?? 0.0;
-          if (code == 'CGST') cgst += amt;
-          if (code == 'SGST' || code == 'UTGST') sgst += amt;
-          if (code == 'IGST') igst += amt;
-        }
-      }
+    double cgst = 0.0;
+    double sgst = 0.0;
+    double igst = 0.0;
+    double totalTax = 0.0;
+
+    for (final t in taxes) {
+      totalTax += t.taxAmount;
+      if (t.code == 'CGST') cgst += t.taxAmount;
+      if (t.code == 'SGST' || t.code == 'UTGST') sgst += t.taxAmount;
+      if (t.code == 'IGST') igst += t.taxAmount;
     }
 
-    if (cgst <= 0 && sgst <= 0 && igst <= 0) {
-      if (taxAmount <= 0 && taxPercent > 0) {
-        if (rawTaxable > 0) {
-          taxAmount = double.parse((rawTaxable * taxPercent / 100.0).toStringAsFixed(2));
-        } else if (total > 0) {
-          taxAmount = double.parse((total - (total / (1 + (taxPercent / 100.0)))).toStringAsFixed(2));
-        }
-      } else if (taxAmount <= 0 && total > rawTaxable && rawTaxable > 0) {
-        taxAmount = double.parse((total - rawTaxable).toStringAsFixed(2));
-      }
-
-      if (taxAmount > 0) {
-        final mode = (billingTaxMode ?? it['billing_tax_mode'] ?? '').toString().trim().toUpperCase();
-        if (mode == 'IGST') {
-          igst = taxAmount;
-        } else {
-          final half = double.parse((taxAmount / 2.0).toStringAsFixed(2));
-          cgst = half;
-          sgst = double.parse((taxAmount - half).toStringAsFixed(2));
-        }
-      }
-    }
-
-    final totalComputedTax = cgst + sgst + igst > 0 ? (cgst + sgst + igst) : taxAmount;
     return {
       'cgst': cgst,
       'sgst': sgst,
       'igst': igst,
-      'tax': totalComputedTax,
+      'tax': totalTax,
     };
   }
 
@@ -4602,7 +4753,7 @@ class PosInvoicePrinter {
 
       final customerName = creditNote['customer_name']?.toString() ?? 'Walk-in Customer';
       final customerPhone = creditNote['customer_phone']?.toString() ?? '--';
-      final customerGstin = creditNote['customer_gstin']?.toString() ?? 'URD';
+      final customerGstin = creditNote['customer_gstin']?.toString() ?? '';
 
       final sellerName = property?.legalName.isNotEmpty == true
           ? property!.legalName
@@ -4615,6 +4766,54 @@ class PosInvoicePrinter {
       ].join(', ');
 
       final itemsList = (creditNote['items'] as List? ?? const []).cast<Map<String, dynamic>>();
+
+      final billingCountry = creditNote['billing_country']?.toString() ??
+          originalSale?['billing_country']?.toString() ??
+          'India';
+      final bool isIndia = CountryTaxHelper.isIndiaCountry(billingCountry);
+      final String taxName = CountryTaxHelper.taxName(billingCountry, billingTaxMode);
+
+      bool hasExplicitNonGst = false;
+      for (final it in itemsList) {
+        final taxes = _resolveCnItemTaxBreakup(
+          it,
+          billingTaxMode: billingTaxMode,
+          billingCountry: billingCountry,
+          originalSaleItem: _findSaleItem(originalSale, it),
+        );
+        for (final t in taxes) {
+          final c = t.code.toUpperCase();
+          final l = t.label.toUpperCase();
+          if (c != 'CGST' && c != 'SGST' && c != 'UTGST' && c != 'IGST' && c != 'GST') {
+            hasExplicitNonGst = true;
+          }
+          if (l.contains('SALES TAX') || l.contains('VAT') || l.contains('CITY') || l.contains('STATE') || l.contains('CESS')) {
+            if (!l.contains('GST')) hasExplicitNonGst = true;
+          }
+        }
+      }
+
+      final bool isInterStateGst = isIndia && _isIgstMode(billingTaxMode) && !hasExplicitNonGst;
+      final bool isDualGst = isIndia &&
+          !isInterStateGst &&
+          billingTaxMode != 'VAT' &&
+          billingTaxMode != 'SALES_TAX' &&
+          billingTaxMode != 'SINGLE' &&
+          !hasExplicitNonGst;
+
+      final Map<String, double> groupedCnTaxes = {};
+      for (final it in itemsList) {
+        final taxes = _resolveCnItemTaxBreakup(
+          it,
+          billingTaxMode: billingTaxMode,
+          billingCountry: billingCountry,
+          originalSaleItem: _findSaleItem(originalSale, it),
+        );
+        for (final t in taxes) {
+          final label = t.label.isNotEmpty ? t.label : (t.code.isNotEmpty ? t.code : taxName);
+          groupedCnTaxes[label] = (groupedCnTaxes[label] ?? 0.0) + t.taxAmount;
+        }
+      }
 
       double derivedTotalCgst = double.tryParse((creditNote['cgst_amount'] ?? 0).toString()) ?? 0.0;
       double derivedTotalSgst = double.tryParse((creditNote['sgst_amount'] ?? 0).toString()) ?? 0.0;
@@ -4631,7 +4830,12 @@ class PosInvoicePrinter {
         final qty = double.tryParse((it['qty'] ?? 0).toString()) ?? 0.0;
         final rawTaxable = double.tryParse((it['taxable_amount'] ?? 0).toString()) ?? 0.0;
         final taxPercent = double.tryParse((it['tax_percent'] ?? 0).toString()) ?? 0.0;
-        final itTaxes = _resolveCnItemTaxes(it, billingTaxMode: billingTaxMode);
+        final itTaxes = _resolveCnItemTaxes(
+          it,
+          billingTaxMode: billingTaxMode,
+          billingCountry: billingCountry,
+          originalSaleItem: _findSaleItem(originalSale, it),
+        );
         final itTax = itTaxes['tax'] ?? 0.0;
 
         if (taxPercent > 0 || itTax > 0) {
@@ -4646,13 +4850,30 @@ class PosInvoicePrinter {
         sumItemTax += itTax;
       }
 
-      if (derivedTotalCgst <= 0 && derivedTotalSgst <= 0 && derivedTotalIgst <= 0) {
-        derivedTotalCgst = sumItemCgst;
-        derivedTotalSgst = sumItemSgst;
-        derivedTotalIgst = sumItemIgst;
+      if (isDualGst) {
+        if (derivedTotalCgst <= 0 && derivedTotalSgst <= 0) {
+          derivedTotalCgst = sumItemCgst;
+          derivedTotalSgst = sumItemSgst;
+        }
+      } else if (isInterStateGst) {
+        if (derivedTotalIgst <= 0) {
+          derivedTotalIgst = sumItemIgst;
+        }
+      } else {
+        derivedTotalCgst = 0;
+        derivedTotalSgst = 0;
+        derivedTotalIgst = 0;
       }
+
       if (derivedTotalTax <= 0) {
-        derivedTotalTax = sumItemTax > 0 ? sumItemTax : (derivedTotalCgst + derivedTotalSgst + derivedTotalIgst);
+        derivedTotalTax = sumItemTax > 0
+            ? sumItemTax
+            : (isDualGst
+                ? (derivedTotalCgst + derivedTotalSgst)
+                : (isInterStateGst ? derivedTotalIgst : groupedCnTaxes.values.fold(0.0, (s, a) => s + a)));
+      }
+      if (groupedCnTaxes.isEmpty && derivedTotalTax > 0) {
+        groupedCnTaxes[taxName.isNotEmpty ? taxName : 'Tax'] = derivedTotalTax;
       }
 
       document.addPage(
@@ -4757,7 +4978,8 @@ class PosInvoicePrinter {
                         pw.SizedBox(height: 4),
                         pw.Text(customerName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
                         pw.Text('Phone: $customerPhone', style: const pw.TextStyle(fontSize: 8.5)),
-                        if (customerGstin.isNotEmpty) pw.Text('${_taxIdLabel()}: $customerGstin', style: const pw.TextStyle(fontSize: 8.5)),
+                        if (customerGstin.isNotEmpty && customerGstin.toUpperCase() != 'URD' && customerGstin.toUpperCase() != 'N/A')
+                          pw.Text('${_taxIdLabel()}: $customerGstin', style: const pw.TextStyle(fontSize: 8.5)),
                       ],
                     ),
                   ),
@@ -4768,18 +4990,39 @@ class PosInvoicePrinter {
 
             // Items Table
             pw.Table.fromTextArray(
-              headers: const [
-                'S.No',
-                'Description of Goods',
-                'Qty',
-                'Rate',
-                'Taxable Value',
-                'GST %',
-                'CGST',
-                'SGST',
-                'IGST',
-                'Total Amount'
-              ],
+              headers: isDualGst
+                  ? const [
+                      'S.No',
+                      'Description of Goods',
+                      'Qty',
+                      'Rate',
+                      'Taxable Value',
+                      'GST %',
+                      'CGST',
+                      'SGST',
+                      'Total Amount'
+                    ]
+                  : isInterStateGst
+                      ? const [
+                          'S.No',
+                          'Description of Goods',
+                          'Qty',
+                          'Rate',
+                          'Taxable Value',
+                          'GST %',
+                          'IGST',
+                          'Total Amount'
+                        ]
+                      : [
+                          'S.No',
+                          'Description of Goods',
+                          'Qty',
+                          'Rate',
+                          'Taxable Value',
+                          '${taxName.isNotEmpty ? taxName : 'Tax'} %',
+                          '${taxName.isNotEmpty ? taxName : 'Tax'} Amt',
+                          'Total Amount'
+                        ],
               data: List.generate(itemsList.length, (index) {
                 final it = itemsList[index];
                 final qty = double.tryParse((it['qty'] ?? 0).toString()) ?? 0.0;
@@ -4788,7 +5031,12 @@ class PosInvoicePrinter {
                 final taxPercent = double.tryParse((it['tax_percent'] ?? 0).toString()) ?? 0.0;
                 final total = double.tryParse((it['line_total'] ?? 0).toString()) ?? 0.0;
 
-                final itTaxes = _resolveCnItemTaxes(it, billingTaxMode: billingTaxMode);
+                final itTaxes = _resolveCnItemTaxes(
+                  it,
+                  billingTaxMode: billingTaxMode,
+                  billingCountry: billingCountry,
+                  originalSaleItem: _findSaleItem(originalSale, it),
+                );
                 final cgst = itTaxes['cgst'] ?? 0.0;
                 final sgst = itTaxes['sgst'] ?? 0.0;
                 final igst = itTaxes['igst'] ?? 0.0;
@@ -4797,33 +5045,81 @@ class PosInvoicePrinter {
                 final isNonTaxable = taxPercent <= 0 && itTaxTotal <= 0;
                 final displayTaxable = isNonTaxable ? 0.0 : taxable;
 
-                return [
-                  '${index + 1}',
-                  '${it['item_name'] ?? ''}',
-                  qty.toStringAsFixed(2),
-                  rate.toStringAsFixed(2),
-                  displayTaxable.toStringAsFixed(2),
-                  '${taxPercent.toStringAsFixed(0)}%',
-                  cgst > 0 ? cgst.toStringAsFixed(2) : '-',
-                  sgst > 0 ? sgst.toStringAsFixed(2) : '-',
-                  igst > 0 ? igst.toStringAsFixed(2) : '-',
-                  total.toStringAsFixed(2),
-                ];
+                final taxPctStr = taxPercent > 0
+                    ? '${taxPercent % 1 == 0 ? taxPercent.toStringAsFixed(0) : taxPercent.toStringAsFixed(2)}%'
+                    : '-';
+
+                if (isDualGst) {
+                  return [
+                    '${index + 1}',
+                    '${it['item_name'] ?? ''}',
+                    qty.toStringAsFixed(2),
+                    rate.toStringAsFixed(2),
+                    displayTaxable.toStringAsFixed(2),
+                    taxPctStr,
+                    cgst > 0 ? cgst.toStringAsFixed(2) : '-',
+                    sgst > 0 ? sgst.toStringAsFixed(2) : '-',
+                    total.toStringAsFixed(2),
+                  ];
+                } else if (isInterStateGst) {
+                  return [
+                    '${index + 1}',
+                    '${it['item_name'] ?? ''}',
+                    qty.toStringAsFixed(2),
+                    rate.toStringAsFixed(2),
+                    displayTaxable.toStringAsFixed(2),
+                    taxPctStr,
+                    igst > 0 ? igst.toStringAsFixed(2) : '-',
+                    total.toStringAsFixed(2),
+                  ];
+                } else {
+                  return [
+                    '${index + 1}',
+                    '${it['item_name'] ?? ''}',
+                    qty.toStringAsFixed(2),
+                    rate.toStringAsFixed(2),
+                    displayTaxable.toStringAsFixed(2),
+                    taxPctStr,
+                    itTaxTotal > 0 ? itTaxTotal.toStringAsFixed(2) : '-',
+                    total.toStringAsFixed(2),
+                  ];
+                }
               }),
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5),
               cellStyle: const pw.TextStyle(fontSize: 8),
-              columnWidths: const {
-                0: pw.FixedColumnWidth(25),
-                1: pw.FlexColumnWidth(4),
-                2: pw.FixedColumnWidth(35),
-                3: pw.FixedColumnWidth(45),
-                4: pw.FixedColumnWidth(55),
-                5: pw.FixedColumnWidth(35),
-                6: pw.FixedColumnWidth(40),
-                7: pw.FixedColumnWidth(40),
-                8: pw.FixedColumnWidth(40),
-                9: pw.FixedColumnWidth(60),
-              },
+              columnWidths: isDualGst
+                  ? const {
+                      0: pw.FixedColumnWidth(25),
+                      1: pw.FlexColumnWidth(4),
+                      2: pw.FixedColumnWidth(35),
+                      3: pw.FixedColumnWidth(45),
+                      4: pw.FixedColumnWidth(55),
+                      5: pw.FixedColumnWidth(40),
+                      6: pw.FixedColumnWidth(45),
+                      7: pw.FixedColumnWidth(45),
+                      8: pw.FixedColumnWidth(65),
+                    }
+                  : isInterStateGst
+                      ? const {
+                          0: pw.FixedColumnWidth(25),
+                          1: pw.FlexColumnWidth(4),
+                          2: pw.FixedColumnWidth(35),
+                          3: pw.FixedColumnWidth(45),
+                          4: pw.FixedColumnWidth(55),
+                          5: pw.FixedColumnWidth(40),
+                          6: pw.FixedColumnWidth(45),
+                          7: pw.FixedColumnWidth(65),
+                        }
+                      : const {
+                          0: pw.FixedColumnWidth(25),
+                          1: pw.FlexColumnWidth(4),
+                          2: pw.FixedColumnWidth(35),
+                          3: pw.FixedColumnWidth(45),
+                          4: pw.FixedColumnWidth(55),
+                          5: pw.FixedColumnWidth(45),
+                          6: pw.FixedColumnWidth(50),
+                          7: pw.FixedColumnWidth(65),
+                        },
               cellAlignment: pw.Alignment.centerRight,
               cellAlignments: {
                 0: pw.Alignment.center,
@@ -4882,12 +5178,18 @@ class PosInvoicePrinter {
                         _a4MetaCNRow('Taxable Value', derivedTaxableTotal.toStringAsFixed(2)),
                         if (derivedNonTaxableTotal > 0)
                           _a4MetaCNRow('Non-taxable Amount', derivedNonTaxableTotal.toStringAsFixed(2)),
-                        if (derivedTotalCgst > 0)
-                          _a4MetaCNRow('Total CGST', derivedTotalCgst.toStringAsFixed(2)),
-                        if (derivedTotalSgst > 0)
-                          _a4MetaCNRow('Total SGST', derivedTotalSgst.toStringAsFixed(2)),
-                        if (derivedTotalIgst > 0)
-                          _a4MetaCNRow('Total IGST', derivedTotalIgst.toStringAsFixed(2)),
+                        if (isDualGst) ...[
+                          if (derivedTotalCgst > 0)
+                            _a4MetaCNRow('Total CGST', derivedTotalCgst.toStringAsFixed(2)),
+                          if (derivedTotalSgst > 0)
+                            _a4MetaCNRow('Total SGST', derivedTotalSgst.toStringAsFixed(2)),
+                        ] else if (isInterStateGst) ...[
+                          if (derivedTotalIgst > 0)
+                            _a4MetaCNRow('Total IGST', derivedTotalIgst.toStringAsFixed(2)),
+                        ] else ...[
+                          for (final entry in groupedCnTaxes.entries)
+                            _a4MetaCNRow('Total ${entry.key}', entry.value.toStringAsFixed(2)),
+                        ],
                         _a4MetaCNRow('Total Tax', derivedTotalTax.toStringAsFixed(2)),
                         pw.Divider(),
                         pw.Row(
@@ -4968,10 +5270,59 @@ class PosInvoicePrinter {
 
     final itemsList = (creditNote['items'] as List? ?? const []).cast<Map<String, dynamic>>();
 
+    final originalSale = creditNote['sale'] is Map ? creditNote['sale'] as Map<String, dynamic> : null;
     final billingTaxMode = creditNote['billing_tax_mode']?.toString() ??
         creditNote['sale']?['billing_tax_mode']?.toString() ??
         creditNote['billingTaxMode']?.toString() ??
+        originalSale?['billing_tax_mode']?.toString() ??
         'CGST_SGST';
+    final billingCountry = creditNote['billing_country']?.toString() ??
+        originalSale?['billing_country']?.toString() ??
+        'India';
+    final bool isIndia = CountryTaxHelper.isIndiaCountry(billingCountry);
+    final String taxName = CountryTaxHelper.taxName(billingCountry, billingTaxMode);
+
+    bool hasExplicitNonGst = false;
+    for (final it in itemsList) {
+      final taxes = _resolveCnItemTaxBreakup(
+        it,
+        billingTaxMode: billingTaxMode,
+        billingCountry: billingCountry,
+        originalSaleItem: _findSaleItem(originalSale, it),
+      );
+      for (final t in taxes) {
+        final c = t.code.toUpperCase();
+        final l = t.label.toUpperCase();
+        if (c != 'CGST' && c != 'SGST' && c != 'UTGST' && c != 'IGST' && c != 'GST') {
+          hasExplicitNonGst = true;
+        }
+        if (l.contains('SALES TAX') || l.contains('VAT') || l.contains('CITY') || l.contains('STATE') || l.contains('CESS')) {
+          if (!l.contains('GST')) hasExplicitNonGst = true;
+        }
+      }
+    }
+
+    final bool isInterStateGst = isIndia && _isIgstMode(billingTaxMode) && !hasExplicitNonGst;
+    final bool isDualGst = isIndia &&
+        !isInterStateGst &&
+        billingTaxMode != 'VAT' &&
+        billingTaxMode != 'SALES_TAX' &&
+        billingTaxMode != 'SINGLE' &&
+        !hasExplicitNonGst;
+
+    final Map<String, double> groupedCnTaxes = {};
+    for (final it in itemsList) {
+      final taxes = _resolveCnItemTaxBreakup(
+        it,
+        billingTaxMode: billingTaxMode,
+        billingCountry: billingCountry,
+        originalSaleItem: _findSaleItem(originalSale, it),
+      );
+      for (final t in taxes) {
+        final label = t.label.isNotEmpty ? t.label : (t.code.isNotEmpty ? t.code : taxName);
+        groupedCnTaxes[label] = (groupedCnTaxes[label] ?? 0.0) + t.taxAmount;
+      }
+    }
 
     double derivedTotalCgst = double.tryParse((creditNote['cgst_amount'] ?? 0).toString()) ?? 0.0;
     double derivedTotalSgst = double.tryParse((creditNote['sgst_amount'] ?? 0).toString()) ?? 0.0;
@@ -4988,7 +5339,12 @@ class PosInvoicePrinter {
       final qty = double.tryParse((it['qty'] ?? 0).toString()) ?? 0.0;
       final rawTaxable = double.tryParse((it['taxable_amount'] ?? 0).toString()) ?? 0.0;
       final taxPercent = double.tryParse((it['tax_percent'] ?? 0).toString()) ?? 0.0;
-      final itTaxes = _resolveCnItemTaxes(it, billingTaxMode: billingTaxMode);
+      final itTaxes = _resolveCnItemTaxes(
+        it,
+        billingTaxMode: billingTaxMode,
+        billingCountry: billingCountry,
+        originalSaleItem: _findSaleItem(originalSale, it),
+      );
       final itTax = itTaxes['tax'] ?? 0.0;
 
       if (taxPercent > 0 || itTax > 0) {
@@ -5003,13 +5359,30 @@ class PosInvoicePrinter {
       sumItemTax += itTax;
     }
 
-    if (derivedTotalCgst <= 0 && derivedTotalSgst <= 0 && derivedTotalIgst <= 0) {
-      derivedTotalCgst = sumItemCgst;
-      derivedTotalSgst = sumItemSgst;
-      derivedTotalIgst = sumItemIgst;
+    if (isDualGst) {
+      if (derivedTotalCgst <= 0 && derivedTotalSgst <= 0) {
+        derivedTotalCgst = sumItemCgst;
+        derivedTotalSgst = sumItemSgst;
+      }
+    } else if (isInterStateGst) {
+      if (derivedTotalIgst <= 0) {
+        derivedTotalIgst = sumItemIgst;
+      }
+    } else {
+      derivedTotalCgst = 0;
+      derivedTotalSgst = 0;
+      derivedTotalIgst = 0;
     }
+
     if (derivedTotalTax <= 0) {
-      derivedTotalTax = sumItemTax > 0 ? sumItemTax : (derivedTotalCgst + derivedTotalSgst + derivedTotalIgst);
+      derivedTotalTax = sumItemTax > 0
+          ? sumItemTax
+          : (isDualGst
+              ? (derivedTotalCgst + derivedTotalSgst)
+              : (isInterStateGst ? derivedTotalIgst : groupedCnTaxes.values.fold(0.0, (s, a) => s + a)));
+    }
+    if (groupedCnTaxes.isEmpty && derivedTotalTax > 0) {
+      groupedCnTaxes[taxName.isNotEmpty ? taxName : 'Tax'] = derivedTotalTax;
     }
 
     return pw.DefaultTextStyle(
@@ -5079,7 +5452,7 @@ class PosInvoicePrinter {
                   style: emphasisStyle.copyWith(fontSize: 11),
                 ),
                 pw.Text(
-                  _isIndiaCountry(null) ? 'GST COMPLIANT' : 'TAX COMPLIANT',
+                  isIndia ? 'GST COMPLIANT' : 'TAX COMPLIANT',
                   style: bodyStyle.copyWith(fontSize: 7.5),
                 ),
               ],
@@ -5098,7 +5471,8 @@ class PosInvoicePrinter {
           // Customer Details
           if (customerName.isNotEmpty) _thermalRow('Customer:', customerName),
           if (customerPhone != '--') _thermalRow('Phone:', customerPhone),
-          if (customerGstin.isNotEmpty) _thermalRow('${_taxIdLabel()}:', customerGstin),
+          if (customerGstin.isNotEmpty && customerGstin.toUpperCase() != 'URD' && customerGstin.toUpperCase() != 'N/A')
+            _thermalRow('${_taxIdLabel()}:', customerGstin),
           pw.Divider(color: _thermalDivider, thickness: 0.8),
 
           // Table Header
@@ -5157,9 +5531,15 @@ class PosInvoicePrinter {
           _thermalRow('Taxable Value:', derivedTaxableTotal.toStringAsFixed(2)),
           if (derivedNonTaxableTotal > 0)
             _thermalRow('Non-taxable Amount:', derivedNonTaxableTotal.toStringAsFixed(2)),
-          if (derivedTotalCgst > 0) _thermalRow('Total CGST:', derivedTotalCgst.toStringAsFixed(2)),
-          if (derivedTotalSgst > 0) _thermalRow('Total SGST/UTGST:', derivedTotalSgst.toStringAsFixed(2)),
-          if (derivedTotalIgst > 0) _thermalRow('Total IGST:', derivedTotalIgst.toStringAsFixed(2)),
+          if (isDualGst) ...[
+            if (derivedTotalCgst > 0) _thermalRow('Total CGST:', derivedTotalCgst.toStringAsFixed(2)),
+            if (derivedTotalSgst > 0) _thermalRow('Total SGST/UTGST:', derivedTotalSgst.toStringAsFixed(2)),
+          ] else if (isInterStateGst) ...[
+            if (derivedTotalIgst > 0) _thermalRow('Total IGST:', derivedTotalIgst.toStringAsFixed(2)),
+          ] else ...[
+            for (final entry in groupedCnTaxes.entries)
+              _thermalRow('${entry.key}:', entry.value.toStringAsFixed(2)),
+          ],
           _thermalRow('Total Tax:', derivedTotalTax.toStringAsFixed(2)),
           pw.Divider(color: _thermalDivider, thickness: 0.5),
 

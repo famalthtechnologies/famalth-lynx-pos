@@ -162,11 +162,12 @@ class _SalesReprintModifyScreenState extends State<SalesReprintModifyScreen> {
         latestOnly: _orderStatusFilter != 'RUNNING',
       );
 
-      // Exclude draft bills from reprint / modify bills list
+      // Exclude draft bills and clinic appointments from reprint / modify bills list
       final sales = rawSales.where((s) {
         final st = (s['status'] ?? '').toString().toUpperCase().trim();
         final no = (s['sale_no'] ?? '').toString().toUpperCase().trim();
-        return st != 'DRAFT' && !no.startsWith('DRAFT-');
+        final ordType = (s['order_type'] ?? '').toString().toUpperCase().trim();
+        return st != 'DRAFT' && !no.startsWith('DRAFT-') && !no.startsWith('APPT-') && ordType != 'CLINIC_APPOINTMENT';
       }).toList();
 
       sales.sort((a, b) {
@@ -2105,6 +2106,9 @@ class _SalesReprintModifyScreenState extends State<SalesReprintModifyScreen> {
                                                 }
                                                 if (cnToPrint['billing_tax_mode'] == null && _selectedDetails?['billing_tax_mode'] != null) {
                                                   cnToPrint['billing_tax_mode'] = _selectedDetails!['billing_tax_mode'];
+                                                }
+                                                if (cnToPrint['billing_country'] == null && _selectedDetails?['billing_country'] != null) {
+                                                  cnToPrint['billing_country'] = _selectedDetails!['billing_country'];
                                                 }
                                                 _printCreditNote(cnToPrint);
                                               },

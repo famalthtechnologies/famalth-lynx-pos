@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const PDFDocument = require('pdfkit');
 
 /**
@@ -9,7 +11,33 @@ const PDFDocument = require('pdfkit');
 export function generateAnalyticsReportPdf(summaryText: string, rows: any[]): Promise<Buffer> {
     return new Promise((resolve, reject) => {
         try {
-            const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
+            const possibleFontDirs = [
+                path.resolve(__dirname, '../assets/fonts'),
+                path.resolve(__dirname, '../../assets/fonts'),
+                path.resolve(__dirname, '../../../backend/assets/fonts'),
+                path.resolve(process.cwd(), 'assets/fonts'),
+                path.resolve(process.cwd(), 'backend/assets/fonts'),
+            ];
+
+            let fontBoldPath: string | null = null;
+            let fontRegularPath: string | null = null;
+
+            for (const fDir of possibleFontDirs) {
+                const b = path.join(fDir, 'Roboto-Bold.ttf');
+                const r = path.join(fDir, 'Roboto-Regular.ttf');
+                if (fs.existsSync(b) && fs.existsSync(r)) {
+                    fontBoldPath = b;
+                    fontRegularPath = r;
+                    break;
+                }
+            }
+
+            const docOptions: any = { size: 'A4', margin: 40, bufferPages: true };
+            if (fontRegularPath) {
+                docOptions.font = fontRegularPath;
+            }
+
+            const doc = new PDFDocument(docOptions);
             const buffers: any[] = [];
 
             doc.on('data', buffers.push.bind(buffers));
@@ -17,17 +45,27 @@ export function generateAnalyticsReportPdf(summaryText: string, rows: any[]): Pr
                 resolve(Buffer.concat(buffers));
             });
 
+            let fontBold = 'Helvetica-Bold';
+            let fontRegular = 'Helvetica';
+
+            if (fontBoldPath && fontRegularPath) {
+                doc.registerFont('Roboto-Bold', fontBoldPath);
+                doc.registerFont('Roboto-Regular', fontRegularPath);
+                fontBold = 'Roboto-Bold';
+                fontRegular = 'Roboto-Regular';
+            }
+
             // ---------------- PAGE 1: TITLE & EXECUTIVE SUMMARY ----------------
             doc.rect(40, 40, 515, 60).fill('#1e3a8a');
-            doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(20).text('AI BUSINESS INTELLIGENCE REPORT', 55, 60);
-            doc.fillColor('#93c5fd').font('Helvetica').fontSize(10).text('Analytics Engine Intelligence Summary', 55, 82);
+            doc.fillColor('#ffffff').font(fontBold).fontSize(20).text('AI BUSINESS INTELLIGENCE REPORT', 55, 60);
+            doc.fillColor('#93c5fd').font(fontRegular).fontSize(10).text('Analytics Engine Intelligence Summary', 55, 82);
 
             doc.y = 120;
 
-            doc.fillColor('#6b7280').font('Helvetica').fontSize(8).text(`Generated on: ${new Date().toLocaleString()}`, { align: 'right' });
+            doc.fillColor('#6b7280').font(fontRegular).fontSize(8).text(`Generated on: ${new Date().toLocaleString()}`, { align: 'right' });
             doc.moveDown(1.5);
 
-            doc.fillColor('#1f2937').font('Helvetica-Bold').fontSize(14).text('Executive Summary Analysis');
+            doc.fillColor('#1f2937').font(fontBold).fontSize(14).text('Executive Summary Analysis');
             doc.moveDown(0.8);
 
             const cleanSummary = summaryText
@@ -35,13 +73,13 @@ export function generateAnalyticsReportPdf(summaryText: string, rows: any[]): Pr
                 .replace(/>/g, '')
                 .trim();
 
-            doc.fillColor('#374151').font('Helvetica').fontSize(10.5).text(cleanSummary, { align: 'justify', lineGap: 3 });
+            doc.fillColor('#374151').font(fontRegular).fontSize(10.5).text(cleanSummary, { align: 'justify', lineGap: 3 });
             doc.moveDown(2);
 
             // ---------------- PAGE 2+: DATA RECORDS TABLE ----------------
             doc.addPage();
 
-            doc.fillColor('#1e3a8a').font('Helvetica-Bold').fontSize(14).text('Complete Dataset Records');
+            doc.fillColor('#1e3a8a').font(fontBold).fontSize(14).text('Complete Dataset Records');
             doc.moveDown(0.8);
 
             if (rows && rows.length > 0) {
@@ -53,7 +91,7 @@ export function generateAnalyticsReportPdf(summaryText: string, rows: any[]): Pr
                 const colWidth = tableWidth / displayKeys.length;
 
                 doc.rect(40, currentY, tableWidth, 20).fill('#1e3a8a');
-                doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.5);
+                doc.fillColor('#ffffff').font(fontBold).fontSize(8.5);
 
                 for (let i = 0; i < displayKeys.length; i++) {
                     const headerName = String(displayKeys[i])
@@ -63,7 +101,7 @@ export function generateAnalyticsReportPdf(summaryText: string, rows: any[]): Pr
                 }
 
                 currentY += 20;
-                doc.fillColor('#374151').font('Helvetica').fontSize(8.5);
+                doc.fillColor('#374151').font(fontRegular).fontSize(8.5);
 
                 let index = 0;
                 for (const row of rows) {
@@ -72,7 +110,7 @@ export function generateAnalyticsReportPdf(summaryText: string, rows: any[]): Pr
                         currentY = 40;
 
                         doc.rect(40, currentY, tableWidth, 20).fill('#1e3a8a');
-                        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.5);
+                        doc.fillColor('#ffffff').font(fontBold).fontSize(8.5);
 
                         for (let i = 0; i < displayKeys.length; i++) {
                             const headerName = String(displayKeys[i])
@@ -82,7 +120,7 @@ export function generateAnalyticsReportPdf(summaryText: string, rows: any[]): Pr
                         }
 
                         currentY += 20;
-                        doc.fillColor('#374151').font('Helvetica').fontSize(8.5);
+                        doc.fillColor('#374151').font(fontRegular).fontSize(8.5);
                     }
 
                     if (index % 2 === 1) {
@@ -104,7 +142,7 @@ export function generateAnalyticsReportPdf(summaryText: string, rows: any[]): Pr
 
                 if (keys.length > 6) {
                     doc.moveDown(1);
-                    doc.fillColor('#6b7280').font('Helvetica-Oblique').fontSize(8).text(`* Note: Table displays the first 6 columns of the dataset. Full columns are exported inside the CSV format file.`, 40, currentY + 10);
+                    doc.fillColor('#6b7280').font(fontRegular).fontSize(8).text(`* Note: Table displays the first 6 columns of the dataset. Full columns are exported inside the CSV format file.`, 40, currentY + 10);
                 }
 
             } else {

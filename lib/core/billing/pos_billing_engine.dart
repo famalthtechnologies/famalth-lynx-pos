@@ -255,7 +255,12 @@ class PosBillingEngine {
       return const <TaxBreakdown>[];
     }
 
-    final bool isIgst = taxMode.trim().toUpperCase() == 'IGST';
+    final String tm = taxMode.trim().toUpperCase();
+    final bool isIgst = tm == 'IGST' ||
+        tm.startsWith('IGST') ||
+        tm.contains('INTERSTATE') ||
+        tm.contains('INTER_STATE') ||
+        tm.contains('INTER STATE');
 
     // Inter-State supply: If IGST mode is selected, all GST-taxable items MUST be taxed as IGST at full rate
     if (isIgst) {

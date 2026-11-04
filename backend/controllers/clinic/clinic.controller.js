@@ -1188,9 +1188,13 @@ const acceptAndPayAppointment = async (req, res) => {
       updateData.doctor_name = req.body.doctor_name.trim();
       if (req.body.doctor_id) updateData.doctor_id = Number(req.body.doctor_id);
     }
+    const priorPaymentStatus = appointment.payment_status;
+    const priorPaidAmount = Number(appointment.paid_amount || 0);
+    const wasAlreadyPaid = priorPaymentStatus === "PAID" || (priorPaidAmount >= consultationFee && consultationFee > 0);
+
     await appointment.update(updateData);
     const finalCollected = payment_status === "PAID" ? feeToPay > 0 ? feeToPay : consultationFee : 0;
-    if (!isPack && payment_status === "PAID" && finalCollected > 0) {
+    if (!isPack && payment_status === "PAID" && finalCollected > 0 && !wasAlreadyPaid) {
       try {
         let customerId = appointment.patient_id || null;
         const phone = (appointment.patient_phone || "").trim();
