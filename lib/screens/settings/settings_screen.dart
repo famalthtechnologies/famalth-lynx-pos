@@ -190,6 +190,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _currentActiveModule = 'ALL';
   bool _didLoadBranding = false;
   bool _isCreatingEncBackup = false;
+  bool _isCreatingFambakBackup = false;
   AppBrandingModel _branding = AppBrandingModel.defaults();
   List<Map<String, dynamic>> _settingsSaleSources = [];
   List<Map<String, dynamic>> _settingsPaymentMethods = [];
@@ -1675,38 +1676,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         _settingRow(
                           title: 'Create Manual Backup',
-                          description: 'Encrypt your local database and save to Downloads folder.',
-                          control: FilledButton.icon(
-                            onPressed: _isCreatingEncBackup
-                                ? null
-                                : () async {
-                                    setState(() => _isCreatingEncBackup = true);
-                                    try {
-                                      final savedPath = await BackupService.createAndSaveLocalEncBackup();
-                                      if (!mounted) return;
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text('.enc backup saved to $savedPath'),
-                                          backgroundColor: Colors.green,
-                                        ),
-                                      );
-                                    } catch (e) {
-                                      if (!mounted) return;
-                                      showErrorSnackbar('Failed to create backup: $e');
-                                    } finally {
-                                      if (mounted) {
-                                        setState(() => _isCreatingEncBackup = false);
-                                      }
-                                    }
-                                  },
-                            icon: _isCreatingEncBackup
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.enhanced_encryption_outlined, size: 18),
-                            label: Text(_isCreatingEncBackup ? 'Backing up...' : 'Create .enc Backup'),
+                          description: 'Export an isolated outlet archive (.fambak) or full encrypted system snapshot (.enc) to your Downloads folder.',
+                          control: Wrap(
+                            spacing: 10,
+                            runSpacing: 8,
+                            children: [
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFEF4444),
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: (_isCreatingFambakBackup || _isCreatingEncBackup)
+                                    ? null
+                                    : () async {
+                                        setState(() => _isCreatingFambakBackup = true);
+                                        try {
+                                          final savedPath = await BackupService.createAndSaveLocalFambakBackup(scope: 'OUTLET');
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Outlet .fambak backup saved to ' + savedPath),
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          );
+                                        } catch (e) {
+                                          if (!mounted) return;
+                                          showErrorSnackbar('Failed to create .fambak backup: ' + e.toString());
+                                        } finally {
+                                          if (mounted) {
+                                            setState(() => _isCreatingFambakBackup = false);
+                                          }
+                                        }
+                                      },
+                                icon: _isCreatingFambakBackup
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Icon(Icons.archive_outlined, size: 18),
+                                label: Text(_isCreatingFambakBackup ? 'Exporting...' : 'Create .fambak Backup'),
+                              ),
+                              FilledButton.icon(
+                                onPressed: (_isCreatingEncBackup || _isCreatingFambakBackup)
+                                    ? null
+                                    : () async {
+                                        setState(() => _isCreatingEncBackup = true);
+                                        try {
+                                          final savedPath = await BackupService.createAndSaveLocalEncBackup();
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('.enc backup saved to ' + savedPath),
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          );
+                                        } catch (e) {
+                                          if (!mounted) return;
+                                          showErrorSnackbar('Failed to create backup: ' + e.toString());
+                                        } finally {
+                                          if (mounted) {
+                                            setState(() => _isCreatingEncBackup = false);
+                                          }
+                                        }
+                                      },
+                                icon: _isCreatingEncBackup
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Icon(Icons.enhanced_encryption_outlined, size: 18),
+                                label: Text(_isCreatingEncBackup ? 'Backing up...' : 'Create .enc Backup'),
+                              ),
+                            ],
                           ),
                         ),
                         _settingRow(

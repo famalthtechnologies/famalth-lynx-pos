@@ -470,16 +470,18 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
   Future<void> _pickRestoreEncFile() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['enc'],
+      allowedExtensions: const ['fambak', 'enc', 'posbak'],
       withData: true,
     );
     if (result == null || result.files.isEmpty) return;
     final file = result.files.first;
     final name = file.name.trim();
-    if (!name.toLowerCase().endsWith('.enc')) {
-      _showError('Only .enc backup file is allowed.');
+    final lowerName = name.toLowerCase();
+    if (!lowerName.endsWith('.enc') && !lowerName.endsWith('.fambak') && !lowerName.endsWith('.posbak')) {
+      _showError('Only .fambak, .enc, or .posbak backup files are allowed.');
       return;
     }
+
     final bytes = file.bytes ??
         (file.path != null ? await File(file.path!).readAsBytes() : null);
     if (bytes == null || bytes.isEmpty) {
@@ -497,29 +499,110 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
         _restoreEncName!.isEmpty ||
         _restoreEncBytes == null ||
         _restoreEncBytes!.isEmpty) {
-      _showError('Please select a valid .enc backup file first.');
+      _showError('Please select a valid .fambak or .enc backup file first.');
+      return;
+    }
+
+    if (!_isEmailVerified) {
+      _showError('Security Verification Required: Please enter your admin email and verify OTP before restoring.');
       return;
     }
 
     setState(() => _isRestoringLocalEnc = true);
     try {
-      await BackupService.restoreFromLocalEnc(
+      final res = await BackupService.restoreFromLocalEnc(
         fileName: _restoreEncName!,
         bytes: _restoreEncBytes!,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
+
+      final restoredCode = (res['outlet_code'] ?? '').toString().trim();
+      if (restoredCode.isNotEmpty) {
+        await LocalPreferences.setLastOutletCode(restoredCode);
+        final currentOutlets = List<String>.from(AppConfig.outlets);
+        if (!currentOutlets.contains(restoredCode)) {
+          currentOutlets.insert(0, restoredCode);
+        }
+        await AppConfig.saveConfig(AppConfig.baseUrl, currentOutlets);
+      }
+
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.white, size: 20),
+              Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 28),
               SizedBox(width: 10),
-              Text('Database and configurations restored successfully!'),
+              Text("Restore Complete"),
             ],
           ),
-          backgroundColor: const Color(0xFF059669),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _restoreEncName?.toLowerCase().endsWith('.fambak') == true
+                    ? "Outlet backup (.fambak) restored successfully!"
+                    : "System snapshot (.enc) restored successfully!",
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              const SizedBox(height: 12),
+              if (restoredCode.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.storefront_rounded, size: 20, color: Color(0xFF2563EB)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Auto-Linked Outlet Code:",
+                              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                            ),
+                            Text(
+                              restoredCode,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 12),
+              const Text(
+                "Workstation is now configured and linked. Proceed to login with your credentials.",
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+              ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF059669),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => LoginScreen(initialOutletCode: restoredCode.isNotEmpty ? restoredCode : null)),
+                  (route) => false,
+                );
+              },
+              child: const Text("Proceed to Login"),
+            ),
+          ],
         ),
       );
     } catch (e) {
@@ -794,8 +877,8 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
             _buildHeroModeCard(
               scheme: scheme,
               mode: SetupMode.restoreLocal,
-              title: "Restore Snapshot",
-              subtitle: "Disaster recovery from an encrypted .enc backup file",
+              title: "Restore Backup / Snapshot",
+              subtitle: "Disaster recovery from .fambak or .enc backup file",
               icon: Icons.restore_rounded,
             ),
           ],
@@ -1114,8 +1197,8 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
         icon = Icons.vpn_key_rounded;
         break;
       case SetupMode.restoreLocal:
-        title = "Disaster Recovery (.enc)";
-        subtitle = "Upload an encrypted snapshot file to restore local database and settings.";
+        title = "Restore Backup (.fambak / .enc)";
+        subtitle = "Upload an outlet archive (.fambak) or encrypted snapshot (.enc) to restore local data.";
         icon = Icons.settings_backup_restore_rounded;
         break;
     }
@@ -1610,7 +1693,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
               const SizedBox(width: 10),
               const Expanded(
                 child: Text(
-                  "Select an encrypted disaster recovery backup (.enc) to restore the local database on this server.",
+                  "Select a manual backup file (.fambak or .enc) to restore an individual outlet or the full system directly on this workstation without Google Drive.",
                   style: TextStyle(color: Color(0xFF1E40AF), fontSize: 12.5),
                 ),
               ),
@@ -1651,7 +1734,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _restoreEncName ?? "Click to browse .enc file",
+                        _restoreEncName ?? "Click to browse .fambak or .enc file",
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -1661,8 +1744,8 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
                       const SizedBox(height: 2),
                       Text(
                         _restoreEncName != null
-                            ? "${(_restoreEncBytes?.length ?? 0) ~/ 1024} KB · Ready to restore"
-                            : "Supports Famalth encrypted backup archives",
+                            ? "${(_restoreEncBytes?.length ?? 0) ~/ 1024} KB · ${_restoreEncName!.toLowerCase().endsWith('.fambak') ? 'Outlet Archive (.fambak)' : 'System Snapshot (.enc)'} ready to restore"
+                            : "Supports Famalth outlet archives (.fambak) and encrypted snapshots (.enc)",
                         style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                       ),
                     ],
@@ -1676,10 +1759,18 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 18),
+        _buildEmailVerificationCard(scheme),
+        const SizedBox(height: 24),
         _buildActionButton(
-          _isRestoringLocalEnc ? "Restoring Database..." : "Restore Backup (.enc)",
-          Icons.restore_page_rounded,
+          _isRestoringLocalEnc
+              ? "Restoring Backup..."
+              : (!_isEmailVerified
+                  ? "Verify Email OTP to Unlock Restore"
+                  : (_restoreEncName != null
+                      ? "Restore Selected Backup (${_restoreEncName!.toLowerCase().endsWith('.fambak') ? '.fambak' : '.enc'})"
+                      : "Restore Backup (.fambak / .enc)")),
+          _isEmailVerified ? Icons.restore_page_rounded : Icons.lock_outline_rounded,
           scheme,
           _isRestoringLocalEnc ? () {} : _restoreFromLocalEnc,
         ),

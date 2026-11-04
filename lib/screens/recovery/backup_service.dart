@@ -6,6 +6,9 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/config/app_config.dart';
+import '../../core/auth/token_storage.dart';
+import 'package:http/http.dart' as http;
 
 class BackupService {
   static Future<String> checkStatus() async {
@@ -103,17 +106,62 @@ class BackupService {
     return file.path;
   }
 
-  static Future<void> restoreFromLocalEnc({
+  static Future<String> createAndSaveLocalFambakBackup({
+    String scope = 'OUTLET',
+    String? outletCode,
+  }) async {
+    final result = await createFambakBackup(
+      scope: scope,
+      outletCode: outletCode,
+      saveToDrive: false,
+    );
+    final filename = (result['filename'] ?? 'backup.fambak').toString();
+    final downloadUrl = (result['downloadUrl'] ?? '').toString();
+
+    final downloads = await getDownloadsDirectory();
+    final targetDir = downloads ?? await getApplicationDocumentsDirectory();
+    final targetPath = p.join(targetDir.path, filename);
+
+    final localServerFile = File(p.join(Directory.current.path, 'backups', filename));
+    if (await localServerFile.exists()) {
+      await localServerFile.copy(targetPath);
+      return targetPath;
+    }
+
+    if (downloadUrl.isNotEmpty) {
+      final token = await TokenStorage.read();
+      final fullUrl = downloadUrl.startsWith('http')
+          ? downloadUrl
+          : '${AppConfig.baseUrl}$downloadUrl';
+      final uri = Uri.parse(fullUrl);
+      final headers = <String, String>{};
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+      final response = await http.get(uri, headers: headers);
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+        final file = File(targetPath);
+        await file.writeAsBytes(response.bodyBytes, flush: true);
+        return file.path;
+      }
+    }
+
+    return targetPath;
+  }
+
+  static Future<Map<String, dynamic>> restoreFromLocalEnc({
     required String fileName,
     required List<int> bytes,
   }) async {
-    if (!fileName.toLowerCase().endsWith('.enc')) {
-      throw Exception('Only .enc file is allowed');
+    final lower = fileName.toLowerCase();
+    if (!lower.endsWith('.enc') && !lower.endsWith('.fambak') && !lower.endsWith('.posbak')) {
+      throw Exception('Only .fambak, .posbak, or .enc backup file is allowed');
     }
-    await ApiClient.post(ApiEndpoints.restoreLocalEncBackup, {
+    final res = await ApiClient.post(ApiEndpoints.restoreLocalEncBackup, {
       'filename': fileName,
       'base64': base64Encode(bytes),
     });
+    return Map<String, dynamic>.from(res is Map ? res : {});
   }
 
   /// Create Granular .fambak archive backup (All Outlets or Scoped Outlet)

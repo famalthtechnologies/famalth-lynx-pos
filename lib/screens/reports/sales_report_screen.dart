@@ -1244,8 +1244,12 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   double get _headerRevenueTotal =>
       _billWiseSales.fold<double>(0, (sum, sale) => sum + sale.netAmount);
   // Net Sales = Revenue − Charges − ChargesGST
-  double get _headerItemNetAmount =>
-      _headerRevenueTotal - _headerChargeTotal - _headerChargeTaxTotal;
+  double get _headerItemNetAmount => (_headerItemTaxableTotal + _headerItemTaxTotal - _headerDiscountTotal) > 0.0001
+      ? (_headerItemTaxableTotal + _headerItemTaxTotal - _headerDiscountTotal)
+      :
+      (_headerRevenueTotal - _headerChargeTotal - _headerChargeTaxTotal);
+  double get _roundOffTotal =>
+      _headerRevenueTotal - (_headerItemNetAmount + _headerChargeTotal + _headerChargeTaxTotal);
   // Item-level taxable for Taxable Value card only
   double get _headerItemTaxableTotal => _billWiseSales.fold<double>(
         0,
@@ -3592,6 +3596,16 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
               SizedBox(width: 220, child: _metricCard('Net Sales (Standard)', _headerItemNetAmount, const Color(0xFFEA580C))),
               SizedBox(width: 220, child: _metricCard(_isIndiaTax ? 'Taxed Sales After GST' : 'Taxed Sales After Tax', _taxSaleTotal, const Color(0xFF16A34A))),
               SizedBox(width: 220, child: _metricCard('Non-Tax Sales', _nonTaxSaleTotal, const Color(0xFF64748B))),
+              if (_roundOffTotal.abs() > 0.009)
+                SizedBox(
+                  width: 220,
+                  child: _metricCard(
+                    'Round Off',
+                    _roundOffTotal,
+                    const Color(0xFF64748B),
+                    subtitle: 'invoice rounding adjustment',
+                  ),
+                ),
               SizedBox(
                 width: 220,
                 child: _metricCard(

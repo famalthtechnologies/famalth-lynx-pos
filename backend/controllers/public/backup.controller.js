@@ -113,10 +113,35 @@ exports.restoreFromLocalEnc = async (req, res) => {
                 message: "Invalid backup payload."
             });
         }
+        const lowerName = filename.toLowerCase();
+        if (lowerName.endsWith(".fambak") || lowerName.endsWith(".posbak")) {
+            const { TenantBackupService } = require('../../services/tenantBackup.service');
+            const propertyDb = require('../../db/models');
+            const activeDb = propertyDb.sequelize || propertyDb;
+            const restoreResult = await TenantBackupService.restoreFambakBackup(activeDb, encBuffer, {
+                scope: 'ALL',
+                overwriteExisting: true
+            });
+            return res.status(200).json({
+                success: true,
+                message: `Outlet backup restored successfully from ${filename} (${restoreResult.totalRecordsRestored} records restored across ${restoreResult.tablesRestored.length} tables).`,
+                outlet_code: restoreResult.restoredOutletCode || "",
+                details: restoreResult
+            });
+        }
         await restoreFromEncBuffer(encBuffer);
+        let primaryOutletCode = "";
+        try {
+            const propertyDb = require('../../db/models');
+            const [outlets] = await (propertyDb.sequelize || propertyDb).query("SELECT outlet_code FROM outlets ORDER BY id ASC LIMIT 1;").catch(() => []);
+            if (outlets && outlets[0] && outlets[0].outlet_code) {
+                primaryOutletCode = outlets[0].outlet_code;
+            }
+        } catch (_) {}
         return res.status(200).json({
             success: true,
-            message: "Backup restored successfully from .enc file."
+            message: "Backup restored successfully from .enc file.",
+            outlet_code: primaryOutletCode
         });
     }
     catch (err) {
