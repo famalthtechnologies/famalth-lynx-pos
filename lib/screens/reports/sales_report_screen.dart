@@ -1202,9 +1202,14 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
             },
           ));
 
-  // Taxed Sales After GST = Net Sales (Standard) − Non-Tax Sales
-  // Computed at bill level for consistency with discount allocation
-  double get _taxSaleTotal => _headerItemNetAmount - _nonTaxSaleTotal;
+  // Taxed Sales After GST = sum of net amounts of all taxed items
+  double get _taxSaleTotal => _billWiseSales.fold<double>(
+        0,
+        (sum, sale) => sum + sale.items.fold<double>(
+              0,
+              (itemSum, item) => itemSum + (_isTaxedItem(item) ? item.netAmount : 0),
+            ),
+      );
   double get _headerTaxableTotal =>
       _billWiseSales.fold<double>(0, (sum, sale) => sum + _taxableSaleValue(sale));
   // All figures from header-level columns (consistent with DB, dashboard, and payment breakdown)
@@ -1249,13 +1254,14 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   // Total Revenue = sum of header net_amount (matches payment breakdown)
   double get _headerRevenueTotal =>
       _billWiseSales.fold<double>(0, (sum, sale) => sum + sale.netAmount);
-  // Net Sales = Revenue − Charges − ChargesGST
-  double get _headerItemNetAmount => (_headerItemTaxableTotal + _headerItemTaxTotal - _headerDiscountTotal) > 0.0001
-      ? (_headerItemTaxableTotal + _headerItemTaxTotal - _headerDiscountTotal)
-      :
-      (_headerRevenueTotal - _headerChargeTotal - _headerChargeTaxTotal);
-  double get _roundOffTotal =>
-      _headerRevenueTotal - (_headerItemNetAmount + _headerChargeTotal + _headerChargeTaxTotal);
+    // Net Sales = Taxed Sales + Non-Tax Sales (Total Net Value of items)
+  double get _headerItemNetAmount => _taxSaleTotal + _nonTaxSaleTotal;
+  double get _roundOffTotal {
+    final sumDb = _billWiseSales.fold<double>(0, (sum, sale) => sum + sale.roundOffAmount);
+    if (sumDb.abs() > 0.0001) return sumDb;
+    final diff = _headerRevenueTotal - (_headerItemNetAmount + _headerChargeTotal + _headerChargeTaxTotal);
+    return (diff.abs() < 10.0) ? diff : 0.0;
+  }
   // Item-level taxable for Taxable Value card only
   double get _headerItemTaxableTotal => _billWiseSales.fold<double>(
         0,

@@ -230,6 +230,7 @@ class SalesReport {
   final double totalTax;
   final double chargeTotal;
   final double totalDiscount;
+  final double roundOffAmount;
   final double netAmount;
   final double estimatedCost;
   final double estimatedProfit;
@@ -269,6 +270,7 @@ class SalesReport {
     required this.totalTax,
     required this.chargeTotal,
     required this.totalDiscount,
+    this.roundOffAmount = 0,
     required this.netAmount,
     required this.estimatedCost,
     required this.estimatedProfit,
@@ -310,6 +312,7 @@ class SalesReport {
       totalTax: _toDouble(json['total_tax']),
       chargeTotal: _toDouble(json['charge_total']),
       totalDiscount: _toDouble(json['total_discount']),
+      roundOffAmount: _toDouble(json['round_off_amount']),
       netAmount: _toDouble(json['net_amount']),
       estimatedCost: _toDouble(json['estimated_cost']),
       estimatedProfit: _toDouble(json['estimated_profit']),
