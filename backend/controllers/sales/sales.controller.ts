@@ -3293,6 +3293,10 @@ async function createSaleVersion({
         charges: headerCharges,
         charge_total: headerChargeTotal,
         total_discount: derivedTotalDiscount,
+        scheme_id: header.scheme_id ? Number(header.scheme_id) : (header.schemeId ? Number(header.schemeId) : null),
+        scheme_name: header.scheme_name || header.schemeName || null,
+        scheme_usage_mode: header.scheme_usage_mode || header.schemeUsageMode || null,
+        scheme_discount: toAmount(header.scheme_discount ?? header.schemeDiscount ?? 0),
         manual_discount_type: header.manual_discount_type || header.manualDiscountType || 'AMOUNT',
         manual_discount_value: toAmount(header.manual_discount_value ?? header.manualDiscountValue ?? derivedTotalDiscount),
         manual_discount_amount: toAmount(header.manual_discount_amount ?? header.manualDiscountAmount ?? derivedTotalDiscount),
@@ -5907,11 +5911,50 @@ exports.getSaleDetails = async (req, res) => {
             }
             return {
                 ...item,
+                brand: item.brand || (item.item ? item.item.brand : null),
                 modifier_details: Array.isArray(modDetails) ? modDetails : (item.modifier_details || []),
                 modifier_objects: Array.isArray(modObjs) ? modObjs : (item.modifier_objects || []),
                 returned_qty: alreadyReturned[item.item_id] || 0
             };
         });
+
+        // Resolve scheme name and details if missing
+        if (!saleJson.scheme_name) {
+            try {
+                const schemeIdsToLookup = new Set<number>();
+                if (saleJson.scheme_id && Number(saleJson.scheme_id) > 0) {
+                    schemeIdsToLookup.add(Number(saleJson.scheme_id));
+                }
+                if (Array.isArray(saleJson.items)) {
+                    saleJson.items.forEach((it: any) => {
+                        const sid = Number(it.applied_scheme_id);
+                        if (Number.isFinite(sid) && sid > 0) {
+                            schemeIdsToLookup.add(sid);
+                        }
+                    });
+                }
+                if (schemeIdsToLookup.size > 0) {
+                    const schemes = await req.propertyDb.models.sales_schemes.findAll({
+                        where: { id: { [Op.in]: Array.from(schemeIdsToLookup) } }
+                    });
+                    if (schemes && schemes.length > 0) {
+                        const schemeMap = new Map<number, string>();
+                        schemes.forEach((s: any) => schemeMap.set(s.id, s.scheme_name));
+                        if (!saleJson.scheme_name) {
+                            saleJson.scheme_name = schemes[0].scheme_name;
+                        }
+                        if (!saleJson.selected_schemes || saleJson.selected_schemes.length === 0) {
+                            saleJson.selected_schemes = schemes.map((s: any) => (typeof s.toJSON === 'function' ? s.toJSON() : s));
+                        }
+                        saleJson.items.forEach((it: any) => {
+                            if (it.applied_scheme_id && schemeMap.has(Number(it.applied_scheme_id))) {
+                                it.scheme_name = schemeMap.get(Number(it.applied_scheme_id));
+                            }
+                        });
+                    }
+                }
+            } catch (_) {}
+        }
         saleJson.credit_notes = (creditNotes || []).map((cn: any) => {
             const raw = typeof cn.toJSON === 'function' ? cn.toJSON() : cn;
             return {

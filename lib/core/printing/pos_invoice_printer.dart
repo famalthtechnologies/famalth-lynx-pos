@@ -624,8 +624,30 @@ class PosInvoicePrinter {
                     ),
                   ),
                 ),
-              if (savingsAmount > 0.0009)
+              if (savingsAmount > 0.0009) ...[
                 _thermalAmountRow(_savingLabel(order), savingsAmount),
+                ...(() {
+                  final schemeSubtitle = _resolveSchemeSavingsSubtitle(order, savingsAmount);
+                  if (schemeSubtitle != null && schemeSubtitle.isNotEmpty) {
+                    return [
+                      pw.Container(
+                        alignment: pw.Alignment.centerLeft,
+                        margin: const pw.EdgeInsets.only(top: 0.5, bottom: 2),
+                        child: pw.Text(
+                          schemeSubtitle,
+                          style: pw.TextStyle(
+                            fontSize: 7.0,
+                            fontStyle: pw.FontStyle.italic,
+                            fontWeight: pw.FontWeight.normal,
+                            color: PdfColors.grey700,
+                          ),
+                        ),
+                      ),
+                    ];
+                  }
+                  return <pw.Widget>[];
+                })(),
+              ],
               if (allInclusive)
                 _thermalAmountRow('Net Amount (Incl. ${CountryTaxHelper.taxName(order.billingCountry, order.billingTaxMode)})', (rawSubtotal - savingsAmount).clamp(0.0, double.infinity)),
               if (order.refundAmount > 0) ...[
@@ -2010,8 +2032,10 @@ class PosInvoicePrinter {
       final List mods = item.modifierDetails ?? [];
       final String modsStr = mods.isNotEmpty ? '\n* Mods: ${mods.join(", ")}' : '';
       final String remarkStr = (item.itemRemark != null && item.itemRemark!.trim().isNotEmpty) ? '\n* Note: ${item.itemRemark!.trim()}' : '';
+      final itemScheme = _resolveItemSchemeName(order, item);
+      final String schemeStr = (itemScheme != null && itemScheme.isNotEmpty) ? '\n* Scheme: $itemScheme' : '';
       final name =
-          ((item.isSchemeFree || item.isAdvanceFree) ? '$brandStr${item.itemName} (FREE)$suffix' : '$brandStr${item.itemName}$suffix') + modsStr + remarkStr;
+          ((item.isSchemeFree || item.isAdvanceFree) ? '$brandStr${item.itemName} (FREE)$suffix' : '$brandStr${item.itemName}$suffix') + schemeStr + modsStr + remarkStr;
       if (hasTaxData) {
         if (isDualGst) {
           final cgstRate = _taxRate(order, item, 'CGST');
@@ -2142,8 +2166,30 @@ class PosInvoicePrinter {
               'Subtotal (Incl. GST)',
               order.items.fold<double>(0, (sum, item) => sum + (item.rate > 0 ? (item.qty * item.rate) : (item.qty * _displayRate(item)))),
             ),
-            if (savingsAmount > 0.0009)
+            if (savingsAmount > 0.0009) ...[
               _a4AmountRow(savingsLabel, savingsAmount),
+              ...(() {
+                final schemeSubtitle = _resolveSchemeSavingsSubtitle(order, savingsAmount);
+                if (schemeSubtitle != null && schemeSubtitle.isNotEmpty) {
+                  return [
+                    pw.Container(
+                      alignment: pw.Alignment.centerRight,
+                      margin: const pw.EdgeInsets.only(top: 0.5, bottom: 2),
+                      child: pw.Text(
+                        schemeSubtitle,
+                        style: pw.TextStyle(
+                          fontSize: 7.5,
+                          fontStyle: pw.FontStyle.italic,
+                          fontWeight: pw.FontWeight.normal,
+                          color: PdfColors.grey700,
+                        ),
+                      ),
+                    ),
+                  ];
+                }
+                return <pw.Widget>[];
+              })(),
+            ],
             _a4AmountRow(
               'Net Amount (Incl. GST)',
               order.items.fold<double>(0, (sum, item) => sum + (item.rate > 0 ? (item.qty * item.rate) : (item.qty * _displayRate(item)))) - savingsAmount,
@@ -2170,8 +2216,30 @@ class PosInvoicePrinter {
                   ? _grossItemsSubtotal(order)
                   : (order.subTotal > 0.0009 ? order.subTotal : _adjustedItemTaxableTotal(order)),
             ),
-            if (savingsAmount > 0.0009)
+            if (savingsAmount > 0.0009) ...[
               _a4AmountRow(savingsLabel, savingsAmount),
+              ...(() {
+                final schemeSubtitle = _resolveSchemeSavingsSubtitle(order, savingsAmount);
+                if (schemeSubtitle != null && schemeSubtitle.isNotEmpty) {
+                  return [
+                    pw.Container(
+                      alignment: pw.Alignment.centerRight,
+                      margin: const pw.EdgeInsets.only(top: 0.5, bottom: 2),
+                      child: pw.Text(
+                        schemeSubtitle,
+                        style: pw.TextStyle(
+                          fontSize: 7.5,
+                          fontStyle: pw.FontStyle.italic,
+                          fontWeight: pw.FontWeight.normal,
+                          color: PdfColors.grey700,
+                        ),
+                      ),
+                    ),
+                  ];
+                }
+                return <pw.Widget>[];
+              })(),
+            ],
             if (order.loyaltyPointsRedeemed > 0 &&
                 order.loyaltyDiscountAmount > 0)
               pw.Padding(
@@ -2259,6 +2327,90 @@ class PosInvoicePrinter {
         ],
       ),
     );
+  }
+
+  static String? _resolveOrderSchemeName(SaleOrder order) {
+    if (order.schemeName != null && order.schemeName!.trim().isNotEmpty) {
+      return order.schemeName!.trim();
+    }
+    if (order.selectedSchemes.isNotEmpty) {
+      final names = order.selectedSchemes
+          .map((s) => s.schemeName.trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .join(', ');
+      if (names.isNotEmpty) return names;
+    }
+    return null;
+  }
+
+  static String? _resolveItemSchemeName(SaleOrder order, SaleItem item) {
+    if (item.appliedSchemeId != null) {
+      for (final s in order.selectedSchemes) {
+        if (s.id == item.appliedSchemeId && s.schemeName.trim().isNotEmpty) {
+          return s.schemeName.trim();
+        }
+      }
+    }
+    for (final s in order.selectedSchemes) {
+      if (s.itemId != null && s.itemId == item.itemId && s.schemeName.trim().isNotEmpty) {
+        return s.schemeName.trim();
+      }
+    }
+    final orderScheme = _resolveOrderSchemeName(order);
+    if (orderScheme != null && orderScheme.isNotEmpty) {
+      if (item.isSchemeFree || item.lineDiscount > 0.001 || order.items.length == 1 || item.schemeApplicable) {
+        if (item.lineDiscount > 0.001 || item.isSchemeFree || order.schemeDiscount > 0.001) {
+          return orderScheme;
+        }
+      }
+    }
+    return null;
+  }
+
+  static String? _resolveSchemeSavingsSubtitle(SaleOrder order, double savingsAmount) {
+    final schemeName = _resolveOrderSchemeName(order);
+    double? pct;
+
+    for (final s in order.selectedSchemes) {
+      if (s.discountType.toUpperCase() == 'PERCENT' && s.discountValue > 0) {
+        pct = s.discountValue;
+        break;
+      }
+      if (s.schemeType.toUpperCase() == 'BUY_X_GET_Y' && (s.minQty + s.freeQty) > 0) {
+        pct = (s.freeQty / (s.minQty + s.freeQty)) * 100;
+        break;
+      }
+    }
+
+    if (pct == null || pct <= 0) {
+      final gross = _grossItemsSubtotal(order);
+      if (gross > 0 && savingsAmount > 0) {
+        final calc = (savingsAmount / gross) * 100;
+        if (calc >= 0.5 && calc <= 100) {
+          pct = calc;
+        }
+      }
+    }
+
+    final bool hasScheme = (schemeName != null && schemeName.isNotEmpty) ||
+        order.schemeDiscount > 0.0009 ||
+        order.items.any((i) => i.isSchemeFree || (i.appliedSchemeId != null && i.lineDiscount > 0.0009));
+
+    if (!hasScheme && pct == null) return null;
+
+    final pctStr = (pct != null && pct > 0)
+        ? (pct % 1 == 0 ? '${pct.toInt()}%' : '${pct.toStringAsFixed(1)}%')
+        : null;
+
+    if (pctStr != null && schemeName != null && schemeName.isNotEmpty) {
+      return 'Scheme Discount @ $pctStr ($schemeName)';
+    } else if (pctStr != null) {
+      return 'Scheme Discount @ $pctStr';
+    } else if (schemeName != null && schemeName.isNotEmpty) {
+      return 'Scheme Discount: $schemeName';
+    }
+    return null;
   }
 
   static String _savingLabel(SaleOrder order) {
@@ -2742,6 +2894,27 @@ class PosInvoicePrinter {
           ),
 
           pw.SizedBox(height: 1.5), // Tiny gap between name and details
+
+          ...(() {
+            final itemScheme = _resolveItemSchemeName(order, item);
+            if (itemScheme != null && itemScheme.isNotEmpty) {
+              return [
+                pw.Padding(
+                  padding: const pw.EdgeInsets.only(top: 0.5, bottom: 1.5),
+                  child: pw.Text(
+                    'Scheme: $itemScheme',
+                    style: pw.TextStyle(
+                      fontSize: 6.8,
+                      fontStyle: pw.FontStyle.italic,
+                      fontWeight: pw.FontWeight.normal,
+                      color: PdfColors.grey700,
+                    ),
+                  ),
+                ),
+              ];
+            }
+            return <pw.Widget>[];
+          })(),
 
           // Bottom Row: The details (HSN, Qty + Unit + Rate, Taxes, etc.)
           pw.Text(

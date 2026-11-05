@@ -719,6 +719,11 @@ class _SalesReprintModifyScreenState extends State<SalesReprintModifyScreen> {
     reprintJson['bill_format'] = currentBillFormat;
     if (detailsToUse['items'] != null) reprintJson['items'] = detailsToUse['items'];
     if (detailsToUse['repayments'] != null) reprintJson['repayments'] = detailsToUse['repayments'];
+    if (detailsToUse['scheme_name'] != null) reprintJson['scheme_name'] = detailsToUse['scheme_name'];
+    if (detailsToUse['scheme_id'] != null) reprintJson['scheme_id'] = detailsToUse['scheme_id'];
+    if (detailsToUse['scheme_discount'] != null) reprintJson['scheme_discount'] = detailsToUse['scheme_discount'];
+    if (detailsToUse['scheme_usage_mode'] != null) reprintJson['scheme_usage_mode'] = detailsToUse['scheme_usage_mode'];
+    if (detailsToUse['selected_schemes'] != null) reprintJson['selected_schemes'] = detailsToUse['selected_schemes'];
     final luckyVouchers = detailsToUse['lucky_draw_vouchers'] ?? detailsToUse['luckyDrawVouchers'];
     if (luckyVouchers != null) reprintJson['lucky_draw_vouchers'] = luckyVouchers;
 

@@ -269,6 +269,7 @@ class SaleItem {
           .map((entry) =>
               TaxBreakdown.fromJson(Map<String, dynamic>.from(entry)))
           .toList(),
+      brand: json['brand']?.toString() ?? (json['item'] is Map ? json['item']['brand']?.toString() : null),
       isTaxInclusive: json['is_tax_inclusive'] == true ||
           json['is_tax_inclusive'] == 1 ||
           json['is_tax_inclusive'] == '1' ||
