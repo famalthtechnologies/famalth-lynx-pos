@@ -1,3 +1,4 @@
+import { QueryTypes } from 'sequelize';
 import { Request, Response } from 'express';
 import TenantBackupService from '../../services/tenantBackup.service';
 import DataRetentionService from '../../services/dataRetention.service';
@@ -523,8 +524,23 @@ export class BackupManagementController {
         });
       }
 
-      const effectiveTargetId = Number(targetOutletId || (req as any).outlet_id || req.user?.outlet_id || 1);
-      const effectiveTargetCode = String(targetOutletCode || userOutletCode || `OUT_${effectiveTargetId}`);
+      let effectiveTargetCode = String(targetOutletCode || userOutletCode || '').trim();
+      let effectiveTargetId = Number(targetOutletId || (req as any).outlet_id || req.user?.outlet_id || 0);
+
+      if (effectiveTargetCode && !effectiveTargetId) {
+        try {
+          const [oRow]: any = await activeDb.query(
+            `SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`,
+            { replacements: { code: effectiveTargetCode }, type: QueryTypes.SELECT }
+          );
+          if (oRow?.id) {
+            effectiveTargetId = Number(oRow.id);
+            effectiveTargetCode = String(oRow.outlet_code || effectiveTargetCode);
+          }
+        } catch (_) {}
+      }
+      if (!effectiveTargetId) effectiveTargetId = 1;
+      if (!effectiveTargetCode) effectiveTargetCode = `OUT_${effectiveTargetId}`;
 
       BackupManagementController.invalidateStatsCache();
       const result = await TenantBackupService.restoreFambakBackup(activeDb, fileBuffer, {

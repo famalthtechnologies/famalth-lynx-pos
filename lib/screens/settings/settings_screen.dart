@@ -949,6 +949,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               });
 
                               try {
+                                final currentOutletCode = await TokenStorage.getOutletCode();
                                 final res = await BackupService.executeRetentionPurge(
                                   confirmText: text,
                                   dateFilterType: dateFilterType,
@@ -958,6 +959,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   modules: selectedModules.toList(),
                                   backupFirst: createBackupFirst,
                                   recipientEmail: emailBackupToOperator ? recipientEmail : null,
+                                  outletCode: currentOutletCode,
                                 );
 
                                 if (res['success'] == true) {

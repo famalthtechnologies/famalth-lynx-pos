@@ -458,21 +458,37 @@ exports.getSalesReport = async (req: any, res: any) => {
                         effectiveTaxAmount = toNumber(item.tax_amount);
                     } else {
                         const isTaxInclusive = !!(item.item?.is_tax_inclusive);
+                        const dbTaxAmt = toNumber(item.tax_amount !== undefined ? item.tax_amount : item.taxAmount);
+                        const rawTaxPercent = item.tax_percent !== undefined && item.tax_percent !== null ? item.tax_percent : item.taxPercent;
+                        const hasExplicitTaxPercent = rawTaxPercent !== undefined && rawTaxPercent !== null;
+                        const dbTaxPercent = hasExplicitTaxPercent ? toNumber(rawTaxPercent) : null;
+
                         if (isTaxInclusive) {
                             effectiveDiscount = Math.max(lineAmount - dbNetAmount, 0);
                         } else {
-                            effectiveDiscount = Math.max(lineAmount + toNumber(item.tax_amount) - dbNetAmount, 0);
+                            effectiveDiscount = Math.max(lineAmount + dbTaxAmt - dbNetAmount, 0);
                         }
                         effectiveNetAmount = dbNetAmount;
                         effectiveTaxableAmount = toNumber(item.taxable_amount);
-                        effectiveTaxAmount = toNumber(item.tax_amount);
+                        effectiveTaxAmount = dbTaxAmt;
 
-                        if (isTaxInclusive && effectiveNetAmount > 0) {
-                            if (effectiveTaxableAmount === 0 || effectiveTaxableAmount >= effectiveNetAmount) {
-                                const taxPct = toNumber(item.tax_percent || item.taxPercent || 18);
-                                effectiveTaxableAmount = roundAmount(effectiveNetAmount / (1 + taxPct / 100));
+                        // Identify 0% tax / non-tax item
+                        const isZeroTax = (hasExplicitTaxPercent && dbTaxPercent === 0) || (dbTaxAmt === 0 && (dbTaxPercent === 0 || dbTaxPercent === null));
+
+                        if (isZeroTax) {
+                            effectiveTaxAmount = 0;
+                            effectiveTaxableAmount = effectiveNetAmount > 0 ? effectiveNetAmount : Math.max(lineAmount - effectiveDiscount, 0);
+                        } else if (isTaxInclusive && effectiveNetAmount > 0) {
+                            const taxPct = dbTaxPercent !== null && dbTaxPercent > 0 ? dbTaxPercent : (effectiveTaxableAmount > 0 && effectiveTaxAmount > 0 ? roundAmount((effectiveTaxAmount / effectiveTaxableAmount) * 100) : 0);
+                            if (taxPct > 0) {
+                                if (effectiveTaxableAmount === 0 || effectiveTaxAmount === 0 || effectiveTaxableAmount >= effectiveNetAmount) {
+                                    effectiveTaxableAmount = roundAmount(effectiveNetAmount / (1 + taxPct / 100));
+                                    effectiveTaxAmount = roundAmount(effectiveNetAmount - effectiveTaxableAmount);
+                                }
+                            } else {
+                                effectiveTaxAmount = 0;
+                                effectiveTaxableAmount = effectiveNetAmount;
                             }
-                            effectiveTaxAmount = roundAmount(effectiveNetAmount - effectiveTaxableAmount);
                         }
                     }
 
@@ -518,7 +534,9 @@ exports.getSalesReport = async (req: any, res: any) => {
                             taxableAmount: roundAmount(tTaxable)
                         };
                     });
-                    const itemTaxPct = effectiveTaxableAmount > 0 ? roundAmount((effectiveTaxAmount / effectiveTaxableAmount) * 100) : toNumber(item.tax_percent || item.taxPercent);
+                    const itemTaxPct = effectiveTaxAmount > 0
+                        ? (effectiveTaxableAmount > 0 ? roundAmount((effectiveTaxAmount / effectiveTaxableAmount) * 100) : toNumber(item.tax_percent ?? item.taxPercent ?? 0))
+                        : (toNumber(item.tax_percent ?? item.taxPercent ?? 0));
                     if (effectiveTaxAmount > 0) {
                         const existingSum = itemTaxBreakup.reduce((s: number, t: any) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
                         if (existingSum === 0 || Math.abs(existingSum - effectiveTaxAmount) > 0.05) {
@@ -530,6 +548,19 @@ exports.getSalesReport = async (req: any, res: any) => {
                                 { code: 'SGST', label: 'SGST', rate: halfRate, tax_amount: sgstAmt, taxAmount: sgstAmt, taxable_amount: roundAmount(effectiveTaxableAmount), taxableAmount: roundAmount(effectiveTaxableAmount) }
                             ];
                         }
+                    } else {
+                        itemTaxBreakup = [
+                            {
+                                code: 'NIL',
+                                label: 'GST 0%',
+                                taxType: 'GST',
+                                rate: 0,
+                                tax_amount: 0,
+                                taxAmount: 0,
+                                taxable_amount: roundAmount(effectiveTaxableAmount),
+                                taxableAmount: roundAmount(effectiveTaxableAmount)
+                            }
+                        ];
                     }
 
                     return {
@@ -547,6 +578,7 @@ exports.getSalesReport = async (req: any, res: any) => {
                         line_discount: roundAmount(effectiveDiscount),
                         taxable_amount: roundAmount(effectiveTaxableAmount),
                         tax_amount: roundAmount(effectiveTaxAmount),
+                        tax_percent: roundAmount(itemTaxPct),
                         line_total: roundAmount(effectiveNetAmount),
                         net_amount: roundAmount(effectiveNetAmount),
                         cost_rate: itemCostRate,
@@ -807,23 +839,37 @@ exports.getSalesReport = async (req: any, res: any) => {
                     paymentModeSummary[pKey].sales_count += 1;
                 }
 
+                const isInterstate = toNumber(sale.igst_amount) > 0.0001 || String(sale.billing_tax_mode || '').toUpperCase().includes('IGST');
                 let billCgst = lineItems.reduce((sum: number, item: any) => {
-                    const itemCgst = safeArray(item.tax_breakup)
+                    const itemBreakup = safeArray(item.tax_breakup);
+                    const itemIgst = itemBreakup
+                        .filter((t: any) => String(t.code || t.label || '').toUpperCase().includes('IGST'))
+                        .reduce((s: number, t: any) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
+                    if (itemIgst > 0.0001 || isInterstate) return sum;
+                    const itemCgst = itemBreakup
                         .filter((t: any) => String(t.code || t.label || '').toUpperCase().includes('CGST'))
                         .reduce((s: number, t: any) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
                     return sum + (itemCgst > 0 ? itemCgst : (toNumber(item.tax_amount) / 2));
                 }, 0);
                 let billSgst = lineItems.reduce((sum: number, item: any) => {
-                    const itemSgst = safeArray(item.tax_breakup)
+                    const itemBreakup = safeArray(item.tax_breakup);
+                    const itemIgst = itemBreakup
+                        .filter((t: any) => String(t.code || t.label || '').toUpperCase().includes('IGST'))
+                        .reduce((s: number, t: any) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
+                    if (itemIgst > 0.0001 || isInterstate) return sum;
+                    const itemSgst = itemBreakup
                         .filter((t: any) => String(t.code || t.label || '').toUpperCase().includes('SGST'))
                         .reduce((s: number, t: any) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
                     return sum + (itemSgst > 0 ? itemSgst : (toNumber(item.tax_amount) / 2));
                 }, 0);
                 let billIgst = lineItems.reduce((sum: number, item: any) => {
-                    const itemIgst = safeArray(item.tax_breakup)
+                    const itemBreakup = safeArray(item.tax_breakup);
+                    const itemIgst = itemBreakup
                         .filter((t: any) => String(t.code || t.label || '').toUpperCase().includes('IGST'))
                         .reduce((s: number, t: any) => s + toNumber(t.tax_amount !== undefined ? t.tax_amount : t.taxAmount), 0);
-                    return sum + itemIgst;
+                    if (itemIgst > 0.0001) return sum + itemIgst;
+                    if (isInterstate) return sum + toNumber(item.tax_amount);
+                    return sum;
                 }, 0);
 
                 billCgst = roundAmount(billCgst);

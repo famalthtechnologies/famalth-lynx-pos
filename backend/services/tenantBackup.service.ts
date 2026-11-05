@@ -1176,8 +1176,14 @@ export class TenantBackupService {
       'stock_ledger', 'item_modifiers', 'item_boms', 'customers', 'customer_advances', 'customer_repayments',
       'sales_headers', 'sales_items', 'restaurant_tables', 'table_reservations', 'kot_headers', 'kot_items',
       'purchase_orders', 'purchase_order_items', 'goods_receipts', 'goods_receipt_items', 'supplier_master',
-      'supplier_bills', 'supplier_payments', 'clinic_appointments', 'hr_employees', 'hr_attendance_punches',
-      'hr_biometric_devices', 'expenses', 'accounting_vouchers', 'voucher_lines', 'bank_accounts', 'cash_ledger',
+      'supplier_bills', 'supplier_payments', 'clinic_appointments',
+      // HRMS & Payroll Complete Suite
+      'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components',
+      'hr_pay_structures', 'hr_pay_structure_components', 'hr_employees', 'hr_biometric_devices',
+      'hr_attendance_punches', 'hr_leave_applications', 'hr_leave_balances', 'hr_salary_revisions',
+      'hr_arrears', 'hr_loans', 'hr_loan_transactions', 'hr_sales_commissions', 'hr_cashier_handovers',
+      'hr_payroll_runs', 'hr_payroll_details',
+      'expenses', 'accounting_vouchers', 'voucher_lines', 'bank_accounts', 'cash_ledger',
       'milk_subscriptions', 'milk_subscription_consumptions', 'milk_subscription_items', 'user_notes',
       'numbering_settings', 'paymentMethod', 'saleSource'
     ];
@@ -1252,9 +1258,34 @@ export class TenantBackupService {
         });
       }
     } else {
-      // Scoped Single Outlet
-      const outletId = Number(options.outletId || 1);
-      const outletCode = String(options.outletCode || `OUT_${outletId}`);
+      // Scoped Single Outlet - Dynamically resolve outletId and outletCode from database
+      let outletId = Number(options.outletId || 0);
+      let outletCode = String(options.outletCode || '').trim();
+
+      if (outletCode) {
+        try {
+          const [oRow]: any = await activeDb.query(
+            `SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`,
+            { replacements: { code: outletCode }, type: QueryTypes.SELECT }
+          );
+          if (oRow && oRow.id) {
+            outletId = Number(oRow.id);
+            outletCode = String(oRow.outlet_code || outletCode);
+          }
+        } catch (_) {}
+      } else if (outletId) {
+        try {
+          const [oRow]: any = await activeDb.query(
+            `SELECT id, outlet_code FROM outlets WHERE id = :id LIMIT 1;`,
+            { replacements: { id: outletId }, type: QueryTypes.SELECT }
+          );
+          if (oRow && oRow.outlet_code) {
+            outletCode = String(oRow.outlet_code);
+          }
+        } catch (_) {}
+      }
+      if (!outletId) outletId = 1;
+      if (!outletCode) outletCode = `OUT_${outletId}`;
       const tenantPaths = StorageQuotaService.getTenantStoragePaths(outletCode);
       targetDirectory = tenantPaths.backupsDir;
       filename = `outlet_backup_${outletCode}_${timestamp}.fambak`;
@@ -1263,8 +1294,13 @@ export class TenantBackupService {
         'item_master', 'batches', 'stock_locations', 'stock_ledger', 'item_modifiers', 'item_boms',
         'customers', 'customer_advances', 'customer_repayments', 'sales_headers', 'restaurant_tables',
         'table_reservations', 'kot_headers', 'purchase_orders', 'goods_receipts', 'supplier_master',
-        'supplier_bills', 'supplier_payments', 'clinic_appointments', 'hr_employees', 'hr_attendance_punches',
-        'hr_biometric_devices', 'expenses', 'accounting_vouchers', 'bank_accounts', 'cash_ledger',
+        'supplier_bills', 'supplier_payments', 'clinic_appointments',
+        // Complete HR Master & Scoped Tables
+        'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components',
+        'hr_pay_structures', 'hr_employees', 'hr_biometric_devices', 'hr_attendance_punches',
+        'hr_leave_applications', 'hr_leave_balances', 'hr_salary_revisions', 'hr_arrears',
+        'hr_loans', 'hr_sales_commissions', 'hr_cashier_handovers', 'hr_payroll_runs',
+        'expenses', 'accounting_vouchers', 'bank_accounts', 'cash_ledger',
         'milk_subscriptions', 'milk_subscription_consumptions', 'user_notes', 'numbering_settings'
       ];
 
@@ -1290,6 +1326,9 @@ export class TenantBackupService {
         { name: 'goods_receipt_items', fk: 'grn_id', parentTable: 'goods_receipts' },
         { name: 'voucher_lines', fk: 'voucher_id', parentTable: 'accounting_vouchers' },
         { name: 'milk_subscription_items', fk: 'subscription_id', parentTable: 'milk_subscriptions' },
+        { name: 'hr_pay_structure_components', fk: 'pay_structure_id', parentTable: 'hr_pay_structures' },
+        { name: 'hr_loan_transactions', fk: 'loan_id', parentTable: 'hr_loans' },
+        { name: 'hr_payroll_details', fk: 'payroll_run_id', parentTable: 'hr_payroll_runs' },
       ];
 
       for (const child of childTables) {
@@ -1580,7 +1619,7 @@ export class TenantBackupService {
       'system_settings', 'app_branding', 'paymentMethod', 'saleSource', 'numbering_settings',
       'stock_locations', 'item_master', 'item_modifiers', 'item_boms',
       'customers', 'supplier_master', 'restaurant_tables', 'table_reservations',
-      'hr_employees', 'hr_biometric_devices', 'bank_accounts'
+      'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components', 'hr_pay_structures', 'hr_employees', 'hr_biometric_devices', 'bank_accounts'
     ]);
 
     // Topological dependency order: Independent Masters -> Purchases -> Sales -> Sales-Dependents -> Ledgers
@@ -1590,7 +1629,8 @@ export class TenantBackupService {
       'system_settings', 'app_branding', 'paymentMethod', 'saleSource', 'numbering_settings',
       'stock_locations', 'item_master', 'item_modifiers', 'item_boms',
       'customers', 'supplier_master', 'bank_accounts', 'restaurant_tables', 'table_reservations',
-      'hr_employees', 'hr_biometric_devices',
+      'hr_designations', 'hr_shifts', 'hr_holidays', 'hr_leave_types', 'hr_salary_components',
+      'hr_pay_structures', 'hr_pay_structure_components', 'hr_employees', 'hr_biometric_devices',
 
       // 2. Purchases & GRN
       'purchase_orders', 'purchase_order_items',
@@ -1606,9 +1646,14 @@ export class TenantBackupService {
       'clinic_appointments',
       'milk_subscriptions', 'milk_subscription_items', 'milk_subscription_consumptions',
 
-      // 5. Financial & Stock Ledgers
+      // 5. HRMS & Payroll
+      'hr_loans', 'hr_loan_transactions', 'hr_leave_balances', 'hr_leave_applications',
+      'hr_salary_revisions', 'hr_arrears', 'hr_attendance_punches',
+      'hr_sales_commissions', 'hr_cashier_handovers', 'hr_payroll_runs', 'hr_payroll_details',
+
+      // 6. Financial & Stock Ledgers
       'expenses', 'accounting_vouchers', 'voucher_lines', 'cash_ledger', 'stock_ledger',
-      'hr_attendance_punches', 'user_notes', 'users'
+      'user_notes', 'users'
     ];
 
     const isSelectiveOutlet = Boolean(options.selectedOutletCode) || options.scope === 'OUTLET' || manifest.scope === 'OUTLET';
@@ -1618,8 +1663,28 @@ export class TenantBackupService {
       const matchedOutlet = manifest.outlets.find(o => String(o.code).toLowerCase() === selectedCode.toLowerCase()) || manifest.outlets[0];
       const sourceOutletId = matchedOutlet ? Number(matchedOutlet.id) : Number(manifest.outlets[0]?.id || 1);
 
-      const destOutletId = Number(options.targetOutletId || sourceOutletId || 1);
-      const destOutletCode = String(options.targetOutletCode || selectedCode || `OUT_${destOutletId}`);
+      let destOutletCode = String(options.targetOutletCode || selectedCode || `OUT_${options.targetOutletId || 1}`).trim();
+      let destOutletId = Number(options.targetOutletId || 0);
+
+      // Resolve destination outlet dynamically from DB by code if needed
+      if (destOutletCode) {
+        try {
+          const [foundOutlet]: any = await activeDb.query(
+            `SELECT id, outlet_code FROM outlets WHERE outlet_code = :destOutletCode LIMIT 1;`,
+            { replacements: { destOutletCode }, type: QueryTypes.SELECT }
+          );
+          if (foundOutlet && foundOutlet.id) {
+            destOutletId = Number(foundOutlet.id);
+            destOutletCode = foundOutlet.outlet_code;
+          }
+        } catch (_) {}
+      }
+      if (!destOutletId && options.targetOutletId) {
+        destOutletId = Number(options.targetOutletId);
+      }
+      if (!destOutletId) {
+        destOutletId = Number(sourceOutletId || 1);
+      }
 
       await activeDb.transaction(async (t: any) => {
         const [existingOutlet]: any = await activeDb.query(
@@ -1690,7 +1755,24 @@ export class TenantBackupService {
             { tbl: 'stock_ledger', q: `DELETE FROM "stock_ledger" WHERE outlet_id = :destOutletId` },
             { tbl: 'table_reservations', q: `DELETE FROM "table_reservations" WHERE outlet_id = :destOutletId` },
             { tbl: 'restaurant_tables', q: `DELETE FROM "restaurant_tables" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_payroll_details', q: `DELETE FROM "hr_payroll_details" WHERE payroll_run_id IN (SELECT id FROM "hr_payroll_runs" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'hr_payroll_runs', q: `DELETE FROM "hr_payroll_runs" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_loan_transactions', q: `DELETE FROM "hr_loan_transactions" WHERE loan_id IN (SELECT id FROM "hr_loans" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'hr_loans', q: `DELETE FROM "hr_loans" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_arrears', q: `DELETE FROM "hr_arrears" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_salary_revisions', q: `DELETE FROM "hr_salary_revisions" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_leave_applications', q: `DELETE FROM "hr_leave_applications" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_leave_balances', q: `DELETE FROM "hr_leave_balances" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_cashier_handovers', q: `DELETE FROM "hr_cashier_handovers" WHERE outlet_id = :destOutletId` },
             { tbl: 'hr_attendance_punches', q: `DELETE FROM "hr_attendance_punches" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_pay_structure_components', q: `DELETE FROM "hr_pay_structure_components" WHERE pay_structure_id IN (SELECT id FROM "hr_pay_structures" WHERE outlet_id = :destOutletId)` },
+            { tbl: 'hr_pay_structures', q: `DELETE FROM "hr_pay_structures" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_salary_components', q: `DELETE FROM "hr_salary_components" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_leave_types', q: `DELETE FROM "hr_leave_types" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_shifts', q: `DELETE FROM "hr_shifts" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_holidays', q: `DELETE FROM "hr_holidays" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_designations', q: `DELETE FROM "hr_designations" WHERE outlet_id = :destOutletId` },
+            { tbl: 'hr_biometric_devices', q: `DELETE FROM "hr_biometric_devices" WHERE outlet_id = :destOutletId` },
             { tbl: 'hr_employees', q: `DELETE FROM "hr_employees" WHERE outlet_id = :destOutletId` },
             { tbl: 'user_notes', q: `DELETE FROM "user_notes" WHERE outlet_id = :destOutletId` }
           ];

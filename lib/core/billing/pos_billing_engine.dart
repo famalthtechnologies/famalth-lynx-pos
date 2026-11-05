@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import '../../models/inventory/billing_charge_model.dart';
 import '../../models/inventory/sale_item_model.dart';
 import '../../models/inventory/tax_breakdown_model.dart';
@@ -54,7 +55,8 @@ class PosBillingEngine {
         if (item.isSchemeFree) {
           lineDiscount = grossInclusive;
         } else {
-          lineDiscount = (item.lineDiscount + schemeShare + manualShare).clamp(0.0, grossInclusive);
+          final double baseDiscount = math.max(item.lineDiscount, schemeShare);
+          lineDiscount = (baseDiscount + manualShare).clamp(0.0, grossInclusive);
         }
 
         final netInclusive = (grossInclusive - lineDiscount).clamp(0.0, double.infinity);
@@ -91,7 +93,8 @@ class PosBillingEngine {
         if (item.isSchemeFree) {
           lineDiscount = grossExclusive;
         } else {
-          lineDiscount = (item.lineDiscount + schemeShare + manualShare).clamp(0.0, grossExclusive);
+          final double baseDiscount = math.max(item.lineDiscount, schemeShare);
+          lineDiscount = (baseDiscount + manualShare).clamp(0.0, grossExclusive);
         }
 
         final double netExclusive = (grossExclusive - lineDiscount).clamp(0.0, double.infinity);

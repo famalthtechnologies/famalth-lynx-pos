@@ -78,7 +78,9 @@ function findStoredOtp(store: any, outletCode: any, contactStr: any) {
 /**
  * STEP 1: Verifies the Outlet Code AND the Recovery PIN
  */
-async function verifyOutletForRecovery(req, res) {
+async function verifyOutletForRecovery(req: any, res: any) {
+    if (req.setTimeout) req.setTimeout(5 * 60 * 1000);
+    if (res.setTimeout) res.setTimeout(5 * 60 * 1000);
     const { outletCode, pin } = req.body;
 
     if (!outletCode || !pin) {
@@ -133,7 +135,9 @@ async function verifyOutletForRecovery(req, res) {
 /**
  * STEP 2: Executes the Restore and Saves Extended Config
  */
-async function executeFullSystemRecovery(req, res) {
+async function executeFullSystemRecovery(req: any, res: any) {
+    if (req.setTimeout) req.setTimeout(15 * 60 * 1000);
+    if (res.setTimeout) res.setTimeout(15 * 60 * 1000);
     const { folderId, clientData } = req.body;
 
     try {

@@ -1,3 +1,4 @@
+const { QueryTypes } = require("sequelize");
 const audit = require('../../services/audit.service');
 const DataRetentionService = require('../../services/dataRetention.service').default || require('../../services/dataRetention.service');
 const { resolveBusinessModule } = require('../../utils/moduleHelper');
@@ -382,22 +383,49 @@ const PRESERVED_MODELS = new Set([
 
 exports.clearTransactionData = async (req, res) => {
     try {
-        const outletId = Number(
+        let outletId = Number(
+            req.body?.outlet_id ||
+            req.body?.outletId ||
             req.outlet_id ||
             req.user?.outlet_id ||
             req.headers['x-outlet-id'] ||
-            req.body?.outlet_id ||
             req.query?.outlet_id ||
-            1
+            0
         );
 
-        const outletCode = String(
+        let outletCode = String(
+            req.body?.outlet_code ||
+            req.body?.outletCode ||
             req.outlet_code ||
             req.user?.outlet_code ||
             req.headers['x-outlet-code'] ||
-            req.body?.outlet_code ||
-            `OUT_${outletId}`
-        );
+            ''
+        ).trim();
+
+        if (outletCode) {
+            try {
+                const [oRow]: any = await req.propertyDb.query(
+                    `SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`,
+                    { replacements: { code: outletCode }, type: QueryTypes.SELECT }
+                );
+                if (oRow && oRow.id) {
+                    outletId = Number(oRow.id);
+                    outletCode = String(oRow.outlet_code || outletCode);
+                }
+            } catch (_) {}
+        } else if (outletId) {
+            try {
+                const [oRow]: any = await req.propertyDb.query(
+                    `SELECT id, outlet_code FROM outlets WHERE id = :id LIMIT 1;`,
+                    { replacements: { id: outletId }, type: QueryTypes.SELECT }
+                );
+                if (oRow && oRow.outlet_code) {
+                    outletCode = String(oRow.outlet_code);
+                }
+            } catch (_) {}
+        }
+        if (!outletId) outletId = 1;
+        if (!outletCode) outletCode = `OUT_${outletId}`;
 
         if (!outletId || isNaN(outletId)) {
             return res.status(400).json({
@@ -450,7 +478,7 @@ exports.clearTransactionData = async (req, res) => {
         const result = await DataRetentionService.executeRetentionPurge(req.propertyDb, {
             outletId,
             outletCode,
-            allOutlets: false, // CLIENT END: Strictly scoped to this single outlet!
+            allOutlets: req.body?.allOutlets === true || req.body?.all_outlets === true,
             retentionType,
             olderThanYears,
             startDate,

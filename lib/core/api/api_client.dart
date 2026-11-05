@@ -62,11 +62,32 @@ class ApiClient {
     };
   }
 
+  static Duration _resolveTimeout(String path, Duration? customTimeout) {
+    if (customTimeout != null) return customTimeout;
+    final lower = path.toLowerCase();
+    if (lower.contains('recovery') ||
+        lower.contains('restore') ||
+        lower.contains('backup') ||
+        lower.contains('drive') ||
+        lower.contains('sync') ||
+        lower.contains('purge') ||
+        lower.contains('retention') ||
+        lower.contains('snapshot') ||
+        lower.contains('audit') ||
+        lower.contains('migrate') ||
+        lower.contains('import') ||
+        lower.contains('export')) {
+      return const Duration(minutes: 15);
+    }
+    return const Duration(seconds: 90);
+  }
+
   // ---------------- GET ----------------
   static Future<dynamic> get(
     String path, {
     Map<String, dynamic>? queryParams,
     bool silent = false,
+    Duration? timeout,
   }) async {
     Uri uri = _uri(path);
     if (queryParams != null && queryParams.isNotEmpty) {
@@ -79,47 +100,67 @@ class ApiClient {
     final response = await http.get(
       uri,
       headers: await _headers(path),
-    ).timeout(const Duration(seconds: 15));
+    ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, silent: silent);
   }
 
   // ---------------- POST ----------------
-  static Future<dynamic> post(String path, dynamic body, {bool silent = false}) async {
+  static Future<dynamic> post(
+    String path,
+    dynamic body, {
+    bool silent = false,
+    Duration? timeout,
+  }) async {
     final response = await http.post(
       _uri(path),
       headers: await _headers(path),
       body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 15));
+    ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, silent: silent);
   }
 
   // ---------------- PUT ----------------
-  static Future<dynamic> put(String path, Map body, {bool silent = false}) async {
+  static Future<dynamic> put(
+    String path,
+    Map body, {
+    bool silent = false,
+    Duration? timeout,
+  }) async {
     final response = await http.put(
       _uri(path),
       headers: await _headers(path),
       body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 15));
+    ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, silent: silent);
   }
 
   // ---------------- PATCH ----------------
-  static Future<dynamic> patch(String path, dynamic body, {bool silent = false}) async {
+  static Future<dynamic> patch(
+    String path,
+    dynamic body, {
+    bool silent = false,
+    Duration? timeout,
+  }) async {
     final response = await http.patch(
       _uri(path),
       headers: await _headers(path),
       body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 15));
+    ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, silent: silent);
   }
 
   // ---------------- DELETE ----------------
-  static Future<dynamic> delete(String path, {Map? body, bool silent = false}) async {
+  static Future<dynamic> delete(
+    String path, {
+    Map? body,
+    bool silent = false,
+    Duration? timeout,
+  }) async {
     final response = await http.delete(
       _uri(path),
       headers: await _headers(path),
       body: body != null ? jsonEncode(body) : null,
-    ).timeout(const Duration(seconds: 15));
+    ).timeout(_resolveTimeout(path, timeout));
     return _handleResponse(response, silent: silent);
   }
 

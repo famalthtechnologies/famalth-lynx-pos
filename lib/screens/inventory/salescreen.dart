@@ -3926,56 +3926,18 @@ class _SaleScreenState extends State<SaleScreen> {
             if (effectiveMissing.isNotEmpty) continue;
           }
 
-          double remainingFree = freeQty.clamp(0, billQty);
-          for (int i = 0; i < _items.length && remainingFree > 0; i++) {
+          final double totalFreeToApply = freeQty.clamp(0, billQty);
+          for (int i = 0; i < _items.length; i++) {
             final it = _items[i];
-            if (it.itemId != itemId || it.isSchemeFree || it.isAdvanceFree) {
-              continue;
-            }
-            if (it.qty <= 0) continue;
-
-            final take = remainingFree < it.qty ? remainingFree : it.qty;
-            if (take <= 0) continue;
-
-            final freeLine = SaleItem(
-              itemId: it.itemId,
-              itemCode: it.itemCode,
-              itemName: it.itemName,
-              hsnSacCode: it.hsnSacCode,
-              barcode: it.barcode,
-              unit: it.unit,
-              qty: take,
-              originalQty: it.originalQty > 0 ? it.originalQty : it.qty,
-              rate: it.rate,
-              referenceRate: it.rate,
-              taxType: it.taxType,
-              taxPercent: it.taxPercent,
-              discountApplicable: false,
-              schemeApplicable: false,
-              isSchemeFree: true,
-              appliedSchemeId: scheme.id,
-              isTaxInclusive: it.isTaxInclusive,
-              brand: it.brand,
-              lineDiscount: take * it.rate,
-              taxableAmount: 0.0,
-              taxAmount: 0.0,
-              lineTotal: 0.0,
-              originalRate: it.rate,
-              schemeDiscountPerUnit: it.rate,
-            );
-
-            if (take >= it.qty - 1e-9) {
-              _items[i] = freeLine;
-            } else {
+            if (it.itemId == itemId && !it.isSchemeFree && !it.isAdvanceFree) {
+              final double disc = math.min(totalFreeToApply * it.rate, it.qty * it.rate);
               _items[i] = it.copyWith(
-                qty: it.qty - take,
-                originalQty: it.originalQty > 0 ? it.originalQty : it.qty,
+                lineDiscount: disc,
+                appliedSchemeId: scheme.id,
+                schemeDiscountPerUnit: it.qty > 0 ? (disc / it.qty) : 0.0,
               );
-              _items.insert(i + 1, freeLine);
-              i++;
+              break;
             }
-
-            remainingFree -= take;
           }
         } else {
           final minQty = scheme.minQty > 0 ? scheme.minQty : 1.0;
@@ -3994,67 +3956,84 @@ class _SaleScreenState extends State<SaleScreen> {
           final totalFreeQty = cycles * freeQty;
           final targetFreeItemId = scheme.freeItemId ?? itemId;
 
-          final existingLines = _items.where((it) => it.itemId == targetFreeItemId && !it.isSchemeFree && !it.isAdvanceFree).toList();
-          final existingQty = existingLines.fold<double>(0, (sum, it) => sum + it.qty);
-          if (existingQty < totalFreeQty) {
-            final dbItem = ctrl.items.cast<Item?>().firstWhere((it) => it?.id == targetFreeItemId, orElse: () => null);
-            if (dbItem != null) {
-              final needed = totalFreeQty - existingQty;
-              final baseItem = _buildBaseSaleItem(item: dbItem, qty: needed);
-              _items.add(baseItem);
+          if (targetFreeItemId == itemId) {
+            // User requested: Single line with scheme discount (e.g. 4 Qty, 120 Disc, 120 Payable) without duplicate free line
+            for (int i = 0; i < _items.length; i++) {
+              final it = _items[i];
+              if (it.itemId == itemId && !it.isSchemeFree && !it.isAdvanceFree) {
+                final double disc = math.min(totalFreeQty * it.rate, it.qty * it.rate);
+                _items[i] = it.copyWith(
+                  lineDiscount: disc,
+                  appliedSchemeId: scheme.id,
+                  schemeDiscountPerUnit: it.qty > 0 ? (disc / it.qty) : 0.0,
+                );
+                break;
+              }
             }
-          }
-
-          double remainingFree = totalFreeQty;
-          for (int i = 0; i < _items.length && remainingFree > 0; i++) {
-            final it = _items[i];
-            if (it.itemId != targetFreeItemId || it.isSchemeFree || it.isAdvanceFree) {
-              continue;
+          } else {
+            // Distinct free gift item: add/split free line
+            final existingLines = _items.where((it) => it.itemId == targetFreeItemId && !it.isSchemeFree && !it.isAdvanceFree).toList();
+            final existingQty = existingLines.fold<double>(0, (sum, it) => sum + it.qty);
+            if (existingQty < totalFreeQty) {
+              final dbItem = ctrl.items.cast<Item?>().firstWhere((it) => it?.id == targetFreeItemId, orElse: () => null);
+              if (dbItem != null) {
+                final needed = totalFreeQty - existingQty;
+                final baseItem = _buildBaseSaleItem(item: dbItem, qty: needed);
+                _items.add(baseItem);
+              }
             }
-            if (it.qty <= 0) continue;
 
-            final take = remainingFree < it.qty ? remainingFree : it.qty;
-            if (take <= 0) continue;
+            double remainingFree = totalFreeQty;
+            for (int i = 0; i < _items.length && remainingFree > 0; i++) {
+              final it = _items[i];
+              if (it.itemId != targetFreeItemId || it.isSchemeFree || it.isAdvanceFree) {
+                continue;
+              }
+              if (it.qty <= 0) continue;
 
-            final freeLine = SaleItem(
-              itemId: it.itemId,
-              itemCode: it.itemCode,
-              itemName: it.itemName,
-              hsnSacCode: it.hsnSacCode,
-              barcode: it.barcode,
-              unit: it.unit,
-              qty: take,
-              originalQty: it.originalQty > 0 ? it.originalQty : it.qty,
-              rate: it.rate,
-              referenceRate: it.rate,
-              taxType: it.taxType,
-              taxPercent: it.taxPercent,
-              discountApplicable: false,
-              schemeApplicable: false,
-              isSchemeFree: true,
-              appliedSchemeId: scheme.id,
-              isTaxInclusive: it.isTaxInclusive,
-              brand: it.brand,
-              lineDiscount: take * it.rate,
-              taxableAmount: 0.0,
-              taxAmount: 0.0,
-              lineTotal: 0.0,
-              originalRate: it.rate,
-              schemeDiscountPerUnit: it.rate,
-            );
+              final take = remainingFree < it.qty ? remainingFree : it.qty;
+              if (take <= 0) continue;
 
-            if (take >= it.qty - 1e-9) {
-              _items[i] = freeLine;
-            } else {
-              _items[i] = it.copyWith(
-                qty: it.qty - take,
+              final freeLine = SaleItem(
+                itemId: it.itemId,
+                itemCode: it.itemCode,
+                itemName: it.itemName,
+                hsnSacCode: it.hsnSacCode,
+                barcode: it.barcode,
+                unit: it.unit,
+                qty: take,
                 originalQty: it.originalQty > 0 ? it.originalQty : it.qty,
+                rate: it.rate,
+                referenceRate: it.rate,
+                taxType: it.taxType,
+                taxPercent: it.taxPercent,
+                discountApplicable: false,
+                schemeApplicable: false,
+                isSchemeFree: true,
+                appliedSchemeId: scheme.id,
+                isTaxInclusive: it.isTaxInclusive,
+                brand: it.brand,
+                lineDiscount: take * it.rate,
+                taxableAmount: 0.0,
+                taxAmount: 0.0,
+                lineTotal: 0.0,
+                originalRate: it.rate,
+                schemeDiscountPerUnit: it.rate,
               );
-              _items.insert(i + 1, freeLine);
-              i++;
-            }
 
-            remainingFree -= take;
+              if (take >= it.qty - 1e-9) {
+                _items[i] = freeLine;
+              } else {
+                _items[i] = it.copyWith(
+                  qty: it.qty - take,
+                  originalQty: it.originalQty > 0 ? it.originalQty : it.qty,
+                );
+                _items.insert(i + 1, freeLine);
+                i++;
+              }
+
+              remainingFree -= take;
+            }
           }
         }
         appliedForItem.add(itemId);

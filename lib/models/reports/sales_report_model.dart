@@ -80,8 +80,10 @@ class SalesReportItem {
   final List<dynamic>? modifierDetails;
   final List<dynamic>? modifierObjects;
   final String? itemRemark;
+  final double? rawTaxPercent;
 
   double get taxPercent {
+    if (rawTaxPercent != null) return rawTaxPercent!;
     if (taxableAmount > 0.009 && taxAmount > 0.009) {
       return (taxAmount / taxableAmount) * 100;
     }
@@ -109,6 +111,7 @@ class SalesReportItem {
     this.modifierDetails,
     this.modifierObjects,
     this.itemRemark,
+    this.rawTaxPercent,
   });
 
   factory SalesReportItem.fromJson(Map<String, dynamic> json) {
@@ -127,6 +130,9 @@ class SalesReportItem {
       lineDiscount: _toDouble(json['line_discount'] ?? json['lineDiscount']),
       taxableAmount: _toDouble(json['taxable_amount'] ?? json['taxableAmount']),
       taxAmount: _toDouble(json['tax_amount'] ?? json['taxAmount']),
+      rawTaxPercent: json['tax_percent'] != null
+          ? _toDouble(json['tax_percent'])
+          : (json['taxPercent'] != null ? _toDouble(json['taxPercent']) : null),
       netAmount: _toDouble(json['net_amount']),
       estimatedCost: _toDouble(json['estimated_cost']),
       estimatedProfit: _toDouble(json['estimated_profit']),

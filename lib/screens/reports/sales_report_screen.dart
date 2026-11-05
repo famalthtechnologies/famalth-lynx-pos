@@ -510,7 +510,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     if (_isIndiaTax) {
       for (final item in sale.items) {
         if (_normalizeTaxRate(_itemTaxRate(item)) == col.rate) {
-          taxableValue += item.taxableAmount;
+          taxableValue += (item.taxableAmount > 0.009 ? item.taxableAmount : item.netAmount);
           taxAmount += item.taxAmount;
         }
       }
@@ -531,7 +531,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
           final rate = _itemTaxRate(item);
           final id = 'TAX_${_formatTaxPercent(rate)}';
           if (id == col.id || _normalizeTaxRate(rate) == col.rate) {
-            taxableValue += item.taxableAmount;
+            taxableValue += (item.taxableAmount > 0.009 ? item.taxableAmount : item.netAmount);
             taxAmount += item.taxAmount;
           }
         }
@@ -1210,11 +1210,17 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   // All figures from header-level columns (consistent with DB, dashboard, and payment breakdown)
   double get _headerCgstTotal => _billWiseSales.fold<double>(
         0,
-        (sum, sale) => sum + (sale.cgstAmount > 0.0001 ? sale.cgstAmount : sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'CGST'))),
+        (sum, sale) {
+          if (sale.igstAmount > 0.0001 || sale.billingTaxMode.toUpperCase().contains('IGST')) return sum;
+          return sum + (sale.cgstAmount > 0.0001 ? sale.cgstAmount : sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'CGST')));
+        },
       );
   double get _headerSgstTotal => _billWiseSales.fold<double>(
         0,
-        (sum, sale) => sum + (sale.sgstAmount > 0.0001 ? sale.sgstAmount : sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'SGST'))),
+        (sum, sale) {
+          if (sale.igstAmount > 0.0001 || sale.billingTaxMode.toUpperCase().contains('IGST')) return sum;
+          return sum + (sale.sgstAmount > 0.0001 ? sale.sgstAmount : sale.items.fold<double>(0, (s, item) => s + _taxAmountFor(item, 'SGST')));
+        },
       );
   double get _headerIgstTotal => _billWiseSales.fold<double>(
         0,
@@ -5529,7 +5535,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
       if (total > 0.0001) return total;
     }
     if (item.taxAmount > 0.009) {
-      final isIgst = item.taxBreakup.any((t) => t.code.toUpperCase() == 'IGST');
+      final isIgst = item.taxBreakup.any((t) => t.code.toUpperCase().contains('IGST'));
       if (code == 'IGST') {
         return isIgst ? item.taxAmount : 0.0;
       }

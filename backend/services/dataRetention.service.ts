@@ -197,6 +197,25 @@ export class DataRetentionService {
     scope: string;
     retentionPolicy: string;
   }> {
+    let resolvedOutletId = Number(options.outletId || 0);
+    let resolvedOutletCode = String(options.outletCode || '').trim();
+    if (resolvedOutletCode && !resolvedOutletId) {
+      try {
+        const [oRow]: any = await activeDb.query(
+          `SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`,
+          { replacements: { code: resolvedOutletCode }, type: QueryTypes.SELECT }
+        );
+        if (oRow?.id) {
+          resolvedOutletId = Number(oRow.id);
+          resolvedOutletCode = String(oRow.outlet_code || resolvedOutletCode);
+        }
+      } catch (_) {}
+    }
+    if (!resolvedOutletId) resolvedOutletId = 1;
+    if (!resolvedOutletCode) resolvedOutletCode = `OUT_${resolvedOutletId}`;
+    options.outletId = resolvedOutletId;
+    options.outletCode = resolvedOutletCode;
+
     const selectedTables = this.getSelectedTables(options.modules);
     const breakdown: { table: string; module: string; count: number }[] = [];
     let totalMatchingRecords = 0;
@@ -259,8 +278,35 @@ export class DataRetentionService {
     retentionPolicy: string;
   }> {
     const isAllOutlets = options.allOutlets === true;
-    const outletId = Number(options.outletId || 1);
-    const outletCode = options.outletCode || `OUT_${outletId}`;
+    let outletId = Number(options.outletId || 0);
+    let outletCode = String(options.outletCode || '').trim();
+
+    if (outletCode) {
+      try {
+        const [oRow]: any = await activeDb.query(
+          `SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`,
+          { replacements: { code: outletCode }, type: QueryTypes.SELECT }
+        );
+        if (oRow && oRow.id) {
+          outletId = Number(oRow.id);
+          outletCode = String(oRow.outlet_code || outletCode);
+        }
+      } catch (_) {}
+    } else if (outletId) {
+      try {
+        const [oRow]: any = await activeDb.query(
+          `SELECT id, outlet_code FROM outlets WHERE id = :id LIMIT 1;`,
+          { replacements: { id: outletId }, type: QueryTypes.SELECT }
+        );
+        if (oRow && oRow.outlet_code) {
+          outletCode = String(oRow.outlet_code);
+        }
+      } catch (_) {}
+    }
+    if (!outletId) outletId = 1;
+    if (!outletCode) outletCode = `OUT_${outletId}`;
+    options.outletId = outletId;
+    options.outletCode = outletCode;
 
     // STEP 1: Mandatory / Optional Safety Backup Snapshot
     let backupResult: any = null;

@@ -2670,13 +2670,13 @@ class PosInvoicePrinter {
     final qtyUnitRate =
         '${_qty(item.qty)} ${item.unit.trim()} x ${_money(_displayRate(item))}${item.isTaxInclusive ? ' (Incl.)' : ''}';
 
-    double itemDiscount = item.lineDiscount;
-    if (itemDiscount <= 0 && !item.isSchemeFree && !item.isAdvanceFree) {
+    double itemDiscount = (item.isSchemeFree || item.isAdvanceFree) ? 0.0 : item.lineDiscount;
+    if (itemDiscount <= 0 && !item.isSchemeFree && !item.isAdvanceFree && item.taxPercent > 0.001) {
       final double grossExclusive = item.isTaxInclusive
           ? (item.qty * item.rate) / (1 + item.taxPercent / 100)
           : (item.qty * item.rate);
       final diff = grossExclusive - item.taxableAmount;
-      if (diff > 0.01) {
+      if (diff > 0.01 && item.taxableAmount > 0.001) {
         itemDiscount = diff;
       }
     }
@@ -3851,9 +3851,7 @@ class PosInvoicePrinter {
 
   static double _displayItemLineTotal(SaleItem item) {
     if (item.isSchemeFree || item.isAdvanceFree) {
-      final rate = _displayRate(item);
-      final calculated = rate * item.qty;
-      if (calculated > 0) return calculated;
+      return 0.0;
     }
     return item.lineTotal;
   }

@@ -5,10 +5,14 @@ class RecoveryController {
   Future<Map<String, dynamic>> verifyPin(String outletCode, String pin) async {
     try {
       // NOTE: Ensure ApiEndpoints.verifyPin points to '/recovery/verify-pin'
-      final res = await ApiClient.post(ApiEndpoints.verifyPin, {
-        'outletCode': outletCode,
-        'pin': pin,
-      });
+      final res = await ApiClient.post(
+        ApiEndpoints.verifyPin,
+        {
+          'outletCode': outletCode,
+          'pin': pin,
+        },
+        timeout: const Duration(minutes: 5),
+      );
 
       if (res['success'] == true) {
         return res;
@@ -29,13 +33,17 @@ class RecoveryController {
     bool isResend = false,
   }) async {
     try {
-      final res = await ApiClient.post(ApiEndpoints.requestOtp, {
-        if (outletCode != null && outletCode.isNotEmpty)
-          'outletCode': outletCode,
-        if (contactStr != null && contactStr.isNotEmpty)
-          'contactStr': contactStr,
-        'isResend': isResend,
-      });
+      final res = await ApiClient.post(
+        ApiEndpoints.requestOtp,
+        {
+          if (outletCode != null && outletCode.isNotEmpty)
+            'outletCode': outletCode,
+          if (contactStr != null && contactStr.isNotEmpty)
+            'contactStr': contactStr,
+          'isResend': isResend,
+        },
+        timeout: const Duration(minutes: 5),
+      );
 
       if (res['success'] == true) {
         return res;
@@ -56,13 +64,17 @@ class RecoveryController {
     required String otp,
   }) async {
     try {
-      final res = await ApiClient.post(ApiEndpoints.verifyOtp, {
-        if (outletCode != null && outletCode.isNotEmpty)
-          'outletCode': outletCode,
-        if (contactStr != null && contactStr.isNotEmpty)
-          'contactStr': contactStr,
-        'otp': otp,
-      });
+      final res = await ApiClient.post(
+        ApiEndpoints.verifyOtp,
+        {
+          if (outletCode != null && outletCode.isNotEmpty)
+            'outletCode': outletCode,
+          if (contactStr != null && contactStr.isNotEmpty)
+            'contactStr': contactStr,
+          'otp': otp,
+        },
+        timeout: const Duration(minutes: 5),
+      );
 
       if (res['success'] == true) {
         return res;
@@ -80,10 +92,14 @@ class RecoveryController {
   Future<void> executeRecovery(
       String folderId, Map<String, dynamic> clientData) async {
     try {
-      final res = await ApiClient.post(ApiEndpoints.executeRecovery, {
-        'folderId': folderId,
-        'clientData': clientData,
-      });
+      final res = await ApiClient.post(
+        ApiEndpoints.executeRecovery,
+        {
+          'folderId': folderId,
+          'clientData': clientData,
+        },
+        timeout: const Duration(minutes: 15),
+      );
 
       if (res['success'] != true) {
         throw Exception(res['message'] ?? 'Failed to execute recovery.');
