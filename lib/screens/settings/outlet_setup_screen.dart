@@ -58,6 +58,9 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
   String? _restoreEncName;
   List<int>? _restoreEncBytes;
 
+  // Link Without Restore State
+  bool _restoreDatabaseOnLink = false;
+
   final outletCtrl = OutletController();
   final recoveryCtrl = RecoveryController();
   bool get _isLocalSetupServer => AppConfig.isLocalServer;
@@ -220,20 +223,37 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
     if (_isLocalSetupServer) {
       final folderId = verification['folderId']?.toString().trim() ?? '';
       final rawClientData = verification['clientData'];
-      if (folderId.isEmpty || rawClientData is! Map) {
-        throw Exception('Verified outlet recovery details are incomplete.');
+
+      if (_restoreDatabaseOnLink) {
+        if (folderId.isEmpty || rawClientData is! Map) {
+          throw Exception('Verified outlet recovery details are incomplete.');
+        }
+        await recoveryCtrl.executeRecovery(
+          folderId,
+          Map<String, dynamic>.from(rawClientData),
+          skipRestore: false,
+        );
+      } else {
+        // Link workstation only without database restore!
+        if (folderId.isNotEmpty && rawClientData is Map) {
+          await recoveryCtrl.executeRecovery(
+            folderId,
+            Map<String, dynamic>.from(rawClientData),
+            skipRestore: true,
+          );
+        }
       }
-      await recoveryCtrl.executeRecovery(
-        folderId,
-        Map<String, dynamic>.from(rawClientData),
-      );
     }
 
     await _submitExistingClient();
   }
 
-  Future<void> _submitExistingClient() async {
-    final code = _outletCode.text.trim();
+  Future<void> _submitExistingClient([String? customCode]) async {
+    final code = (customCode ?? _outletCode.text).trim();
+    if (code.isEmpty) {
+      _showError("Please enter or select an Outlet / Business ID.");
+      return;
+    }
 
     try {
       final currentOutlets = List<String>.from(AppConfig.outlets);
@@ -241,6 +261,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
         currentOutlets.add(code);
         await AppConfig.saveConfig(AppConfig.baseUrl, currentOutlets);
       }
+      await LocalPreferences.setLastOutletCode(code);
 
       if (!mounted) return;
       _showLinkCompleteDialog();
@@ -526,83 +547,163 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
         await AppConfig.saveConfig(AppConfig.baseUrl, currentOutlets);
       }
 
+      bool enableCloud = false;
       await showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 28),
-              SizedBox(width: 10),
-              Text("Restore Complete"),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _restoreEncName?.toLowerCase().endsWith('.fambak') == true
-                    ? "Outlet backup (.fambak) restored successfully!"
-                    : "System snapshot (.enc) restored successfully!",
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-              ),
-              const SizedBox(height: 12),
-              if (restoredCode.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFBFDBFE)),
+        builder: (ctx) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 28),
+                SizedBox(width: 10),
+                Text("Restore Complete"),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _restoreEncName?.toLowerCase().endsWith('.fambak') == true
+                        ? "Outlet backup (.fambak) restored successfully!"
+                        : "System snapshot (.enc) restored successfully!",
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                   ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.storefront_rounded, size: 20, color: Color(0xFF2563EB)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              "Auto-Linked Outlet Code:",
-                              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFBBF7D0)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.auto_fix_high, size: 18, color: Color(0xFF16A34A)),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Schema migrations and missing columns/tables were automatically healed.",
+                            style: TextStyle(fontSize: 12, color: Color(0xFF15803D), fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (restoredCode.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFBFDBFE)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.storefront_rounded, size: 20, color: Color(0xFF2563EB)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  "Auto-Linked Outlet Code:",
+                                  style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                ),
+                                Text(
+                                  restoredCode,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
+                                ),
+                              ],
                             ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFFBEB),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFDE68A)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.cloud_off_rounded, size: 18, color: Color(0xFFD97706)),
+                            SizedBox(width: 8),
                             Text(
-                              restoredCode,
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
+                              "Cloud Backup: Disabled by Default",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF92400E)),
                             ),
                           ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        const Text(
+                          "Automatic cloud backup is turned off after database restoration to protect snapshots.",
+                          style: TextStyle(fontSize: 11.5, color: Color(0xFF78350F)),
+                        ),
+                        const SizedBox(height: 8),
+                        CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          value: enableCloud,
+                          title: const Text(
+                            "Enable Cloud Backup for this restored outlet now",
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                          ),
+                          onChanged: (val) {
+                            setDialogState(() {
+                              enableCloud = val ?? false;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    "Workstation is now configured and linked. Proceed to login with your credentials.",
+                    style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF059669),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-              const SizedBox(height: 12),
-              const Text(
-                "Workstation is now configured and linked. Proceed to login with your credentials.",
-                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+                onPressed: () async {
+                  if (enableCloud) {
+                    try {
+                      await BackupService.toggleCloudSync(true);
+                    } catch (_) {}
+                  }
+                  if (!context.mounted) return;
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => LoginScreen(
+                        initialOutletCode: restoredCode.isNotEmpty ? restoredCode : null,
+                      ),
+                    ),
+                    (route) => false,
+                  );
+                },
+                child: const Text("Proceed to Login"),
               ),
             ],
           ),
-          actions: [
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF059669),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onPressed: () {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (context) => LoginScreen(initialOutletCode: restoredCode.isNotEmpty ? restoredCode : null)),
-                  (route) => false,
-                );
-              },
-              child: const Text("Proceed to Login"),
-            ),
-          ],
         ),
       );
     } catch (e) {
@@ -1532,7 +1633,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
   Widget _buildExistingClientForm(ColorScheme scheme) {
     if (_step == FlowStep.otpVerification) {
       return _buildOtpVerificationSection(
-        _isLocalSetupServer
+        (_isLocalSetupServer && _restoreDatabaseOnLink)
             ? "Verify & Recover Full Database"
             : "Verify & Link Terminal",
         _verifyOtpAndLink,
@@ -1544,6 +1645,10 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (_isLocalSetupServer) ...[
+          _buildLinkingModeSelector(scheme),
+          const SizedBox(height: 12),
+        ],
         _modernInputField(
           controller: _outletCode,
           label: "Business ID *",
@@ -1576,7 +1681,9 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
           ),
           const SizedBox(height: 16),
           _buildActionButton(
-            _isLocalSetupServer ? "Verify & Restore System" : "Verify & Link Workstation",
+            (_isLocalSetupServer && _restoreDatabaseOnLink)
+                ? "Verify & Restore System"
+                : "Verify & Link Workstation (No Restore)",
             Icons.sync_rounded,
             scheme,
             _verifyExistingPin,
@@ -1619,6 +1726,77 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildLinkingModeSelector(ColorScheme scheme) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Linking Mode:",
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+          ),
+          const SizedBox(height: 4),
+          RadioListTile<bool>(
+            value: false,
+            groupValue: _restoreDatabaseOnLink,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            activeColor: const Color(0xFF059669),
+            title: const Row(
+              children: [
+                Icon(Icons.link_rounded, size: 18, color: Color(0xFF059669)),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    "Link Workstation Only (Recommended - No DB Overwrite)",
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: const Text(
+              "Keeps existing local database untouched. Quickly links terminal to selected outlet without downloading or overwriting database.",
+              style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+            ),
+            onChanged: (val) => setState(() => _restoreDatabaseOnLink = val ?? false),
+          ),
+          const Divider(height: 12),
+          RadioListTile<bool>(
+            value: true,
+            groupValue: _restoreDatabaseOnLink,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            activeColor: const Color(0xFFD97706),
+            title: const Row(
+              children: [
+                Icon(Icons.cloud_download_rounded, size: 18, color: Color(0xFFD97706)),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    "Download & Restore Snapshot (Full Cloud Recovery)",
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: const Text(
+              "Downloads the cloud backup snapshot and restores the entire database. Missing columns and tables will be healed automatically.",
+              style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+            ),
+            onChanged: (val) => setState(() => _restoreDatabaseOnLink = val ?? true),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2062,6 +2240,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
 
   void _showLinkCompleteDialog() {
     final scheme = Theme.of(context).colorScheme;
+    final didRestore = _isLocalSetupServer && _restoreDatabaseOnLink;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -2071,14 +2250,14 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
           children: [
             const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 28),
             const SizedBox(width: 12),
-            Text(_isLocalSetupServer ? "System Restored" : "Terminal Linked"),
+            Text(didRestore ? "System Restored & Linked" : "Workstation Linked Successfully"),
           ],
         ),
         content: Text(
-          _isLocalSetupServer
-              ? "The system backup was restored and this outlet is ready."
-              : "Your workstation has been successfully verified and linked to this business.",
-          style: TextStyle(color: Color(0xFF475569)),
+          didRestore
+              ? "The database backup was restored with migrations applied and this outlet is ready."
+              : "Your workstation has been linked directly to this outlet without modifying existing database records.",
+          style: const TextStyle(color: Color(0xFF475569)),
         ),
         actions: [
           FilledButton(

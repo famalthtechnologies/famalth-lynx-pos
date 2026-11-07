@@ -138,14 +138,16 @@ async function verifyOutletForRecovery(req: any, res: any) {
 async function executeFullSystemRecovery(req: any, res: any) {
     if (req.setTimeout) req.setTimeout(15 * 60 * 1000);
     if (res.setTimeout) res.setTimeout(15 * 60 * 1000);
-    const { folderId, clientData } = req.body;
+    const { folderId, clientData, skipRestore } = req.body;
 
     try {
-        console.log(`[RECOVERY] Executing system restore for: ${clientData.outlet_code}`);
+        console.log(`[RECOVERY] Executing system setup for: ${clientData.outlet_code} (skipRestore: ${!!skipRestore})`);
 
-        // Restore first; only persist the link if database recovery succeeds.
-        await autoRestoreLatest(folderId);
-        await downloadSystemConfigs(folderId);
+        if (!skipRestore) {
+            // Restore first; only persist the link if database recovery succeeds.
+            await autoRestoreLatest(folderId);
+            await downloadSystemConfigs(folderId);
+        }
 
         // 1. Read existing configuration safely
         let clients = [];

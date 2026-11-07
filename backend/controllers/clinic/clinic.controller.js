@@ -168,7 +168,13 @@ const getAppointments = async (req, res) => {
                             balance_due: { [sequelize_1.Op.gt]: 0 },
                             status: 'COMPLETED',
                             is_latest: true,
-                            is_deleted: false
+                            is_deleted: false,
+                            sale_no: {
+                                [sequelize_1.Op.and]: [
+                                    { [sequelize_1.Op.ne]: `APPT-${appt.id}` },
+                                    { [sequelize_1.Op.notLike]: `APPT-${appt.id}%` }
+                                ]
+                            }
                         }
                     });
                     const dueVal = Number(totalDue || 0);
@@ -3011,6 +3017,7 @@ const getPatientCreditStatus = async (req, res) => {
         const outlet_id = req.user.outlet_id;
         const phone = String(req.query.phone || '').trim();
         const name = String(req.query.name || '').trim();
+        const appointmentId = String(req.query.appointment_id || req.query.exclude_appointment_id || '').trim();
         if (!phone && !name) {
             return res.json({ success: true, total_credit_due: 0, total_billed: 0, total_paid: 0, unpaid_bills: [] });
         }
@@ -3019,15 +3026,24 @@ const getPatientCreditStatus = async (req, res) => {
             whereMatch.push({ customer_phone: phone });
         if (name)
             whereMatch.push({ customer_name: { [sequelize_1.Op.iLike]: `%${name}%` } });
+        const whereCondition = {
+            outlet_id,
+            [sequelize_1.Op.or]: whereMatch,
+            balance_due: { [sequelize_1.Op.gt]: 0 },
+            status: 'COMPLETED',
+            is_latest: true,
+            is_deleted: false
+        };
+        if (appointmentId) {
+            whereCondition.sale_no = {
+                [sequelize_1.Op.and]: [
+                    { [sequelize_1.Op.ne]: `APPT-${appointmentId}` },
+                    { [sequelize_1.Op.notLike]: `APPT-${appointmentId}%` }
+                ]
+            };
+        }
         const sales = await req.propertyDb.models.sales_headers.findAll({
-            where: {
-                outlet_id,
-                [sequelize_1.Op.or]: whereMatch,
-                balance_due: { [sequelize_1.Op.gt]: 0 },
-                status: 'COMPLETED',
-                is_latest: true,
-                is_deleted: false
-            },
+            where: whereCondition,
             order: [['sale_date', 'ASC'], ['id', 'ASC']]
         });
         const unpaidBills = sales.map((s) => ({

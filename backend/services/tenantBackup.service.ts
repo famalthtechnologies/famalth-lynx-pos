@@ -4,6 +4,7 @@ import path from 'path';
 import zlib from 'zlib';
 import crypto from 'crypto';
 import { QueryTypes } from 'sequelize';
+import { runPostRestoreHealing } from '../utils/postRestoreHealing';
 const archiver = require('archiver');
 
 const rootDir = (process as any).pkg ? path.dirname(process.execPath) : process.cwd();
@@ -721,6 +722,9 @@ export class TenantBackupService {
       } catch (_) {}
     });
 
+    // Run post-restore database schema healing, migrations and reset cloud backup to OFF
+    await runPostRestoreHealing(activeDb);
+
     return {
       success: true,
       totalRecordsRestored,
@@ -1132,6 +1136,9 @@ export class TenantBackupService {
         `, { transaction: t });
       } catch (_) {}
     });
+
+    // Run post-restore database schema healing, migrations and reset cloud backup to OFF
+    await runPostRestoreHealing(activeDb);
 
     return {
       success: true,
@@ -1870,6 +1877,9 @@ export class TenantBackupService {
         } catch (_) {}
       });
 
+      // Run post-restore database schema healing, migrations and reset cloud backup to OFF
+      await runPostRestoreHealing(activeDb);
+
       return {
         success: true,
         totalRecordsRestored,
@@ -1946,6 +1956,9 @@ export class TenantBackupService {
           `, { transaction: t });
         } catch (_) {}
       });
+
+      // Run post-restore database schema healing, migrations and reset cloud backup to OFF
+      await runPostRestoreHealing(activeDb);
 
       return {
         success: true,

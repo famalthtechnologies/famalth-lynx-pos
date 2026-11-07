@@ -166,7 +166,13 @@ export const getAppointments = async (req: Request, res: Response) => {
                             balance_due: { [Op.gt]: 0 },
                             status: 'COMPLETED',
                             is_latest: true,
-                            is_deleted: false
+                            is_deleted: false,
+                            sale_no: {
+                                [Op.and]: [
+                                    { [Op.ne]: `APPT-${appt.id}` },
+                                    { [Op.notLike]: `APPT-${appt.id}%` }
+                                ]
+                            }
                         }
                     });
                     const dueVal = Number(totalDue || 0);
@@ -3250,6 +3256,7 @@ export const getPatientCreditStatus = async (req: Request, res: Response) => {
         const outlet_id = (req as any).user.outlet_id;
         const phone = String(req.query.phone || '').trim();
         const name = String(req.query.name || '').trim();
+        const appointmentId = String(req.query.appointment_id || req.query.exclude_appointment_id || '').trim();
 
         if (!phone && !name) {
             return res.json({ success: true, total_credit_due: 0, total_billed: 0, total_paid: 0, unpaid_bills: [] });
@@ -3259,15 +3266,26 @@ export const getPatientCreditStatus = async (req: Request, res: Response) => {
         if (phone) whereMatch.push({ customer_phone: phone });
         if (name) whereMatch.push({ customer_name: { [Op.iLike]: `%${name}%` } });
 
+        const whereCondition: any = {
+            outlet_id,
+            [Op.or]: whereMatch,
+            balance_due: { [Op.gt]: 0 },
+            status: 'COMPLETED',
+            is_latest: true,
+            is_deleted: false
+        };
+
+        if (appointmentId) {
+            whereCondition.sale_no = {
+                [Op.and]: [
+                    { [Op.ne]: `APPT-${appointmentId}` },
+                    { [Op.notLike]: `APPT-${appointmentId}%` }
+                ]
+            };
+        }
+
         const sales = await (req as any).propertyDb.models.sales_headers.findAll({
-            where: {
-                outlet_id,
-                [Op.or]: whereMatch,
-                balance_due: { [Op.gt]: 0 },
-                status: 'COMPLETED',
-                is_latest: true,
-                is_deleted: false
-            },
+            where: whereCondition,
             order: [['sale_date', 'ASC'], ['id', 'ASC']]
         });
 

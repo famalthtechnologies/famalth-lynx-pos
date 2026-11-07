@@ -17,6 +17,7 @@ const decrypt_1 = require("../utils/decrypt");
 const decryptConfig_1 = __importDefault(require("../utils/decryptConfig"));
 const pgBinaries_1 = require("../utils/pgBinaries");
 const migrationRunner_1 = __importDefault(require("../utils/migrationRunner"));
+const postRestoreHealing_1 = require("../utils/postRestoreHealing");
 const propertyDb = require("../db/models");
 const isCompiled = typeof process.pkg !== 'undefined';
 const baseDir = isCompiled ? path_1.default.dirname(process.execPath) : path_1.default.join(__dirname, '..');
@@ -120,6 +121,7 @@ async function executeDatabaseRestore(sqlFilePath, db_name, db_user, db_pass, ho
     if (!hasPsql) {
         console.warn("⚠️ psql.exe was not found (" + psqlPath + "). Restoring directly via pure Node.js PG client...");
         await executeSqlFileViaNode(sqlFilePath, targetDb, targetUser, targetPass, targetHost, targetPort);
+        await (0, postRestoreHealing_1.runPostRestoreHealing)(propertyDb);
         return;
     }
     // 2. Perform the actual restore
@@ -168,11 +170,11 @@ async function executeDatabaseRestore(sqlFilePath, db_name, db_user, db_pass, ho
         console.warn("⚠️ psql restore failed (" + psqlErr?.message + "). Falling back to pure Node.js PG client...");
         await executeSqlFileViaNode(sqlFilePath, targetDb, targetUser, targetPass, targetHost, targetPort);
     }
-    // 3. Post-Restore Schema Alignment & Migration verification
+    // 3. Post-Restore Schema Alignment, Missing Column Healing & Migration verification
     try {
         console.log("🔄 Reconciling database schema and running migrations after restore...");
-        await (0, migrationRunner_1.default)(propertyDb);
-        console.log("✅ Post-restore migrations verified successfully");
+        await (0, postRestoreHealing_1.runPostRestoreHealing)(propertyDb);
+        console.log("✅ Post-restore migrations and schema healing verified successfully");
     }
     catch (migErr) {
         console.warn("⚠️ Notice during post-restore migration check:", migErr.message);

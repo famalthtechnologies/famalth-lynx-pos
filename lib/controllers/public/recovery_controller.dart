@@ -90,13 +90,14 @@ class RecoveryController {
   // 4. EXECUTE FULL RECOVERY
   // ==========================================
   Future<void> executeRecovery(
-      String folderId, Map<String, dynamic> clientData) async {
+      String folderId, Map<String, dynamic> clientData, {bool skipRestore = false}) async {
     try {
       final res = await ApiClient.post(
         ApiEndpoints.executeRecovery,
         {
           'folderId': folderId,
           'clientData': clientData,
+          'skipRestore': skipRestore,
         },
         timeout: const Duration(minutes: 15),
       );

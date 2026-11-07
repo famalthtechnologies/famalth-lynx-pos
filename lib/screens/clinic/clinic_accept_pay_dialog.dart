@@ -138,7 +138,11 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
     try {
       final res = await ApiClient.get(
         ApiEndpoints.clinicPatientCredit,
-        queryParams: {'phone': phone, 'name': name},
+        queryParams: {
+          'phone': phone,
+          'name': name,
+          'appointment_id': '${widget.appointment['id']}',
+        },
       );
       if (res != null && res['success'] == true && mounted) {
         setState(() {

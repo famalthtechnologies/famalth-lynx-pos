@@ -7,6 +7,7 @@ import { decryptAndUnzip } from "../utils/decrypt";
 import loadConfig from "../utils/decryptConfig";
 import { findPostgresBinary } from "../utils/pgBinaries";
 import runMigrations from "../utils/migrationRunner";
+import { runPostRestoreHealing } from "../utils/postRestoreHealing";
 const propertyDb = require("../db/models");
 
 const isCompiled = typeof (process as any).pkg !== 'undefined';
@@ -122,6 +123,7 @@ export async function executeDatabaseRestore(sqlFilePath: string, db_name: any, 
     if (!hasPsql) {
         console.warn("⚠️ psql.exe was not found (" + psqlPath + "). Restoring directly via pure Node.js PG client...");
         await executeSqlFileViaNode(sqlFilePath, targetDb, targetUser, targetPass, targetHost, targetPort);
+        await runPostRestoreHealing(propertyDb);
         return;
     }
 
@@ -170,11 +172,11 @@ export async function executeDatabaseRestore(sqlFilePath: string, db_name: any, 
         await executeSqlFileViaNode(sqlFilePath, targetDb, targetUser, targetPass, targetHost, targetPort);
     }
 
-    // 3. Post-Restore Schema Alignment & Migration verification
+    // 3. Post-Restore Schema Alignment, Missing Column Healing & Migration verification
     try {
         console.log("🔄 Reconciling database schema and running migrations after restore...");
-        await runMigrations(propertyDb);
-        console.log("✅ Post-restore migrations verified successfully");
+        await runPostRestoreHealing(propertyDb);
+        console.log("✅ Post-restore migrations and schema healing verified successfully");
     } catch (migErr: any) {
         console.warn("⚠️ Notice during post-restore migration check:", migErr.message);
     }

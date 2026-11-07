@@ -935,29 +935,54 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   bool _canDoctorEditAppointment(dynamic a) {
     final role = _userRole.trim().toUpperCase();
 
-    // Must be in DOCTOR role to edit prescriptions (reception/staff can view and print only)
-    if (!role.contains('DOCTOR') && !role.contains('CLINICIAN') && !role.contains('PHYSICIAN')) {
-      return false;
+    // Admins, Superadmins, Owners, and Managers have full clinical authority
+    if (role.contains('ADMIN') || role.contains('OWNER') || role.contains('SUPER') || role.contains('MANAGER')) {
+      return true;
     }
 
-    final currentDocId = _loggedInDoctorId;
     final apptAttendedId = a['attended_by_doctor_id'] != null ? int.tryParse('${a['attended_by_doctor_id']}') : null;
     final apptDocId = a['doctor_id'] != null ? int.tryParse('${a['doctor_id']}') : null;
     final assignedDocId = apptAttendedId ?? apptDocId;
 
-    if (currentDocId != null && assignedDocId != null) {
-      return currentDocId == assignedDocId;
-    }
-
     String cleanDoc(String s) => s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
     final apptDocName = cleanDoc((a['attended_by_doctor_name'] ?? a['doctor_name'] ?? '').toString());
-    final myDocName = cleanDoc(_loggedInDoctorName);
-    if (apptDocName.isNotEmpty && myDocName.isNotEmpty) {
-      return apptDocName == myDocName || apptDocName.contains(myDocName) || myDocName.contains(apptDocName);
+
+    // 1. If the selected doctor in the Desk Filter matches the assigned doctor
+    if (_selectedDoctorFilterId != null && assignedDocId != null && _selectedDoctorFilterId == assignedDocId) {
+      return true;
     }
 
+    final selectedFilter = cleanDoc(_selectedDoctorFilter);
+    if (selectedFilter.isNotEmpty && selectedFilter != 'all') {
+      if (apptDocName.isNotEmpty && (apptDocName == selectedFilter || apptDocName.contains(selectedFilter) || selectedFilter.contains(apptDocName))) {
+        return true;
+      }
+    }
+
+    // 2. If the logged-in doctor ID matches
+    final currentDocId = _loggedInDoctorId;
+    if (currentDocId != null && assignedDocId != null && currentDocId == assignedDocId) {
+      return true;
+    }
+
+    // 3. If the logged-in doctor name matches
+    final myDocName = cleanDoc(_loggedInDoctorName);
+    if (apptDocName.isNotEmpty && myDocName.isNotEmpty) {
+      if (apptDocName == myDocName || apptDocName.contains(myDocName) || myDocName.contains(apptDocName)) {
+        return true;
+      }
+    }
+
+    // 4. Unassigned appointments can be attended/consulted
     if (assignedDocId == null && apptDocName.isEmpty) {
       return true;
+    }
+
+    // 5. If role is DOCTOR, allow editing if no mismatch
+    if (role.contains('DOCTOR') || role.contains('CLINICIAN') || role.contains('PHYSICIAN')) {
+      if (assignedDocId == null || _loggedInDoctorId == null) {
+        return true;
+      }
     }
 
     return false;
@@ -973,6 +998,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         loggedInDoctorName: _loggedInDoctorName,
         loggedInDoctorId: _loggedInDoctorId,
         selectedDeskDoctor: _selectedDoctorFilter,
+        selectedDeskDoctorId: _selectedDoctorFilterId,
         onSaved: () {
           _fetchAppointments();
           _fetchAnalytics();
@@ -1942,28 +1968,41 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
                             'Phone: ${a['patient_phone'] ?? '-'}  •  Age: ${a['patient_age'] ?? '-'}  •  ${(a['patient_gender'] ?? '-').toString().toUpperCase()}',
                             style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                           ),
-                          if (a['customer_pending_credit'] != null && (double.tryParse('${a['customer_pending_credit']}') ?? 0) > 0) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFEF2F2),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: const Color(0xFFFCA5A5)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.account_balance_wallet_rounded, size: 11, color: Color(0xFFDC2626)),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    'Prior Credit: ${CurrencyService.format(double.parse('${a['customer_pending_credit']}'))}',
-                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFB91C1C)),
+                          Builder(
+                            builder: (context) {
+                              final priorCredit = double.tryParse('${a['customer_pending_credit']}') ?? 0.0;
+                              final currentFee = double.tryParse('${a['consultation_fee']}') ?? 0.0;
+                              final payStatus = (a['payment_status'] ?? '').toString().toUpperCase();
+                              final isPayLater = payStatus == 'PAY_LATER' || payStatus == 'UNPAID';
+                              // If pending credit is an echo of today's appointment fee, do not mislabel as prior credit
+                              final adjustedPriorCredit = (isPayLater && (priorCredit - currentFee).abs() < 0.01) ? 0.0 : priorCredit;
+
+                              if (adjustedPriorCredit <= 0) return const SizedBox.shrink();
+
+                              return Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFEF2F2),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: const Color(0xFFFCA5A5)),
                                   ),
-                                ],
-                              ),
-                            ),
-                          ],
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.account_balance_wallet_rounded, size: 11, color: Color(0xFFDC2626)),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        'Prior Credit: ${CurrencyService.format(adjustedPriorCredit)}',
+                                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFB91C1C)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                           const SizedBox(width: 12),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -4302,6 +4341,7 @@ class _DoctorPrescriptionDialog extends StatefulWidget {
   final String loggedInDoctorName;
   final int? loggedInDoctorId;
   final String? selectedDeskDoctor;
+  final int? selectedDeskDoctorId;
 
   const _DoctorPrescriptionDialog({
     required this.appointment,
@@ -4311,6 +4351,7 @@ class _DoctorPrescriptionDialog extends StatefulWidget {
     this.loggedInDoctorName = '',
     this.loggedInDoctorId,
     this.selectedDeskDoctor,
+    this.selectedDeskDoctorId,
   });
 
   @override
@@ -4328,12 +4369,11 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
   bool get _canEdit {
     final role = widget.userRole.trim().toUpperCase();
 
-    // Must be in DOCTOR role to edit prescriptions (reception/staff can view and print only)
-    if (!role.contains('DOCTOR') && !role.contains('CLINICIAN') && !role.contains('PHYSICIAN')) {
-      return false;
+    // 1. Admins, Superadmins, Owners, and Managers have full clinical authority
+    if (role.contains('ADMIN') || role.contains('OWNER') || role.contains('SUPER') || role.contains('MANAGER')) {
+      return true;
     }
 
-    final currentDocId = widget.loggedInDoctorId;
     final apptAttendedId = widget.appointment['attended_by_doctor_id'] != null
         ? int.tryParse('${widget.appointment['attended_by_doctor_id']}')
         : null;
@@ -4342,10 +4382,6 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
         : null;
     final assignedDocId = apptAttendedId ?? apptDocId;
 
-    if (currentDocId != null && assignedDocId != null) {
-      return currentDocId == assignedDocId;
-    }
-
     String clean(String s) =>
         s.toLowerCase().replaceAll(RegExp(r'^(dr\.?\s*)+', caseSensitive: false), '').trim();
 
@@ -4353,14 +4389,43 @@ class _DoctorPrescriptionDialogState extends State<_DoctorPrescriptionDialog> {
             widget.appointment['doctor_name'] ??
             '')
         .toString());
-    final myName = clean(widget.loggedInDoctorName);
 
-    if (apptDocName.isNotEmpty && myName.isNotEmpty) {
-      return apptDocName == myName || apptDocName.contains(myName) || myName.contains(apptDocName);
+    // 2. If the selected doctor in the Consultation Desk matches the assigned doctor
+    if (widget.selectedDeskDoctorId != null && assignedDocId != null && widget.selectedDeskDoctorId == assignedDocId) {
+      return true;
     }
 
+    final selectedDesk = clean(widget.selectedDeskDoctor ?? '');
+    if (selectedDesk.isNotEmpty && selectedDesk != 'all') {
+      if (apptDocName.isNotEmpty && (selectedDesk == apptDocName || apptDocName.contains(selectedDesk) || selectedDesk.contains(apptDocName))) {
+        return true;
+      }
+    }
+
+    // 3. If the logged-in doctor ID matches the assigned doctor ID
+    final currentDocId = widget.loggedInDoctorId;
+    if (currentDocId != null && assignedDocId != null && currentDocId == assignedDocId) {
+      return true;
+    }
+
+    // 4. If the logged-in doctor name matches the assigned doctor name
+    final myName = clean(widget.loggedInDoctorName);
+    if (apptDocName.isNotEmpty && myName.isNotEmpty) {
+      if (apptDocName == myName || apptDocName.contains(myName) || myName.contains(apptDocName)) {
+        return true;
+      }
+    }
+
+    // 5. Unassigned appointments can be attended/consulted
     if (assignedDocId == null && apptDocName.isEmpty) {
       return true;
+    }
+
+    // 6. If role is DOCTOR, allow editing if no specific mismatch
+    if (role.contains('DOCTOR') || role.contains('CLINICIAN') || role.contains('PHYSICIAN')) {
+      if (assignedDocId == null || currentDocId == null) {
+        return true;
+      }
     }
 
     return false;

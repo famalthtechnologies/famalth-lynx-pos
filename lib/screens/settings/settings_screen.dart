@@ -63,13 +63,37 @@ class CountryPreset {
 }
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final int initialIndex;
+  const SettingsScreen({super.key, this.initialIndex = 0});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStateMixin {
+  TabController? _tabController;
+  int _currentTabIndex = 0;
+
+  void _initTabController(int count, [int? targetIndex]) {
+    final prevIndex = targetIndex ?? _tabController?.index ?? _currentTabIndex;
+    _tabController?.removeListener(_handleTabSelection);
+    _tabController?.dispose();
+    final newIndex = prevIndex.clamp(0, count - 1);
+    _tabController = TabController(
+      length: count,
+      vsync: this,
+      initialIndex: newIndex,
+    );
+    _currentTabIndex = newIndex;
+    _tabController!.addListener(_handleTabSelection);
+  }
+
+  void _handleTabSelection() {
+    if (_tabController != null && !_tabController!.indexIsChanging) {
+      _currentTabIndex = _tabController!.index;
+    }
+  }
+
   String _currentMachineId = LocalPreferences.getSystemHardwareId();
   static const List<CountryPreset> _countryPresets = [
     CountryPreset(
@@ -201,12 +225,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _currentTabIndex = widget.initialIndex;
+    final showSale = _currentActiveModule != 'INVENTORY';
+    _initTabController(showSale ? 10 : 9, widget.initialIndex);
     Future.microtask(() => context.read<SystemSettingsController>().load());
     Future.microtask(
         () => context.read<AppBrandingController>().loadFromServer());
     Future.microtask(_loadPrinters);
     Future.microtask(_loadLocalPreferences);
     Future.microtask(_loadSettingsData);
+  }
+
+  @override
+  void dispose() {
+    _tabController?.removeListener(_handleTabSelection);
+    _tabController?.dispose();
+    super.dispose();
   }
 
   Future<void> _loadLocalPreferences() async {
@@ -1105,35 +1139,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     final showSaleAndPayment = _currentActiveModule != 'INVENTORY';
+    final tabCount = showSaleAndPayment ? 10 : 9;
+    if (_tabController == null || _tabController!.length != tabCount) {
+      _initTabController(tabCount, _currentTabIndex);
+    }
 
-    return DefaultTabController(
-      length: showSaleAndPayment ? 10 : 9,
-      child: Scaffold(
-        backgroundColor: Theme.of(context).brightness == Brightness.dark
-            ? const Color(0xFF121214)
-            : const Color(0xFFF8FAFC),
-        appBar: AppBar(
-          title: const Text('Settings'),
-          bottom: TabBar(
-            isScrollable: true,
-            tabs: [
-              const Tab(text: 'Operations'),
-              const Tab(text: 'Security & Gateways'),
-              const Tab(text: 'Appearance'),
-              const Tab(text: 'Billing & Print'),
-              const Tab(text: 'Branding'),
-              const Tab(text: 'Keyboard Shortcuts'),
-              if (showSaleAndPayment) const Tab(text: 'Sale & Payment'),
-              const Tab(text: 'Promos & Configs'),
-              const Tab(text: 'Marketplace & Vendor'),
-              const Tab(text: 'Business Module'),
-            ],
-          ),
+    return Scaffold(
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? const Color(0xFF121214)
+          : const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: const Text('Settings'),
+        bottom: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          tabs: [
+            const Tab(text: 'Operations'),
+            const Tab(text: 'Security & Gateways'),
+            const Tab(text: 'Appearance'),
+            const Tab(text: 'Billing & Print'),
+            const Tab(text: 'Branding'),
+            const Tab(text: 'Keyboard Shortcuts'),
+            if (showSaleAndPayment) const Tab(text: 'Sale & Payment'),
+            const Tab(text: 'Promos & Configs'),
+            const Tab(text: 'Marketplace & Vendor'),
+            const Tab(text: 'Business Module'),
+          ],
         ),
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            return TabBarView(
-              children: [
+      ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return TabBarView(
+            controller: _tabController,
+            children: [
                 // 1. OPERATIONS TAB
                 buildTabBody([
                   _customSection(
@@ -2587,8 +2625,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             );
           },
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildPromosAndConfigsTab(
@@ -2669,6 +2706,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('brand_module_$outletCode', value);
       }
+      final newShowSale = value != 'INVENTORY';
+      final newCount = newShowSale ? 10 : 9;
+      final targetIndex = newCount - 1; // Explicitly stay on Business Module tab
+      _initTabController(newCount, targetIndex);
       setState(() => _currentActiveModule = value);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

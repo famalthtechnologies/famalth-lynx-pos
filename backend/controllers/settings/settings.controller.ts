@@ -255,7 +255,7 @@ exports.saveSettings = async (req, res) => {
             billing_country: req.body.billing_country || 'India',
             time_zone: req.body.time_zone || 'Asia/Kolkata',
             billing_tax_mode: req.body.billing_tax_mode || 'CGST_SGST',
-            bill_format: req.body.bill_format || 'A4',
+            bill_format: req.body.bill_format || existing?.bill_format || 'A4',
             default_charges: Array.isArray(req.body.default_charges)
                 ? req.body.default_charges
                 : [],
@@ -337,6 +337,21 @@ exports.saveSettings = async (req, res) => {
         }
 
         await t.commit();
+
+        if (typeof req.body.is_cloud_enabled !== 'undefined') {
+            try {
+                const { toggleCloudBackup } = require('../../utils/backupTracker');
+                const [outletRow]: any = await req.propertyDb.query(
+                    'SELECT outlet_code FROM outlets WHERE id = :outlet_id LIMIT 1;',
+                    { replacements: { outlet_id } }
+                ).catch(() => [[]]);
+                const code = (outletRow && outletRow[0] && outletRow[0].outlet_code) || req.user?.outlet_code;
+                if (code) {
+                    toggleCloudBackup(code, !!req.body.is_cloud_enabled);
+                }
+            } catch (_) {}
+        }
+
         res.json({ success: true, message: 'Settings saved successfully', data: record });
 
     } catch (err) {

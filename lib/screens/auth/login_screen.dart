@@ -2,6 +2,7 @@ import '../../controllers/security/user_controller.dart';
 import '../../models/security/app_user_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:retailpos/core/api/api_client.dart';
@@ -59,6 +60,8 @@ class _LoginScreenState extends State<LoginScreen>
   final _qrFocus = FocusNode();
   bool _isPinMode = false;
   bool _isQrMode = false;
+  Timer? _qrDebounceTimer;
+  Timer? _pinDebounceTimer;
   List<QuickUser> _quickUsers = [];
   QuickUser? _selectedQuickUser;
   bool _isLoadingQuickUsers = false;
@@ -317,6 +320,8 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   void dispose() {
+    _qrDebounceTimer?.cancel();
+    _pinDebounceTimer?.cancel();
     _logoCtrl.dispose();
     _usernameCtrl.dispose();
     _passwordCtrl.dispose();
@@ -327,6 +332,51 @@ class _LoginScreenState extends State<LoginScreen>
     _pinFocus.dispose();
     _qrFocus.dispose();
     super.dispose();
+  }
+
+  void _onQrTokenChanged(String rawVal) {
+    final val = rawVal.trim();
+    if (val.isEmpty || _isloading) return;
+
+    _qrDebounceTimer?.cancel();
+
+    // 1. If scanned with barcode/QR scanner ending with newline/carriage return or tab
+    if (rawVal.contains('\n') || rawVal.contains('\r') || rawVal.contains('\t')) {
+      final clean = rawVal.replaceAll('\n', '').replaceAll('\r', '').replaceAll('\t', '').trim();
+      if (clean.isNotEmpty) {
+        _loginWithQr(clean);
+        return;
+      }
+    }
+
+    // 2. If token matches staff QR token format (e.g. starts with LYNX-STAFF-)
+    if (val.toUpperCase().startsWith('LYNX-STAFF-') && val.length >= 18) {
+      _loginWithQr(val);
+      return;
+    }
+
+    // 3. For any other scanner/token input, debounce 280ms so after scanner finishes typing, it auto-signs in
+    if (val.length >= 6) {
+      _qrDebounceTimer = Timer(const Duration(milliseconds: 280), () {
+        if (mounted && !_isloading && _qrCtrl.text.trim().isNotEmpty) {
+          _loginWithQr(_qrCtrl.text.trim());
+        }
+      });
+    }
+  }
+
+  void _onPinChanged(String rawVal) {
+    final val = rawVal.trim();
+    if (val.isEmpty || _isloading) return;
+
+    _pinDebounceTimer?.cancel();
+    if (val.length == 4 || val.length == 6) {
+      _pinDebounceTimer = Timer(const Duration(milliseconds: 200), () {
+        if (mounted && !_isloading && (_pinCtrl.text.trim().length == 4 || _pinCtrl.text.trim().length == 6)) {
+          _loginWithPin();
+        }
+      });
+    }
   }
 
   Future<void> _loginWithQr([String? rawToken]) async {
@@ -1641,6 +1691,7 @@ class _LoginScreenState extends State<LoginScreen>
                 prefixIcon: Icons.dialpad_rounded,
                 hintText: '••••',
               ),
+              onChanged: _onPinChanged,
               onFieldSubmitted: (_) => _loginWithPin(),
             ),
             const SizedBox(height: 12),
@@ -1737,6 +1788,7 @@ class _LoginScreenState extends State<LoginScreen>
                       prefixIcon: Icons.qr_code_rounded,
                       hintText: 'Scan badge or paste token...',
                     ),
+                    onChanged: _onQrTokenChanged,
                     onFieldSubmitted: (val) => _loginWithQr(val),
                   ),
                 ],
@@ -1833,6 +1885,7 @@ class _LoginScreenState extends State<LoginScreen>
                   setState(() {
                     _pinCtrl.text = '${_pinCtrl.text}$label';
                   });
+                  _onPinChanged(_pinCtrl.text);
                 }
               },
           child: icon != null

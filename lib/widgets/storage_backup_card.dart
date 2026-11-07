@@ -1288,8 +1288,34 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
       if (!mounted) return;
 
       _showDialogMessage(
-        '✓ Restored $totalRestored records into outlet $restoredOutlet successfully! Switch outlet on Login to proceed.',
+        '✓ Restored $totalRestored records into outlet $restoredOutlet successfully! Missing columns/tables healed automatically. Cloud backup is disabled by default.',
         type: 'SUCCESS',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Restore complete. Cloud backup is disabled by default.'),
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(
+            label: 'Enable Cloud',
+            textColor: const Color(0xFF6EE7B7),
+            onPressed: () async {
+              try {
+                await BackupService.toggleCloudSync(true);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Cloud backup enabled and synchronized!'),
+                      backgroundColor: Color(0xFF059669),
+                    ),
+                  );
+                  widget.onRefreshParent();
+                }
+              } catch (_) {}
+            },
+          ),
+        ),
       );
 
       widget.onRefreshParent();

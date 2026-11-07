@@ -10,10 +10,28 @@ const path = require("path");
 const rootDir = process.pkg ? path.dirname(process.execPath) : process.cwd();
 const CLIENT_FILE = path.join(rootDir, "client.json");
 const BACKUP_DIR = path.join(rootDir, 'backups');
-exports.getBackupStatusAlert = (req, res) => {
+exports.getBackupStatusAlert = async (req, res) => {
     try {
         const outletCode = req.outlet_code;
-        const status = getBackupStatus(outletCode);
+        let status = getBackupStatus(outletCode);
+        // Reconcile with database system_settings.is_cloud_enabled
+        try {
+            const propertyDb = require("../../db/models");
+            const activeDb = propertyDb.sequelize || propertyDb;
+            const [settingsRows] = await activeDb.query("SELECT is_cloud_enabled FROM system_settings LIMIT 1;").catch(() => [[]]);
+            if (settingsRows && settingsRows[0] && typeof settingsRows[0].is_cloud_enabled !== "undefined") {
+                const dbCloudEnabled = !!settingsRows[0].is_cloud_enabled;
+                if (!dbCloudEnabled && status.isCloudEnabled) {
+                    toggleCloudBackup(outletCode, false);
+                    status = getBackupStatus(outletCode);
+                }
+                else if (dbCloudEnabled && !status.isCloudEnabled && !status.userManuallyDisabled) {
+                    toggleCloudBackup(outletCode, true);
+                    status = getBackupStatus(outletCode);
+                }
+            }
+        }
+        catch (_) { }
         let alertType = "NONE";
         if (!status.isCloudEnabled) {
             alertType = "ENABLE_PROMPT";
@@ -27,6 +45,7 @@ exports.getBackupStatusAlert = (req, res) => {
         return res.status(200).json({
             success: true,
             alert: alertType,
+            isCloudEnabled: !!status.isCloudEnabled,
             lastSyncTime: status.lastSyncTime
         });
     }
@@ -38,11 +57,18 @@ exports.getBackupStatusAlert = (req, res) => {
         });
     }
 };
-exports.toggleBackup = (req, res) => {
+exports.toggleBackup = async (req, res) => {
     try {
-        const outletCode = req.outlet_code;
+        const outletCode = req.outlet_code || req.body.outlet_code;
         const { enabled } = req.body;
-        toggleCloudBackup(outletCode, enabled);
+        toggleCloudBackup(outletCode, !!enabled);
+        // ALWAYS synchronize database system_settings.is_cloud_enabled with JSON tracker
+        try {
+            const propertyDb = require("../../db/models");
+            const activeDb = propertyDb.sequelize || propertyDb;
+            await activeDb.query("UPDATE system_settings SET is_cloud_enabled = :enabled;", { replacements: { enabled: !!enabled } }).catch(() => { });
+        }
+        catch (_) { }
         return res.status(200).json({
             success: true,
             message: enabled ? "Cloud backup enabled" : "Cloud backup disabled"
@@ -137,7 +163,8 @@ exports.restoreFromLocalEnc = async (req, res) => {
             if (outlets && outlets[0] && outlets[0].outlet_code) {
                 primaryOutletCode = outlets[0].outlet_code;
             }
-        } catch (_) {}
+        }
+        catch (_) { }
         return res.status(200).json({
             success: true,
             message: "Backup restored successfully from .enc file.",

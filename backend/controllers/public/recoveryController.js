@@ -66,6 +66,10 @@ function findStoredOtp(store, outletCode, contactStr) {
  * STEP 1: Verifies the Outlet Code AND the Recovery PIN
  */
 async function verifyOutletForRecovery(req, res) {
+    if (req.setTimeout)
+        req.setTimeout(5 * 60 * 1000);
+    if (res.setTimeout)
+        res.setTimeout(5 * 60 * 1000);
     const { outletCode, pin } = req.body;
     if (!outletCode || !pin) {
         return res.status(400).json({
@@ -112,12 +116,18 @@ async function verifyOutletForRecovery(req, res) {
  * STEP 2: Executes the Restore and Saves Extended Config
  */
 async function executeFullSystemRecovery(req, res) {
-    const { folderId, clientData } = req.body;
+    if (req.setTimeout)
+        req.setTimeout(15 * 60 * 1000);
+    if (res.setTimeout)
+        res.setTimeout(15 * 60 * 1000);
+    const { folderId, clientData, skipRestore } = req.body;
     try {
-        console.log(`[RECOVERY] Executing system restore for: ${clientData.outlet_code}`);
-        // Restore first; only persist the link if database recovery succeeds.
-        await autoRestoreLatest(folderId);
-        await downloadSystemConfigs(folderId);
+        console.log(`[RECOVERY] Executing system setup for: ${clientData.outlet_code} (skipRestore: ${!!skipRestore})`);
+        if (!skipRestore) {
+            // Restore first; only persist the link if database recovery succeeds.
+            await autoRestoreLatest(folderId);
+            await downloadSystemConfigs(folderId);
+        }
         // 1. Read existing configuration safely
         let clients = [];
         if (fs.existsSync(CLIENT_FILE)) {

@@ -40,6 +40,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   bool _billShowCashier = true;
   bool _billShowToken = true;
   bool _billShowBrand = true;
+  bool _billShowHsnCode = true;
   bool _billShowDiscounts = true;
   bool _billShowTaxBreakup = true;
   bool _billShowBankDetails = true;
@@ -48,6 +49,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   bool _billShowCurrency = true;
   String _billFontSize = 'MEDIUM'; // SMALL, MEDIUM, LARGE
   String _billThermalWidth = '80mm'; // 80mm, 76mm, 58mm
+  String _selectedBillFormat = 'A4'; // THERMAL_80, A4, A5
 
   // =========================================================================
   // 2. A4 Full Invoice Template Controllers & Toggles
@@ -289,6 +291,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _billShowCashier = billConfig['show_cashier'] ?? true;
     _billShowToken = billConfig['show_token'] ?? (settingsCtrl.settings?.enableTokenSystem ?? false);
     _billShowBrand = billConfig['show_brand'] ?? (settingsCtrl.settings?.showBrandName ?? true);
+    _billShowHsnCode = billConfig['show_hsn_code'] ?? true;
     _billShowDiscounts = billConfig['show_item_discounts'] ?? true;
     _billShowTaxBreakup = billConfig['show_tax_breakup'] ?? true;
     _billShowBankDetails = billConfig['show_bank_details'] ?? (prop?.printBankDetails ?? false);
@@ -297,6 +300,15 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _billShowCurrency = billConfig['show_currency_symbol'] ?? billConfig['show_currency'] ?? true;
     _billFontSize = billConfig['font_size'] ?? 'MEDIUM';
     _billThermalWidth = billConfig['thermal_width'] ?? '80mm';
+
+    final String rawFormat = (settingsCtrl.settings?.billFormat ?? 'A4').trim().toUpperCase();
+    if (rawFormat.contains('A5')) {
+      _selectedBillFormat = 'A5';
+    } else if (rawFormat.contains('80') || rawFormat.contains('THERMAL') || rawFormat.contains('76') || rawFormat.contains('58')) {
+      _selectedBillFormat = 'THERMAL_80';
+    } else {
+      _selectedBillFormat = 'A4';
+    }
 
     // 2. A4 Invoice Config
     _a4HeaderTitleCtrl.text = a4Config['header_title'] ?? (prop?.propertyName.isNotEmpty == true ? prop!.propertyName : 'RETAIL ENTERPRISES LIMITED');
@@ -431,6 +443,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       'show_cashier': _billShowCashier,
       'show_token': _billShowToken,
       'show_brand': _billShowBrand,
+      'show_hsn_code': _billShowHsnCode,
       'show_item_discounts': _billShowDiscounts,
       'show_tax_breakup': _billShowTaxBreakup,
       'show_bank_details': _billShowBankDetails,
@@ -547,6 +560,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     currentSettings.a5TemplateConfig = a5Config;
     currentSettings.kotTemplateConfig = kotConfig;
     currentSettings.tokenTemplateConfig = tokenConfig;
+    currentSettings.billFormat = _selectedBillFormat;
 
     setState(() => _loading = true);
     await settingsCtrl.save(currentSettings);
@@ -656,27 +670,133 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
           labelColor: primaryColor,
           unselectedLabelColor: const Color(0xFF64748B),
           labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-          tabs: const [
-            Tab(icon: Icon(Icons.receipt_long, size: 18), text: '80mm Thermal Bill'),
-            Tab(icon: Icon(Icons.description_outlined, size: 18), text: 'A4 Tax Invoice'),
-            Tab(icon: Icon(Icons.receipt_outlined, size: 18), text: 'A5 Tax Invoice'),
-            Tab(icon: Icon(Icons.soup_kitchen_outlined, size: 18), text: 'Kitchen KOT'),
-            Tab(icon: Icon(Icons.confirmation_number_outlined, size: 18), text: 'Token Slip'),
+          tabs: [
+            Tab(icon: const Icon(Icons.receipt_long, size: 18), text: _selectedBillFormat == 'THERMAL_80' ? '80mm Thermal (Active)' : '80mm Thermal Bill'),
+            Tab(icon: const Icon(Icons.description_outlined, size: 18), text: _selectedBillFormat == 'A4' ? 'A4 Tax Invoice (Active)' : 'A4 Tax Invoice'),
+            Tab(icon: const Icon(Icons.receipt_outlined, size: 18), text: _selectedBillFormat == 'A5' ? 'A5 Tax Invoice (Active)' : 'A5 Tax Invoice'),
+            const Tab(icon: Icon(Icons.soup_kitchen_outlined, size: 18), text: 'Kitchen KOT'),
+            const Tab(icon: Icon(Icons.confirmation_number_outlined, size: 18), text: 'Token Slip'),
           ],
         ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: primaryColor))
-          : TabBarView(
-              controller: _tabController,
+          : Column(
               children: [
-                _build80mmBillDesignerTab(),
-                _buildA4InvoiceDesignerTab(),
-                _buildA5InvoiceDesignerTab(),
-                _buildKotDesignerTab(),
-                _buildTokenDesignerTab(),
+                _buildDefaultFormatBanner(),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _build80mmBillDesignerTab(),
+                      _buildA4InvoiceDesignerTab(),
+                      _buildA5InvoiceDesignerTab(),
+                      _buildKotDesignerTab(),
+                      _buildTokenDesignerTab(),
+                    ],
+                  ),
+                ),
               ],
             ),
+    );
+  }
+
+  Widget _buildDefaultFormatBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.tune_rounded, color: primaryColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Default System Bill Format:',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF15803D).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _selectedBillFormat == 'THERMAL_80'
+                            ? '80mm Roll Default'
+                            : (_selectedBillFormat == 'A5' ? 'A5 Half-Sheet Default' : 'A4 Full Sheet Default'),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF15803D)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'The selected format governs default layout across POS sales, invoice printing, customer receipts, and duplicates.',
+                  style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 14),
+          SegmentedButton<String>(
+            style: ButtonStyle(
+              backgroundColor: WidgetStateProperty.resolveWith<Color>((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return primaryColor;
+                }
+                return Colors.white;
+              }),
+              foregroundColor: WidgetStateProperty.resolveWith<Color>((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return Colors.white;
+                }
+                return const Color(0xFF334155);
+              }),
+              visualDensity: VisualDensity.compact,
+            ),
+            segments: const [
+              ButtonSegment(
+                value: 'THERMAL_80',
+                label: Text('80mm Thermal', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                icon: Icon(Icons.receipt_long, size: 16),
+              ),
+              ButtonSegment(
+                value: 'A4',
+                label: Text('A4 Standard', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                icon: Icon(Icons.description, size: 16),
+              ),
+              ButtonSegment(
+                value: 'A5',
+                label: Text('A5 Half-Sheet', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                icon: Icon(Icons.receipt, size: 16),
+              ),
+            ],
+            selected: {_selectedBillFormat},
+            onSelectionChanged: (Set<String> newSelection) {
+              setState(() {
+                _selectedBillFormat = newSelection.first;
+              });
+            },
+          ),
+        ],
+      ),
     );
   }
 
@@ -733,6 +853,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       _buildSwitch('Print Cashier / Server Name', _billShowCashier, (v) => setState(() => _billShowCashier = v)),
                       _buildSwitch('Print Token Number (e.g. TK-101)', _billShowToken, (v) => setState(() => _billShowToken = v)),
                       _buildSwitch('Print Product Brand Prefix', _billShowBrand, (v) => setState(() => _billShowBrand = v)),
+                      _buildSwitch('Print HSN / SAC Code in Details Line', _billShowHsnCode, (v) => setState(() => _billShowHsnCode = v)),
                       _buildSwitch('Print Discount & Scheme Breakdown', _billShowDiscounts, (v) => setState(() => _billShowDiscounts = v)),
                       _buildSwitch('Print Tax Analysis Table (VAT/CTL)', _billShowTaxBreakup, (v) => setState(() => _billShowTaxBreakup = v)),
                       _buildSwitch('Print Bank Account / M-Pesa Till', _billShowBankDetails, (v) => setState(() => _billShowBankDetails = v)),
@@ -1360,11 +1481,11 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                   ),
                 ),
                 const Divider(height: 1, color: Color(0xFFCBD5E1)),
-                _a4ItemTableRow('1', '${_a5ShowBrand ? "Brookside - " : ""}Fresh Whole Milk 500ml', '0401.20', '10.0', fmt(80.00), fmt(0.00), '16% (${fmt(128.00)})', fmt(800.00), tableItemSize, scale),
+                _a5ItemTableRow('1', '${_a5ShowBrand ? "Brookside - " : ""}Fresh Whole Milk 500ml', '0401.20', '10.0', fmt(80.00), fmt(0.00), '16% (${fmt(128.00)})', fmt(800.00), tableItemSize, scale),
                 const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                _a4ItemTableRow('2', '${_a5ShowBrand ? "Farmers - " : ""}Sandwich Bread 400g', '1905.90', '5.0', fmt(65.00), '5% (${fmt(16.25)})', '16% (${fmt(49.40)})', fmt(308.75), tableItemSize, scale),
+                _a5ItemTableRow('2', '${_a5ShowBrand ? "Farmers - " : ""}Sandwich Bread 400g', '1905.90', '5.0', fmt(65.00), '5% (${fmt(16.25)})', '16% (${fmt(49.40)})', fmt(308.75), tableItemSize, scale),
                 const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                _a4ItemTableRow('3', 'Mineral Drinking Water 1L Bottle', '2201.10', '24.0', fmt(50.00), fmt(0.00), '16% (${fmt(192.00)})', fmt(1200.00), tableItemSize, scale),
+                _a5ItemTableRow('3', 'Mineral Drinking Water 1L Bottle', '2201.10', '24.0', fmt(50.00), fmt(0.00), '16% (${fmt(192.00)})', fmt(1200.00), tableItemSize, scale),
               ],
             ),
           ),
@@ -1900,7 +2021,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
           _build80mmItemRow(
             '${_billShowBrand ? "JK Paper - " : ""}A4 Paper Rim',
             fmt(855.86),
-            'HSN 4802 | 2 Nos x ${fmt(399.00)} | Sales Tax 7.25% = ${fmt(57.85)}',
+            '${_billShowHsnCode ? "HSN 4802 | " : ""}2 Nos x ${fmt(399.00)}${_billShowDiscounts ? " | Disc ${fmt(0.00)}" : ""} | Sales Tax 7.25% = ${fmt(57.85)}',
             scale,
           ),
 
@@ -2452,6 +2573,24 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
           Expanded(flex: 2, child: Text(rate, textAlign: TextAlign.right, style: TextStyle(fontSize: fontSize))),
           if (_a4ShowItemDiscount) Expanded(flex: 2, child: Text(disc, textAlign: TextAlign.right, style: TextStyle(fontSize: fontSize, color: const Color(0xFF15803D)))),
           if (_a4ShowTaxBreakup) Expanded(flex: 2, child: Text(tax, textAlign: TextAlign.right, style: TextStyle(fontSize: fontSize * 0.95))),
+          Expanded(flex: 2, child: Text(total, textAlign: TextAlign.right, style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+  }
+
+  Widget _a5ItemTableRow(String no, String name, String hsn, String qty, String rate, String disc, String tax, String total, double fontSize, double scale) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 3.5 * scale),
+      child: Row(
+        children: [
+          SizedBox(width: 18 * scale, child: Text(no, style: TextStyle(fontSize: fontSize))),
+          Expanded(flex: 4, child: Text(name, style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w600))),
+          if (_a5ShowHsnCode) Expanded(flex: 2, child: Text(hsn, style: TextStyle(fontSize: fontSize * 0.95, color: const Color(0xFF64748B)))),
+          Expanded(flex: 1, child: Text(qty, textAlign: TextAlign.center, style: TextStyle(fontSize: fontSize))),
+          Expanded(flex: 2, child: Text(rate, textAlign: TextAlign.right, style: TextStyle(fontSize: fontSize))),
+          if (_a5ShowItemDiscount) Expanded(flex: 2, child: Text(disc, textAlign: TextAlign.right, style: TextStyle(fontSize: fontSize, color: const Color(0xFF15803D)))),
+          if (_a5ShowTaxBreakup) Expanded(flex: 2, child: Text(tax, textAlign: TextAlign.right, style: TextStyle(fontSize: fontSize * 0.95))),
           Expanded(flex: 2, child: Text(total, textAlign: TextAlign.right, style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold))),
         ],
       ),

@@ -25,8 +25,8 @@ Future<void> showSaleBillPreviewDialog(
   // Determine active print format (80mm vs A4) based on system settings or sale format
   String activeFormat = 'THERMAL_80';
   final rawSaleFormat = (sale['bill_format'] ?? sale['billFormat'])?.toString().trim();
-  final sysBillFormat = sysSettings?.billFormat?.trim() ?? '';
-  final thermalWidthSetting = (sysSettings?.receiptTemplateConfig?['thermal_width'] ?? '').toString();
+  final sysBillFormat = sysSettings?.billFormat.trim() ?? '';
+  final thermalWidthSetting = (sysSettings?.receiptTemplateConfig['thermal_width'] ?? '').toString();
 
   if (sysBillFormat.isNotEmpty) {
     activeFormat = sysBillFormat;
@@ -101,12 +101,11 @@ Future<void> showSaleBillPreviewDialog(
                     label: Text('58mm'),
                     icon: Icon(Icons.receipt_outlined, size: 16),
                   ),
-                  if (sysBillFormat == 'A5' || activeFormat == 'A5')
-                    const ButtonSegment(
-                      value: 'A5',
-                      label: Text('A5'),
-                      icon: Icon(Icons.description_outlined, size: 16),
-                    ),
+                  const ButtonSegment(
+                    value: 'A5',
+                    label: Text('A5'),
+                    icon: Icon(Icons.description_outlined, size: 16),
+                  ),
                   const ButtonSegment(
                     value: 'A4',
                     label: Text('A4'),

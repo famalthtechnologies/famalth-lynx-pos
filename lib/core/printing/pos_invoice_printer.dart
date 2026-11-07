@@ -296,12 +296,16 @@ class PosInvoicePrinter {
     final String thermalWidthSetting = (receiptConfig['thermal_width'] ?? '').toString();
 
     final int numCopies = copyCount > 1 ? copyCount : 1;
-    final bool isA5 = order.billFormat.toUpperCase() == 'A5' || order.billFormat.toUpperCase() == 'A5_INVOICE';
+    final String activeBillFormat = (order.billFormat.trim().isNotEmpty && order.billFormat.trim().toUpperCase() != 'STANDARD')
+        ? order.billFormat.trim()
+        : ((sysSettings?.billFormat.trim().isNotEmpty == true) ? sysSettings!.billFormat.trim() : 'A4');
+    final bool isA5 = activeBillFormat.toUpperCase() == 'A5' || activeBillFormat.toUpperCase() == 'A5_INVOICE';
+    final bool isThermal = _isThermalFormat(activeBillFormat);
     for (int c = 0; c < numCopies; c++) {
-      if (_isThermalFormat(order.billFormat)) {
+      if (isThermal) {
         document.addPage(
           pw.MultiPage(
-            pageFormat: _thermalSheetFor(order.billFormat, thermalWidthSetting),
+            pageFormat: _thermalSheetFor(activeBillFormat, thermalWidthSetting),
             build: (_) => [_buildThermalReceipt(invoiceData, logo)],
           ),
         );
@@ -386,6 +390,23 @@ class PosInvoicePrinter {
     );
 
     final bool showToken = cfg['show_token'] ?? (data.enableTokenSystem);
+    final String billUpiId = (cfg['upi_id']?.toString().trim().isNotEmpty == true)
+        ? cfg['upi_id'].toString().trim()
+        : (data.property?.upiId ?? '').trim();
+    final String billUpiPayee = (cfg['upi_payee_name']?.toString().trim().isNotEmpty == true)
+        ? cfg['upi_payee_name'].toString().trim()
+        : (data.property?.upiPayeeName.isNotEmpty == true
+            ? data.property!.upiPayeeName.trim()
+            : (data.property?.legalName.isNotEmpty == true ? data.property!.legalName.trim() : (data.property?.propertyName ?? '')));
+    final String billBankName = (cfg['bank_name']?.toString().trim().isNotEmpty == true)
+        ? cfg['bank_name'].toString().trim()
+        : (data.property?.bankName ?? '').trim();
+    final String billBankAccNo = (cfg['bank_account_no']?.toString().trim().isNotEmpty == true)
+        ? cfg['bank_account_no'].toString().trim()
+        : (data.property?.bankAccNo ?? '').trim();
+    final String billBankIfsc = (cfg['bank_ifsc']?.toString().trim().isNotEmpty == true)
+        ? cfg['bank_ifsc'].toString().trim()
+        : (data.property?.bankIfsc ?? '').trim();
 
     return pw.DefaultTextStyle(
       style: bodyStyle,
@@ -571,7 +592,13 @@ class PosInvoicePrinter {
             ],
           ),
           pw.SizedBox(height: 3),
-          ...order.items.map((item) => _thermalItemRow(item, order, data.showBrandName)),
+          ...order.items.map((item) => _thermalItemRow(
+                item,
+                order,
+                cfg['show_brand'] ?? data.showBrandName,
+                showHsn: cfg['show_hsn_code'] ?? true,
+                showDiscounts: cfg['show_item_discounts'] ?? true,
+              )),
           _dashedDivider(),
           _thermalValueRow('Total Items', '$totalItems'),
           _thermalValueRow('Total Qty', order.totalQty % 1 == 0 ? order.totalQty.toInt().toString() : order.totalQty.toStringAsFixed(2)),
@@ -674,7 +701,7 @@ class PosInvoicePrinter {
                   charge.amount,
                 ),
               ),
-          if (hasTaxData && itemGroupedTaxes.isNotEmpty) ...[
+          if ((cfg['show_tax_breakup'] ?? true) && hasTaxData && itemGroupedTaxes.isNotEmpty) ...[
             pw.SizedBox(height: 4),
             pw.Text('Tax Breakup - Items', style: emphasisStyle),
             pw.SizedBox(height: 3),
@@ -686,7 +713,7 @@ class PosInvoicePrinter {
               ),
             ),
           ],
-          if (hasChargeTaxData) ...[
+          if ((cfg['show_tax_breakup'] ?? true) && hasChargeTaxData) ...[
             pw.SizedBox(height: 4),
             pw.Text('Tax Breakup - Charges', style: emphasisStyle),
             pw.SizedBox(height: 3),
@@ -899,32 +926,33 @@ class PosInvoicePrinter {
 
           // --- Custom Thermal Receipt Footer ---
           // UPI QR Code Section (if enabled)
-          if ((cfg['show_upi_qr'] ?? (data.property?.printUpiQr == true)) && (data.property?.upiId ?? '').trim().isNotEmpty) ...[
+          if ((cfg['show_upi_qr'] ?? (data.property?.printUpiQr == true)) && billUpiId.isNotEmpty) ...[
             pw.SizedBox(height: 6 * scale),
             pw.Center(
               child: pw.BarcodeWidget(
                 barcode: pw.Barcode.qrCode(),
-                data: 'upi://pay?pa=${data.property!.upiId.trim()}&pn=${Uri.encodeComponent(data.property!.upiPayeeName.isNotEmpty ? data.property!.upiPayeeName.trim() : (data.property!.legalName.isNotEmpty ? data.property!.legalName.trim() : data.property!.propertyName.trim()))}&am=${order.netAmount.toStringAsFixed(2)}&tr=${order.saleNo}&cu=INR',
+                data: 'upi://pay?pa=$billUpiId&pn=${Uri.encodeComponent(billUpiPayee)}&am=${order.netAmount.toStringAsFixed(2)}&tr=${order.saleNo}&cu=INR',
                 width: 65 * scale,
                 height: 65 * scale,
               ),
             ),
             pw.SizedBox(height: 3 * scale),
             pw.Text('Scan to Pay via UPI', style: emphasisStyle.copyWith(fontSize: 8.5 * scale), textAlign: pw.TextAlign.center),
-            pw.Text('UPI ID: ${data.property!.upiId.trim()}', style: bodyStyle.copyWith(fontSize: 8 * scale), textAlign: pw.TextAlign.center),
+            pw.Text('UPI ID: $billUpiId', style: bodyStyle.copyWith(fontSize: 8 * scale), textAlign: pw.TextAlign.center),
             pw.SizedBox(height: 4 * scale),
           ],
 
           // Bank Details Section (if enabled)
           if ((cfg['show_bank_details'] ?? (data.property?.printBankDetails == true)) && 
-              ((data.property?.bankName ?? '').trim().isNotEmpty || 
-               (data.property?.bankAccNo ?? '').trim().isNotEmpty)) ...[
+              (billBankName.isNotEmpty || billBankAccNo.isNotEmpty)) ...[
             pw.SizedBox(height: 4 * scale),
             pw.Text('--- Bank Details ---', style: emphasisStyle.copyWith(fontSize: 8.5 * scale), textAlign: pw.TextAlign.center),
-            pw.Text('Bank: ${data.property!.bankName.trim()}', style: bodyStyle.copyWith(fontSize: 8 * scale), textAlign: pw.TextAlign.center),
-            pw.Text('A/c No: ${data.property!.bankAccNo.trim()}', style: bodyStyle.copyWith(fontSize: 8 * scale), textAlign: pw.TextAlign.center),
-            if (data.property!.bankIfsc.isNotEmpty)
-              pw.Text('IFSC: ${data.property!.bankIfsc.trim()}', style: bodyStyle.copyWith(fontSize: 8 * scale), textAlign: pw.TextAlign.center),
+            if (billBankName.isNotEmpty)
+              pw.Text('Bank: $billBankName', style: bodyStyle.copyWith(fontSize: 8 * scale), textAlign: pw.TextAlign.center),
+            if (billBankAccNo.isNotEmpty)
+              pw.Text('A/c No: $billBankAccNo', style: bodyStyle.copyWith(fontSize: 8 * scale), textAlign: pw.TextAlign.center),
+            if (billBankIfsc.isNotEmpty)
+              pw.Text('IFSC: $billBankIfsc', style: bodyStyle.copyWith(fontSize: 8 * scale), textAlign: pw.TextAlign.center),
             pw.SizedBox(height: 6 * scale),
           ],
 
@@ -1013,6 +1041,39 @@ class PosInvoicePrinter {
     final bool a5ShowAddress = a5Cfg['show_address'] ?? true;
     final bool a5ShowContact = a5Cfg['show_contact'] ?? true;
     final bool a5ShowTaxReg = a5Cfg['show_tax_reg'] ?? true;
+    final bool a5ShowBuyerDetails = a5Cfg['show_buyer_details'] ?? true;
+    final bool a5ShowShippingDetails = a5Cfg['show_shipping_details'] ?? true;
+    final bool a5ShowHsnCode = a5Cfg['show_hsn_code'] ?? true;
+    final bool a5ShowBrand = a5Cfg['show_brand'] ?? true;
+    final bool a5ShowItemDiscount = a5Cfg['show_item_discount'] ?? true;
+    final bool a5ShowTaxBreakup = a5Cfg['show_tax_breakup'] ?? true;
+    final bool a5ShowAmountInWords = a5Cfg['show_amount_in_words'] ?? true;
+    final bool a5ShowBankDetails = a5Cfg['show_bank_details'] ?? true;
+    final bool a5ShowQrCode = a5Cfg['show_qr_code'] ?? true;
+    final bool a5ShowTerms = a5Cfg['show_terms'] ?? true;
+    final bool a5ShowSignatureBox = a5Cfg['show_signature_box'] ?? true;
+
+    final String a5BankName = (a5Cfg['bank_name']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['bank_name'].toString().trim()
+        : data.bankName;
+    final String a5BankAccNo = (a5Cfg['bank_account_no']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['bank_account_no'].toString().trim()
+        : data.bankAccountNo;
+    final String a5BankIfsc = (a5Cfg['bank_ifsc']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['bank_ifsc'].toString().trim()
+        : data.bankIfscCode;
+    final String a5Mpesa = (a5Cfg['mpesa_paybill']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['mpesa_paybill'].toString().trim()
+        : (data.a4TemplateConfig['mpesa_paybill']?.toString().trim() ?? '');
+    final String a5Terms = (a5Cfg['terms_and_conditions']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['terms_and_conditions'].toString().trim()
+        : data.termsAndConditions;
+    final String a5Signatory = (a5Cfg['signatory_label']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['signatory_label'].toString().trim()
+        : data.authorizedSignatureLabel;
+    final String a5Footer = (a5Cfg['footer_note']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['footer_note'].toString().trim()
+        : data.thankYouMessage;
 
     final sellerName = (a5Cfg['header_title']?.toString().trim().isNotEmpty == true)
         ? a5Cfg['header_title'].toString().trim()
@@ -1066,7 +1127,7 @@ class PosInvoicePrinter {
                     mainAxisSize: pw.MainAxisSize.min,
                     children: [
                       pw.Text(
-                        _receiptTitle(order, hasTaxData, data.a5TemplateConfig['invoice_title']?.toString() ?? data.receiptTemplateConfig['invoice_title']?.toString())
+                        _receiptTitle(order, hasTaxData, a5Cfg['invoice_title']?.toString() ?? data.receiptTemplateConfig['invoice_title']?.toString())
                             .replaceFirst('BILL', 'INVOICE')
                             .replaceFirst('RECEIPT', 'INVOICE'),
                         style: pw.TextStyle(
@@ -1229,64 +1290,76 @@ class PosInvoicePrinter {
                   ),
                 ),
               ),
-              pw.Container(
-                width: 1,
-                color: PdfColors.grey600,
-                height: 90,
-              ),
-              pw.Expanded(
-                child: pw.Padding(
-                  padding: const pw.EdgeInsets.all(6),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'Billed To',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
-                      ),
-                      pw.SizedBox(height: 4),
-                      _a4MetaRow('Customer', buyerName),
-                      _a4MetaRow(
-                        'Address',
-                        _cleanAddressForPrint(order.customerAddress).isEmpty
-                            ? '--'
-                            : _cleanAddressForPrint(order.customerAddress),
-                      ),
-                      _a4MetaRow(
-                        'Phone',
-                        (order.customerPhone ?? '').trim().isEmpty
-                            ? '--'
-                            : order.customerPhone!.trim(),
-                      ),
-                      _a4MetaRow(
-                        'GSTIN',
-                        (order.customerGstin ?? '').trim().isEmpty
-                            ? 'URD'
-                            : order.customerGstin!.trim(),
-                      ),
-                    ],
+              if (a5ShowBuyerDetails) ...[
+                pw.Container(
+                  width: 1,
+                  color: PdfColors.grey600,
+                  height: 90,
+                ),
+                pw.Expanded(
+                  child: pw.Padding(
+                    padding: const pw.EdgeInsets.all(6),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'Billed To',
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+                        ),
+                        pw.SizedBox(height: 4),
+                        _a4MetaRow('Customer', buyerName),
+                        _a4MetaRow(
+                          'Address',
+                          _cleanAddressForPrint(order.customerAddress).isEmpty
+                              ? '--'
+                              : _cleanAddressForPrint(order.customerAddress),
+                        ),
+                        _a4MetaRow(
+                          'Phone',
+                          (order.customerPhone ?? '').trim().isEmpty
+                              ? '--'
+                              : order.customerPhone!.trim(),
+                        ),
+                        _a4MetaRow(
+                          'GSTIN',
+                          (order.customerGstin ?? '').trim().isEmpty
+                              ? 'URD'
+                              : order.customerGstin!.trim(),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
         pw.SizedBox(height: 8),
-        _buildA4ItemsTable(order, data.showBrandName),
-        pw.SizedBox(height: 6),
-        // Amount in Words
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 3),
-          child: pw.RichText(
-            text: pw.TextSpan(
-              children: [
-                pw.TextSpan(text: 'Amount in Words: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7, color: PdfColors.blueGrey900)),
-                pw.TextSpan(text: amountInWords, style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey800)),
-              ],
-            ),
-          ),
+        _buildA4ItemsTable(
+          order,
+          showBrand: a5ShowBrand,
+          showHsnCode: a5ShowHsnCode,
+          showItemDiscount: a5ShowItemDiscount,
+          showTaxBreakup: a5ShowTaxBreakup,
+          scale: a5Scale,
+          themeColor: themeColor,
         ),
         pw.SizedBox(height: 6),
+        // Amount in Words
+        if (a5ShowAmountInWords) ...[
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 3),
+            child: pw.RichText(
+              text: pw.TextSpan(
+                children: [
+                  pw.TextSpan(text: 'Amount in Words: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7, color: PdfColors.blueGrey900)),
+                  pw.TextSpan(text: amountInWords, style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey800)),
+                ],
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 6),
+        ],
 
         pw.Row(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1296,10 +1369,7 @@ class PosInvoicePrinter {
                 crossAxisAlignment: pw.CrossAxisAlignment.stretch,
                 children: [
                   // Payment Details Box
-                  if ((data.property?.printBankDetails == true && 
-                        ((data.property?.bankName ?? '').trim().isNotEmpty || 
-                         (data.property?.bankAccNo ?? '').trim().isNotEmpty)) ||
-                      (data.property?.printUpiQr == true && (data.property?.upiId ?? '').trim().isNotEmpty)) ...[
+                  if (a5ShowBankDetails && ((a5BankName.isNotEmpty || a5BankAccNo.isNotEmpty) || (a5ShowQrCode && (data.property?.upiId ?? '').trim().isNotEmpty))) ...[
                     pw.Container(
                       padding: const pw.EdgeInsets.all(6),
                       decoration: pw.BoxDecoration(
@@ -1315,22 +1385,22 @@ class PosInvoicePrinter {
                           pw.Row(
                             crossAxisAlignment: pw.CrossAxisAlignment.start,
                             children: [
-                              if (data.property?.printBankDetails == true && 
-                                  ((data.property?.bankName ?? '').trim().isNotEmpty || 
-                                   (data.property?.bankAccNo ?? '').trim().isNotEmpty))
+                              if (a5BankName.isNotEmpty || a5BankAccNo.isNotEmpty)
                                 pw.Expanded(
                                   child: pw.Column(
                                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                                     children: [
                                       pw.Text('Bank Transfer (NEFT/IMPS):', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 6.5, color: PdfColors.grey700)),
-                                      pw.Text('Bank: ${data.bankName}', style: const pw.TextStyle(fontSize: 6.5)),
-                                      pw.Text('A/C No: ${data.bankAccountNo}', style: const pw.TextStyle(fontSize: 6.5)),
-                                      if (data.bankIfscCode.isNotEmpty)
-                                        pw.Text('IFSC: ${data.bankIfscCode}', style: const pw.TextStyle(fontSize: 6.5)),
+                                      pw.Text('Bank: $a5BankName', style: const pw.TextStyle(fontSize: 6.5)),
+                                      pw.Text('A/C No: $a5BankAccNo', style: const pw.TextStyle(fontSize: 6.5)),
+                                      if (a5BankIfsc.isNotEmpty)
+                                        pw.Text('IFSC: $a5BankIfsc', style: const pw.TextStyle(fontSize: 6.5)),
+                                      if (a5Mpesa.isNotEmpty)
+                                        pw.Text(a5Mpesa, style: const pw.TextStyle(fontSize: 6.5)),
                                     ],
                                   ),
                                 ),
-                              if (data.property?.printUpiQr == true && (data.property?.upiId ?? '').trim().isNotEmpty) ...[
+                              if (a5ShowQrCode && (data.property?.upiId ?? '').trim().isNotEmpty) ...[
                                 pw.SizedBox(width: 6),
                                 pw.Column(
                                   children: [
@@ -1353,7 +1423,7 @@ class PosInvoicePrinter {
                     pw.SizedBox(height: 6),
                   ],
                   // Terms and Conditions Box
-                  if (data.termsAndConditions.isNotEmpty)
+                  if (a5ShowTerms && a5Terms.isNotEmpty)
                     pw.Container(
                       padding: const pw.EdgeInsets.all(6),
                       decoration: pw.BoxDecoration(
@@ -1367,7 +1437,7 @@ class PosInvoicePrinter {
                           pw.Text('TERMS & CONDITIONS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 6.5, color: PdfColors.blueGrey800)),
                           pw.SizedBox(height: 2),
                           pw.Text(
-                            data.termsAndConditions,
+                            a5Terms,
                             style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey700),
                           ),
                         ],
@@ -1378,7 +1448,7 @@ class PosInvoicePrinter {
             ),
             pw.SizedBox(width: 8),
             pw.Expanded(
-              child: _buildTotalsBox(order),
+              child: _buildTotalsBox(order, showTaxBreakup: a5ShowTaxBreakup, scale: a5Scale),
             ),
           ],
         ),
@@ -1391,10 +1461,11 @@ class PosInvoicePrinter {
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text(
-                    data.thankYouMessage,
-                    style: pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 7, color: PdfColors.grey700),
-                  ),
+                  if (a5Footer.isNotEmpty)
+                    pw.Text(
+                      a5Footer,
+                      style: pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 7, color: PdfColors.grey700),
+                    ),
                   pw.SizedBox(height: 2),
                   pw.Text(
                     'Powered by ${AppBrand.poweredByLabel}',
@@ -1403,33 +1474,34 @@ class PosInvoicePrinter {
                 ],
               ),
             ),
-            pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
-              children: [
-                if (data.property?.printDigitalSignature == true) ...[
-                  pw.Container(
-                    padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                    margin: const pw.EdgeInsets.only(bottom: 2),
-                    decoration: pw.BoxDecoration(
-                      border: pw.Border.all(color: PdfColors.green600, width: 0.7),
-                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
-                      color: PdfColors.green50,
+            if (a5ShowSignatureBox)
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  if (data.property?.printDigitalSignature == true) ...[
+                    pw.Container(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      margin: const pw.EdgeInsets.only(bottom: 2),
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(color: PdfColors.green600, width: 0.7),
+                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+                        color: PdfColors.green50,
+                      ),
+                      child: pw.Text(
+                        'DIGITALLY SIGNED',
+                        style: pw.TextStyle(color: PdfColors.green700, fontSize: 5.5, fontWeight: pw.FontWeight.bold),
+                      ),
                     ),
-                    child: pw.Text(
-                      'DIGITALLY SIGNED',
-                      style: pw.TextStyle(color: PdfColors.green700, fontSize: 5.5, fontWeight: pw.FontWeight.bold),
-                    ),
-                  ),
-                  pw.Text('Cashier: ${data.cashierName}', style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
+                    pw.Text('Cashier: ${data.cashierName}', style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
+                    pw.SizedBox(height: 2),
+                  ] else ...[
+                    pw.SizedBox(height: 14),
+                  ],
+                  pw.Container(width: 120, height: 0.5, color: PdfColors.grey400),
                   pw.SizedBox(height: 2),
-                ] else ...[
-                  pw.SizedBox(height: 14),
+                  pw.Text(a5Signatory, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7, color: PdfColors.blueGrey900)),
                 ],
-                pw.Container(width: 120, height: 0.5, color: PdfColors.grey400),
-                pw.SizedBox(height: 2),
-                pw.Text(data.authorizedSignatureLabel, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7, color: PdfColors.blueGrey900)),
-              ],
-            ),
+              ),
           ],
         ),
       ],
@@ -1461,6 +1533,39 @@ class PosInvoicePrinter {
     final bool a4ShowAddress = a4Cfg['show_address'] ?? true;
     final bool a4ShowContact = a4Cfg['show_contact'] ?? true;
     final bool a4ShowTaxReg = a4Cfg['show_tax_reg'] ?? true;
+    final bool a4ShowBuyerDetails = a4Cfg['show_buyer_details'] ?? true;
+    final bool a4ShowShippingDetails = a4Cfg['show_shipping_details'] ?? true;
+    final bool a4ShowHsnCode = a4Cfg['show_hsn_code'] ?? true;
+    final bool a4ShowBrand = a4Cfg['show_brand'] ?? true;
+    final bool a4ShowItemDiscount = a4Cfg['show_item_discount'] ?? true;
+    final bool a4ShowTaxBreakup = a4Cfg['show_tax_breakup'] ?? true;
+    final bool a4ShowAmountInWords = a4Cfg['show_amount_in_words'] ?? true;
+    final bool a4ShowBankDetails = a4Cfg['show_bank_details'] ?? true;
+    final bool a4ShowQrCode = a4Cfg['show_qr_code'] ?? true;
+    final bool a4ShowTerms = a4Cfg['show_terms'] ?? true;
+    final bool a4ShowSignatureBox = a4Cfg['show_signature_box'] ?? true;
+
+    final String a4BankName = (a4Cfg['bank_name']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['bank_name'].toString().trim()
+        : data.bankName;
+    final String a4BankAccNo = (a4Cfg['bank_account_no']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['bank_account_no'].toString().trim()
+        : data.bankAccountNo;
+    final String a4BankIfsc = (a4Cfg['bank_ifsc']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['bank_ifsc'].toString().trim()
+        : data.bankIfscCode;
+    final String a4Mpesa = (a4Cfg['mpesa_paybill']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['mpesa_paybill'].toString().trim()
+        : '';
+    final String a4Terms = (a4Cfg['terms_and_conditions']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['terms_and_conditions'].toString().trim()
+        : data.termsAndConditions;
+    final String a4Signatory = (a4Cfg['signatory_label']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['signatory_label'].toString().trim()
+        : data.authorizedSignatureLabel;
+    final String a4Footer = (a4Cfg['footer_note']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['footer_note'].toString().trim()
+        : data.thankYouMessage;
 
     final sellerName = (a4Cfg['header_title']?.toString().trim().isNotEmpty == true)
         ? a4Cfg['header_title'].toString().trim()
@@ -1514,7 +1619,7 @@ class PosInvoicePrinter {
                     mainAxisSize: pw.MainAxisSize.min,
                     children: [
                       pw.Text(
-                        _receiptTitle(order, hasTaxData, data.a4TemplateConfig['invoice_title']?.toString() ?? data.receiptTemplateConfig['invoice_title']?.toString())
+                        _receiptTitle(order, hasTaxData, a4Cfg['invoice_title']?.toString() ?? data.receiptTemplateConfig['invoice_title']?.toString())
                             .replaceFirst('BILL', 'INVOICE')
                             .replaceFirst('RECEIPT', 'INVOICE'),
                         style: pw.TextStyle(
@@ -1695,68 +1800,80 @@ class PosInvoicePrinter {
                   ),
                 ),
               ),
-              pw.Container(
-                width: 1,
-                color: PdfColors.grey600,
-                height: 110,
-              ),
-              pw.Expanded(
-                child: pw.Padding(
-                  padding: const pw.EdgeInsets.all(10),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'Billed To',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                      ),
-                      pw.SizedBox(height: 6),
-                      _a4MetaRow('Customer', buyerName),
-                      _a4MetaRow(
-                        'Address',
-                        _cleanAddressForPrint(order.customerAddress).isEmpty
-                            ? '--'
-                            : _cleanAddressForPrint(order.customerAddress),
-                      ),
-                      _a4MetaRow(
-                        'Phone',
-                        (order.customerPhone ?? '').trim().isEmpty
-                            ? '--'
-                            : order.customerPhone!.trim(),
-                      ),
-                      _a4MetaRow(
-                        'GSTIN',
-                        (order.customerGstin ?? '').trim().isEmpty
-                            ? 'URD'
-                            : order.customerGstin!.trim(),
-                      ),
-                      if ((order.doctorName ?? '').trim().isNotEmpty)
-                        _a4MetaRow('Doctor', order.doctorName!.trim()),
-                      if ((order.patientName ?? '').trim().isNotEmpty)
-                        _a4MetaRow('Patient', order.patientName!.trim()),
-                    ],
+              if (a4ShowBuyerDetails) ...[
+                pw.Container(
+                  width: 1,
+                  color: PdfColors.grey600,
+                  height: 110,
+                ),
+                pw.Expanded(
+                  child: pw.Padding(
+                    padding: const pw.EdgeInsets.all(10),
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'Billed To',
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                        ),
+                        pw.SizedBox(height: 6),
+                        _a4MetaRow('Customer', buyerName),
+                        _a4MetaRow(
+                          'Address',
+                          _cleanAddressForPrint(order.customerAddress).isEmpty
+                              ? '--'
+                              : _cleanAddressForPrint(order.customerAddress),
+                        ),
+                        _a4MetaRow(
+                          'Phone',
+                          (order.customerPhone ?? '').trim().isEmpty
+                              ? '--'
+                              : order.customerPhone!.trim(),
+                        ),
+                        _a4MetaRow(
+                          'GSTIN',
+                          (order.customerGstin ?? '').trim().isEmpty
+                              ? 'URD'
+                              : order.customerGstin!.trim(),
+                        ),
+                        if ((order.doctorName ?? '').trim().isNotEmpty)
+                          _a4MetaRow('Doctor', order.doctorName!.trim()),
+                        if ((order.patientName ?? '').trim().isNotEmpty)
+                          _a4MetaRow('Patient', order.patientName!.trim()),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
         pw.SizedBox(height: 12),
-        _buildA4ItemsTable(order, data.showBrandName),
+        _buildA4ItemsTable(
+          order,
+          showBrand: a4ShowBrand,
+          showHsnCode: a4ShowHsnCode,
+          showItemDiscount: a4ShowItemDiscount,
+          showTaxBreakup: a4ShowTaxBreakup,
+          scale: a4Scale,
+          themeColor: themeColor,
+        ),
         pw.SizedBox(height: 10),
         // Amount in Words
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 4),
-          child: pw.RichText(
-            text: pw.TextSpan(
-              children: [
-                pw.TextSpan(text: 'Amount in Words: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.blueGrey900)),
-                pw.TextSpan(text: amountInWords, style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey800)),
-              ],
+        if (a4ShowAmountInWords) ...[
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 4),
+            child: pw.RichText(
+              text: pw.TextSpan(
+                children: [
+                  pw.TextSpan(text: 'Amount in Words: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.blueGrey900)),
+                  pw.TextSpan(text: amountInWords, style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey800)),
+                ],
+              ),
             ),
           ),
-        ),
-        pw.SizedBox(height: 8),
+          pw.SizedBox(height: 8),
+        ],
 
         pw.Row(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1766,10 +1883,7 @@ class PosInvoicePrinter {
                 crossAxisAlignment: pw.CrossAxisAlignment.stretch,
                 children: [
                   // Payment Details Box (Bank Transfer + UPI QR side-by-side)
-                  if ((data.property?.printBankDetails == true && 
-                        ((data.property?.bankName ?? '').trim().isNotEmpty || 
-                         (data.property?.bankAccNo ?? '').trim().isNotEmpty)) ||
-                      (data.property?.printUpiQr == true && (data.property?.upiId ?? '').trim().isNotEmpty)) ...[
+                  if (a4ShowBankDetails || (a4ShowQrCode && (data.property?.upiId ?? '').trim().isNotEmpty)) ...[
                     pw.Container(
                       padding: const pw.EdgeInsets.all(8),
                       decoration: pw.BoxDecoration(
@@ -1786,33 +1900,30 @@ class PosInvoicePrinter {
                             crossAxisAlignment: pw.CrossAxisAlignment.start,
                             children: [
                               // Bank Details
-                              if (data.property?.printBankDetails == true && 
-                                  ((data.property?.bankName ?? '').trim().isNotEmpty || 
-                                   (data.property?.bankAccNo ?? '').trim().isNotEmpty))
+                              if (a4ShowBankDetails && (a4BankName.isNotEmpty || a4BankAccNo.isNotEmpty))
                                 pw.Expanded(
                                   child: pw.Column(
                                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                                     children: [
                                       pw.Text('Bank Transfer (NEFT/IMPS):', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7.5, color: PdfColors.grey700)),
                                       pw.SizedBox(height: 2),
-                                      pw.Text('Bank: ${data.property!.bankName.trim()}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
-                                      pw.Text('A/c No: ${data.property!.bankAccNo.trim()}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
-                                      if (data.property!.bankIfsc.isNotEmpty)
-                                        pw.Text('IFSC: ${data.property!.bankIfsc.trim()}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
+                                      pw.Text('Bank: $a4BankName', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
+                                      pw.Text('A/c No: $a4BankAccNo', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
+                                      if (a4BankIfsc.isNotEmpty)
+                                        pw.Text('IFSC: $a4BankIfsc', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
+                                      if (a4Mpesa.isNotEmpty)
+                                        pw.Text(a4Mpesa, style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
                                     ],
                                   ),
                                 ),
 
                               // Divider between NEFT and UPI QR
-                              if (data.property?.printBankDetails == true && 
-                                  ((data.property?.bankName ?? '').trim().isNotEmpty || 
-                                   (data.property?.bankAccNo ?? '').trim().isNotEmpty) &&
-                                  data.property?.printUpiQr == true && 
-                                  (data.property?.upiId ?? '').trim().isNotEmpty)
+                              if (a4ShowBankDetails && (a4BankName.isNotEmpty || a4BankAccNo.isNotEmpty) &&
+                                  a4ShowQrCode && (data.property?.upiId ?? '').trim().isNotEmpty)
                                 pw.Container(width: 0.5, height: 48, color: PdfColors.grey300, margin: const pw.EdgeInsets.symmetric(horizontal: 10)),
 
                               // UPI QR Code
-                              if (data.property?.printUpiQr == true && (data.property?.upiId ?? '').trim().isNotEmpty)
+                              if (a4ShowQrCode && (data.property?.upiId ?? '').trim().isNotEmpty)
                                 pw.Row(
                                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                                   children: [
@@ -1844,86 +1955,91 @@ class PosInvoicePrinter {
                   ],
 
                   // Terms & Conditions Block
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text('Terms & Conditions:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.blueGrey800)),
-                      pw.SizedBox(height: 2),
-                      ...() {
-                        final terms = (data.property?.termsAndConditions.trim().isNotEmpty == true)
-                            ? data.property!.termsAndConditions
-                            : data.termsAndConditions;
-                        return terms.split('\n').where((t) => t.trim().isNotEmpty).map(
+                  if (a4ShowTerms && a4Terms.isNotEmpty)
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Terms & Conditions:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.blueGrey800)),
+                        pw.SizedBox(height: 2),
+                        ...a4Terms.split('\n').where((t) => t.trim().isNotEmpty).map(
                               (term) => pw.Text(
                                 term.trim(),
                                 style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey700),
                               ),
-                            );
-                      }(),
-                      if ((order.notes ?? '').trim().isNotEmpty) ...[
-                        pw.SizedBox(height: 4),
-                        pw.Text(
-                          'Note: ${order.notes!.trim()}',
-                          style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800),
-                        ),
+                            ),
+                        if ((order.notes ?? '').trim().isNotEmpty) ...[
+                          pw.SizedBox(height: 4),
+                          pw.Text(
+                            'Note: ${order.notes!.trim()}',
+                            style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800),
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
+                    ),
                 ],
               ),
             ),
             pw.SizedBox(width: 12),
             pw.SizedBox(
               width: 240,
-              child: _buildTotalsBox(order),
+              child: _buildTotalsBox(order, showTaxBreakup: a4ShowTaxBreakup, scale: a4Scale),
             ),
           ],
         ),
-        pw.SizedBox(height: 35),
+        if (a4Footer.isNotEmpty) ...[
+          pw.SizedBox(height: 10),
+          pw.Text(
+            a4Footer,
+            style: pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 8, color: PdfColors.grey700),
+            textAlign: pw.TextAlign.center,
+          ),
+        ],
+        pw.SizedBox(height: 25),
         
         // Professional Signature Lines
-        pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            // Customer Signature
-            pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Container(width: 130, height: 0.5, color: PdfColors.grey400),
-                pw.SizedBox(height: 3),
-                pw.Text('Customer Signature', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
-              ],
-            ),
-            // Authorized Signatory
-            pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
-              children: [
-                if (data.property?.printDigitalSignature == true) ...[
-                  pw.Container(
-                    padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    margin: const pw.EdgeInsets.only(bottom: 2),
-                    decoration: pw.BoxDecoration(
-                      border: pw.Border.all(color: PdfColors.green600, width: 0.8),
-                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
-                      color: PdfColors.green50,
-                    ),
-                    child: pw.Text(
-                      'DIGITALLY SIGNED',
-                      style: pw.TextStyle(color: PdfColors.green700, fontSize: 6, fontWeight: pw.FontWeight.bold),
-                    ),
-                  ),
-                  pw.Text('Cashier: ${data.cashierName}', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
-                  pw.SizedBox(height: 2),
-                ] else ...[
-                  pw.SizedBox(height: 18),
+        if (a4ShowSignatureBox)
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              // Customer Signature
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Container(width: 130, height: 0.5, color: PdfColors.grey400),
+                  pw.SizedBox(height: 3),
+                  pw.Text('Customer Signature', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
                 ],
-                pw.Container(width: 150, height: 0.5, color: PdfColors.grey400),
-                pw.SizedBox(height: 3),
-                pw.Text(data.authorizedSignatureLabel, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.blueGrey900)),
-              ],
-            ),
-          ],
-        ),
+              ),
+              // Authorized Signatory
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  if (data.property?.printDigitalSignature == true) ...[
+                    pw.Container(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      margin: const pw.EdgeInsets.only(bottom: 2),
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(color: PdfColors.green600, width: 0.8),
+                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+                        color: PdfColors.green50,
+                      ),
+                      child: pw.Text(
+                        'DIGITALLY SIGNED',
+                        style: pw.TextStyle(color: PdfColors.green700, fontSize: 6, fontWeight: pw.FontWeight.bold),
+                      ),
+                    ),
+                    pw.Text('Cashier: ${data.cashierName}', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
+                    pw.SizedBox(height: 2),
+                  ] else ...[
+                    pw.SizedBox(height: 18),
+                  ],
+                  pw.Container(width: 150, height: 0.5, color: PdfColors.grey400),
+                  pw.SizedBox(height: 3),
+                  pw.Text(a4Signatory, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.blueGrey900)),
+                ],
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -1944,7 +2060,15 @@ class PosInvoicePrinter {
     return false;
   }
 
-  static pw.Widget _buildA4ItemsTable(SaleOrder order, bool showBrand) {
+  static pw.Widget _buildA4ItemsTable(
+    SaleOrder order, {
+    required bool showBrand,
+    bool showHsnCode = true,
+    bool showItemDiscount = true,
+    bool showTaxBreakup = true,
+    double scale = 1.0,
+    PdfColor? themeColor,
+  }) {
     final hasTaxData = _hasTaxData(order);
     final bool isIndia = CountryTaxHelper.isIndiaCountry(order.billingCountry);
     final bool isInterState = isIndia && _isInterStateSale(order);
@@ -1968,43 +2092,28 @@ class PosInvoicePrinter {
         order.billingTaxMode != 'SINGLE' &&
         !hasExplicitSingleTax;
 
-    final headers = hasTaxData
-        ? (isDualGst
-            ? [
-                'S.No',
-                'Description of Goods',
-                'HSN / SAC Code',
-                'Qty',
-                'Unit',
-                'Unit Rate',
-                'Discount',
-                'Taxable Value',
-                'CGST (Rate% & Amt)',
-                'SGST/UTGST (Rate% & Amt)',
-                'Total Amount',
-              ]
-            : [
-                'S.No',
-                'Description of Goods',
-                'HSN / SAC Code',
-                'Qty',
-                'Unit',
-                'Unit Rate',
-                'Discount',
-                'Taxable Value',
-                '${isInterState ? 'IGST' : (taxName.isNotEmpty ? taxName : 'Tax')} (Rate% & Amt)',
-                'Total Amount',
-              ])
-        : [
-            'S.No',
-            'Description of Goods',
-            'HSN / SAC Code',
-            'Qty',
-            'Unit',
-            'Unit Rate',
-            'Discount',
-            'Amount',
-          ];
+    final List<String> headers = ['S.No', 'Description of Goods'];
+    if (showHsnCode) headers.add('HSN / SAC Code');
+    headers.add('Qty');
+    headers.add('Unit');
+    headers.add('Unit Rate');
+    if (showItemDiscount) headers.add('Discount');
+    if (hasTaxData) {
+      headers.add('Taxable Value');
+      if (showTaxBreakup) {
+        if (isDualGst) {
+          headers.add('CGST (Rate% & Amt)');
+          headers.add('SGST/UTGST (Rate% & Amt)');
+        } else {
+          headers.add('${isInterState ? 'IGST' : (taxName.isNotEmpty ? taxName : 'Tax')} (Rate% & Amt)');
+        }
+      } else {
+        headers.add('Tax (Rate% & Amt)');
+      }
+      headers.add('Total Amount');
+    } else {
+      headers.add('Amount');
+    }
 
     final data = order.items.asMap().entries.map((entry) {
       final index = entry.key;
@@ -2027,7 +2136,11 @@ class PosInvoicePrinter {
       final suffix = isReturned ? ' (REFUNDED)' : (isExchanged ? ' (EXCHANGED)' : '');
 
       final rawBrand = (showBrand && item.brand != null && item.brand!.trim().isNotEmpty) ? item.brand!.trim() : '';
-      final bool alreadyHasBrand = rawBrand.isNotEmpty && item.itemName.trim().toLowerCase().startsWith(rawBrand.toLowerCase());
+      final rawItemName = item.itemName.trim();
+      final baseName = rawItemName.isNotEmpty
+          ? rawItemName
+          : (item.itemCode.trim().isNotEmpty ? item.itemCode.trim() : (item.brand?.trim() ?? 'Item #${index + 1}'));
+      final bool alreadyHasBrand = rawBrand.isNotEmpty && baseName.toLowerCase().startsWith(rawBrand.toLowerCase());
       final brandStr = (rawBrand.isNotEmpty && !alreadyHasBrand) ? '$rawBrand - ' : '';
       final List mods = item.modifierDetails ?? [];
       final String modsStr = mods.isNotEmpty ? '\n* Mods: ${mods.join(", ")}' : '';
@@ -2035,99 +2148,101 @@ class PosInvoicePrinter {
       final itemScheme = _resolveItemSchemeName(order, item);
       final String schemeStr = (itemScheme != null && itemScheme.isNotEmpty) ? '\n* Scheme: $itemScheme' : '';
       final name =
-          ((item.isSchemeFree || item.isAdvanceFree) ? '$brandStr${item.itemName} (FREE)$suffix' : '$brandStr${item.itemName}$suffix') + schemeStr + modsStr + remarkStr;
-      if (hasTaxData) {
-        if (isDualGst) {
-          final cgstRate = _taxRate(order, item, 'CGST');
-          final cgstAmt = _taxAmount(order, item, 'CGST');
-          final sgstRate = _taxRate(order, item, 'SGST');
-          final sgstAmt = _taxAmount(order, item, 'SGST');
+          ((item.isSchemeFree || item.isAdvanceFree) ? '$brandStr$baseName (FREE)$suffix' : '$brandStr$baseName$suffix') + schemeStr + modsStr + remarkStr;
 
-          // Fallback if item has tax but wasn't broken down into CGST/SGST
-          final effCgstRate = (cgstRate == '-' && item.taxPercent > 0)
-              ? '${_formatTaxPercent(item.taxPercent / 2)}%'
-              : cgstRate;
-          final effCgstAmt = (cgstAmt <= 0 && item.taxAmount > 0)
-              ? item.taxAmount / 2
-              : cgstAmt;
-          final effSgstRate = (sgstRate == '-' && item.taxPercent > 0)
-              ? '${_formatTaxPercent(item.taxPercent / 2)}%'
-              : sgstRate;
-          final effSgstAmt = (sgstAmt <= 0 && item.taxAmount > 0)
-              ? item.taxAmount / 2
-              : sgstAmt;
-
-          return [
-            '${index + 1}',
-            name,
-            item.hsnSacCode.isEmpty ? item.itemCode : item.hsnSacCode,
-            _qty(item.qty),
-            item.unit,
-            item.isTaxInclusive ? '${_money(_displayRate(item))} (Incl.)' : _money(_displayRate(item)),
-            _money(item.lineDiscount),
-            _money(_taxableAmountForItem(item)),
-            item.taxPercent <= 0 ? 'NIL' : '$effCgstRate / ${_money(effCgstAmt)}${item.isTaxInclusive ? ' (Incl.)' : ''}',
-            item.taxPercent <= 0 ? 'NIL' : '$effSgstRate / ${_money(effSgstAmt)}${item.isTaxInclusive ? ' (Incl.)' : ''}',
-            _money(_displayItemLineTotal(item)),
-          ];
-        } else {
-          return [
-            '${index + 1}',
-            name,
-            item.hsnSacCode.isEmpty ? item.itemCode : item.hsnSacCode,
-            _qty(item.qty),
-            item.unit,
-            item.isTaxInclusive ? '${_money(_displayRate(item))} (Incl.)' : _money(_displayRate(item)),
-            _money(item.lineDiscount),
-            _money(_taxableAmountForItem(item)),
-            item.taxPercent <= 0 ? 'NIL' : '${_formatTaxPercent(item.taxPercent)}% / ${_money(item.taxAmount)}${item.isTaxInclusive ? ' (Incl.)' : ''}',
-            _money(_displayItemLineTotal(item)),
-          ];
-        }
+      final List<String> row = ['${index + 1}', name];
+      if (showHsnCode) {
+        row.add(item.hsnSacCode.trim().isNotEmpty ? item.hsnSacCode.trim() : item.itemCode.trim());
       }
-      return [
-        '${index + 1}',
-        name,
-        item.hsnSacCode.isEmpty ? item.itemCode : item.hsnSacCode,
-        _qty(item.qty),
-        item.unit,
-        item.isTaxInclusive ? '${_money(_displayRate(item))} (Incl.)' : _money(_displayRate(item)),
-        _money(item.lineDiscount),
-        _money(_displayItemLineTotal(item)),
-      ];
+      row.add(_qty(item.qty));
+      row.add(item.unit);
+      row.add(item.isTaxInclusive ? '${_money(_displayRate(item))} (Incl.)' : _money(_displayRate(item)));
+      if (showItemDiscount) {
+        row.add(_money(item.lineDiscount));
+      }
+
+      if (hasTaxData) {
+        row.add(_money(_taxableAmountForItem(item)));
+        if (showTaxBreakup) {
+          if (isDualGst) {
+            final cgstRate = _taxRate(order, item, 'CGST');
+            final cgstAmt = _taxAmount(order, item, 'CGST');
+            final sgstRate = _taxRate(order, item, 'SGST');
+            final sgstAmt = _taxAmount(order, item, 'SGST');
+
+            final effCgstRate = (cgstRate == '-' && item.taxPercent > 0)
+                ? '${_formatTaxPercent(item.taxPercent / 2)}%'
+                : cgstRate;
+            final effCgstAmt = (cgstAmt <= 0 && item.taxAmount > 0)
+                ? item.taxAmount / 2
+                : cgstAmt;
+            final effSgstRate = (sgstRate == '-' && item.taxPercent > 0)
+                ? '${_formatTaxPercent(item.taxPercent / 2)}%'
+                : sgstRate;
+            final effSgstAmt = (sgstAmt <= 0 && item.taxAmount > 0)
+                ? item.taxAmount / 2
+                : sgstAmt;
+
+            row.add(item.taxPercent <= 0 ? 'NIL' : '$effCgstRate / ${_money(effCgstAmt)}${item.isTaxInclusive ? ' (Incl.)' : ''}');
+            row.add(item.taxPercent <= 0 ? 'NIL' : '$effSgstRate / ${_money(effSgstAmt)}${item.isTaxInclusive ? ' (Incl.)' : ''}');
+          } else {
+            row.add(item.taxPercent <= 0 ? 'NIL' : '${_formatTaxPercent(item.taxPercent)}% / ${_money(item.taxAmount)}${item.isTaxInclusive ? ' (Incl.)' : ''}');
+          }
+        } else {
+          row.add(item.taxPercent <= 0 ? 'NIL' : '${_formatTaxPercent(item.taxPercent)}% / ${_money(item.taxAmount)}${item.isTaxInclusive ? ' (Incl.)' : ''}');
+        }
+        row.add(_money(_displayItemLineTotal(item)));
+      } else {
+        row.add(_money(_displayItemLineTotal(item)));
+      }
+
+      return row;
     }).toList();
+
+    final Map<int, pw.TableColumnWidth> columnWidths = {};
+    int colIdx = 0;
+    columnWidths[colIdx++] = pw.FixedColumnWidth(22 * scale);
+    columnWidths[colIdx++] = pw.FlexColumnWidth(3.2);
+    if (showHsnCode) {
+      columnWidths[colIdx++] = pw.FixedColumnWidth(48 * scale);
+    }
+    columnWidths[colIdx++] = pw.FixedColumnWidth(26 * scale);
+    columnWidths[colIdx++] = pw.FixedColumnWidth(24 * scale);
+    columnWidths[colIdx++] = pw.FixedColumnWidth(42 * scale);
+    if (showItemDiscount) {
+      columnWidths[colIdx++] = pw.FixedColumnWidth(44 * scale);
+    }
+    if (hasTaxData) {
+      columnWidths[colIdx++] = pw.FixedColumnWidth(50 * scale);
+      if (showTaxBreakup) {
+        if (isDualGst) {
+          columnWidths[colIdx++] = pw.FixedColumnWidth(58 * scale);
+          columnWidths[colIdx++] = pw.FixedColumnWidth(58 * scale);
+        } else {
+          columnWidths[colIdx++] = pw.FixedColumnWidth(65 * scale);
+        }
+      } else {
+        columnWidths[colIdx++] = pw.FixedColumnWidth(54 * scale);
+      }
+      columnWidths[colIdx++] = pw.FixedColumnWidth(54 * scale);
+    } else {
+      columnWidths[colIdx++] = pw.FixedColumnWidth(54 * scale);
+    }
 
     return pw.TableHelper.fromTextArray(
       headers: headers,
       data: data,
       cellAlignment: pw.Alignment.centerLeft,
-      headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
-      headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-      cellStyle: const pw.TextStyle(fontSize: 7.3),
+      headerDecoration: pw.BoxDecoration(color: (themeColor != null ? PdfColor(themeColor.red, themeColor.green, themeColor.blue, 0.12) : PdfColors.blueGrey100)),
+      headerStyle: pw.TextStyle(fontSize: 8 * scale, fontWeight: pw.FontWeight.bold),
+      cellStyle: pw.TextStyle(fontSize: 7.3 * scale),
       border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.5),
-      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-      columnWidths: {
-        0: const pw.FixedColumnWidth(22),
-        1: const pw.FlexColumnWidth(3.0),
-        2: const pw.FixedColumnWidth(48),
-        3: const pw.FixedColumnWidth(26),
-        4: const pw.FixedColumnWidth(24),
-        5: const pw.FixedColumnWidth(42),
-        6: const pw.FixedColumnWidth(48),
-        7: const pw.FixedColumnWidth(54),
-        if (hasTaxData && isDualGst) ...{
-          8: const pw.FixedColumnWidth(60),
-          9: const pw.FixedColumnWidth(60),
-          10: const pw.FixedColumnWidth(56),
-        } else if (hasTaxData && !isDualGst) ...{
-          8: const pw.FixedColumnWidth(70),
-          9: const pw.FixedColumnWidth(56),
-        },
-      },
+      cellPadding: pw.EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 5 * scale),
+      columnWidths: columnWidths,
     );
   }
 
-  static pw.Widget _buildTotalsBox(SaleOrder order) {
+  static pw.Widget _buildTotalsBox(SaleOrder order, {bool showTaxBreakup = true, double scale = 1.0}) {
     final hasTaxData = _hasTaxData(order);
     final roundOff = _billRoundOff(order);
     final subscriptionAdjustment = _subscriptionAdjustmentAmount(order);
@@ -2207,8 +2322,12 @@ class PosInvoicePrinter {
                 ),
               ),
             if (hasTaxData) _a4AmountRow('Taxable Value', _adjustedItemTaxableTotal(order)),
-            if (hasTaxData)
-              ...itemGroupedTaxes.map((tax) => _a4AmountRow('Total ${tax.label} Amount', tax.taxAmount)),
+            if (hasTaxData) ...[
+              if (showTaxBreakup)
+                ...itemGroupedTaxes.map((tax) => _a4AmountRow('Total ${tax.label} Amount', tax.taxAmount))
+              else
+                _a4AmountRow('Total Tax', summaryTaxTotal),
+            ],
           ] else ...[
             _a4AmountRow(
               'Subtotal',
@@ -2253,8 +2372,12 @@ class PosInvoicePrinter {
                 ),
               ),
             if (hasTaxData) _a4AmountRow('Taxable Value', _adjustedItemTaxableTotal(order)),
-            if (hasTaxData)
-              ...itemGroupedTaxes.map((tax) => _a4AmountRow('Total ${tax.label} Amount', tax.taxAmount)),
+            if (hasTaxData) ...[
+              if (showTaxBreakup)
+                ...itemGroupedTaxes.map((tax) => _a4AmountRow('Total ${tax.label} Amount', tax.taxAmount))
+              else
+                _a4AmountRow('Total Tax', summaryTaxTotal),
+            ],
           ],
           if (roundOff.abs() > 0.0009)
             _a4AmountRow(
@@ -2796,7 +2919,7 @@ class PosInvoicePrinter {
     );
   }
 
-  static pw.Widget _thermalItemRow(SaleItem item, SaleOrder order, bool showBrand) {
+  static pw.Widget _thermalItemRow(SaleItem item, SaleOrder order, bool showBrand, {bool showHsn = true, bool showDiscounts = true}) {
     bool isReturned = false;
     bool isExchanged = false;
     if (order.returnedItems != null && order.returnedItems!.isNotEmpty) {
@@ -2835,7 +2958,7 @@ class PosInvoicePrinter {
 
     // 2. Build the secondary detail string separated by pipes (|) for a clean look
     final detailParts = <String>[
-      if (hsnOrCode.isNotEmpty) 'HSN $hsnOrCode',
+      if (showHsn && hsnOrCode.isNotEmpty) 'HSN $hsnOrCode',
       qtyUnitRate,
       if (item.isSchemeFree || item.isAdvanceFree) 'FREE',
       if (item.taxPercent > 0)
@@ -2849,7 +2972,7 @@ class PosInvoicePrinter {
           }
           return '$prefix 0% (NIL)';
         }(),
-      if (itemDiscount > 0.01) 'Disc ${_money(itemDiscount)}',
+      if (showDiscounts && itemDiscount > 0.01) 'Disc ${_money(itemDiscount)}',
     ];
 
     return pw.Padding(

@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+const { QueryTypes } = require("sequelize");
 const audit = require('../../services/audit.service');
 const DataRetentionService = require('../../services/dataRetention.service').default || require('../../services/dataRetention.service');
 const { resolveBusinessModule } = require('../../utils/moduleHelper');
@@ -228,7 +229,7 @@ exports.saveSettings = async (req, res) => {
             billing_country: req.body.billing_country || 'India',
             time_zone: req.body.time_zone || 'Asia/Kolkata',
             billing_tax_mode: req.body.billing_tax_mode || 'CGST_SGST',
-            bill_format: req.body.bill_format || 'A4',
+            bill_format: req.body.bill_format || existing?.bill_format || 'A4',
             default_charges: Array.isArray(req.body.default_charges)
                 ? req.body.default_charges
                 : [],
@@ -305,6 +306,17 @@ exports.saveSettings = async (req, res) => {
             }
         }
         await t.commit();
+        if (typeof req.body.is_cloud_enabled !== 'undefined') {
+            try {
+                const { toggleCloudBackup } = require('../../utils/backupTracker');
+                const [outletRow] = await req.propertyDb.query('SELECT outlet_code FROM outlets WHERE id = :outlet_id LIMIT 1;', { replacements: { outlet_id } }).catch(() => [[]]);
+                const code = (outletRow && outletRow[0] && outletRow[0].outlet_code) || req.user?.outlet_code;
+                if (code) {
+                    toggleCloudBackup(code, !!req.body.is_cloud_enabled);
+                }
+            }
+            catch (_) { }
+        }
         res.json({ success: true, message: 'Settings saved successfully', data: record });
     }
     catch (err) {
@@ -349,17 +361,42 @@ const PRESERVED_MODELS = new Set([
 ]);
 exports.clearTransactionData = async (req, res) => {
     try {
-        const outletId = Number(req.outlet_id ||
+        let outletId = Number(req.body?.outlet_id ||
+            req.body?.outletId ||
+            req.outlet_id ||
             req.user?.outlet_id ||
             req.headers['x-outlet-id'] ||
-            req.body?.outlet_id ||
             req.query?.outlet_id ||
-            1);
-        const outletCode = String(req.outlet_code ||
+            0);
+        let outletCode = String(req.body?.outlet_code ||
+            req.body?.outletCode ||
+            req.outlet_code ||
             req.user?.outlet_code ||
             req.headers['x-outlet-code'] ||
-            req.body?.outlet_code ||
-            `OUT_${outletId}`);
+            '').trim();
+        if (outletCode) {
+            try {
+                const [oRow] = await req.propertyDb.query(`SELECT id, outlet_code FROM outlets WHERE outlet_code = :code LIMIT 1;`, { replacements: { code: outletCode }, type: QueryTypes.SELECT });
+                if (oRow && oRow.id) {
+                    outletId = Number(oRow.id);
+                    outletCode = String(oRow.outlet_code || outletCode);
+                }
+            }
+            catch (_) { }
+        }
+        else if (outletId) {
+            try {
+                const [oRow] = await req.propertyDb.query(`SELECT id, outlet_code FROM outlets WHERE id = :id LIMIT 1;`, { replacements: { id: outletId }, type: QueryTypes.SELECT });
+                if (oRow && oRow.outlet_code) {
+                    outletCode = String(oRow.outlet_code);
+                }
+            }
+            catch (_) { }
+        }
+        if (!outletId)
+            outletId = 1;
+        if (!outletCode)
+            outletCode = `OUT_${outletId}`;
         if (!outletId || isNaN(outletId)) {
             return res.status(400).json({
                 success: false,
@@ -405,7 +442,7 @@ exports.clearTransactionData = async (req, res) => {
         const result = await DataRetentionService.executeRetentionPurge(req.propertyDb, {
             outletId,
             outletCode,
-            allOutlets: false, // CLIENT END: Strictly scoped to this single outlet!
+            allOutlets: req.body?.allOutlets === true || req.body?.all_outlets === true,
             retentionType,
             olderThanYears,
             startDate,

@@ -1973,12 +1973,34 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton.icon(
-                        onPressed: () {
+                        onPressed: () async {
                           Navigator.pop(context);
-                          Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const SettingsScreen()));
+                          try {
+                            final success = await BackupService.toggleCloudSync(true);
+                            if (mounted) {
+                              if (success) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Cloud backup enabled and synchronized successfully!'),
+                                    backgroundColor: Color(0xFF059669),
+                                  ),
+                                );
+                                _verifyDataProtection();
+                              } else {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                                );
+                              }
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                              );
+                            }
+                          }
                         },
                         icon: const Icon(Icons.security, size: 18),
                         label: const Text('Enable Backup'),
