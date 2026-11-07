@@ -16,9 +16,16 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   late TabController _tabController;
   static const Color primaryColor = Color(0xFF0B5CAD);
 
+  // Auto-sync toggle across formats
+  bool _autoSyncSharedDetails = true;
+
   // =========================================================================
   // 1. 80mm / Thermal Bill Template Controllers & Toggles
   // =========================================================================
+  final _billPhoneCtrl = TextEditingController();
+  final _billEmailCtrl = TextEditingController();
+  final _billWebsiteCtrl = TextEditingController();
+  bool _billShowWebsite = true;
   final _billInvoiceTitleCtrl = TextEditingController(text: 'TAX INVOICE');
   final _billHeaderTitleCtrl = TextEditingController();
   final _billHeaderSubtextCtrl = TextEditingController();
@@ -66,8 +73,15 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   final _a4BankIfscCtrl = TextEditingController();
   final _a4MpesaPaybillCtrl = TextEditingController();
   final _a4SignatoryLabelCtrl = TextEditingController();
+  final _a4PhoneCtrl = TextEditingController();
+  final _a4EmailCtrl = TextEditingController();
+  final _a4WebsiteCtrl = TextEditingController();
+  final _a4ResellerFooterCtrl = TextEditingController();
 
   bool _a4ShowLogo = true;
+  bool _a4ShowPhone = true;
+  bool _a4ShowEmail = true;
+  bool _a4ShowWebsite = true;
   bool _a4ShowCompanyAddress = true;
   bool _a4ShowCompanyContact = true;
   bool _a4ShowTaxReg = true;
@@ -83,6 +97,10 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   bool _a4ShowTermsAndConditions = true;
   bool _a4ShowSignatureBox = true;
   bool _a4ShowCurrency = true;
+  bool _a4ShowPaymentMode = true;
+  bool _a4ShowPlaceOfSupply = true;
+  bool _a4ShowCashier = true;
+  bool _a4ShowResellerFooter = true;
   String _a4ThemeColor = 'BLUE'; // BLUE, SLATE, EMERALD, CRIMSON
   String _a4FontSize = 'MEDIUM'; // SMALL, MEDIUM, LARGE
 
@@ -101,8 +119,15 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   final _a5BankIfscCtrl = TextEditingController();
   final _a5MpesaPaybillCtrl = TextEditingController();
   final _a5SignatoryLabelCtrl = TextEditingController();
+  final _a5PhoneCtrl = TextEditingController();
+  final _a5EmailCtrl = TextEditingController();
+  final _a5WebsiteCtrl = TextEditingController();
+  final _a5ResellerFooterCtrl = TextEditingController();
 
   bool _a5ShowLogo = true;
+  bool _a5ShowPhone = true;
+  bool _a5ShowEmail = true;
+  bool _a5ShowWebsite = true;
   bool _a5ShowCompanyAddress = true;
   bool _a5ShowCompanyContact = true;
   bool _a5ShowTaxReg = true;
@@ -118,6 +143,10 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   bool _a5ShowTermsAndConditions = true;
   bool _a5ShowSignatureBox = true;
   bool _a5ShowCurrency = true;
+  bool _a5ShowPaymentMode = true;
+  bool _a5ShowPlaceOfSupply = true;
+  bool _a5ShowCashier = true;
+  bool _a5ShowResellerFooter = true;
   String _a5ThemeColor = 'BLUE'; // BLUE, SLATE, EMERALD, CRIMSON
   String _a5FontSize = 'MEDIUM'; // SMALL, MEDIUM, LARGE
 
@@ -185,6 +214,17 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _billTaxRegNoCtrl.dispose();
     _billTermsCtrl.dispose();
     _billResellerFooterCtrl.dispose();
+    _billPhoneCtrl.dispose();
+    _billEmailCtrl.dispose();
+    _billWebsiteCtrl.dispose();
+    _a4PhoneCtrl.dispose();
+    _a4EmailCtrl.dispose();
+    _a4WebsiteCtrl.dispose();
+    _a4ResellerFooterCtrl.dispose();
+    _a5PhoneCtrl.dispose();
+    _a5EmailCtrl.dispose();
+    _a5WebsiteCtrl.dispose();
+    _a5ResellerFooterCtrl.dispose();
 
     _a4HeaderTitleCtrl.dispose();
     _a4HeaderSubtextCtrl.dispose();
@@ -228,6 +268,363 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     return 'Tax ID';
   }
 
+
+  // =========================================================================
+  // Auto-Sync Helpers Across Formats (80mm ⟷ A4 ⟷ A5)
+  // =========================================================================
+  void _syncText(String fieldKey, String value, {required String from}) {
+    if (!_autoSyncSharedDetails) return;
+    switch (fieldKey) {
+      case 'store_title':
+        if (from != '80mm') _billHeaderTitleCtrl.text = value;
+        if (from != 'A4') _a4HeaderTitleCtrl.text = value;
+        if (from != 'A5') _a5HeaderTitleCtrl.text = value;
+        break;
+      case 'address':
+        if (from != '80mm') _billHeaderSubtextCtrl.text = value;
+        if (from != 'A4') _a4HeaderSubtextCtrl.text = value;
+        if (from != 'A5') _a5HeaderSubtextCtrl.text = value;
+        break;
+      case 'phone':
+        if (from != '80mm') _billPhoneCtrl.text = value;
+        if (from != 'A4') _a4PhoneCtrl.text = value;
+        if (from != 'A5') _a5PhoneCtrl.text = value;
+        break;
+      case 'email':
+        if (from != '80mm') _billEmailCtrl.text = value;
+        if (from != 'A4') _a4EmailCtrl.text = value;
+        if (from != 'A5') _a5EmailCtrl.text = value;
+        break;
+      case 'website':
+        if (from != '80mm') _billWebsiteCtrl.text = value;
+        if (from != 'A4') _a4WebsiteCtrl.text = value;
+        if (from != 'A5') _a5WebsiteCtrl.text = value;
+        break;
+      case 'tax_reg':
+        if (from != '80mm') _billTaxRegNoCtrl.text = value;
+        if (from != 'A4') _a4TaxRegNoCtrl.text = value;
+        if (from != 'A5') _a5TaxRegNoCtrl.text = value;
+        break;
+      case 'pan_no':
+        if (from != 'A4') _a4PanNoCtrl.text = value;
+        if (from != 'A5') _a5PanNoCtrl.text = value;
+        break;
+      case 'doc_title':
+        if (from != '80mm') _billInvoiceTitleCtrl.text = value;
+        if (from != 'A4') _a4InvoiceTitleCtrl.text = value;
+        if (from != 'A5') _a5InvoiceTitleCtrl.text = value;
+        break;
+      case 'footer_note':
+        if (from != '80mm') _billFooterNoteCtrl.text = value;
+        if (from != 'A4') _a4FooterNoteCtrl.text = value;
+        if (from != 'A5') _a5FooterNoteCtrl.text = value;
+        break;
+      case 'terms':
+        if (from != '80mm') _billTermsCtrl.text = value;
+        if (from != 'A4') _a4TermsCtrl.text = value;
+        if (from != 'A5') _a5TermsCtrl.text = value;
+        break;
+      case 'bank_name':
+        if (from != '80mm') _billBankNameCtrl.text = value;
+        if (from != 'A4') _a4BankNameCtrl.text = value;
+        if (from != 'A5') _a5BankNameCtrl.text = value;
+        break;
+      case 'bank_acc':
+        if (from != '80mm') _billBankAccountNoCtrl.text = value;
+        if (from != 'A4') _a4BankAccountNoCtrl.text = value;
+        if (from != 'A5') _a5BankAccountNoCtrl.text = value;
+        break;
+      case 'bank_ifsc':
+        if (from != '80mm') _billBankIfscCtrl.text = value;
+        if (from != 'A4') _a4BankIfscCtrl.text = value;
+        if (from != 'A5') _a5BankIfscCtrl.text = value;
+        break;
+      case 'mpesa':
+        if (from != '80mm') _billUpiIdCtrl.text = value;
+        if (from != 'A4') _a4MpesaPaybillCtrl.text = value;
+        if (from != 'A5') _a5MpesaPaybillCtrl.text = value;
+        break;
+      case 'reseller_footer':
+        if (from != '80mm') _billResellerFooterCtrl.text = value;
+        if (from != 'A4' && from != 'a4') _a4ResellerFooterCtrl.text = value;
+        if (from != 'A5' && from != 'a5') _a5ResellerFooterCtrl.text = value;
+        break;
+    }
+  }
+
+  void _syncToggle(String toggleKey, bool value, {required String from}) {
+    if (!_autoSyncSharedDetails) return;
+    switch (toggleKey) {
+      case 'show_logo':
+        _billShowLogo = value;
+        _a4ShowLogo = value;
+        _a5ShowLogo = value;
+        break;
+      case 'show_address':
+        _billShowAddress = value;
+        _a4ShowCompanyAddress = value;
+        _a5ShowCompanyAddress = value;
+        break;
+      case 'show_phone':
+        _billShowPhone = value;
+        _a4ShowPhone = value;
+        _a5ShowPhone = value;
+        _a4ShowCompanyContact = value || _a4ShowEmail || _a4ShowWebsite;
+        _a5ShowCompanyContact = value || _a5ShowEmail || _a5ShowWebsite;
+        break;
+      case 'show_email':
+        _billShowEmail = value;
+        _a4ShowEmail = value;
+        _a5ShowEmail = value;
+        _a4ShowCompanyContact = _a4ShowPhone || value || _a4ShowWebsite;
+        _a5ShowCompanyContact = _a5ShowPhone || value || _a5ShowWebsite;
+        break;
+      case 'show_website':
+        _billShowWebsite = value;
+        _a4ShowWebsite = value;
+        _a5ShowWebsite = value;
+        break;
+      case 'show_tax_reg':
+        _a4ShowTaxReg = value;
+        _a5ShowTaxReg = value;
+        break;
+      case 'show_brand':
+        _billShowBrand = value;
+        _a4ShowBrand = value;
+        _a5ShowBrand = value;
+        break;
+      case 'show_hsn_code':
+        _billShowHsnCode = value;
+        _a4ShowHsnCode = value;
+        _a5ShowHsnCode = value;
+        break;
+      case 'show_discounts':
+        _billShowDiscounts = value;
+        _a4ShowItemDiscount = value;
+        _a5ShowItemDiscount = value;
+        break;
+      case 'show_tax_breakup':
+        _billShowTaxBreakup = value;
+        _a4ShowTaxBreakup = value;
+        _a5ShowTaxBreakup = value;
+        break;
+      case 'show_bank_details':
+        _billShowBankDetails = value;
+        _a4ShowBankDetails = value;
+        _a5ShowBankDetails = value;
+        break;
+      case 'show_currency':
+        _billShowCurrency = value;
+        _a4ShowCurrency = value;
+        _a5ShowCurrency = value;
+        break;
+      case 'show_terms':
+        _a4ShowTermsAndConditions = value;
+        _a5ShowTermsAndConditions = value;
+        break;
+      case 'show_payment_mode':
+        _a4ShowPaymentMode = value;
+        _a5ShowPaymentMode = value;
+        break;
+      case 'show_place_of_supply':
+        _a4ShowPlaceOfSupply = value;
+        _a5ShowPlaceOfSupply = value;
+        break;
+      case 'show_cashier':
+        _billShowCashier = value;
+        _a4ShowCashier = value;
+        _a5ShowCashier = value;
+        break;
+      case 'show_reseller_footer':
+        _billShowResellerFooter = value;
+        _a4ShowResellerFooter = value;
+        _a5ShowResellerFooter = value;
+        break;
+    }
+  }
+
+  void _syncAllFromActiveFormat() {
+    final int tab = _tabController.index;
+    if (tab == 0) {
+      // From 80mm to A4 & A5
+      _a4HeaderTitleCtrl.text = _billHeaderTitleCtrl.text;
+      _a5HeaderTitleCtrl.text = _billHeaderTitleCtrl.text;
+      _a4HeaderSubtextCtrl.text = _billHeaderSubtextCtrl.text;
+      _a5HeaderSubtextCtrl.text = _billHeaderSubtextCtrl.text;
+      _a4PhoneCtrl.text = _billPhoneCtrl.text;
+      _a5PhoneCtrl.text = _billPhoneCtrl.text;
+      _a4EmailCtrl.text = _billEmailCtrl.text;
+      _a5EmailCtrl.text = _billEmailCtrl.text;
+      _a4WebsiteCtrl.text = _billWebsiteCtrl.text;
+      _a5WebsiteCtrl.text = _billWebsiteCtrl.text;
+      _a4TaxRegNoCtrl.text = _billTaxRegNoCtrl.text;
+      _a5TaxRegNoCtrl.text = _billTaxRegNoCtrl.text;
+      _a4InvoiceTitleCtrl.text = _billInvoiceTitleCtrl.text;
+      _a5InvoiceTitleCtrl.text = _billInvoiceTitleCtrl.text;
+      _a4FooterNoteCtrl.text = _billFooterNoteCtrl.text;
+      _a5FooterNoteCtrl.text = _billFooterNoteCtrl.text;
+      _a4TermsCtrl.text = _billTermsCtrl.text;
+      _a5TermsCtrl.text = _billTermsCtrl.text;
+      _a4BankNameCtrl.text = _billBankNameCtrl.text;
+      _a5BankNameCtrl.text = _billBankNameCtrl.text;
+      _a4BankAccountNoCtrl.text = _billBankAccountNoCtrl.text;
+      _a5BankAccountNoCtrl.text = _billBankAccountNoCtrl.text;
+      _a4BankIfscCtrl.text = _billBankIfscCtrl.text;
+      _a5BankIfscCtrl.text = _billBankIfscCtrl.text;
+
+      _a4ShowLogo = _billShowLogo;
+      _a5ShowLogo = _billShowLogo;
+      _a4ShowCompanyAddress = _billShowAddress;
+      _a5ShowCompanyAddress = _billShowAddress;
+      _a4ShowPhone = _billShowPhone;
+      _a5ShowPhone = _billShowPhone;
+      _a4ShowEmail = _billShowEmail;
+      _a5ShowEmail = _billShowEmail;
+      _a4ShowWebsite = _billShowWebsite;
+      _a5ShowWebsite = _billShowWebsite;
+      _a4ShowBrand = _billShowBrand;
+      _a5ShowBrand = _billShowBrand;
+      _a4ShowHsnCode = _billShowHsnCode;
+      _a5ShowHsnCode = _billShowHsnCode;
+      _a4ShowItemDiscount = _billShowDiscounts;
+      _a5ShowItemDiscount = _billShowDiscounts;
+      _a4ShowTaxBreakup = _billShowTaxBreakup;
+      _a5ShowTaxBreakup = _billShowTaxBreakup;
+      _a4ShowBankDetails = _billShowBankDetails;
+      _a5ShowBankDetails = _billShowBankDetails;
+      _a4ShowCurrency = _billShowCurrency;
+      _a5ShowCurrency = _billShowCurrency;
+      _a4ShowCashier = _billShowCashier;
+      _a5ShowCashier = _billShowCashier;
+      _a4ResellerFooterCtrl.text = _billResellerFooterCtrl.text;
+      _a5ResellerFooterCtrl.text = _billResellerFooterCtrl.text;
+      _a4ShowResellerFooter = _billShowResellerFooter;
+      _a5ShowResellerFooter = _billShowResellerFooter;
+    } else if (tab == 1) {
+      // From A4 to 80mm & A5
+      _billHeaderTitleCtrl.text = _a4HeaderTitleCtrl.text;
+      _a5HeaderTitleCtrl.text = _a4HeaderTitleCtrl.text;
+      _billHeaderSubtextCtrl.text = _a4HeaderSubtextCtrl.text;
+      _a5HeaderSubtextCtrl.text = _a4HeaderSubtextCtrl.text;
+      _billPhoneCtrl.text = _a4PhoneCtrl.text;
+      _a5PhoneCtrl.text = _a4PhoneCtrl.text;
+      _billEmailCtrl.text = _a4EmailCtrl.text;
+      _a5EmailCtrl.text = _a4EmailCtrl.text;
+      _billWebsiteCtrl.text = _a4WebsiteCtrl.text;
+      _a5WebsiteCtrl.text = _a4WebsiteCtrl.text;
+      _billTaxRegNoCtrl.text = _a4TaxRegNoCtrl.text;
+      _a5TaxRegNoCtrl.text = _a4TaxRegNoCtrl.text;
+      _billInvoiceTitleCtrl.text = _a4InvoiceTitleCtrl.text;
+      _a5InvoiceTitleCtrl.text = _a4InvoiceTitleCtrl.text;
+      _billFooterNoteCtrl.text = _a4FooterNoteCtrl.text;
+      _a5FooterNoteCtrl.text = _a4FooterNoteCtrl.text;
+      _billTermsCtrl.text = _a4TermsCtrl.text;
+      _a5TermsCtrl.text = _a4TermsCtrl.text;
+      _billBankNameCtrl.text = _a4BankNameCtrl.text;
+      _a5BankNameCtrl.text = _a4BankNameCtrl.text;
+      _billBankAccountNoCtrl.text = _a4BankAccountNoCtrl.text;
+      _a5BankAccountNoCtrl.text = _a4BankAccountNoCtrl.text;
+      _billBankIfscCtrl.text = _a4BankIfscCtrl.text;
+      _a5BankIfscCtrl.text = _a4BankIfscCtrl.text;
+
+      _billShowLogo = _a4ShowLogo;
+      _a5ShowLogo = _a4ShowLogo;
+      _billShowAddress = _a4ShowCompanyAddress;
+      _a5ShowCompanyAddress = _a4ShowCompanyAddress;
+      _billShowPhone = _a4ShowPhone;
+      _a5ShowPhone = _a4ShowPhone;
+      _billShowEmail = _a4ShowEmail;
+      _a5ShowEmail = _a4ShowEmail;
+      _billShowWebsite = _a4ShowWebsite;
+      _a5ShowWebsite = _a4ShowWebsite;
+      _billShowBrand = _a4ShowBrand;
+      _a5ShowBrand = _a4ShowBrand;
+      _billShowHsnCode = _a4ShowHsnCode;
+      _a5ShowHsnCode = _a4ShowHsnCode;
+      _billShowDiscounts = _a4ShowItemDiscount;
+      _a5ShowItemDiscount = _a4ShowItemDiscount;
+      _billShowTaxBreakup = _a4ShowTaxBreakup;
+      _a5ShowTaxBreakup = _a4ShowTaxBreakup;
+      _billShowBankDetails = _a4ShowBankDetails;
+      _a5ShowBankDetails = _a4ShowBankDetails;
+      _billShowCurrency = _a4ShowCurrency;
+      _a5ShowCurrency = _a4ShowCurrency;
+      _billShowCashier = _a4ShowCashier;
+      _a5ShowCashier = _a4ShowCashier;
+      _a5ShowPaymentMode = _a4ShowPaymentMode;
+      _a5ShowPlaceOfSupply = _a4ShowPlaceOfSupply;
+      _billResellerFooterCtrl.text = _a4ResellerFooterCtrl.text;
+      _a5ResellerFooterCtrl.text = _a4ResellerFooterCtrl.text;
+      _billShowResellerFooter = _a4ShowResellerFooter;
+      _a5ShowResellerFooter = _a4ShowResellerFooter;
+    } else if (tab == 2) {
+      // From A5 to 80mm & A4
+      _billHeaderTitleCtrl.text = _a5HeaderTitleCtrl.text;
+      _a4HeaderTitleCtrl.text = _a5HeaderTitleCtrl.text;
+      _billHeaderSubtextCtrl.text = _a5HeaderSubtextCtrl.text;
+      _a4HeaderSubtextCtrl.text = _a5HeaderSubtextCtrl.text;
+      _billPhoneCtrl.text = _a5PhoneCtrl.text;
+      _a4PhoneCtrl.text = _a5PhoneCtrl.text;
+      _billEmailCtrl.text = _a5EmailCtrl.text;
+      _a4EmailCtrl.text = _a5EmailCtrl.text;
+      _billWebsiteCtrl.text = _a5WebsiteCtrl.text;
+      _a4WebsiteCtrl.text = _a5WebsiteCtrl.text;
+      _billTaxRegNoCtrl.text = _a5TaxRegNoCtrl.text;
+      _a4TaxRegNoCtrl.text = _a5TaxRegNoCtrl.text;
+      _billInvoiceTitleCtrl.text = _a5InvoiceTitleCtrl.text;
+      _a4InvoiceTitleCtrl.text = _a5InvoiceTitleCtrl.text;
+      _billFooterNoteCtrl.text = _a5FooterNoteCtrl.text;
+      _a4FooterNoteCtrl.text = _a5FooterNoteCtrl.text;
+      _billTermsCtrl.text = _a5TermsCtrl.text;
+      _a4TermsCtrl.text = _a5TermsCtrl.text;
+      _billBankNameCtrl.text = _a5BankNameCtrl.text;
+      _a4BankNameCtrl.text = _a5BankNameCtrl.text;
+      _billBankAccountNoCtrl.text = _a5BankAccountNoCtrl.text;
+      _a4BankAccountNoCtrl.text = _a5BankAccountNoCtrl.text;
+      _billBankIfscCtrl.text = _a5BankIfscCtrl.text;
+      _a4BankIfscCtrl.text = _a5BankIfscCtrl.text;
+
+      _billShowLogo = _a5ShowLogo;
+      _a4ShowLogo = _a5ShowLogo;
+      _billShowAddress = _a5ShowCompanyAddress;
+      _a4ShowCompanyAddress = _a5ShowCompanyAddress;
+      _billShowPhone = _a5ShowPhone;
+      _a4ShowPhone = _a5ShowPhone;
+      _billShowEmail = _a5ShowEmail;
+      _a4ShowEmail = _a5ShowEmail;
+      _billShowWebsite = _a5ShowWebsite;
+      _a4ShowWebsite = _a5ShowWebsite;
+      _billShowBrand = _a5ShowBrand;
+      _a4ShowBrand = _a5ShowBrand;
+      _billShowHsnCode = _a5ShowHsnCode;
+      _a4ShowHsnCode = _a5ShowHsnCode;
+      _billShowDiscounts = _a5ShowItemDiscount;
+      _a4ShowItemDiscount = _a5ShowItemDiscount;
+      _billShowTaxBreakup = _a5ShowTaxBreakup;
+      _a4ShowTaxBreakup = _a5ShowTaxBreakup;
+      _billShowBankDetails = _a5ShowBankDetails;
+      _a4ShowBankDetails = _a5ShowBankDetails;
+      _billShowCurrency = _a5ShowCurrency;
+      _a4ShowCurrency = _a5ShowCurrency;
+      _billShowCashier = _a5ShowCashier;
+      _a4ShowCashier = _a5ShowCashier;
+      _a4ShowPaymentMode = _a5ShowPaymentMode;
+      _a4ShowPlaceOfSupply = _a5ShowPlaceOfSupply;
+      _billResellerFooterCtrl.text = _a5ResellerFooterCtrl.text;
+      _a4ResellerFooterCtrl.text = _a5ResellerFooterCtrl.text;
+      _billShowResellerFooter = _a5ShowResellerFooter;
+      _a4ShowResellerFooter = _a5ShowResellerFooter;
+    }
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('✅ Synchronized active format billing details across 80mm, A4, and A5!'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _loadSettings() async {
     setState(() => _loading = true);
     SystemSettingsController settingsCtrl;
@@ -261,7 +658,14 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       return s;
     }
 
+    final rtc = settingsCtrl.settings?.receiptTemplateConfig;
+    _autoSyncSharedDetails = billConfig['auto_sync_shared_details'] ?? (rtc != null ? (rtc['auto_sync_shared_details'] ?? true) : true);
+
     // 1. Bill 80mm Config
+    _billPhoneCtrl.text = billConfig['phone'] ?? (prop?.mobile ?? '');
+    _billEmailCtrl.text = billConfig['email'] ?? (prop?.email ?? '');
+    _billWebsiteCtrl.text = billConfig['website'] ?? (prop?.website ?? '');
+    _billShowWebsite = billConfig['show_website'] ?? (prop?.printWebsite ?? true);
     final rawBillTitle = billConfig['invoice_title']?.toString().trim();
     _billInvoiceTitleCtrl.text = (rawBillTitle != null && rawBillTitle.isNotEmpty) ? rawBillTitle.toUpperCase() : 'TAX INVOICE';
     _billBankNameCtrl.text = billConfig['bank_name'] ?? (prop?.bankName ?? '');
@@ -311,6 +715,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     }
 
     // 2. A4 Invoice Config
+    _a4PhoneCtrl.text = a4Config['phone'] ?? (_billPhoneCtrl.text.isNotEmpty ? _billPhoneCtrl.text : (prop?.mobile ?? ''));
+    _a4EmailCtrl.text = a4Config['email'] ?? (_billEmailCtrl.text.isNotEmpty ? _billEmailCtrl.text : (prop?.email ?? ''));
+    _a4WebsiteCtrl.text = a4Config['website'] ?? (_billWebsiteCtrl.text.isNotEmpty ? _billWebsiteCtrl.text : (prop?.website ?? ''));
+    _a4ShowPhone = a4Config['show_phone'] ?? (billConfig['show_phone'] ?? (prop?.printMobile ?? true));
+    _a4ShowEmail = a4Config['show_email'] ?? (billConfig['show_email'] ?? (prop?.printEmail ?? true));
+    _a4ShowWebsite = a4Config['show_website'] ?? (billConfig['show_website'] ?? (prop?.printWebsite ?? true));
     _a4HeaderTitleCtrl.text = a4Config['header_title'] ?? (prop?.propertyName.isNotEmpty == true ? prop!.propertyName : 'RETAIL ENTERPRISES LIMITED');
     _a4HeaderSubtextCtrl.text = a4Config['header_subtext'] ?? (prop?.address.isNotEmpty == true ? '${prop!.address}, ${prop.city}, ${prop.state}' : 'Commercial Office & Address');
     _a4TaxRegNoCtrl.text = cleanConfigTax(a4Config['tax_reg_no']);
@@ -320,7 +730,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _a4BankNameCtrl.text = a4Config['bank_name'] ?? (prop?.bankName.isNotEmpty == true ? prop!.bankName : 'Commercial Bank');
     _a4BankAccountNoCtrl.text = a4Config['bank_account_no'] ?? (prop?.bankAccNo.isNotEmpty == true ? prop!.bankAccNo : 'A/C: 0102030405060');
     _a4BankIfscCtrl.text = a4Config['bank_ifsc'] ?? (prop?.bankIfsc.isNotEmpty == true ? prop!.bankIfsc : 'SWIFT / IFSC: 0001234');
-    _a4MpesaPaybillCtrl.text = a4Config['mpesa_paybill'] ?? 'Paybill / Till: 247247';
+    _a4MpesaPaybillCtrl.text = a4Config['digital_payment'] ?? (a4Config['mpesa_paybill'] ?? 'Digital Pay / Till: 247247');
     _a4SignatoryLabelCtrl.text = a4Config['signatory_label'] ?? 'For ${prop?.propertyName.isNotEmpty == true ? prop!.propertyName : "RETAIL ENTERPRISES LTD"}\nAuthorized Signatory';
 
     _a4ShowLogo = a4Config['show_logo'] ?? true;
@@ -339,10 +749,21 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _a4ShowTermsAndConditions = a4Config['show_terms'] ?? true;
     _a4ShowSignatureBox = a4Config['show_signature_box'] ?? true;
     _a4ShowCurrency = a4Config['show_currency_symbol'] ?? a4Config['show_currency'] ?? true;
+    _a4ShowPaymentMode = a4Config['show_payment_mode'] ?? true;
+    _a4ShowPlaceOfSupply = a4Config['show_place_of_supply'] ?? true;
+    _a4ShowCashier = a4Config['show_cashier'] ?? true;
+    _a4ResellerFooterCtrl.text = a4Config['reseller_footer_text'] ?? (_billResellerFooterCtrl.text.isNotEmpty ? _billResellerFooterCtrl.text : AppBrand.poweredByLabel);
+    _a4ShowResellerFooter = a4Config['show_reseller_footer'] ?? true;
     _a4ThemeColor = a4Config['theme_color'] ?? 'BLUE';
     _a4FontSize = a4Config['font_size'] ?? 'MEDIUM';
 
     // 3. A5 Invoice Config
+    _a5PhoneCtrl.text = a5Config['phone'] ?? (_a4PhoneCtrl.text.isNotEmpty ? _a4PhoneCtrl.text : (_billPhoneCtrl.text.isNotEmpty ? _billPhoneCtrl.text : (prop?.mobile ?? '')));
+    _a5EmailCtrl.text = a5Config['email'] ?? (_a4EmailCtrl.text.isNotEmpty ? _a4EmailCtrl.text : (_billEmailCtrl.text.isNotEmpty ? _billEmailCtrl.text : (prop?.email ?? '')));
+    _a5WebsiteCtrl.text = a5Config['website'] ?? (_a4WebsiteCtrl.text.isNotEmpty ? _a4WebsiteCtrl.text : (_billWebsiteCtrl.text.isNotEmpty ? _billWebsiteCtrl.text : (prop?.website ?? '')));
+    _a5ShowPhone = a5Config['show_phone'] ?? (_a4ShowPhone);
+    _a5ShowEmail = a5Config['show_email'] ?? (_a4ShowEmail);
+    _a5ShowWebsite = a5Config['show_website'] ?? (_a4ShowWebsite);
     _a5HeaderTitleCtrl.text = a5Config['header_title'] ?? (a4Config['header_title'] ?? (prop?.propertyName.isNotEmpty == true ? prop!.propertyName : 'RETAIL ENTERPRISES LIMITED'));
     _a5HeaderSubtextCtrl.text = a5Config['header_subtext'] ?? (a4Config['header_subtext'] ?? (prop?.address.isNotEmpty == true ? '${prop!.address}, ${prop.city}, ${prop.state}' : 'Commercial Office & Address'));
     _a5TaxRegNoCtrl.text = cleanConfigTax(a5Config['tax_reg_no'] ?? a4Config['tax_reg_no']);
@@ -352,7 +773,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _a5BankNameCtrl.text = a5Config['bank_name'] ?? (a4Config['bank_name'] ?? (prop?.bankName.isNotEmpty == true ? prop!.bankName : 'Standard Chartered / Equity Bank'));
     _a5BankAccountNoCtrl.text = a5Config['bank_account_no'] ?? (a4Config['bank_account_no'] ?? (prop?.bankAccNo.isNotEmpty == true ? prop!.bankAccNo : 'A/C: 0102030405060'));
     _a5BankIfscCtrl.text = a5Config['bank_ifsc'] ?? (a4Config['bank_ifsc'] ?? (prop?.bankIfsc.isNotEmpty == true ? prop!.bankIfsc : 'SWIFT: SCBLKENX / Branch: 010'));
-    _a5MpesaPaybillCtrl.text = a5Config['mpesa_paybill'] ?? (a4Config['mpesa_paybill'] ?? 'M-Pesa Paybill: 247247 | A/C: 0712345678');
+    _a5MpesaPaybillCtrl.text = a5Config['digital_payment'] ?? (a5Config['mpesa_paybill'] ?? (a4Config['digital_payment'] ?? (a4Config['mpesa_paybill'] ?? 'Digital Pay / Till: 247247')));
     _a5SignatoryLabelCtrl.text = a5Config['signatory_label'] ?? (a4Config['signatory_label'] ?? 'For ${prop?.propertyName.isNotEmpty == true ? prop!.propertyName : "RETAIL ENTERPRISES LTD"}\nAuthorized Signatory');
 
     _a5ShowLogo = a5Config['show_logo'] ?? (a4Config['show_logo'] ?? true);
@@ -371,6 +792,11 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _a5ShowTermsAndConditions = a5Config['show_terms'] ?? (a4Config['show_terms'] ?? true);
     _a5ShowSignatureBox = a5Config['show_signature_box'] ?? (a4Config['show_signature_box'] ?? true);
     _a5ShowCurrency = a5Config['show_currency_symbol'] ?? a5Config['show_currency'] ?? (a4Config['show_currency_symbol'] ?? true);
+    _a5ShowPaymentMode = a5Config['show_payment_mode'] ?? (_a4ShowPaymentMode);
+    _a5ShowPlaceOfSupply = a5Config['show_place_of_supply'] ?? (_a4ShowPlaceOfSupply);
+    _a5ShowCashier = a5Config['show_cashier'] ?? (_a4ShowCashier);
+    _a5ResellerFooterCtrl.text = a5Config['reseller_footer_text'] ?? (_a4ResellerFooterCtrl.text.isNotEmpty ? _a4ResellerFooterCtrl.text : (_billResellerFooterCtrl.text.isNotEmpty ? _billResellerFooterCtrl.text : AppBrand.poweredByLabel));
+    _a5ShowResellerFooter = a5Config['show_reseller_footer'] ?? (_a4ShowResellerFooter);
     _a5ThemeColor = a5Config['theme_color'] ?? (a4Config['theme_color'] ?? 'BLUE');
     _a5FontSize = a5Config['font_size'] ?? (a4Config['font_size'] ?? 'MEDIUM');
 
@@ -424,7 +850,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     }
 
     final billConfig = {
+      'auto_sync_shared_details': _autoSyncSharedDetails,
       'invoice_title': _billInvoiceTitleCtrl.text.trim().toUpperCase(),
+      'phone': _billPhoneCtrl.text.trim(),
+      'email': _billEmailCtrl.text.trim(),
+      'website': _billWebsiteCtrl.text.trim(),
+      'show_website': _billShowWebsite,
       'bank_name': _billBankNameCtrl.text.trim(),
       'bank_account_no': _billBankAccountNoCtrl.text.trim(),
       'bank_ifsc': _billBankIfscCtrl.text.trim(),
@@ -456,7 +887,14 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     };
 
     final a4Config = {
+      'auto_sync_shared_details': _autoSyncSharedDetails,
       'invoice_title': _a4InvoiceTitleCtrl.text.trim().toUpperCase(),
+      'phone': _a4PhoneCtrl.text.trim(),
+      'email': _a4EmailCtrl.text.trim(),
+      'website': _a4WebsiteCtrl.text.trim(),
+      'show_phone': _a4ShowPhone,
+      'show_email': _a4ShowEmail,
+      'show_website': _a4ShowWebsite,
       'header_title': _a4HeaderTitleCtrl.text.trim(),
       'header_subtext': _a4HeaderSubtextCtrl.text.trim(),
       'tax_reg_no': _a4TaxRegNoCtrl.text.trim(),
@@ -467,6 +905,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       'bank_account_no': _a4BankAccountNoCtrl.text.trim(),
       'bank_ifsc': _a4BankIfscCtrl.text.trim(),
       'mpesa_paybill': _a4MpesaPaybillCtrl.text.trim(),
+      'digital_payment': _a4MpesaPaybillCtrl.text.trim(),
+      'show_payment_mode': _a4ShowPaymentMode,
+      'show_place_of_supply': _a4ShowPlaceOfSupply,
+      'show_cashier': _a4ShowCashier,
+      'show_reseller_footer': _a4ShowResellerFooter,
+      'reseller_footer_text': _a4ResellerFooterCtrl.text.trim(),
       'signatory_label': _a4SignatoryLabelCtrl.text.trim(),
       'show_logo': _a4ShowLogo,
       'show_address': _a4ShowCompanyAddress,
@@ -489,7 +933,14 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     };
 
     final a5Config = {
+      'auto_sync_shared_details': _autoSyncSharedDetails,
       'invoice_title': _a5InvoiceTitleCtrl.text.trim().toUpperCase(),
+      'phone': _a5PhoneCtrl.text.trim(),
+      'email': _a5EmailCtrl.text.trim(),
+      'website': _a5WebsiteCtrl.text.trim(),
+      'show_phone': _a5ShowPhone,
+      'show_email': _a5ShowEmail,
+      'show_website': _a5ShowWebsite,
       'header_title': _a5HeaderTitleCtrl.text.trim(),
       'header_subtext': _a5HeaderSubtextCtrl.text.trim(),
       'tax_reg_no': _a5TaxRegNoCtrl.text.trim(),
@@ -500,6 +951,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       'bank_account_no': _a5BankAccountNoCtrl.text.trim(),
       'bank_ifsc': _a5BankIfscCtrl.text.trim(),
       'mpesa_paybill': _a5MpesaPaybillCtrl.text.trim(),
+      'digital_payment': _a5MpesaPaybillCtrl.text.trim(),
+      'show_payment_mode': _a5ShowPaymentMode,
+      'show_place_of_supply': _a5ShowPlaceOfSupply,
+      'show_cashier': _a5ShowCashier,
+      'show_reseller_footer': _a5ShowResellerFooter,
+      'reseller_footer_text': _a5ResellerFooterCtrl.text.trim(),
       'signatory_label': _a5SignatoryLabelCtrl.text.trim(),
       'show_logo': _a5ShowLogo,
       'show_address': _a5ShowCompanyAddress,
@@ -572,8 +1029,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
         final updatedProp = cur.copyWith(
           thermalFooterNote: _billFooterNoteCtrl.text.trim().isNotEmpty ? _billFooterNoteCtrl.text.trim() : cur.thermalFooterNote,
           termsAndConditions: _billTermsCtrl.text.trim().isNotEmpty ? _billTermsCtrl.text.trim() : cur.termsAndConditions,
+          mobile: _billPhoneCtrl.text.trim().isNotEmpty ? _billPhoneCtrl.text.trim() : cur.mobile,
+          email: _billEmailCtrl.text.trim().isNotEmpty ? _billEmailCtrl.text.trim() : cur.email,
+          website: _billWebsiteCtrl.text.trim().isNotEmpty ? _billWebsiteCtrl.text.trim() : cur.website,
           printMobile: _billShowPhone,
           printEmail: _billShowEmail,
+          printWebsite: _billShowWebsite,
           printBankDetails: _billShowBankDetails,
           printUpiQr: _billShowUpiQr,
           bankName: _billBankNameCtrl.text.trim().isNotEmpty ? _billBankNameCtrl.text.trim() : cur.bankName,
@@ -708,16 +1169,18 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(7),
-            decoration: BoxDecoration(
-              color: primaryColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.tune_rounded, color: primaryColor, size: 20),
-          ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: primaryColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.tune_rounded, color: primaryColor, size: 20),
+              ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -797,7 +1260,87 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
           ),
         ],
       ),
-    );
+      const SizedBox(height: 8),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: _autoSyncSharedDetails ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: _autoSyncSharedDetails ? const Color(0xFF86EFAC) : const Color(0xFFCBD5E1),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              _autoSyncSharedDetails ? Icons.sync_rounded : Icons.sync_disabled_rounded,
+              size: 20,
+              color: _autoSyncSharedDetails ? const Color(0xFF16A34A) : const Color(0xFF64748B),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'Auto-Sync Shared Billing Details Across Formats',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF0F172A)),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: _autoSyncSharedDetails ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          _autoSyncSharedDetails ? 'SYNC ACTIVE' : 'INDEPENDENT',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10,
+                            color: _autoSyncSharedDetails ? const Color(0xFF15803D) : const Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _autoSyncSharedDetails
+                        ? 'Store Name, Address, Phone, Email, Website, Tax IDs, Banking & Terms stay synchronized between 80mm, A4, and A5.'
+                        : 'Independent Mode: Each template format can have different contact info, headers, and switches without overwriting other formats.',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: () => _syncAllFromActiveFormat(),
+              icon: const Icon(Icons.copy_all_rounded, size: 14),
+              label: const Text('Push to All Formats', style: TextStyle(fontSize: 11)),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Switch(
+              value: _autoSyncSharedDetails,
+              activeThumbColor: const Color(0xFF16A34A),
+              onChanged: (v) {
+                setState(() => _autoSyncSharedDetails = v);
+                if (v) _syncAllFromActiveFormat();
+              },
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+);
   }
 
   // =========================================================================
@@ -823,19 +1366,85 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                         label: 'Bill / Receipt Document Heading',
                         controller: _billInvoiceTitleCtrl,
                         presets: const ['TAX INVOICE', 'RETAIL INVOICE', 'BILL OF SUPPLY', 'ESTIMATE / QUOTATION', 'CASH MEMO', 'INVOICE'],
+                        onChanged: (v) => _syncText('invoice_title', v, from: '80mm'),
                       ),
                       const SizedBox(height: 12),
-                      _buildTextField('Store / Business Header Title', _billHeaderTitleCtrl, 'e.g. ABC SUPERMARKET'),
+                      _buildTextField(
+                        'Store / Business Header Title',
+                        _billHeaderTitleCtrl,
+                        'e.g. ABC SUPERMARKET',
+                        onChanged: (v) => _syncText('header_title', v, from: '80mm'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildTextField('Header Subtext (Address & Tel)', _billHeaderSubtextCtrl, 'e.g. Kimathi St, Nairobi • Tel: 0700000000', maxLines: 2),
+                      _buildTextField(
+                        'Header Subtext (Address & Tel)',
+                        _billHeaderSubtextCtrl,
+                        'e.g. Kimathi St, Nairobi • Tel: 0700000000',
+                        maxLines: 2,
+                        onChanged: (v) => _syncText('header_subtext', v, from: '80mm'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildTextField('Tax Registration ID (${_getCountryTaxLabel()})', _billTaxRegNoCtrl, 'e.g. ${_getCountryTaxLabel()}: 123456789'),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              'Store Phone / Mobile',
+                              _billPhoneCtrl,
+                              'e.g. +91 9876543210',
+                              onChanged: (v) => _syncText('phone', v, from: '80mm'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildTextField(
+                              'Store Email',
+                              _billEmailCtrl,
+                              'e.g. contact@mystore.com',
+                              onChanged: (v) => _syncText('email', v, from: '80mm'),
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
-                      _buildTextField('Thermal Footer Note', _billFooterNoteCtrl, 'e.g. Asante Sana! Thank you for shopping with us.', maxLines: 2),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              'Store Website / Online Store',
+                              _billWebsiteCtrl,
+                              'e.g. www.mystore.com',
+                              onChanged: (v) => _syncText('website', v, from: '80mm'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildTextField(
+                              'Tax Registration ID (${_getCountryTaxLabel()})',
+                              _billTaxRegNoCtrl,
+                              'e.g. ${_getCountryTaxLabel()}: 123456789',
+                              onChanged: (v) => _syncText('tax_reg_no', v, from: '80mm'),
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 12),
-                      _buildTextField('Terms & Return Policy', _billTermsCtrl, 'e.g. Goods once sold will not be taken back.', maxLines: 2),
+                      _buildTextField(
+                        'Thermal Footer Note',
+                        _billFooterNoteCtrl,
+                        'e.g. Asante Sana! Thank you for shopping with us.',
+                        maxLines: 2,
+                        onChanged: (v) => _syncText('footer_note', v, from: '80mm'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildTextField('Powered By / Reseller Tagline', _billResellerFooterCtrl, 'e.g. ${AppBrand.poweredByLabel}'),
+                      _buildTextField(
+                        'Terms & Return Policy',
+                        _billTermsCtrl,
+                        'e.g. Goods once sold will not be taken back.',
+                        maxLines: 2,
+                        onChanged: (v) => _syncText('terms', v, from: '80mm'),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildTextField('Powered By / Reseller Tagline', _billResellerFooterCtrl, 'e.g. ${AppBrand.poweredByLabel}', onChanged: (v) => _syncText('reseller_footer', v, from: '80mm')),
                     ],
                   ),
                 ),
@@ -845,29 +1454,30 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 _buildCardWrapper(
                   child: Column(
                     children: [
-                      _buildSwitch('Print Store Logo at Top', _billShowLogo, (v) => setState(() => _billShowLogo = v)),
-                      _buildSwitch('Print Store Address Line', _billShowAddress, (v) => setState(() => _billShowAddress = v)),
-                      _buildSwitch('Print Phone Number', _billShowPhone, (v) => setState(() => _billShowPhone = v)),
-                      _buildSwitch('Print Email Address', _billShowEmail, (v) => setState(() => _billShowEmail = v)),
+                      _buildSwitch('Print Store Logo at Top', _billShowLogo, (v) => setState(() { _billShowLogo = v; _syncToggle('show_logo', v, from: '80mm'); })),
+                      _buildSwitch('Print Store Address Line', _billShowAddress, (v) => setState(() { _billShowAddress = v; _syncToggle('show_address', v, from: '80mm'); })),
+                      _buildSwitch('Print Phone Number', _billShowPhone, (v) => setState(() { _billShowPhone = v; _syncToggle('show_phone', v, from: '80mm'); })),
+                      _buildSwitch('Print Email Address', _billShowEmail, (v) => setState(() { _billShowEmail = v; _syncToggle('show_email', v, from: '80mm'); })),
+                      _buildSwitch('Print Website Address', _billShowWebsite, (v) => setState(() { _billShowWebsite = v; _syncToggle('show_website', v, from: '80mm'); })),
                       _buildSwitch('Print Customer Name & Phone', _billShowCustomer, (v) => setState(() => _billShowCustomer = v)),
-                      _buildSwitch('Print Cashier / Server Name', _billShowCashier, (v) => setState(() => _billShowCashier = v)),
+                      _buildSwitch('Print Cashier / Server Name', _billShowCashier, (v) => setState(() { _billShowCashier = v; _syncToggle('show_cashier', v, from: '80mm'); })),
                       _buildSwitch('Print Token Number (e.g. TK-101)', _billShowToken, (v) => setState(() => _billShowToken = v)),
-                      _buildSwitch('Print Product Brand Prefix', _billShowBrand, (v) => setState(() => _billShowBrand = v)),
-                      _buildSwitch('Print HSN / SAC Code in Details Line', _billShowHsnCode, (v) => setState(() => _billShowHsnCode = v)),
-                      _buildSwitch('Print Discount & Scheme Breakdown', _billShowDiscounts, (v) => setState(() => _billShowDiscounts = v)),
-                      _buildSwitch('Print Tax Analysis Table (VAT/CTL)', _billShowTaxBreakup, (v) => setState(() => _billShowTaxBreakup = v)),
-                      _buildSwitch('Print Bank Account / M-Pesa Till', _billShowBankDetails, (v) => setState(() => _billShowBankDetails = v)),
+                      _buildSwitch('Print Product Brand Prefix', _billShowBrand, (v) => setState(() { _billShowBrand = v; _syncToggle('show_brand', v, from: '80mm'); })),
+                      _buildSwitch('Print HSN / SAC Code in Details Line', _billShowHsnCode, (v) => setState(() { _billShowHsnCode = v; _syncToggle('show_hsn_code', v, from: '80mm'); })),
+                      _buildSwitch('Print Discount & Scheme Breakdown', _billShowDiscounts, (v) => setState(() { _billShowDiscounts = v; _syncToggle('show_discounts', v, from: '80mm'); })),
+                      _buildSwitch('Print Tax Analysis Table (VAT/CTL)', _billShowTaxBreakup, (v) => setState(() { _billShowTaxBreakup = v; _syncToggle('show_tax_breakup', v, from: '80mm'); })),
+                      _buildSwitch('Print Bank Account / Digital Pay Till', _billShowBankDetails, (v) => setState(() { _billShowBankDetails = v; _syncToggle('show_bank_details', v, from: '80mm'); })),
                       if (_billShowBankDetails) ...[
                         const SizedBox(height: 6),
                         Row(
                           children: [
-                            Expanded(child: _buildTextField('Bank Name', _billBankNameCtrl, 'e.g. Bank / Branch')),
+                            Expanded(child: _buildTextField('Bank Name', _billBankNameCtrl, 'e.g. Bank / Branch', onChanged: (v) => _syncText('bank_name', v, from: '80mm'))),
                             const SizedBox(width: 8),
-                            Expanded(child: _buildTextField('Account / Till No', _billBankAccountNoCtrl, 'e.g. 1234567890')),
+                            Expanded(child: _buildTextField('Account / Till No', _billBankAccountNoCtrl, 'e.g. 1234567890', onChanged: (v) => _syncText('bank_account_no', v, from: '80mm'))),
                           ],
                         ),
                         const SizedBox(height: 6),
-                        _buildTextField('IFSC / SWIFT / Branch Code', _billBankIfscCtrl, 'e.g. HDFC0001234'),
+                        _buildTextField('IFSC / SWIFT / Branch Code', _billBankIfscCtrl, 'e.g. HDFC0001234', onChanged: (v) => _syncText('bank_ifsc', v, from: '80mm')),
                         const SizedBox(height: 8),
                       ],
                       _buildSwitch('Print Payment / e-Invoice QR Code', _billShowUpiQr, (v) => setState(() => _billShowUpiQr = v)),
@@ -882,8 +1492,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                         ),
                         const SizedBox(height: 8),
                       ],
-                      _buildSwitch('Print Powered by Reseller Tag', _billShowResellerFooter, (v) => setState(() => _billShowResellerFooter = v)),
-                      _buildSwitch('Print Currency Symbol (${CurrencyService.symbol})', _billShowCurrency, (v) => setState(() => _billShowCurrency = v)),
+                      _buildSwitch('Print Powered by Reseller Tag', _billShowResellerFooter, (v) => setState(() { _billShowResellerFooter = v; _syncToggle('show_reseller_footer', v, from: '80mm'); })),
+                      _buildSwitch('Print Currency Symbol (${CurrencyService.symbol})', _billShowCurrency, (v) => setState(() { _billShowCurrency = v; _syncToggle('show_currency', v, from: '80mm'); })),
                     ],
                   ),
                 ),
@@ -998,19 +1608,69 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                         label: 'A4 Invoice Document Heading',
                         controller: _a4InvoiceTitleCtrl,
                         presets: const ['TAX INVOICE', 'RETAIL INVOICE', 'BILL OF SUPPLY', 'PROFORMA INVOICE', 'COMMERCIAL INVOICE', 'INVOICE'],
+                        onChanged: (v) => _syncText('invoice_title', v, from: 'a4'),
                       ),
                       const SizedBox(height: 12),
-                      _buildTextField('Company / Firm Legal Name', _a4HeaderTitleCtrl, 'e.g. RETAIL ENTERPRISES LIMITED'),
+                      _buildTextField(
+                        'Company / Firm Legal Name',
+                        _a4HeaderTitleCtrl,
+                        'e.g. RETAIL ENTERPRISES LIMITED',
+                        onChanged: (v) => _syncText('header_title', v, from: 'a4'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildTextField('Registered Office & Postal Address', _a4HeaderSubtextCtrl, 'e.g. Commercial Street, Nairobi, Kenya', maxLines: 2),
+                      _buildTextField(
+                        'Registered Office & Postal Address',
+                        _a4HeaderSubtextCtrl,
+                        'e.g. Commercial Street, Nairobi, Kenya',
+                        maxLines: 2,
+                        onChanged: (v) => _syncText('header_subtext', v, from: 'a4'),
+                      ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: _buildTextField('Tax ID / ${_getCountryTaxLabel()}', _a4TaxRegNoCtrl, 'e.g. ${_getCountryTaxLabel()}: 123456789')),
+                          Expanded(
+                            child: _buildTextField(
+                              'Store Phone / Mobile',
+                              _a4PhoneCtrl,
+                              'e.g. +91 9876543210',
+                              onChanged: (v) => _syncText('phone', v, from: 'a4'),
+                            ),
+                          ),
                           const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('Company Reg / PAN', _a4PanNoCtrl, 'e.g. CPR/2023/88990')),
+                          Expanded(
+                            child: _buildTextField(
+                              'Store Email',
+                              _a4EmailCtrl,
+                              'e.g. contact@mystore.com',
+                              onChanged: (v) => _syncText('email', v, from: 'a4'),
+                            ),
+                          ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              'Store Website / Online Store',
+                              _a4WebsiteCtrl,
+                              'e.g. www.mystore.com',
+                              onChanged: (v) => _syncText('website', v, from: 'a4'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildTextField(
+                              'Tax ID / ${_getCountryTaxLabel()}',
+                              _a4TaxRegNoCtrl,
+                              'e.g. ${_getCountryTaxLabel()}: 123456789',
+                              onChanged: (v) => _syncText('tax_reg_no', v, from: 'a4'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildTextField('Company Reg / PAN', _a4PanNoCtrl, 'e.g. CPR/2023/88990'),
                     ],
                   ),
                 ),
@@ -1022,25 +1682,27 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                     children: [
                       Row(
                         children: [
-                          Expanded(child: _buildTextField('Bank Name', _a4BankNameCtrl, 'e.g. Standard Chartered / Equity')),
+                          Expanded(child: _buildTextField('Bank Name', _a4BankNameCtrl, 'e.g. Standard Chartered / Equity', onChanged: (v) => _syncText('bank_name', v, from: 'a4'))),
                           const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('Bank Account / IBAN', _a4BankAccountNoCtrl, 'e.g. 0102030405060')),
+                          Expanded(child: _buildTextField('Bank Account / IBAN', _a4BankAccountNoCtrl, 'e.g. 0102030405060', onChanged: (v) => _syncText('bank_account_no', v, from: 'a4'))),
                         ],
                       ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: _buildTextField('SWIFT / IFSC / Branch', _a4BankIfscCtrl, 'e.g. SCBLKENX / 010')),
+                          Expanded(child: _buildTextField('SWIFT / IFSC / Branch', _a4BankIfscCtrl, 'e.g. SCBLKENX / 010', onChanged: (v) => _syncText('bank_ifsc', v, from: 'a4'))),
                           const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('M-Pesa Paybill / Till', _a4MpesaPaybillCtrl, 'e.g. Paybill: 247247 | Acc: 0712345678')),
+                          Expanded(child: _buildTextField('Digital Payment / Till / UPI ID', _a4MpesaPaybillCtrl, 'e.g. UPI / Till / Acc: 247247')),
                         ],
                       ),
                       const SizedBox(height: 12),
                       _buildTextField('Signatory Designation Label', _a4SignatoryLabelCtrl, 'e.g. For RETAIL ENTERPRISES LTD\nAuthorized Signatory', maxLines: 2),
                       const SizedBox(height: 12),
-                      _buildTextField('Invoice Terms & Conditions (Legal)', _a4TermsCtrl, 'e.g. 1. Goods once sold will not be accepted back...', maxLines: 3),
+                      _buildTextField('Invoice Terms & Conditions (Legal)', _a4TermsCtrl, 'e.g. 1. Goods once sold will not be accepted back...', maxLines: 3, onChanged: (v) => _syncText('terms', v, from: 'a4')),
                       const SizedBox(height: 12),
-                      _buildTextField('Computer Generated Footer Tagline', _a4FooterNoteCtrl, 'e.g. This is a computer generated invoice...', maxLines: 2),
+                      _buildTextField('Computer Generated Footer Tagline', _a4FooterNoteCtrl, 'e.g. This is a computer generated invoice...', maxLines: 2, onChanged: (v) => _syncText('footer_note', v, from: 'a4')),
+                      const SizedBox(height: 12),
+                      _buildTextField('Powered By / Reseller Tagline', _a4ResellerFooterCtrl, 'e.g. ${AppBrand.poweredByLabel}', onChanged: (v) => _syncText('reseller_footer', v, from: 'a4')),
                     ],
                   ),
                 ),
@@ -1050,22 +1712,28 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 _buildCardWrapper(
                   child: Column(
                     children: [
-                      _buildSwitch('Print Company Logo & Header Brand Box', _a4ShowLogo, (v) => setState(() => _a4ShowLogo = v)),
-                      _buildSwitch('Print Registered Office Address Line', _a4ShowCompanyAddress, (v) => setState(() => _a4ShowCompanyAddress = v)),
-                      _buildSwitch('Print Company Telephone & Email Contacts', _a4ShowCompanyContact, (v) => setState(() => _a4ShowCompanyContact = v)),
-                      _buildSwitch('Print Tax PIN / GSTIN Block', _a4ShowTaxReg, (v) => setState(() => _a4ShowTaxReg = v)),
+                      _buildSwitch('Print Company Logo & Header Brand Box', _a4ShowLogo, (v) => setState(() { _a4ShowLogo = v; _syncToggle('show_logo', v, from: 'a4'); })),
+                      _buildSwitch('Print Registered Office Address Line', _a4ShowCompanyAddress, (v) => setState(() { _a4ShowCompanyAddress = v; _syncToggle('show_address', v, from: 'a4'); })),
+                      _buildSwitch('Print Store Phone Number', _a4ShowPhone, (v) => setState(() { _a4ShowPhone = v; _a4ShowCompanyContact = v || _a4ShowEmail || _a4ShowWebsite; _syncToggle('show_phone', v, from: 'a4'); })),
+                      _buildSwitch('Print Store Email Address', _a4ShowEmail, (v) => setState(() { _a4ShowEmail = v; _a4ShowCompanyContact = _a4ShowPhone || v || _a4ShowWebsite; _syncToggle('show_email', v, from: 'a4'); })),
+                      _buildSwitch('Print Store Website Address', _a4ShowWebsite, (v) => setState(() { _a4ShowWebsite = v; _a4ShowCompanyContact = _a4ShowPhone || _a4ShowEmail || v; _syncToggle('show_website', v, from: 'a4'); })),
+                      _buildSwitch('Print Tax PIN / GSTIN Block', _a4ShowTaxReg, (v) => setState(() { _a4ShowTaxReg = v; _syncToggle('show_tax_reg', v, from: 'a4'); })),
                       _buildSwitch('Print "Billed To" Customer Card (Name, PIN, Address)', _a4ShowBuyerDetails, (v) => setState(() => _a4ShowBuyerDetails = v)),
                       _buildSwitch('Print "Shipped To" Delivery Address Card', _a4ShowShippingDetails, (v) => setState(() => _a4ShowShippingDetails = v)),
-                      _buildSwitch('Print HSN / SAC Code Column in Items Grid', _a4ShowHsnCode, (v) => setState(() => _a4ShowHsnCode = v)),
-                      _buildSwitch('Print Item Brand Prefix in Description', _a4ShowBrand, (v) => setState(() => _a4ShowBrand = v)),
-                      _buildSwitch('Print Item Discount % Column', _a4ShowItemDiscount, (v) => setState(() => _a4ShowItemDiscount = v)),
-                      _buildSwitch('Print Comprehensive Tax Breakup Box (CGST/SGST/VAT/CTL)', _a4ShowTaxBreakup, (v) => setState(() => _a4ShowTaxBreakup = v)),
+                      _buildSwitch('Print Cashier / Server Name', _a4ShowCashier, (v) => setState(() { _a4ShowCashier = v; _syncToggle('show_cashier', v, from: 'a4'); })),
+                      _buildSwitch('Print Payment Mode / Method', _a4ShowPaymentMode, (v) => setState(() { _a4ShowPaymentMode = v; _syncToggle('show_payment_mode', v, from: 'a4'); })),
+                      _buildSwitch('Print Place of Supply / State', _a4ShowPlaceOfSupply, (v) => setState(() { _a4ShowPlaceOfSupply = v; _syncToggle('show_place_of_supply', v, from: 'a4'); })),
+                      _buildSwitch('Print HSN / SAC Code Column in Items Grid', _a4ShowHsnCode, (v) => setState(() { _a4ShowHsnCode = v; _syncToggle('show_hsn_code', v, from: 'a4'); })),
+                      _buildSwitch('Print Item Brand Prefix in Description', _a4ShowBrand, (v) => setState(() { _a4ShowBrand = v; _syncToggle('show_brand', v, from: 'a4'); })),
+                      _buildSwitch('Print Item Discount % Column', _a4ShowItemDiscount, (v) => setState(() { _a4ShowItemDiscount = v; _syncToggle('show_discounts', v, from: 'a4'); })),
+                      _buildSwitch('Print Comprehensive Tax Breakup Box (CGST/SGST/VAT/CTL)', _a4ShowTaxBreakup, (v) => setState(() { _a4ShowTaxBreakup = v; _syncToggle('show_tax_breakup', v, from: 'a4'); })),
                       _buildSwitch('Print Total Net Payable in Words', _a4ShowAmountInWords, (v) => setState(() => _a4ShowAmountInWords = v)),
-                      _buildSwitch('Print Bank Account & M-Pesa Settlement Block', _a4ShowBankDetails, (v) => setState(() => _a4ShowBankDetails = v)),
+                      _buildSwitch('Print Bank Account & Digital Payment Settlement', _a4ShowBankDetails, (v) => setState(() { _a4ShowBankDetails = v; _syncToggle('show_bank_details', v, from: 'a4'); })),
                       _buildSwitch('Print e-Invoice / UPI Payment Verification QR', _a4ShowQrCode, (v) => setState(() => _a4ShowQrCode = v)),
-                      _buildSwitch('Print Terms & Conditions Box', _a4ShowTermsAndConditions, (v) => setState(() => _a4ShowTermsAndConditions = v)),
+                      _buildSwitch('Print Terms & Conditions Box', _a4ShowTermsAndConditions, (v) => setState(() { _a4ShowTermsAndConditions = v; _syncToggle('show_terms', v, from: 'a4'); })),
                       _buildSwitch('Print Signature & Company Seal Box', _a4ShowSignatureBox, (v) => setState(() => _a4ShowSignatureBox = v)),
-                      _buildSwitch('Print Currency Symbol (${CurrencyService.symbol})', _a4ShowCurrency, (v) => setState(() => _a4ShowCurrency = v)),
+                      _buildSwitch('Print Currency Symbol (${CurrencyService.symbol})', _a4ShowCurrency, (v) => setState(() { _a4ShowCurrency = v; _syncToggle('show_currency', v, from: 'a4'); })),
+                      _buildSwitch('Print Powered by Reseller Tag', _a4ShowResellerFooter, (v) => setState(() { _a4ShowResellerFooter = v; _syncToggle('show_reseller_footer', v, from: 'a4'); })),
                     ],
                   ),
                 ),
@@ -1177,19 +1845,69 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                         label: 'A5 Invoice Document Heading',
                         controller: _a5InvoiceTitleCtrl,
                         presets: const ['TAX INVOICE', 'RETAIL INVOICE', 'BILL OF SUPPLY', 'ESTIMATE', 'CASH MEMO', 'INVOICE'],
+                        onChanged: (v) => _syncText('invoice_title', v, from: 'a5'),
                       ),
                       const SizedBox(height: 12),
-                      _buildTextField('Company / Firm Legal Name', _a5HeaderTitleCtrl, 'e.g. RETAIL ENTERPRISES LIMITED'),
+                      _buildTextField(
+                        'Company / Firm Legal Name',
+                        _a5HeaderTitleCtrl,
+                        'e.g. RETAIL ENTERPRISES LIMITED',
+                        onChanged: (v) => _syncText('header_title', v, from: 'a5'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildTextField('Registered Office & Postal Address', _a5HeaderSubtextCtrl, 'e.g. Commercial Street, Nairobi, Kenya', maxLines: 2),
+                      _buildTextField(
+                        'Registered Office & Postal Address',
+                        _a5HeaderSubtextCtrl,
+                        'e.g. Commercial Street, Nairobi, Kenya',
+                        maxLines: 2,
+                        onChanged: (v) => _syncText('header_subtext', v, from: 'a5'),
+                      ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: _buildTextField('Tax ID / ${_getCountryTaxLabel()}', _a5TaxRegNoCtrl, 'e.g. ${_getCountryTaxLabel()}: 123456789')),
+                          Expanded(
+                            child: _buildTextField(
+                              'Store Phone / Mobile',
+                              _a5PhoneCtrl,
+                              'e.g. +91 9876543210',
+                              onChanged: (v) => _syncText('phone', v, from: 'a5'),
+                            ),
+                          ),
                           const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('Company Reg / PAN', _a5PanNoCtrl, 'e.g. CPR/2023/88990')),
+                          Expanded(
+                            child: _buildTextField(
+                              'Store Email',
+                              _a5EmailCtrl,
+                              'e.g. contact@mystore.com',
+                              onChanged: (v) => _syncText('email', v, from: 'a5'),
+                            ),
+                          ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              'Store Website / Online Store',
+                              _a5WebsiteCtrl,
+                              'e.g. www.mystore.com',
+                              onChanged: (v) => _syncText('website', v, from: 'a5'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildTextField(
+                              'Tax ID / ${_getCountryTaxLabel()}',
+                              _a5TaxRegNoCtrl,
+                              'e.g. ${_getCountryTaxLabel()}: 123456789',
+                              onChanged: (v) => _syncText('tax_reg_no', v, from: 'a5'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildTextField('Company Reg / PAN', _a5PanNoCtrl, 'e.g. CPR/2023/88990'),
                     ],
                   ),
                 ),
@@ -1201,25 +1919,27 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                     children: [
                       Row(
                         children: [
-                          Expanded(child: _buildTextField('Bank Name', _a5BankNameCtrl, 'e.g. Standard Chartered / Equity')),
+                          Expanded(child: _buildTextField('Bank Name', _a5BankNameCtrl, 'e.g. Standard Chartered / Equity', onChanged: (v) => _syncText('bank_name', v, from: 'a5'))),
                           const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('Bank Account / IBAN', _a5BankAccountNoCtrl, 'e.g. 0102030405060')),
+                          Expanded(child: _buildTextField('Bank Account / IBAN', _a5BankAccountNoCtrl, 'e.g. 0102030405060', onChanged: (v) => _syncText('bank_account_no', v, from: 'a5'))),
                         ],
                       ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: _buildTextField('SWIFT / IFSC / Branch', _a5BankIfscCtrl, 'e.g. SCBLKENX / 010')),
+                          Expanded(child: _buildTextField('SWIFT / IFSC / Branch', _a5BankIfscCtrl, 'e.g. SCBLKENX / 010', onChanged: (v) => _syncText('bank_ifsc', v, from: 'a5'))),
                           const SizedBox(width: 12),
-                          Expanded(child: _buildTextField('M-Pesa Paybill / Till', _a5MpesaPaybillCtrl, 'e.g. Paybill: 247247 | Acc: 0712345678')),
+                          Expanded(child: _buildTextField('Digital Payment / Till / UPI ID', _a5MpesaPaybillCtrl, 'e.g. UPI / Till / Acc: 247247')),
                         ],
                       ),
                       const SizedBox(height: 12),
                       _buildTextField('Signatory Designation Label', _a5SignatoryLabelCtrl, 'e.g. For RETAIL ENTERPRISES LTD\nAuthorized Signatory', maxLines: 2),
                       const SizedBox(height: 12),
-                      _buildTextField('Invoice Terms & Conditions (Legal)', _a5TermsCtrl, 'e.g. 1. Goods once sold will not be accepted back...', maxLines: 3),
+                      _buildTextField('Invoice Terms & Conditions (Legal)', _a5TermsCtrl, 'e.g. 1. Goods once sold will not be accepted back...', maxLines: 3, onChanged: (v) => _syncText('terms', v, from: 'a5')),
                       const SizedBox(height: 12),
-                      _buildTextField('Computer Generated Footer Tagline', _a5FooterNoteCtrl, 'e.g. This is a computer generated invoice...', maxLines: 2),
+                      _buildTextField('Computer Generated Footer Tagline', _a5FooterNoteCtrl, 'e.g. This is a computer generated invoice...', maxLines: 2, onChanged: (v) => _syncText('footer_note', v, from: 'a5')),
+                      const SizedBox(height: 12),
+                      _buildTextField('Powered By / Reseller Tagline', _a5ResellerFooterCtrl, 'e.g. ${AppBrand.poweredByLabel}', onChanged: (v) => _syncText('reseller_footer', v, from: 'a5')),
                     ],
                   ),
                 ),
@@ -1229,22 +1949,28 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 _buildCardWrapper(
                   child: Column(
                     children: [
-                      _buildSwitch('Print Company Logo & Header Brand Box', _a5ShowLogo, (v) => setState(() => _a5ShowLogo = v)),
-                      _buildSwitch('Print Registered Office Address Line', _a5ShowCompanyAddress, (v) => setState(() => _a5ShowCompanyAddress = v)),
-                      _buildSwitch('Print Company Telephone & Email Contacts', _a5ShowCompanyContact, (v) => setState(() => _a5ShowCompanyContact = v)),
-                      _buildSwitch('Print Tax PIN / GSTIN Block', _a5ShowTaxReg, (v) => setState(() => _a5ShowTaxReg = v)),
+                      _buildSwitch('Print Company Logo & Header Brand Box', _a5ShowLogo, (v) => setState(() { _a5ShowLogo = v; _syncToggle('show_logo', v, from: 'a5'); })),
+                      _buildSwitch('Print Registered Office Address Line', _a5ShowCompanyAddress, (v) => setState(() { _a5ShowCompanyAddress = v; _syncToggle('show_address', v, from: 'a5'); })),
+                      _buildSwitch('Print Store Phone Number', _a5ShowPhone, (v) => setState(() { _a5ShowPhone = v; _a5ShowCompanyContact = v || _a5ShowEmail || _a5ShowWebsite; _syncToggle('show_phone', v, from: 'a5'); })),
+                      _buildSwitch('Print Store Email Address', _a5ShowEmail, (v) => setState(() { _a5ShowEmail = v; _a5ShowCompanyContact = _a5ShowPhone || v || _a5ShowWebsite; _syncToggle('show_email', v, from: 'a5'); })),
+                      _buildSwitch('Print Store Website Address', _a5ShowWebsite, (v) => setState(() { _a5ShowWebsite = v; _a5ShowCompanyContact = _a5ShowPhone || _a5ShowEmail || v; _syncToggle('show_website', v, from: 'a5'); })),
+                      _buildSwitch('Print Tax PIN / GSTIN Block', _a5ShowTaxReg, (v) => setState(() { _a5ShowTaxReg = v; _syncToggle('show_tax_reg', v, from: 'a5'); })),
                       _buildSwitch('Print "Billed To" Customer Card (Name, PIN, Address)', _a5ShowBuyerDetails, (v) => setState(() => _a5ShowBuyerDetails = v)),
                       _buildSwitch('Print "Shipped To" Delivery Address Card', _a5ShowShippingDetails, (v) => setState(() => _a5ShowShippingDetails = v)),
-                      _buildSwitch('Print HSN / SAC Code Column in Items Grid', _a5ShowHsnCode, (v) => setState(() => _a5ShowHsnCode = v)),
-                      _buildSwitch('Print Item Brand Prefix in Description', _a5ShowBrand, (v) => setState(() => _a5ShowBrand = v)),
-                      _buildSwitch('Print Item Discount % Column', _a5ShowItemDiscount, (v) => setState(() => _a5ShowItemDiscount = v)),
-                      _buildSwitch('Print Comprehensive Tax Breakup Box (CGST/SGST/VAT/CTL)', _a5ShowTaxBreakup, (v) => setState(() => _a5ShowTaxBreakup = v)),
+                      _buildSwitch('Print Cashier / Server Name', _a5ShowCashier, (v) => setState(() { _a5ShowCashier = v; _syncToggle('show_cashier', v, from: 'a5'); })),
+                      _buildSwitch('Print Payment Mode / Method', _a5ShowPaymentMode, (v) => setState(() { _a5ShowPaymentMode = v; _syncToggle('show_payment_mode', v, from: 'a5'); })),
+                      _buildSwitch('Print Place of Supply / State', _a5ShowPlaceOfSupply, (v) => setState(() { _a5ShowPlaceOfSupply = v; _syncToggle('show_place_of_supply', v, from: 'a5'); })),
+                      _buildSwitch('Print HSN / SAC Code Column in Items Grid', _a5ShowHsnCode, (v) => setState(() { _a5ShowHsnCode = v; _syncToggle('show_hsn_code', v, from: 'a5'); })),
+                      _buildSwitch('Print Item Brand Prefix in Description', _a5ShowBrand, (v) => setState(() { _a5ShowBrand = v; _syncToggle('show_brand', v, from: 'a5'); })),
+                      _buildSwitch('Print Item Discount % Column', _a5ShowItemDiscount, (v) => setState(() { _a5ShowItemDiscount = v; _syncToggle('show_discounts', v, from: 'a5'); })),
+                      _buildSwitch('Print Comprehensive Tax Breakup Box (CGST/SGST/VAT/CTL)', _a5ShowTaxBreakup, (v) => setState(() { _a5ShowTaxBreakup = v; _syncToggle('show_tax_breakup', v, from: 'a5'); })),
                       _buildSwitch('Print Total Net Payable in Words', _a5ShowAmountInWords, (v) => setState(() => _a5ShowAmountInWords = v)),
-                      _buildSwitch('Print Bank Account & M-Pesa Settlement Block', _a5ShowBankDetails, (v) => setState(() => _a5ShowBankDetails = v)),
+                      _buildSwitch('Print Bank Account & Digital Payment Settlement', _a5ShowBankDetails, (v) => setState(() { _a5ShowBankDetails = v; _syncToggle('show_bank_details', v, from: 'a5'); })),
                       _buildSwitch('Print e-Invoice / UPI Payment Verification QR', _a5ShowQrCode, (v) => setState(() => _a5ShowQrCode = v)),
-                      _buildSwitch('Print Terms & Conditions Box', _a5ShowTermsAndConditions, (v) => setState(() => _a5ShowTermsAndConditions = v)),
+                      _buildSwitch('Print Terms & Conditions Box', _a5ShowTermsAndConditions, (v) => setState(() { _a5ShowTermsAndConditions = v; _syncToggle('show_terms', v, from: 'a5'); })),
                       _buildSwitch('Print Signature & Company Seal Box', _a5ShowSignatureBox, (v) => setState(() => _a5ShowSignatureBox = v)),
-                      _buildSwitch('Print Currency Symbol (${CurrencyService.symbol})', _a5ShowCurrency, (v) => setState(() => _a5ShowCurrency = v)),
+                      _buildSwitch('Print Currency Symbol (${CurrencyService.symbol})', _a5ShowCurrency, (v) => setState(() { _a5ShowCurrency = v; _syncToggle('show_currency', v, from: 'a5'); })),
+                      _buildSwitch('Print Powered by Reseller Tag', _a5ShowResellerFooter, (v) => setState(() { _a5ShowResellerFooter = v; _syncToggle('show_reseller_footer', v, from: 'a5'); })),
                     ],
                   ),
                 ),
@@ -1387,10 +2113,17 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       SizedBox(height: 2 * scale),
                       Text(_a5HeaderSubtextCtrl.text, style: TextStyle(fontSize: subtextSize, color: const Color(0xFF475569))),
                     ],
-                    if (_a5ShowCompanyContact) ...[
-                      SizedBox(height: 2 * scale),
-                      Text('Phone: +254 700 000000 | Email: help@famalth.com', style: TextStyle(fontSize: 7.8 * scale, color: const Color(0xFF64748B))),
-                    ],
+                    () {
+                      final contacts = <String>[];
+                      if (_a5ShowPhone && _a5PhoneCtrl.text.trim().isNotEmpty) contacts.add('Tel: ${_a5PhoneCtrl.text.trim()}');
+                      if (_a5ShowEmail && _a5EmailCtrl.text.trim().isNotEmpty) contacts.add('Email: ${_a5EmailCtrl.text.trim()}');
+                      if (_a5ShowWebsite && _a5WebsiteCtrl.text.trim().isNotEmpty) contacts.add('Web: ${_a5WebsiteCtrl.text.trim()}');
+                      if (contacts.isEmpty) return const SizedBox.shrink();
+                      return Padding(
+                        padding: EdgeInsets.only(top: 2 * scale),
+                        child: Text(contacts.join('  |  '), style: TextStyle(fontSize: 7.8 * scale, color: const Color(0xFF64748B))),
+                      );
+                    }(),
                     if (_a5ShowTaxReg) ...[
                       SizedBox(height: 2 * scale),
                       Text('${_a5TaxRegNoCtrl.text} | ${_a5PanNoCtrl.text}', style: TextStyle(fontSize: 8 * scale, fontWeight: FontWeight.w600, color: const Color(0xFF0F172A))),
@@ -1430,8 +2163,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       SizedBox(height: 3 * scale),
                       _a4MetaRow('Invoice No:', 'INV-2026-00892', metaLabelSize, metaValueSize),
                       _a4MetaRow('Date & Time:', '27-Sep-2026 14:00 PM', metaLabelSize, metaValueSize),
-                      _a4MetaRow('Payment Mode:', 'BANK / M-PESA', metaLabelSize, metaValueSize),
-                      _a4MetaRow('Place of Supply:', 'Nairobi, Kenya (01)', metaLabelSize, metaValueSize),
+                      if (_a5ShowCashier)
+                        _a4MetaRow('Cashier:', 'famalth1', metaLabelSize, metaValueSize),
+                      if (_a5ShowPaymentMode)
+                        _a4MetaRow('Payment Mode:', 'BANK / ONLINE', metaLabelSize, metaValueSize),
+                      if (_a5ShowPlaceOfSupply)
+                        _a4MetaRow('Place of Supply:', _getCountryTaxLabel() == 'GSTIN' ? 'Delhi, India (07)' : 'State / Province (01)', metaLabelSize, metaValueSize),
                     ],
                   ),
                 ),
@@ -1500,17 +2237,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (_a5ShowAmountInWords) ...[
-                      Container(
-                        padding: EdgeInsets.all(5 * scale),
-                        decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: const Color(0xFFE2E8F0)), borderRadius: BorderRadius.circular(4)),
-                        child: Text(
-                          'Amount in Words: Kenya Shillings Two Thousand Three Hundred Eight and 75/100 Only.',
-                          style: TextStyle(fontSize: 7.8 * scale, fontStyle: FontStyle.italic, color: Colors.grey.shade800),
-                        ),
-                      ),
-                      SizedBox(height: 5 * scale),
-                    ],
+
                     if (_a5ShowBankDetails) ...[
                       Container(
                         padding: EdgeInsets.all(5 * scale),
@@ -1558,6 +2285,18 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
               ),
             ],
           ),
+          if (_a5ShowAmountInWords) ...[
+            SizedBox(height: 5 * scale),
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(horizontal: 7 * scale, vertical: 4 * scale),
+              decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: const Color(0xFFE2E8F0)), borderRadius: BorderRadius.circular(4)),
+              child: Text(
+                'Amount in Words: ${_getCountryTaxLabel() == "GSTIN" ? "Two Thousand Four Hundred Sixty Six Rupees Only" : "Two Thousand Four Hundred Sixty Six Only"}',
+                style: TextStyle(fontSize: 7.8 * scale, fontStyle: FontStyle.italic, fontWeight: FontWeight.w500, color: Colors.grey.shade900),
+              ),
+            ),
+          ],
           SizedBox(height: 8 * scale),
 
           // Terms and Signatory Box
@@ -1615,6 +2354,15 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
             SizedBox(height: 6 * scale),
             Center(
               child: Text(_a5FooterNoteCtrl.text, style: TextStyle(fontSize: 7.0 * scale, color: Colors.grey)),
+            ),
+          ],
+          if (_a5ShowResellerFooter) ...[
+            SizedBox(height: 2.5 * scale),
+            Center(
+              child: Text(
+                _a5ResellerFooterCtrl.text.trim().isNotEmpty ? _a5ResellerFooterCtrl.text.trim() : AppBrand.poweredByLabel,
+                style: TextStyle(fontSize: 6.2 * scale, color: const Color(0xFF94A3B8)),
+              ),
             ),
           ],
         ],
@@ -1952,6 +2700,30 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
             SizedBox(height: 2 * scale),
             Text(
               _billHeaderSubtextCtrl.text,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'monospace', fontSize: subtextSize, color: const Color(0xFF475569)),
+            ),
+          ],
+          if (_billShowPhone && _billPhoneCtrl.text.trim().isNotEmpty) ...[
+            SizedBox(height: 1.5 * scale),
+            Text(
+              'Tel: ${_billPhoneCtrl.text.trim()}',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'monospace', fontSize: subtextSize, color: const Color(0xFF475569)),
+            ),
+          ],
+          if (_billShowEmail && _billEmailCtrl.text.trim().isNotEmpty) ...[
+            SizedBox(height: 1.5 * scale),
+            Text(
+              'Email: ${_billEmailCtrl.text.trim()}',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'monospace', fontSize: subtextSize, color: const Color(0xFF475569)),
+            ),
+          ],
+          if (_billShowWebsite && _billWebsiteCtrl.text.trim().isNotEmpty) ...[
+            SizedBox(height: 1.5 * scale),
+            Text(
+              'Web: ${_billWebsiteCtrl.text.trim()}',
               textAlign: TextAlign.center,
               style: TextStyle(fontFamily: 'monospace', fontSize: subtextSize, color: const Color(0xFF475569)),
             ),
@@ -2314,10 +3086,17 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       SizedBox(height: 2 * scale),
                       Text(_a4HeaderSubtextCtrl.text, style: TextStyle(fontSize: subtextSize, color: const Color(0xFF475569))),
                     ],
-                    if (_a4ShowCompanyContact) ...[
-                      SizedBox(height: 2 * scale),
-                      Text('Phone: +254 700 000000 | Email: help@famalth.com | Web: www.famalth.com', style: TextStyle(fontSize: 8.5 * scale, color: const Color(0xFF64748B))),
-                    ],
+                    () {
+                      final contacts = <String>[];
+                      if (_a4ShowPhone && _a4PhoneCtrl.text.trim().isNotEmpty) contacts.add('Tel: ${_a4PhoneCtrl.text.trim()}');
+                      if (_a4ShowEmail && _a4EmailCtrl.text.trim().isNotEmpty) contacts.add('Email: ${_a4EmailCtrl.text.trim()}');
+                      if (_a4ShowWebsite && _a4WebsiteCtrl.text.trim().isNotEmpty) contacts.add('Web: ${_a4WebsiteCtrl.text.trim()}');
+                      if (contacts.isEmpty) return const SizedBox.shrink();
+                      return Padding(
+                        padding: EdgeInsets.only(top: 2 * scale),
+                        child: Text(contacts.join('  |  '), style: TextStyle(fontSize: 8.5 * scale, color: const Color(0xFF64748B))),
+                      );
+                    }(),
                     if (_a4ShowTaxReg) ...[
                       SizedBox(height: 2 * scale),
                       Text('${_a4TaxRegNoCtrl.text}  |  ${_a4PanNoCtrl.text}', style: TextStyle(fontSize: 9 * scale, fontWeight: FontWeight.w600, color: const Color(0xFF0F172A))),
@@ -2357,8 +3136,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       SizedBox(height: 4 * scale),
                       _a4MetaRow('Invoice No:', 'INV-2026-00892', metaLabelSize, metaValueSize),
                       _a4MetaRow('Date & Time:', '27-Sep-2026 14:00 PM', metaLabelSize, metaValueSize),
-                      _a4MetaRow('Payment Mode:', 'BANK TRANSFER / M-PESA', metaLabelSize, metaValueSize),
-                      _a4MetaRow('Place of Supply:', 'Nairobi, Kenya (01)', metaLabelSize, metaValueSize),
+                      if (_a4ShowCashier)
+                        _a4MetaRow('Cashier:', 'famalth1', metaLabelSize, metaValueSize),
+                      if (_a4ShowPaymentMode)
+                        _a4MetaRow('Payment Mode:', 'BANK TRANSFER / ONLINE', metaLabelSize, metaValueSize),
+                      if (_a4ShowPlaceOfSupply)
+                        _a4MetaRow('Place of Supply:', _getCountryTaxLabel() == 'GSTIN' ? 'Delhi, India (07)' : 'State / Province (01)', metaLabelSize, metaValueSize),
                     ],
                   ),
                 ),
@@ -2427,17 +3210,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (_a4ShowAmountInWords) ...[
-                      Container(
-                        padding: EdgeInsets.all(6 * scale),
-                        decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: const Color(0xFFE2E8F0)), borderRadius: BorderRadius.circular(4)),
-                        child: Text(
-                          'Amount in Words: Kenya Shillings Two Thousand Three Hundred Eight and 75/100 Only.',
-                          style: TextStyle(fontSize: 8.5 * scale, fontStyle: FontStyle.italic, color: Colors.grey.shade800),
-                        ),
-                      ),
-                      SizedBox(height: 6 * scale),
-                    ],
+
                     if (_a4ShowBankDetails) ...[
                       Container(
                         padding: EdgeInsets.all(7 * scale),
@@ -2485,6 +3258,18 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
               ),
             ],
           ),
+          if (_a4ShowAmountInWords) ...[
+            SizedBox(height: 6 * scale),
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 5 * scale),
+              decoration: BoxDecoration(color: const Color(0xFFF8FAFC), border: Border.all(color: const Color(0xFFE2E8F0)), borderRadius: BorderRadius.circular(4)),
+              child: Text(
+                'Amount in Words: ${_getCountryTaxLabel() == "GSTIN" ? "Two Thousand Four Hundred Sixty Six Rupees Only" : "Two Thousand Four Hundred Sixty Six Only"}',
+                style: TextStyle(fontSize: 8.5 * scale, fontStyle: FontStyle.italic, fontWeight: FontWeight.w500, color: Colors.grey.shade900),
+              ),
+            ),
+          ],
           SizedBox(height: 12 * scale),
 
           // Terms and Signatory Box
@@ -2542,6 +3327,15 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
             SizedBox(height: 8 * scale),
             Center(
               child: Text(_a4FooterNoteCtrl.text, style: TextStyle(fontSize: 7.5 * scale, color: Colors.grey)),
+            ),
+          ],
+          if (_a4ShowResellerFooter) ...[
+            SizedBox(height: 3 * scale),
+            Center(
+              child: Text(
+                _a4ResellerFooterCtrl.text.trim().isNotEmpty ? _a4ResellerFooterCtrl.text.trim() : AppBrand.poweredByLabel,
+                style: TextStyle(fontSize: 6.8 * scale, color: const Color(0xFF94A3B8)),
+              ),
             ),
           ],
         ],
@@ -2995,6 +3789,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     required String label,
     required TextEditingController controller,
     required List<String> presets,
+    ValueChanged<String>? onChanged,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3004,7 +3799,10 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
         TextField(
           controller: controller,
           decoration: _inputDecoration(hint: 'e.g. TAX INVOICE, RETAIL INVOICE, BILL OF SUPPLY'),
-          onChanged: (_) => setState(() {}),
+          onChanged: (val) {
+            onChanged?.call(val);
+            setState(() {});
+          },
         ),
         const SizedBox(height: 6),
         Wrap(
@@ -3021,6 +3819,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
               onPressed: () {
                 setState(() {
                   controller.text = p;
+                  onChanged?.call(p);
                 });
               },
             );
@@ -3030,7 +3829,7 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController ctrl, String hint, {int maxLines = 1}) {
+  Widget _buildTextField(String label, TextEditingController ctrl, String hint, {int maxLines = 1, ValueChanged<String>? onChanged}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3040,7 +3839,10 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
           controller: ctrl,
           maxLines: maxLines,
           decoration: _inputDecoration(hint: hint),
-          onChanged: (_) => setState(() {}),
+          onChanged: (val) {
+            onChanged?.call(val);
+            setState(() {});
+          },
         ),
       ],
     );

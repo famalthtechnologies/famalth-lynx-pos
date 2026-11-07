@@ -8,8 +8,6 @@ import '../../core/api/endpoints.dart';
 import '../inventory/salescreen.dart';
 import 'kot_builder_screen.dart';
 import 'running_orders_screen.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -4613,148 +4611,13 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
   }
 
   Future<Uint8List> _generateKotPdfForPrint(Map<String, dynamic> kot, List<dynamic> items, String locationName) async {
-    final pdf = await PosInvoicePrinter.createDocument();
-    
-    final String kottypeLower = (kot['kottype'] ?? '').toString().toLowerCase();
-    final String serviceTypeLower = (kot['service_type'] ?? '').toString().toLowerCase();
-    final String remarksLower = (kot['remarks'] ?? '').toString().toLowerCase();
-    final bool isNc = kottypeLower == 'nc' || serviceTypeLower.contains('nc') || remarksLower.contains('nc');
-
-    final String tableName = isNc ? 'NC Order' : (kot['table']?['table_name'] ?? 'Takeaway');
-    final String subHeader = isNc ? '*** NC ORDER (NO CHARGE) ***' : '*** PACKING K O T ***';
-    final String nowStr = DateTime.now().toString().substring(0, 16);
-    final String kotNo = (kot['kot_number'] ?? kot['kot_no'] ?? '#KOT-${kot['id']}').toString();
-    
-    double totalQty = 0;
-    for (final item in items) {
-      totalQty += double.tryParse(item['quantity']?.toString() ?? item['qty']?.toString() ?? '0') ?? 0.0;
-    }
-    
-    pdf.addPage(
-      pw.Page(
-        pageFormat: const PdfPageFormat(80 * PdfPageFormat.mm, double.infinity, marginAll: 4 * PdfPageFormat.mm),
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-            children: [
-              pw.Center(
-                child: pw.Text(
-                  'KITCHEN ORDER TICKET',
-                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13),
-                ),
-              ),
-              if (locationName.isNotEmpty)
-                pw.Container(
-                  margin: const pw.EdgeInsets.symmetric(vertical: 3),
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.black, width: 1.5),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-                  ),
-                  child: pw.Center(
-                    child: pw.Text(
-                      'LOCATION / STATION: ${locationName.toUpperCase()}',
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11.5, color: PdfColors.black),
-                    ),
-                  ),
-                ),
-              pw.Center(
-                child: pw.Text(
-                  subHeader,
-                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
-                ),
-              ),
-              pw.SizedBox(height: 6),
-              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('TABLE: $tableName', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-                  pw.Text('KOT: $kotNo', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
-                ],
-              ),
-              pw.Text('Time: $nowStr', style: const pw.TextStyle(fontSize: 9)),
-              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
-              pw.Row(
-                children: [
-                  pw.SizedBox(width: 32, child: pw.Text('QTY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                  pw.Expanded(child: pw.Text('ITEM DESCRIPTION', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
-                ],
-              ),
-              pw.Divider(thickness: 0.5),
-              ...items.map((item) {
-                final double q = double.tryParse(item['quantity']?.toString() ?? item['qty']?.toString() ?? '0') ?? 0.0;
-                final String qtyStr = (q % 1 == 0) ? q.toInt().toString() : q.toStringAsFixed(1);
-                final String itemBrand = (item['brand'] ?? item['brand_name'] ?? item['item_brand'] ?? item['item']?['brand'] ?? (item['item'] is Map ? item['item']['brand'] : null) ?? '').toString().trim();
-                final String displayName = itemBrand.isNotEmpty ? '${item['item_name'] ?? ''} ($itemBrand)' : (item['item_name'] ?? '');
-                final String remark = (item['notes'] ?? item['item_remark'] ?? '').toString();
-                
-                return pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 3),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Row(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.SizedBox(
-                            width: 32,
-                            child: pw.Text(
-                              '[ $qtyStr ]',
-                              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12),
-                            ),
-                          ),
-                          pw.Expanded(
-                            child: pw.Text(
-                              displayName,
-                              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (remark.isNotEmpty)
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.only(left: 32, top: 1),
-                          child: pw.Text('* Note: $remark', style: pw.TextStyle(fontSize: 9, fontStyle: pw.FontStyle.italic)),
-                        ),
-                    ],
-                  ),
-                );
-              }),
-              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Total Qty:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                  pw.Text((totalQty % 1 == 0) ? totalQty.toInt().toString() : totalQty.toStringAsFixed(1),
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-                ],
-              ),
-              pw.SizedBox(height: 10),
-              pw.Row(
-                children: [
-                  pw.Text('✂', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                  pw.SizedBox(width: 4),
-                  pw.Expanded(
-                    child: pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
-                  ),
-                  pw.SizedBox(width: 4),
-                  pw.Text('CUT HERE', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
-                  pw.SizedBox(width: 4),
-                  pw.Expanded(
-                    child: pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
-                  ),
-                  pw.SizedBox(width: 4),
-                  pw.Text('✂', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                ],
-              ),
-              pw.SizedBox(height: 6),
-            ],
-          );
-        },
-      ),
+    final settingsCtrl = context.read<SystemSettingsController>();
+    return PosInvoicePrinter.buildKotPdf(
+      kot: kot,
+      items: items,
+      locationName: locationName,
+      kotTemplateConfig: settingsCtrl.settings?.kotTemplateConfig,
     );
-    return pdf.save();
   }
 
   Widget _buildNcOrdersView(RestaurantController ctrl) {

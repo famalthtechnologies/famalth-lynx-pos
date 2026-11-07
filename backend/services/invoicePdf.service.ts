@@ -47,6 +47,15 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
             const showHsn = tmplConfig.show_hsn_code ?? (saleHeader.show_hsn_code ?? true);
             const showDiscounts = tmplConfig.show_item_discount ?? tmplConfig.show_item_discounts ?? true;
             const showTaxBreakup = tmplConfig.show_tax_breakup ?? true;
+            const showPhone = tmplConfig.show_phone ?? (saleHeader.show_phone ?? true);
+            const showEmail = tmplConfig.show_email ?? (saleHeader.show_email ?? true);
+            const showWebsite = tmplConfig.show_website ?? (saleHeader.show_website ?? true);
+            const showPaymentMode = tmplConfig.show_payment_mode !== false;
+            const showPlaceOfSupply = tmplConfig.show_place_of_supply !== false;
+            const showCashier = tmplConfig.show_cashier !== false;
+            const storePhone = (tmplConfig.phone || saleHeader.outlet_phone || saleHeader.mobile || '').toString().trim();
+            const storeEmail = (tmplConfig.email || saleHeader.outlet_email || saleHeader.email || '').toString().trim();
+            const storeWebsite = (tmplConfig.website || saleHeader.outlet_website || saleHeader.website || '').toString().trim();
 
             const docOptions: any = {};
             if (isThermal) {
@@ -105,6 +114,15 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
                 if (addressText) {
                     doc.fontSize(7.5).font(fontRegular).text(addressText, margin, doc.y, { width: contentWidth, align: 'center' });
                 }
+                if (showPhone && storePhone) {
+                    doc.fontSize(7.5).font(fontRegular).text('Phone: ' + storePhone, margin, doc.y, { width: contentWidth, align: 'center' });
+                }
+                if (showEmail && storeEmail) {
+                    doc.fontSize(7.5).font(fontRegular).text('Email: ' + storeEmail, margin, doc.y, { width: contentWidth, align: 'center' });
+                }
+                if (showWebsite && storeWebsite) {
+                    doc.fontSize(7.5).font(fontRegular).text('Website: ' + storeWebsite, margin, doc.y, { width: contentWidth, align: 'center' });
+                }
                 if (taxReg) {
                     doc.fontSize(7.5).font(fontBold).text(taxReg, margin, doc.y, { width: contentWidth, align: 'center' });
                 }
@@ -118,7 +136,12 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
                 // Metadata
                 doc.fontSize(7.5).font(fontRegular);
                 doc.text(`Bill: ${saleHeader.sale_no || 'N/A'}`);
-                doc.text(`Date: ${new Date(saleHeader.sale_date || Date.now()).toLocaleDateString()} | Mode: ${saleHeader.payment_mode || 'Cash'}`);
+                const cashierSuffix = (showCashier && (saleHeader.cashier_name || saleHeader.created_by)) ? ` | Cashier: ${saleHeader.cashier_name || saleHeader.created_by}` : '';
+                if (showPaymentMode) {
+                    doc.text(`Date: ${new Date(saleHeader.sale_date || Date.now()).toLocaleDateString()} | Mode: ${saleHeader.payment_mode || 'Cash'}${cashierSuffix}`);
+                } else {
+                    doc.text(`Date: ${new Date(saleHeader.sale_date || Date.now()).toLocaleDateString()}${cashierSuffix}`);
+                }
                 if (saleHeader.customer_name && saleHeader.customer_name !== 'Walk-in Customer') {
                     doc.text(`Customer: ${saleHeader.customer_name}`);
                 }
@@ -195,6 +218,15 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
             if (storeAddress) {
                 doc.text(storeAddress, margin, doc.y, { width: contentWidth, align: 'right' });
             }
+            if (showPhone && storePhone) {
+                doc.text('Contact: ' + storePhone, margin, doc.y, { width: contentWidth, align: 'right' });
+            }
+            if (showEmail && storeEmail) {
+                doc.text('Email: ' + storeEmail, margin, doc.y, { width: contentWidth, align: 'right' });
+            }
+            if (showWebsite && storeWebsite) {
+                doc.text('Website: ' + storeWebsite, margin, doc.y, { width: contentWidth, align: 'right' });
+            }
             if (taxReg) {
                 doc.font(fontBold).text(taxReg, margin, doc.y, { width: contentWidth, align: 'right' });
             }
@@ -206,7 +238,7 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
 
             doc.fillColor('#1F2937').fontSize(isA5 ? 9.5 : 10.5).font(fontBold).text('Billed From:', margin, startY);
             doc.font(fontRegular).fontSize(isA5 ? 8 : 9).text(`Store / Outlet: ${saleHeader.outlet_id || '1'}`);
-            doc.text(`Place of Supply: ${saleHeader.billing_country || 'Commercial'}`);
+            if (showPlaceOfSupply) doc.text(`Place of Supply: ${saleHeader.billing_country || 'Commercial'}`);
 
             doc.font(fontBold).fontSize(isA5 ? 9.5 : 10.5).text('Billed To (Customer):', margin + colWidth + 20, startY);
             doc.font(fontRegular).fontSize(isA5 ? 8 : 9).text(`Name: ${saleHeader.customer_name || 'Walk-in Customer'}`);
@@ -221,7 +253,12 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
             doc.fillColor('#334155').font(fontBold).fontSize(isA5 ? 7.5 : 8.5);
             doc.text(`Invoice: ${saleHeader.sale_no || 'N/A'}`, margin + 8, transY + (isA5 ? 4 : 6));
             doc.text(`Date: ${new Date(saleHeader.sale_date || Date.now()).toLocaleDateString()}`, margin + (contentWidth * 0.4), transY + (isA5 ? 4 : 6));
-            doc.text(`Mode: ${saleHeader.payment_mode || 'Cash'}`, margin + (contentWidth * 0.75), transY + (isA5 ? 4 : 6));
+            if (showCashier && (saleHeader.cashier_name || saleHeader.created_by)) {
+                doc.text(`Cashier: ${saleHeader.cashier_name || saleHeader.created_by}`, margin + (contentWidth * 0.55), transY + (isA5 ? 4 : 6));
+            }
+            if (showPaymentMode) {
+                doc.text(`Mode: ${saleHeader.payment_mode || 'Cash'}`, margin + (contentWidth * 0.78), transY + (isA5 ? 4 : 6));
+            }
 
             doc.y = transY + (isA5 ? 24 : 28);
 

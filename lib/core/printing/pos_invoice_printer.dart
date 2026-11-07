@@ -24,6 +24,45 @@ import '../utils/country_tax_helper.dart';
 import '../billing/pos_billing_engine.dart';
 
 class PosInvoicePrinter {
+  static String _cleanTaxIdDisplay(String rawVal, String label) {
+    var v = rawVal.trim();
+    if (v.isEmpty || v == '--' || v == '-') return '$label: --';
+    final prefixes = [
+      'KRA PIN / GSTIN:',
+      'KRA PIN / VAT:',
+      'KRA PIN:',
+      '$label:',
+      'GSTIN:',
+      'VAT:',
+      'PIN:',
+      'TAX ID:',
+    ];
+    for (final p in prefixes) {
+      if (v.toUpperCase().startsWith(p.toUpperCase())) {
+        v = v.substring(p.length).trim();
+      }
+    }
+    return v.isEmpty ? '$label: --' : '$label: $v';
+  }
+
+  static String _cleanPanDisplay(String rawVal, String label) {
+    var v = rawVal.trim();
+    if (v.isEmpty || v == '--' || v == '-') return '$label: --';
+    final prefixes = [
+      'REG / PAN:',
+      '$label:',
+      'PAN:',
+      'REG:',
+      'CPR:',
+    ];
+    for (final p in prefixes) {
+      if (v.toUpperCase().startsWith(p.toUpperCase())) {
+        v = v.substring(p.length).trim();
+      }
+    }
+    return v.isEmpty ? '$label: --' : '$label: $v';
+  }
+
   PosInvoicePrinter._();
   static const PdfColor _thermalPrimary = PdfColors.black;
   static const PdfColor _thermalSecondary = PdfColors.grey800;
@@ -299,7 +338,7 @@ class PosInvoicePrinter {
     final String activeBillFormat = (order.billFormat.trim().isNotEmpty && order.billFormat.trim().toUpperCase() != 'STANDARD')
         ? order.billFormat.trim()
         : ((sysSettings?.billFormat.trim().isNotEmpty == true) ? sysSettings!.billFormat.trim() : 'A4');
-    final bool isA5 = activeBillFormat.toUpperCase() == 'A5' || activeBillFormat.toUpperCase() == 'A5_INVOICE';
+    final bool isA5 = activeBillFormat.toUpperCase().contains('A5');
     final bool isThermal = _isThermalFormat(activeBillFormat);
     for (int c = 0; c < numCopies; c++) {
       if (isThermal) {
@@ -1052,6 +1091,11 @@ class PosInvoicePrinter {
     final bool a5ShowQrCode = a5Cfg['show_qr_code'] ?? true;
     final bool a5ShowTerms = a5Cfg['show_terms'] ?? true;
     final bool a5ShowSignatureBox = a5Cfg['show_signature_box'] ?? true;
+    final bool a5ShowPaymentMode = a5Cfg['show_payment_mode'] ?? true;
+    final bool a5ShowPlaceOfSupply = a5Cfg['show_place_of_supply'] ?? true;
+    final bool a5ShowCashier = a5Cfg['show_cashier'] ?? true;
+    final bool a5ShowReseller = a5Cfg['show_reseller_footer'] ?? true;
+    final String a5Reseller = _resellerFooterText(a5Cfg);
 
     final String a5BankName = (a5Cfg['bank_name']?.toString().trim().isNotEmpty == true)
         ? a5Cfg['bank_name'].toString().trim()
@@ -1062,9 +1106,12 @@ class PosInvoicePrinter {
     final String a5BankIfsc = (a5Cfg['bank_ifsc']?.toString().trim().isNotEmpty == true)
         ? a5Cfg['bank_ifsc'].toString().trim()
         : data.bankIfscCode;
-    final String a5Mpesa = (a5Cfg['mpesa_paybill']?.toString().trim().isNotEmpty == true)
-        ? a5Cfg['mpesa_paybill'].toString().trim()
-        : (data.a4TemplateConfig['mpesa_paybill']?.toString().trim() ?? '');
+    final String a5Mpesa = (a5Cfg['digital_payment']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['digital_payment'].toString().trim()
+        : ((a5Cfg['mpesa_paybill']?.toString().trim().isNotEmpty == true)
+            ? a5Cfg['mpesa_paybill'].toString().trim()
+            : (data.a4TemplateConfig['digital_payment']?.toString().trim() ??
+                (data.a4TemplateConfig['mpesa_paybill']?.toString().trim() ?? '')));
     final String a5Terms = (a5Cfg['terms_and_conditions']?.toString().trim().isNotEmpty == true)
         ? a5Cfg['terms_and_conditions'].toString().trim()
         : data.termsAndConditions;
@@ -1177,16 +1224,22 @@ class PosInvoicePrinter {
                       pw.Text(sellerAddressStr,
                           style: pw.TextStyle(fontSize: 7.2 * a5Scale)),
                     if (a5ShowContact) ...[
-                      if (data.property?.printMobile != false && (data.property?.mobile ?? '').isNotEmpty)
-                        pw.Text('Contact: ${data.property!.mobile}',
+                      if ((a5Cfg['show_phone'] ?? (data.property?.printMobile != false)) &&
+                          ((a5Cfg['phone']?.toString().trim().isNotEmpty == true) || (data.property?.mobile ?? '').isNotEmpty))
+                        pw.Text('Contact: ${(a5Cfg['phone']?.toString().trim().isNotEmpty == true) ? a5Cfg['phone'].toString().trim() : data.property!.mobile}',
                             style: pw.TextStyle(fontSize: 7.2 * a5Scale)),
-                      if (data.property?.printEmail != false && (data.property?.email ?? '').isNotEmpty)
-                        pw.Text('Email: ${data.property!.email}',
+                      if ((a5Cfg['show_email'] ?? (data.property?.printEmail != false)) &&
+                          ((a5Cfg['email']?.toString().trim().isNotEmpty == true) || (data.property?.email ?? '').isNotEmpty))
+                        pw.Text('Email: ${(a5Cfg['email']?.toString().trim().isNotEmpty == true) ? a5Cfg['email'].toString().trim() : data.property!.email}',
+                            style: pw.TextStyle(fontSize: 7.2 * a5Scale)),
+                      if ((a5Cfg['show_website'] ?? (data.property?.printWebsite != false)) &&
+                          ((a5Cfg['website']?.toString().trim().isNotEmpty == true) || (data.property?.website ?? '').isNotEmpty))
+                        pw.Text('Website: ${(a5Cfg['website']?.toString().trim().isNotEmpty == true) ? a5Cfg['website'].toString().trim() : data.property!.website}',
                             style: pw.TextStyle(fontSize: 7.2 * a5Scale)),
                     ],
                     if (a5ShowTaxReg) ...[
                       pw.Text(
-                        '${_taxIdLabel(order.billingCountry)}: ${(a5Cfg['tax_reg_no']?.toString().trim().isNotEmpty == true) ? a5Cfg['tax_reg_no'].toString().trim() : (((data.property?.gstNo ?? '').trim().isEmpty) ? '--' : data.property!.gstNo.trim())}',
+                        _cleanTaxIdDisplay((a5Cfg['tax_reg_no']?.toString().trim().isNotEmpty == true) ? a5Cfg['tax_reg_no'].toString().trim() : (((data.property?.gstNo ?? '').trim().isEmpty) ? '--' : data.property!.gstNo.trim()), _taxIdLabel(order.billingCountry)),
                         style: pw.TextStyle(
                           fontSize: 7.2 * a5Scale,
                           fontWeight: pw.FontWeight.bold,
@@ -1194,7 +1247,7 @@ class PosInvoicePrinter {
                       ),
                       if ((a5Cfg['pan_no']?.toString().trim().isNotEmpty == true) || (data.property?.panNo ?? '').trim().isNotEmpty)
                         pw.Text(
-                          '${_businessRegLabel(order.billingCountry)}: ${(a5Cfg['pan_no']?.toString().trim().isNotEmpty == true) ? a5Cfg['pan_no'].toString().trim() : data.property!.panNo.trim()}',
+                          _cleanPanDisplay((a5Cfg['pan_no']?.toString().trim().isNotEmpty == true) ? a5Cfg['pan_no'].toString().trim() : data.property!.panNo.trim(), _businessRegLabel(order.billingCountry)),
                           style: pw.TextStyle(fontSize: 7.2 * a5Scale),
                         ),
                     ],
@@ -1275,17 +1328,20 @@ class PosInvoicePrinter {
                         'Invoice Dt/Tm',
                         formatTzDateTime(order.saleDate),
                       ),
-                      _a4MetaRow(
-                        'Cashier/Terminal',
-                        '${data.cashierId ?? data.cashierName}${(data.terminalNo ?? '').trim().isNotEmpty ? ' / ${data.terminalNo}' : ''}',
-                      ),
-                      _a4MetaRow('Payment Method', _displayPaymentMode(order)),
-                      _a4MetaRow(
-                        'Place of Supply',
-                        data.buyerState != null && data.buyerState!.isNotEmpty
-                            ? '${_titleCase(data.buyerState!)}${data.buyerStateCode != null ? ' / ${data.buyerStateCode}' : ''}'
-                            : '-',
-                      ),
+                      if (a5ShowCashier)
+                        _a4MetaRow(
+                          'Cashier/Terminal',
+                          '${data.cashierId ?? data.cashierName}${(data.terminalNo ?? '').trim().isNotEmpty ? ' / ${data.terminalNo}' : ''}',
+                        ),
+                      if (a5ShowPaymentMode)
+                        _a4MetaRow('Payment Method', _displayPaymentMode(order)),
+                      if (a5ShowPlaceOfSupply)
+                        _a4MetaRow(
+                          'Place of Supply',
+                          data.buyerState != null && data.buyerState!.isNotEmpty
+                              ? '${_titleCase(data.buyerState!)}${data.buyerStateCode != null ? ' / ${data.buyerStateCode}' : ''}'
+                              : '-',
+                        ),
                     ],
                   ),
                 ),
@@ -1320,12 +1376,15 @@ class PosInvoicePrinter {
                               ? '--'
                               : order.customerPhone!.trim(),
                         ),
-                        _a4MetaRow(
-                          'GSTIN',
-                          (order.customerGstin ?? '').trim().isEmpty
-                              ? 'URD'
-                              : order.customerGstin!.trim(),
-                        ),
+                        if ((order.customerGstin ?? '').trim().isNotEmpty &&
+                            (order.customerGstin ?? '').trim().toUpperCase() != 'URD' &&
+                            (order.customerGstin ?? '').trim().toUpperCase() != 'N/A' &&
+                            (order.customerGstin ?? '').trim() != '--' &&
+                            (order.customerGstin ?? '').trim() != '-')
+                          _a4MetaRow(
+                            'GSTIN',
+                            order.customerGstin!.trim(),
+                          ),
                       ],
                     ),
                   ),
@@ -1345,21 +1404,6 @@ class PosInvoicePrinter {
           themeColor: themeColor,
         ),
         pw.SizedBox(height: 6),
-        // Amount in Words
-        if (a5ShowAmountInWords) ...[
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(vertical: 3),
-            child: pw.RichText(
-              text: pw.TextSpan(
-                children: [
-                  pw.TextSpan(text: 'Amount in Words: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7, color: PdfColors.blueGrey900)),
-                  pw.TextSpan(text: amountInWords, style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey800)),
-                ],
-              ),
-            ),
-          ),
-          pw.SizedBox(height: 6),
-        ],
 
         pw.Row(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1452,6 +1496,26 @@ class PosInvoicePrinter {
             ),
           ],
         ),
+        if (a5ShowAmountInWords) ...[
+          pw.SizedBox(height: 4),
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+              color: PdfColors.grey50,
+            ),
+            child: pw.RichText(
+              text: pw.TextSpan(
+                children: [
+                  pw.TextSpan(text: 'Amount in Words: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7, color: PdfColors.blueGrey900)),
+                  pw.TextSpan(text: amountInWords, style: pw.TextStyle(fontSize: 7, fontStyle: pw.FontStyle.italic, color: PdfColors.grey900)),
+                ],
+              ),
+            ),
+          ),
+        ],
         pw.SizedBox(height: 8),
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -1466,11 +1530,13 @@ class PosInvoicePrinter {
                       a5Footer,
                       style: pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 7, color: PdfColors.grey700),
                     ),
-                  pw.SizedBox(height: 2),
-                  pw.Text(
-                    'Powered by ${AppBrand.poweredByLabel}',
-                    style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey500),
-                  ),
+                  if (a5ShowReseller && a5Reseller.isNotEmpty) ...[
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      a5Reseller,
+                      style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey500),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1492,7 +1558,8 @@ class PosInvoicePrinter {
                         style: pw.TextStyle(color: PdfColors.green700, fontSize: 5.5, fontWeight: pw.FontWeight.bold),
                       ),
                     ),
-                    pw.Text('Cashier: ${data.cashierName}', style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
+                    if (a5ShowCashier)
+                        pw.Text('Cashier: ${data.cashierName}', style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
                     pw.SizedBox(height: 2),
                   ] else ...[
                     pw.SizedBox(height: 14),
@@ -1544,6 +1611,11 @@ class PosInvoicePrinter {
     final bool a4ShowQrCode = a4Cfg['show_qr_code'] ?? true;
     final bool a4ShowTerms = a4Cfg['show_terms'] ?? true;
     final bool a4ShowSignatureBox = a4Cfg['show_signature_box'] ?? true;
+    final bool a4ShowPaymentMode = a4Cfg['show_payment_mode'] ?? true;
+    final bool a4ShowPlaceOfSupply = a4Cfg['show_place_of_supply'] ?? true;
+    final bool a4ShowCashier = a4Cfg['show_cashier'] ?? true;
+    final bool a4ShowReseller = a4Cfg['show_reseller_footer'] ?? true;
+    final String a4Reseller = _resellerFooterText(a4Cfg);
 
     final String a4BankName = (a4Cfg['bank_name']?.toString().trim().isNotEmpty == true)
         ? a4Cfg['bank_name'].toString().trim()
@@ -1554,9 +1626,11 @@ class PosInvoicePrinter {
     final String a4BankIfsc = (a4Cfg['bank_ifsc']?.toString().trim().isNotEmpty == true)
         ? a4Cfg['bank_ifsc'].toString().trim()
         : data.bankIfscCode;
-    final String a4Mpesa = (a4Cfg['mpesa_paybill']?.toString().trim().isNotEmpty == true)
-        ? a4Cfg['mpesa_paybill'].toString().trim()
-        : '';
+    final String a4Mpesa = (a4Cfg['digital_payment']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['digital_payment'].toString().trim()
+        : ((a4Cfg['mpesa_paybill']?.toString().trim().isNotEmpty == true)
+            ? a4Cfg['mpesa_paybill'].toString().trim()
+            : '');
     final String a4Terms = (a4Cfg['terms_and_conditions']?.toString().trim().isNotEmpty == true)
         ? a4Cfg['terms_and_conditions'].toString().trim()
         : data.termsAndConditions;
@@ -1669,19 +1743,22 @@ class PosInvoicePrinter {
                       pw.Text(sellerAddressStr,
                           style: pw.TextStyle(fontSize: 8.8 * a4Scale)),
                     if (a4ShowContact) ...[
-                      if (data.property?.printMobile != false && (data.property?.mobile ?? '').isNotEmpty)
-                        pw.Text('Contact: ${data.property!.mobile}',
+                      if ((a4Cfg['show_phone'] ?? (data.property?.printMobile != false)) &&
+                          ((a4Cfg['phone']?.toString().trim().isNotEmpty == true) || (data.property?.mobile ?? '').isNotEmpty))
+                        pw.Text('Contact: ${(a4Cfg['phone']?.toString().trim().isNotEmpty == true) ? a4Cfg['phone'].toString().trim() : data.property!.mobile}',
                             style: pw.TextStyle(fontSize: 8.8 * a4Scale)),
-                      if (data.property?.printEmail != false && (data.property?.email ?? '').isNotEmpty)
-                        pw.Text('Email: ${data.property!.email}',
+                      if ((a4Cfg['show_email'] ?? (data.property?.printEmail != false)) &&
+                          ((a4Cfg['email']?.toString().trim().isNotEmpty == true) || (data.property?.email ?? '').isNotEmpty))
+                        pw.Text('Email: ${(a4Cfg['email']?.toString().trim().isNotEmpty == true) ? a4Cfg['email'].toString().trim() : data.property!.email}',
                             style: pw.TextStyle(fontSize: 8.8 * a4Scale)),
-                      if (data.property?.printWebsite != false && (data.property?.website ?? '').isNotEmpty)
-                        pw.Text('Website: ${data.property!.website}',
+                      if ((a4Cfg['show_website'] ?? (data.property?.printWebsite != false)) &&
+                          ((a4Cfg['website']?.toString().trim().isNotEmpty == true) || (data.property?.website ?? '').isNotEmpty))
+                        pw.Text('Website: ${(a4Cfg['website']?.toString().trim().isNotEmpty == true) ? a4Cfg['website'].toString().trim() : data.property!.website}',
                             style: pw.TextStyle(fontSize: 8.8 * a4Scale)),
                     ],
                     if (a4ShowTaxReg) ...[
                       pw.Text(
-                        '${_taxIdLabel(order.billingCountry)}: ${(a4Cfg['tax_reg_no']?.toString().trim().isNotEmpty == true) ? a4Cfg['tax_reg_no'].toString().trim() : (((data.property?.gstNo ?? '').trim().isEmpty) ? '--' : data.property!.gstNo.trim())}',
+                        _cleanTaxIdDisplay((a4Cfg['tax_reg_no']?.toString().trim().isNotEmpty == true) ? a4Cfg['tax_reg_no'].toString().trim() : (((data.property?.gstNo ?? '').trim().isEmpty) ? '--' : data.property!.gstNo.trim()), _taxIdLabel(order.billingCountry)),
                         style: pw.TextStyle(
                           fontSize: 8.8 * a4Scale,
                           fontWeight: pw.FontWeight.bold,
@@ -1689,7 +1766,7 @@ class PosInvoicePrinter {
                       ),
                       if ((a4Cfg['pan_no']?.toString().trim().isNotEmpty == true) || (data.property?.panNo ?? '').trim().isNotEmpty)
                         pw.Text(
-                          '${_businessRegLabel(order.billingCountry)}: ${(a4Cfg['pan_no']?.toString().trim().isNotEmpty == true) ? a4Cfg['pan_no'].toString().trim() : data.property!.panNo.trim()}',
+                          _cleanPanDisplay((a4Cfg['pan_no']?.toString().trim().isNotEmpty == true) ? a4Cfg['pan_no'].toString().trim() : data.property!.panNo.trim(), _businessRegLabel(order.billingCountry)),
                           style: pw.TextStyle(fontSize: 8.8 * a4Scale),
                         ),
                     ],
@@ -1783,19 +1860,22 @@ class PosInvoicePrinter {
                         'Invoice Dt/Tm',
                         formatTzDateTime(order.saleDate),
                       ),
-                      _a4MetaRow(
-                        'Cashier/Terminal',
-                        '${data.cashierId ?? data.cashierName}${(data.terminalNo ?? '').trim().isNotEmpty ? ' / ${data.terminalNo}' : ''}',
-                      ),
-                      _a4MetaRow('Payment Method', _displayPaymentMode(order)),
+                      if (a4ShowCashier)
+                        _a4MetaRow(
+                          'Cashier/Terminal',
+                          '${data.cashierId ?? data.cashierName}${(data.terminalNo ?? '').trim().isNotEmpty ? ' / ${data.terminalNo}' : ''}',
+                        ),
+                      if (a4ShowPaymentMode)
+                        _a4MetaRow('Payment Method', _displayPaymentMode(order)),
                       if (_refundTimestamp(order).isNotEmpty)
                         _a4MetaRow('Refunded On', _refundTimestamp(order)),
-                      _a4MetaRow(
-                        'Place of Supply',
-                        data.buyerState != null && data.buyerState!.isNotEmpty
-                            ? '${_titleCase(data.buyerState!)}${data.buyerStateCode != null ? ' / ${data.buyerStateCode}' : ''}'
-                            : '-',
-                      ),
+                      if (a4ShowPlaceOfSupply)
+                        _a4MetaRow(
+                          'Place of Supply',
+                          data.buyerState != null && data.buyerState!.isNotEmpty
+                              ? '${_titleCase(data.buyerState!)}${data.buyerStateCode != null ? ' / ${data.buyerStateCode}' : ''}'
+                              : '-',
+                        ),
                     ],
                   ),
                 ),
@@ -1830,12 +1910,15 @@ class PosInvoicePrinter {
                               ? '--'
                               : order.customerPhone!.trim(),
                         ),
-                        _a4MetaRow(
-                          'GSTIN',
-                          (order.customerGstin ?? '').trim().isEmpty
-                              ? 'URD'
-                              : order.customerGstin!.trim(),
-                        ),
+                        if ((order.customerGstin ?? '').trim().isNotEmpty &&
+                            (order.customerGstin ?? '').trim().toUpperCase() != 'URD' &&
+                            (order.customerGstin ?? '').trim().toUpperCase() != 'N/A' &&
+                            (order.customerGstin ?? '').trim() != '--' &&
+                            (order.customerGstin ?? '').trim() != '-')
+                          _a4MetaRow(
+                            'GSTIN',
+                            order.customerGstin!.trim(),
+                          ),
                         if ((order.doctorName ?? '').trim().isNotEmpty)
                           _a4MetaRow('Doctor', order.doctorName!.trim()),
                         if ((order.patientName ?? '').trim().isNotEmpty)
@@ -1859,21 +1942,6 @@ class PosInvoicePrinter {
           themeColor: themeColor,
         ),
         pw.SizedBox(height: 10),
-        // Amount in Words
-        if (a4ShowAmountInWords) ...[
-          pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(vertical: 4),
-            child: pw.RichText(
-              text: pw.TextSpan(
-                children: [
-                  pw.TextSpan(text: 'Amount in Words: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.blueGrey900)),
-                  pw.TextSpan(text: amountInWords, style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey800)),
-                ],
-              ),
-            ),
-          ),
-          pw.SizedBox(height: 8),
-        ],
 
         pw.Row(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1986,11 +2054,39 @@ class PosInvoicePrinter {
             ),
           ],
         ),
+        if (a4ShowAmountInWords) ...[
+          pw.SizedBox(height: 6),
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4.5),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey300, width: 0.6),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+              color: PdfColors.grey50,
+            ),
+            child: pw.RichText(
+              text: pw.TextSpan(
+                children: [
+                  pw.TextSpan(text: 'Amount in Words: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.blueGrey900)),
+                  pw.TextSpan(text: amountInWords, style: pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey900)),
+                ],
+              ),
+            ),
+          ),
+        ],
         if (a4Footer.isNotEmpty) ...[
           pw.SizedBox(height: 10),
           pw.Text(
             a4Footer,
             style: pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 8, color: PdfColors.grey700),
+            textAlign: pw.TextAlign.center,
+          ),
+        ],
+        if (a4ShowReseller && a4Reseller.isNotEmpty) ...[
+          pw.SizedBox(height: 3),
+          pw.Text(
+            a4Reseller,
+            style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.grey500),
             textAlign: pw.TextAlign.center,
           ),
         ],
@@ -2028,7 +2124,8 @@ class PosInvoicePrinter {
                         style: pw.TextStyle(color: PdfColors.green700, fontSize: 6, fontWeight: pw.FontWeight.bold),
                       ),
                     ),
-                    pw.Text('Cashier: ${data.cashierName}', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
+                    if (a4ShowCashier)
+                        pw.Text('Cashier: ${data.cashierName}', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
                     pw.SizedBox(height: 2),
                   ] else ...[
                     pw.SizedBox(height: 18),
@@ -2137,9 +2234,22 @@ class PosInvoicePrinter {
 
       final rawBrand = (showBrand && item.brand != null && item.brand!.trim().isNotEmpty) ? item.brand!.trim() : '';
       final rawItemName = item.itemName.trim();
-      final baseName = rawItemName.isNotEmpty
-          ? rawItemName
-          : (item.itemCode.trim().isNotEmpty ? item.itemCode.trim() : (item.brand?.trim() ?? 'Item #${index + 1}'));
+      String cleanItemName = rawItemName;
+      if (!showBrand && item.brand != null && item.brand!.trim().isNotEmpty) {
+        final b = item.brand!.trim();
+        if (cleanItemName.toLowerCase().startsWith('${b.toLowerCase()} - ')) {
+          cleanItemName = cleanItemName.substring(b.length + 3).trim();
+        } else if (cleanItemName.toLowerCase().startsWith('${b.toLowerCase()}-')) {
+          cleanItemName = cleanItemName.substring(b.length + 1).trim();
+        } else if (cleanItemName.toLowerCase().startsWith(b.toLowerCase()) && cleanItemName.length > b.length) {
+          cleanItemName = cleanItemName.substring(b.length).trim();
+        }
+      }
+      final baseName = cleanItemName.isNotEmpty
+          ? cleanItemName
+          : (rawItemName.isNotEmpty
+              ? rawItemName
+              : (item.itemCode.trim().isNotEmpty ? item.itemCode.trim() : (item.brand?.trim() ?? 'Item #${index + 1}')));
       final bool alreadyHasBrand = rawBrand.isNotEmpty && baseName.toLowerCase().startsWith(rawBrand.toLowerCase());
       final brandStr = (rawBrand.isNotEmpty && !alreadyHasBrand) ? '$rawBrand - ' : '';
       final List mods = item.modifierDetails ?? [];
@@ -2991,8 +3101,20 @@ class PosInvoicePrinter {
                   () {
                     final String rawBrand = (showBrand && item.brand != null && item.brand!.trim().isNotEmpty) ? item.brand!.trim() : '';
                     final String rawName = item.itemName.trim();
-                    final bool alreadyHasBrand = rawBrand.isNotEmpty && rawName.toLowerCase().startsWith(rawBrand.toLowerCase());
-                    final String displayName = (rawBrand.isNotEmpty && !alreadyHasBrand) ? '$rawBrand - $rawName' : rawName;
+                    String cleanItemName = rawName;
+                    if (!showBrand && item.brand != null && item.brand!.trim().isNotEmpty) {
+                      final b = item.brand!.trim();
+                      if (cleanItemName.toLowerCase().startsWith('${b.toLowerCase()} - ')) {
+                        cleanItemName = cleanItemName.substring(b.length + 3).trim();
+                      } else if (cleanItemName.toLowerCase().startsWith('${b.toLowerCase()}-')) {
+                        cleanItemName = cleanItemName.substring(b.length + 1).trim();
+                      } else if (cleanItemName.toLowerCase().startsWith(b.toLowerCase()) && cleanItemName.length > b.length) {
+                        cleanItemName = cleanItemName.substring(b.length).trim();
+                      }
+                    }
+                    final String baseName = cleanItemName.isNotEmpty ? cleanItemName : (rawName.isNotEmpty ? rawName : (item.itemCode.trim().isNotEmpty ? item.itemCode.trim() : (item.brand?.trim() ?? 'Item')));
+                    final bool alreadyHasBrand = rawBrand.isNotEmpty && baseName.toLowerCase().startsWith(rawBrand.toLowerCase());
+                    final String displayName = (rawBrand.isNotEmpty && !alreadyHasBrand) ? '$rawBrand - $baseName' : baseName;
                     final bool isFree = item.isSchemeFree || item.isAdvanceFree;
                     return isFree ? '$displayName (FREE)$suffix' : '$displayName$suffix';
                   }(),
@@ -4363,19 +4485,22 @@ class PosInvoicePrinter {
                   textAlign: pw.TextAlign.center,
                 ),
               ),
-            if (showPhone && property != null && property.printMobile != false && property.mobile.isNotEmpty)
+            if (showPhone &&
+                ((cfg['phone']?.toString().trim().isNotEmpty == true) || (property != null && property.printMobile != false && property.mobile.isNotEmpty)))
               pw.Text(
-                'Phone: ${property.mobile}',
+                'Phone: ${(cfg['phone']?.toString().trim().isNotEmpty == true) ? cfg['phone'].toString().trim() : property!.mobile}',
                 textAlign: pw.TextAlign.center,
               ),
-            if (showEmail && property != null && property.printEmail != false && property.email.isNotEmpty)
+            if (showEmail &&
+                ((cfg['email']?.toString().trim().isNotEmpty == true) || (property != null && property.printEmail != false && property.email.isNotEmpty)))
               pw.Text(
-                'Email: ${property.email}',
+                'Email: ${(cfg['email']?.toString().trim().isNotEmpty == true) ? cfg['email'].toString().trim() : property!.email}',
                 textAlign: pw.TextAlign.center,
               ),
-            if (property != null && property.printWebsite != false && property.website.isNotEmpty)
+            if ((cfg['show_website'] ?? (property?.printWebsite != false)) &&
+                ((cfg['website']?.toString().trim().isNotEmpty == true) || (property != null && property.website.isNotEmpty)))
               pw.Text(
-                'Website: ${property.website}',
+                'Website: ${(cfg['website']?.toString().trim().isNotEmpty == true) ? cfg['website'].toString().trim() : property!.website}',
                 textAlign: pw.TextAlign.center,
               ),
             if (resolvedTaxLine.isNotEmpty)
@@ -6334,6 +6459,202 @@ class PosInvoicePrinter {
         ),
       ],
     );
+  }
+
+  static Future<Uint8List> buildKotPdf({
+    required Map<String, dynamic> kot,
+    required List<dynamic> items,
+    required String locationName,
+    Map<String, dynamic>? kotTemplateConfig,
+    SystemSettings? settings,
+  }) async {
+    final pdf = await createDocument();
+    final cfg = kotTemplateConfig ?? settings?.kotTemplateConfig ?? {};
+
+    final String kottypeLower = (kot['kottype'] ?? '').toString().toLowerCase();
+    final String serviceTypeLower = (kot['service_type'] ?? '').toString().toLowerCase();
+    final String remarksLower = (kot['remarks'] ?? '').toString().toLowerCase();
+    final bool isNc = kottypeLower == 'nc' || serviceTypeLower.contains('nc') || remarksLower.contains('nc');
+
+    final String rawHeader = (cfg['header_title']?.toString() ?? '').trim();
+    final String headerTitle = rawHeader.isNotEmpty ? rawHeader : 'KITCHEN ORDER TICKET';
+    final String footerNote = (cfg['footer_note']?.toString() ?? '').trim();
+
+    final bool showStation = cfg['show_station'] ?? true;
+    final bool showTable = cfg['show_table'] ?? true;
+    final bool showGuests = cfg['show_guests'] ?? true;
+    final bool showWaiter = cfg['show_waiter'] ?? true;
+    final bool showTimestamp = cfg['show_timestamp'] ?? true;
+    final bool showNotes = cfg['show_notes'] ?? true;
+    final bool showBrand = cfg['show_brand'] ?? true;
+    final bool showCutLine = cfg['show_cut_line'] ?? true;
+    final String fontSizeSetting = (cfg['font_size'] ?? 'MEDIUM').toString().toUpperCase();
+
+    double scale = 1.0;
+    if (fontSizeSetting == 'SMALL') scale = 0.85;
+    if (fontSizeSetting == 'LARGE') scale = 1.25;
+
+    final String tableName = isNc ? 'NC Order' : (kot['table']?['table_name'] ?? kot['table_name'] ?? 'Takeaway');
+    final String subHeader = isNc ? '*** NC ORDER (NO CHARGE) ***' : '*** PACKING K O T ***';
+    final String nowStr = DateTime.now().toString().substring(0, 16);
+    final String kotNo = (kot['kot_number'] ?? kot['kot_no'] ?? '#KOT-${kot['id']}').toString();
+    final String waiterName = (kot['waiter_name'] ?? kot['server_name'] ?? kot['captain_name'] ?? '').toString();
+    final String guestsCount = (kot['guest_count'] ?? kot['pax'] ?? '').toString();
+
+    double totalQty = 0;
+    for (final item in items) {
+      totalQty += double.tryParse(item['quantity']?.toString() ?? item['qty']?.toString() ?? '0') ?? 0.0;
+    }
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: const PdfPageFormat(80 * PdfPageFormat.mm, double.infinity, marginAll: 4 * PdfPageFormat.mm),
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Center(
+                child: pw.Text(
+                  headerTitle,
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13 * scale),
+                ),
+              ),
+              if (showStation && locationName.isNotEmpty)
+                pw.Container(
+                  margin: pw.EdgeInsets.symmetric(vertical: 3 * scale),
+                  padding: pw.EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 3 * scale),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.black, width: 1.5),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Center(
+                    child: pw.Text(
+                      'LOCATION / STATION: ${locationName.toUpperCase()}',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11.5 * scale, color: PdfColors.black),
+                    ),
+                  ),
+                ),
+              pw.Center(
+                child: pw.Text(
+                  subHeader,
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11 * scale),
+                ),
+              ),
+              pw.SizedBox(height: 6 * scale),
+              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  if (showTable)
+                    pw.Text('TABLE: $tableName', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12 * scale)),
+                  pw.Text('KOT: $kotNo', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9 * scale)),
+                ],
+              ),
+              if ((showWaiter && waiterName.isNotEmpty) || (showGuests && guestsCount.isNotEmpty))
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (showWaiter && waiterName.isNotEmpty)
+                      pw.Text('Server: $waiterName', style: pw.TextStyle(fontSize: 8.5 * scale)),
+                    if (showGuests && guestsCount.isNotEmpty)
+                      pw.Text('Guests: $guestsCount', style: pw.TextStyle(fontSize: 8.5 * scale)),
+                  ],
+                ),
+              if (showTimestamp)
+                pw.Text('Time: $nowStr', style: pw.TextStyle(fontSize: 9 * scale)),
+              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+              pw.Row(
+                children: [
+                  pw.SizedBox(width: 32 * scale, child: pw.Text('QTY', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10 * scale))),
+                  pw.Expanded(child: pw.Text('ITEM DESCRIPTION', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10 * scale))),
+                ],
+              ),
+              pw.Divider(thickness: 0.5),
+              ...items.map((item) {
+                final double q = double.tryParse(item['quantity']?.toString() ?? item['qty']?.toString() ?? '0') ?? 0.0;
+                final String qtyStr = (q % 1 == 0) ? q.toInt().toString() : q.toStringAsFixed(1);
+                final String itemBrand = (item['brand'] ?? item['brand_name'] ?? item['item_brand'] ?? item['item']?['brand'] ?? '').toString().trim();
+                final String rawName = (item['item_name'] ?? item['itemName'] ?? '').toString();
+                final String displayName = (showBrand && itemBrand.isNotEmpty) ? '$rawName ($itemBrand)' : rawName;
+                final String remark = (item['notes'] ?? item['item_remark'] ?? '').toString();
+
+                return pw.Padding(
+                  padding: pw.EdgeInsets.symmetric(vertical: 3 * scale),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Row(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.SizedBox(
+                            width: 32 * scale,
+                            child: pw.Text(
+                              '[ $qtyStr ]',
+                              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12 * scale),
+                            ),
+                          ),
+                          pw.Expanded(
+                            child: pw.Text(
+                              displayName,
+                              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11 * scale),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (showNotes && remark.isNotEmpty)
+                        pw.Padding(
+                          padding: pw.EdgeInsets.only(left: 32 * scale, top: 1),
+                          child: pw.Text('* Note: $remark', style: pw.TextStyle(fontSize: 9 * scale, fontStyle: pw.FontStyle.italic)),
+                        ),
+                    ],
+                  ),
+                );
+              }),
+              pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('Total Qty:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10 * scale)),
+                  pw.Text((totalQty % 1 == 0) ? totalQty.toInt().toString() : totalQty.toStringAsFixed(1),
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12 * scale)),
+                ],
+              ),
+              if (footerNote.isNotEmpty) ...[
+                pw.SizedBox(height: 4 * scale),
+                pw.Center(
+                  child: pw.Text(
+                    footerNote,
+                    style: pw.TextStyle(fontSize: 8.5 * scale, fontStyle: pw.FontStyle.italic),
+                  ),
+                ),
+              ],
+              if (showCutLine) ...[
+                pw.SizedBox(height: 10 * scale),
+                pw.Row(
+                  children: [
+                    pw.Text('✂', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11 * scale)),
+                    pw.SizedBox(width: 4),
+                    pw.Expanded(
+                      child: pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+                    ),
+                    pw.SizedBox(width: 4),
+                    pw.Text('CUT HERE', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8 * scale)),
+                    pw.SizedBox(width: 4),
+                    pw.Expanded(
+                      child: pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+                    ),
+                    pw.SizedBox(width: 4),
+                    pw.Text('✂', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11 * scale)),
+                  ],
+                ),
+              ],
+              pw.SizedBox(height: 6 * scale),
+            ],
+          );
+        },
+      ),
+    );
+    return pdf.save();
   }
 
   static Future<Uint8List> buildTokenTicketPdf({
