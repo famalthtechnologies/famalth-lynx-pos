@@ -1094,6 +1094,16 @@ class PosInvoicePrinter {
     final bool a5ShowPaymentMode = a5Cfg['show_payment_mode'] ?? true;
     final bool a5ShowPlaceOfSupply = a5Cfg['show_place_of_supply'] ?? true;
     final bool a5ShowCashier = a5Cfg['show_cashier'] ?? true;
+    final bool a5ShowFssai = a5Cfg['show_fssai'] ?? true;
+    final bool a5ShowDrugLicense = a5Cfg['show_drug_license'] ?? (a5Cfg['show_dl_no'] ?? true);
+    final String a5Fssai = (a5Cfg['fssai_no']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['fssai_no'].toString().trim()
+        : (data.property?.fssaiNo ?? '').trim();
+    final String a5Dl = (a5Cfg['drug_license_no']?.toString().trim().isNotEmpty == true)
+        ? a5Cfg['drug_license_no'].toString().trim()
+        : ((a5Cfg['dl_no']?.toString().trim().isNotEmpty == true)
+            ? a5Cfg['dl_no'].toString().trim()
+            : (data.property?.drugLicenseNo ?? '').trim());
     final bool a5ShowReseller = a5Cfg['show_reseller_footer'] ?? true;
     final String a5Reseller = _resellerFooterText(a5Cfg);
 
@@ -1251,6 +1261,19 @@ class PosInvoicePrinter {
                           style: pw.TextStyle(fontSize: 7.2 * a5Scale),
                         ),
                     ],
+                    if (a5ShowFssai && a5Fssai.isNotEmpty && _isIndiaCountry(order.billingCountry))
+                      pw.Text(
+                        'FSSAI: $a5Fssai',
+                        style: pw.TextStyle(fontSize: 7.2 * a5Scale),
+                      ),
+                    if (a5ShowDrugLicense && a5Dl.isNotEmpty)
+                      pw.Text(
+                        'DL No: $a5Dl',
+                        style: pw.TextStyle(
+                          fontSize: 7.2 * a5Scale,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
                     pw.Text(
                       'State: ${sellerState.isEmpty ? '--' : sellerState} / ${data.sellerStateCode ?? '--'}',
                       style: pw.TextStyle(fontSize: 7.2 * a5Scale),
@@ -1616,6 +1639,16 @@ class PosInvoicePrinter {
     final bool a4ShowCashier = a4Cfg['show_cashier'] ?? true;
     final bool a4ShowReseller = a4Cfg['show_reseller_footer'] ?? true;
     final String a4Reseller = _resellerFooterText(a4Cfg);
+    final bool a4ShowFssai = a4Cfg['show_fssai'] ?? true;
+    final bool a4ShowDrugLicense = a4Cfg['show_drug_license'] ?? (a4Cfg['show_dl_no'] ?? true);
+    final String a4Fssai = (a4Cfg['fssai_no']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['fssai_no'].toString().trim()
+        : (data.property?.fssaiNo ?? '').trim();
+    final String a4Dl = (a4Cfg['drug_license_no']?.toString().trim().isNotEmpty == true)
+        ? a4Cfg['drug_license_no'].toString().trim()
+        : ((a4Cfg['dl_no']?.toString().trim().isNotEmpty == true)
+            ? a4Cfg['dl_no'].toString().trim()
+            : (data.property?.drugLicenseNo ?? '').trim());
 
     final String a4BankName = (a4Cfg['bank_name']?.toString().trim().isNotEmpty == true)
         ? a4Cfg['bank_name'].toString().trim()
@@ -1770,14 +1803,14 @@ class PosInvoicePrinter {
                           style: pw.TextStyle(fontSize: 8.8 * a4Scale),
                         ),
                     ],
-                    if ((data.property?.fssaiNo ?? '').trim().isNotEmpty && _isIndiaCountry(order.billingCountry))
+                    if (a4ShowFssai && a4Fssai.isNotEmpty && _isIndiaCountry(order.billingCountry))
                       pw.Text(
-                        'FSSAI: ${data.property!.fssaiNo.trim()}',
+                        'FSSAI: $a4Fssai',
                         style: pw.TextStyle(fontSize: 8.8 * a4Scale),
                       ),
-                    if ((data.property?.drugLicenseNo ?? '').isNotEmpty)
+                    if (a4ShowDrugLicense && a4Dl.isNotEmpty)
                       pw.Text(
-                        'DL No: ${data.property!.drugLicenseNo}',
+                        'DL No: $a4Dl',
                         style: pw.TextStyle(
                           fontSize: 8.8 * a4Scale,
                           fontWeight: pw.FontWeight.bold,
@@ -2339,14 +2372,26 @@ class PosInvoicePrinter {
       columnWidths[colIdx++] = pw.FixedColumnWidth(54 * scale);
     }
 
+    final PdfColor headerBgColor = (themeColor != null)
+        ? PdfColor(themeColor.red, themeColor.green, themeColor.blue, 0.08).flatten()
+        : const PdfColor(0.95, 0.96, 0.98);
+
+    final PdfColor tableBorderColor = (themeColor != null)
+        ? PdfColor(themeColor.red, themeColor.green, themeColor.blue, 0.35).flatten()
+        : PdfColors.grey400;
+
     return pw.TableHelper.fromTextArray(
       headers: headers,
       data: data,
       cellAlignment: pw.Alignment.centerLeft,
-      headerDecoration: pw.BoxDecoration(color: (themeColor != null ? PdfColor(themeColor.red, themeColor.green, themeColor.blue, 0.12) : PdfColors.blueGrey100)),
-      headerStyle: pw.TextStyle(fontSize: 8 * scale, fontWeight: pw.FontWeight.bold),
+      headerDecoration: pw.BoxDecoration(color: headerBgColor),
+      headerStyle: pw.TextStyle(
+        fontSize: 8 * scale,
+        fontWeight: pw.FontWeight.bold,
+        color: PdfColor.fromHex('#1E293B'),
+      ),
       cellStyle: pw.TextStyle(fontSize: 7.3 * scale),
-      border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.5),
+      border: pw.TableBorder.all(color: tableBorderColor, width: 0.5),
       cellPadding: pw.EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 5 * scale),
       columnWidths: columnWidths,
     );
@@ -4379,12 +4424,11 @@ class PosInvoicePrinter {
                     certWidgets.add(pw.Text('${_businessRegLabel(country)}: ${property.panNo}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)));
                   }
                   if (property != null && property.fssaiNo.isNotEmpty && _isIndiaCountry(country)) {
-                    certWidgets.add(pw.Text('FSSAI: ${property.fssaiNo}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)));
+                    certWidgets.add(pw.Text('FSSAI: ', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)));
                   }
                   if (property != null && property.drugLicenseNo.isNotEmpty) {
-                    certWidgets.add(pw.Text('DL No: ${property.drugLicenseNo}', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)));
+                    certWidgets.add(pw.Text('DL No: ', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)));
                   }
-                  
                   if (certWidgets.isEmpty) return pw.SizedBox();
                   
                   final List<pw.Widget> result = [];
@@ -4518,16 +4562,28 @@ class PosInvoicePrinter {
                   '${_businessRegLabel(country)}: ${property.panNo}',
                   textAlign: pw.TextAlign.center,
                 ),
-              if (property.drugLicenseNo.isNotEmpty)
-                pw.Text(
-                  'DL No: ${property.drugLicenseNo}',
-                  textAlign: pw.TextAlign.center,
-                ),
-              if (property.fssaiNo.isNotEmpty && _isIndiaCountry(country))
-                pw.Text(
-                  'FSSAI No: ${property.fssaiNo}',
-                  textAlign: pw.TextAlign.center,
-                ),
+              () {
+                final bool showDl = cfg['show_drug_license'] ?? (cfg['show_dl_no'] ?? true);
+                final String dlVal = (cfg['drug_license_no']?.toString().trim().isNotEmpty == true)
+                    ? cfg['drug_license_no'].toString().trim()
+                    : ((cfg['dl_no']?.toString().trim().isNotEmpty == true)
+                        ? cfg['dl_no'].toString().trim()
+                        : (property.drugLicenseNo).trim());
+                if (showDl && dlVal.isNotEmpty) {
+                  return pw.Text('DL No: ', textAlign: pw.TextAlign.center);
+                }
+                return pw.SizedBox.shrink();
+              }(),
+              () {
+                final bool showFssai = cfg['show_fssai'] ?? true;
+                final String fssaiVal = (cfg['fssai_no']?.toString().trim().isNotEmpty == true)
+                    ? cfg['fssai_no'].toString().trim()
+                    : (property.fssaiNo).trim();
+                if (showFssai && fssaiVal.isNotEmpty && _isIndiaCountry(country)) {
+                  return pw.Text('FSSAI: ', textAlign: pw.TextAlign.center);
+                }
+                return pw.SizedBox.shrink();
+              }(),
             ],
           ],
         ),

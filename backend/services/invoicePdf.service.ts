@@ -56,6 +56,10 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
             const storePhone = (tmplConfig.phone || saleHeader.outlet_phone || saleHeader.mobile || '').toString().trim();
             const storeEmail = (tmplConfig.email || saleHeader.outlet_email || saleHeader.email || '').toString().trim();
             const storeWebsite = (tmplConfig.website || saleHeader.outlet_website || saleHeader.website || '').toString().trim();
+            const showFssai = tmplConfig.show_fssai !== false;
+            const showDrugLicense = (tmplConfig.show_drug_license !== false) && (tmplConfig.show_dl_no !== false);
+            const fssaiNo = (tmplConfig.fssai_no || saleHeader.fssai_no || saleHeader.fssai || '').toString().trim();
+            const dlNo = (tmplConfig.drug_license_no || tmplConfig.dl_no || saleHeader.drug_license_no || saleHeader.dl_no || '').toString().trim();
 
             const docOptions: any = {};
             if (isThermal) {
@@ -125,6 +129,12 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
                 }
                 if (taxReg) {
                     doc.fontSize(7.5).font(fontBold).text(taxReg, margin, doc.y, { width: contentWidth, align: 'center' });
+                }
+                if (showFssai && fssaiNo) {
+                    doc.fontSize(7.5).font(fontRegular).text('FSSAI: ' + fssaiNo, margin, doc.y, { width: contentWidth, align: 'center' });
+                }
+                if (showDrugLicense && dlNo) {
+                    doc.fontSize(7.5).font(fontBold).text('DL No: ' + dlNo, margin, doc.y, { width: contentWidth, align: 'center' });
                 }
                 doc.moveDown(0.3);
                 doc.fontSize(9).font(fontBold).text(invHeading, margin, doc.y, { width: contentWidth, align: 'center' });
@@ -230,6 +240,12 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
             if (taxReg) {
                 doc.font(fontBold).text(taxReg, margin, doc.y, { width: contentWidth, align: 'right' });
             }
+            if (showFssai && fssaiNo) {
+                doc.font(fontRegular).text('FSSAI: ' + fssaiNo, margin, doc.y, { width: contentWidth, align: 'right' });
+            }
+            if (showDrugLicense && dlNo) {
+                doc.font(fontBold).text('DL No: ' + dlNo, margin, doc.y, { width: contentWidth, align: 'right' });
+            }
             doc.moveDown(1.2);
 
             // Billed From & Billed To
@@ -271,8 +287,8 @@ export function generateInvoicePdf(saleHeader: any, saleItems: any[]): Promise<B
             const descWidth = contentWidth - hsnWidth - qtyWidth - rateWidth - totalWidth;
 
             // Table Header
-            doc.rect(margin, currentY, contentWidth, isA5 ? 18 : 20).fill(themeColor);
-            doc.fillColor('#FFFFFF').font(fontBold).fontSize(isA5 ? 8 : 9);
+            doc.rect(margin, currentY, contentWidth, isA5 ? 18 : 20).fill('#F1F5F9');
+            doc.fillColor('#1E293B').font(fontBold).fontSize(isA5 ? 8 : 9);
 
             let curX = margin + 6;
             doc.text('Item Description', curX, currentY + 5, { width: descWidth });

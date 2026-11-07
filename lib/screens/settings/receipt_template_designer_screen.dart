@@ -38,6 +38,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   final _billBankIfscCtrl = TextEditingController();
   final _billUpiIdCtrl = TextEditingController();
   final _billUpiPayeeNameCtrl = TextEditingController();
+  final _billFssaiCtrl = TextEditingController();
+  final _billDrugLicenseCtrl = TextEditingController();
 
   bool _billShowLogo = true;
   bool _billShowAddress = true;
@@ -54,6 +56,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   bool _billShowUpiQr = true;
   bool _billShowResellerFooter = true;
   bool _billShowCurrency = true;
+  bool _billShowFssai = true;
+  bool _billShowDrugLicense = true;
   String _billFontSize = 'MEDIUM'; // SMALL, MEDIUM, LARGE
   String _billThermalWidth = '80mm'; // 80mm, 76mm, 58mm
   String _selectedBillFormat = 'A4'; // THERMAL_80, A4, A5
@@ -77,6 +81,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   final _a4EmailCtrl = TextEditingController();
   final _a4WebsiteCtrl = TextEditingController();
   final _a4ResellerFooterCtrl = TextEditingController();
+  final _a4FssaiCtrl = TextEditingController();
+  final _a4DrugLicenseCtrl = TextEditingController();
 
   bool _a4ShowLogo = true;
   bool _a4ShowPhone = true;
@@ -101,6 +107,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   bool _a4ShowPlaceOfSupply = true;
   bool _a4ShowCashier = true;
   bool _a4ShowResellerFooter = true;
+  bool _a4ShowFssai = true;
+  bool _a4ShowDrugLicense = true;
   String _a4ThemeColor = 'BLUE'; // BLUE, SLATE, EMERALD, CRIMSON
   String _a4FontSize = 'MEDIUM'; // SMALL, MEDIUM, LARGE
 
@@ -123,6 +131,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   final _a5EmailCtrl = TextEditingController();
   final _a5WebsiteCtrl = TextEditingController();
   final _a5ResellerFooterCtrl = TextEditingController();
+  final _a5FssaiCtrl = TextEditingController();
+  final _a5DrugLicenseCtrl = TextEditingController();
 
   bool _a5ShowLogo = true;
   bool _a5ShowPhone = true;
@@ -147,6 +157,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
   bool _a5ShowPlaceOfSupply = true;
   bool _a5ShowCashier = true;
   bool _a5ShowResellerFooter = true;
+  bool _a5ShowFssai = true;
+  bool _a5ShowDrugLicense = true;
   String _a5ThemeColor = 'BLUE'; // BLUE, SLATE, EMERALD, CRIMSON
   String _a5FontSize = 'MEDIUM'; // SMALL, MEDIUM, LARGE
 
@@ -221,6 +233,12 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _a4EmailCtrl.dispose();
     _a4WebsiteCtrl.dispose();
     _a4ResellerFooterCtrl.dispose();
+    _billFssaiCtrl.dispose();
+    _billDrugLicenseCtrl.dispose();
+    _a4FssaiCtrl.dispose();
+    _a4DrugLicenseCtrl.dispose();
+    _a5FssaiCtrl.dispose();
+    _a5DrugLicenseCtrl.dispose();
     _a5PhoneCtrl.dispose();
     _a5EmailCtrl.dispose();
     _a5WebsiteCtrl.dispose();
@@ -349,6 +367,16 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
         if (from != 'A4' && from != 'a4') _a4ResellerFooterCtrl.text = value;
         if (from != 'A5' && from != 'a5') _a5ResellerFooterCtrl.text = value;
         break;
+      case 'fssai':
+        if (from != '80mm') _billFssaiCtrl.text = value;
+        if (from != 'A4' && from != 'a4') _a4FssaiCtrl.text = value;
+        if (from != 'A5' && from != 'a5') _a5FssaiCtrl.text = value;
+        break;
+      case 'drug_license':
+        if (from != '80mm') _billDrugLicenseCtrl.text = value;
+        if (from != 'A4' && from != 'a4') _a4DrugLicenseCtrl.text = value;
+        if (from != 'A5' && from != 'a5') _a5DrugLicenseCtrl.text = value;
+        break;
     }
   }
 
@@ -440,6 +468,16 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
         _a4ShowResellerFooter = value;
         _a5ShowResellerFooter = value;
         break;
+      case 'show_fssai':
+        _billShowFssai = value;
+        _a4ShowFssai = value;
+        _a5ShowFssai = value;
+        break;
+      case 'show_drug_license':
+        _billShowDrugLicense = value;
+        _a4ShowDrugLicense = value;
+        _a5ShowDrugLicense = value;
+        break;
     }
   }
 
@@ -500,6 +538,14 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       _a5ResellerFooterCtrl.text = _billResellerFooterCtrl.text;
       _a4ShowResellerFooter = _billShowResellerFooter;
       _a5ShowResellerFooter = _billShowResellerFooter;
+      _a4FssaiCtrl.text = _billFssaiCtrl.text;
+      _a5FssaiCtrl.text = _billFssaiCtrl.text;
+      _a4DrugLicenseCtrl.text = _billDrugLicenseCtrl.text;
+      _a5DrugLicenseCtrl.text = _billDrugLicenseCtrl.text;
+      _a4ShowFssai = _billShowFssai;
+      _a5ShowFssai = _billShowFssai;
+      _a4ShowDrugLicense = _billShowDrugLicense;
+      _a5ShowDrugLicense = _billShowDrugLicense;
     } else if (tab == 1) {
       // From A4 to 80mm & A5
       _billHeaderTitleCtrl.text = _a4HeaderTitleCtrl.text;
@@ -557,6 +603,14 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       _a5ResellerFooterCtrl.text = _a4ResellerFooterCtrl.text;
       _billShowResellerFooter = _a4ShowResellerFooter;
       _a5ShowResellerFooter = _a4ShowResellerFooter;
+      _billFssaiCtrl.text = _a4FssaiCtrl.text;
+      _a5FssaiCtrl.text = _a4FssaiCtrl.text;
+      _billDrugLicenseCtrl.text = _a4DrugLicenseCtrl.text;
+      _a5DrugLicenseCtrl.text = _a4DrugLicenseCtrl.text;
+      _billShowFssai = _a4ShowFssai;
+      _a5ShowFssai = _a4ShowFssai;
+      _billShowDrugLicense = _a4ShowDrugLicense;
+      _a5ShowDrugLicense = _a4ShowDrugLicense;
     } else if (tab == 2) {
       // From A5 to 80mm & A4
       _billHeaderTitleCtrl.text = _a5HeaderTitleCtrl.text;
@@ -614,6 +668,14 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       _a4ResellerFooterCtrl.text = _a5ResellerFooterCtrl.text;
       _billShowResellerFooter = _a5ShowResellerFooter;
       _a4ShowResellerFooter = _a5ShowResellerFooter;
+      _billFssaiCtrl.text = _a5FssaiCtrl.text;
+      _a4FssaiCtrl.text = _a5FssaiCtrl.text;
+      _billDrugLicenseCtrl.text = _a5DrugLicenseCtrl.text;
+      _a4DrugLicenseCtrl.text = _a5DrugLicenseCtrl.text;
+      _billShowFssai = _a5ShowFssai;
+      _a4ShowFssai = _a5ShowFssai;
+      _billShowDrugLicense = _a5ShowDrugLicense;
+      _a4ShowDrugLicense = _a5ShowDrugLicense;
     }
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
@@ -684,6 +746,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _billHeaderSubtextCtrl.text = billConfig['header_subtext'] ?? (prop?.address.isNotEmpty == true ? '${prop!.address}, ${prop.city}' : 'Business Address & City');
     _billFooterNoteCtrl.text = billConfig['footer_note'] ?? (prop?.thermalFooterNote.isNotEmpty == true ? prop!.thermalFooterNote : 'Thank you for your business!');
     _billTaxRegNoCtrl.text = cleanConfigTax(billConfig['tax_reg_no']);
+    _billFssaiCtrl.text = billConfig['fssai_no'] ?? (prop?.fssaiNo ?? '');
+    _billDrugLicenseCtrl.text = billConfig['drug_license_no'] ?? (billConfig['dl_no'] ?? (prop?.drugLicenseNo ?? ''));
     _billTermsCtrl.text = billConfig['terms_and_conditions'] ?? (prop?.termsAndConditions.isNotEmpty == true ? prop!.termsAndConditions : 'Goods once sold will not be taken back or exchanged.');
     _billResellerFooterCtrl.text = billConfig['reseller_footer_text'] ?? AppBrand.poweredByLabel;
 
@@ -702,6 +766,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _billShowUpiQr = billConfig['show_upi_qr'] ?? (prop?.printUpiQr ?? false);
     _billShowResellerFooter = billConfig['show_reseller_footer'] ?? true;
     _billShowCurrency = billConfig['show_currency_symbol'] ?? billConfig['show_currency'] ?? true;
+    _billShowFssai = billConfig['show_fssai'] ?? true;
+    _billShowDrugLicense = billConfig['show_drug_license'] ?? (billConfig['show_dl_no'] ?? true);
     _billFontSize = billConfig['font_size'] ?? 'MEDIUM';
     _billThermalWidth = billConfig['thermal_width'] ?? '80mm';
 
@@ -725,6 +791,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _a4HeaderSubtextCtrl.text = a4Config['header_subtext'] ?? (prop?.address.isNotEmpty == true ? '${prop!.address}, ${prop.city}, ${prop.state}' : 'Commercial Office & Address');
     _a4TaxRegNoCtrl.text = cleanConfigTax(a4Config['tax_reg_no']);
     _a4PanNoCtrl.text = a4Config['pan_no'] ?? (prop?.panNo.isNotEmpty == true ? 'REG / PAN: ${prop!.panNo}' : 'REG / PAN: 12345678');
+    _a4FssaiCtrl.text = a4Config['fssai_no'] ?? (_billFssaiCtrl.text.isNotEmpty ? _billFssaiCtrl.text : (prop?.fssaiNo ?? ''));
+    _a4DrugLicenseCtrl.text = a4Config['drug_license_no'] ?? (a4Config['dl_no'] ?? (_billDrugLicenseCtrl.text.isNotEmpty ? _billDrugLicenseCtrl.text : (prop?.drugLicenseNo ?? '')));
     _a4FooterNoteCtrl.text = a4Config['footer_note'] ?? 'This is a computer generated invoice and does not require a physical signature.';
     _a4TermsCtrl.text = a4Config['terms_and_conditions'] ?? (prop?.termsAndConditions.isNotEmpty == true ? prop!.termsAndConditions : '1. Goods once sold will not be accepted back without prior inspection.\n2. Interest @ 18% p.a. will be charged on overdue payments after 30 days.\n3. Subject to local judicial arbitration.');
     _a4BankNameCtrl.text = a4Config['bank_name'] ?? (prop?.bankName.isNotEmpty == true ? prop!.bankName : 'Commercial Bank');
@@ -754,6 +822,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _a4ShowCashier = a4Config['show_cashier'] ?? true;
     _a4ResellerFooterCtrl.text = a4Config['reseller_footer_text'] ?? (_billResellerFooterCtrl.text.isNotEmpty ? _billResellerFooterCtrl.text : AppBrand.poweredByLabel);
     _a4ShowResellerFooter = a4Config['show_reseller_footer'] ?? true;
+    _a4ShowFssai = a4Config['show_fssai'] ?? (_billShowFssai);
+    _a4ShowDrugLicense = a4Config['show_drug_license'] ?? (a4Config['show_dl_no'] ?? _billShowDrugLicense);
     _a4ThemeColor = a4Config['theme_color'] ?? 'BLUE';
     _a4FontSize = a4Config['font_size'] ?? 'MEDIUM';
 
@@ -768,6 +838,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _a5HeaderSubtextCtrl.text = a5Config['header_subtext'] ?? (a4Config['header_subtext'] ?? (prop?.address.isNotEmpty == true ? '${prop!.address}, ${prop.city}, ${prop.state}' : 'Commercial Office & Address'));
     _a5TaxRegNoCtrl.text = cleanConfigTax(a5Config['tax_reg_no'] ?? a4Config['tax_reg_no']);
     _a5PanNoCtrl.text = a5Config['pan_no'] ?? (a4Config['pan_no'] ?? (prop?.panNo.isNotEmpty == true ? 'REG / PAN: ${prop!.panNo}' : 'REG / PAN: 12345678'));
+    _a5FssaiCtrl.text = a5Config['fssai_no'] ?? (_a4FssaiCtrl.text.isNotEmpty ? _a4FssaiCtrl.text : (_billFssaiCtrl.text.isNotEmpty ? _billFssaiCtrl.text : (prop?.fssaiNo ?? '')));
+    _a5DrugLicenseCtrl.text = a5Config['drug_license_no'] ?? (a5Config['dl_no'] ?? (_a4DrugLicenseCtrl.text.isNotEmpty ? _a4DrugLicenseCtrl.text : (_billDrugLicenseCtrl.text.isNotEmpty ? _billDrugLicenseCtrl.text : (prop?.drugLicenseNo ?? ''))));
     _a5FooterNoteCtrl.text = a5Config['footer_note'] ?? (a4Config['footer_note'] ?? 'This is a computer generated invoice and does not require a physical signature.');
     _a5TermsCtrl.text = a5Config['terms_and_conditions'] ?? (a4Config['terms_and_conditions'] ?? (prop?.termsAndConditions.isNotEmpty == true ? prop!.termsAndConditions : '1. Goods once sold will not be accepted back without prior inspection.\n2. Interest @ 18% p.a. will be charged on overdue payments after 30 days.\n3. Subject to local judicial arbitration.'));
     _a5BankNameCtrl.text = a5Config['bank_name'] ?? (a4Config['bank_name'] ?? (prop?.bankName.isNotEmpty == true ? prop!.bankName : 'Standard Chartered / Equity Bank'));
@@ -797,6 +869,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
     _a5ShowCashier = a5Config['show_cashier'] ?? (_a4ShowCashier);
     _a5ResellerFooterCtrl.text = a5Config['reseller_footer_text'] ?? (_a4ResellerFooterCtrl.text.isNotEmpty ? _a4ResellerFooterCtrl.text : (_billResellerFooterCtrl.text.isNotEmpty ? _billResellerFooterCtrl.text : AppBrand.poweredByLabel));
     _a5ShowResellerFooter = a5Config['show_reseller_footer'] ?? (_a4ShowResellerFooter);
+    _a5ShowFssai = a5Config['show_fssai'] ?? (_a4ShowFssai);
+    _a5ShowDrugLicense = a5Config['show_drug_license'] ?? (a5Config['show_dl_no'] ?? _a4ShowDrugLicense);
     _a5ThemeColor = a5Config['theme_color'] ?? (a4Config['theme_color'] ?? 'BLUE');
     _a5FontSize = a5Config['font_size'] ?? (a4Config['font_size'] ?? 'MEDIUM');
 
@@ -865,6 +939,9 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       'header_subtext': _billHeaderSubtextCtrl.text.trim(),
       'footer_note': _billFooterNoteCtrl.text.trim(),
       'tax_reg_no': _billTaxRegNoCtrl.text.trim(),
+      'fssai_no': _billFssaiCtrl.text.trim(),
+      'drug_license_no': _billDrugLicenseCtrl.text.trim(),
+      'dl_no': _billDrugLicenseCtrl.text.trim(),
       'terms_and_conditions': _billTermsCtrl.text.trim(),
       'show_logo': _billShowLogo,
       'show_address': _billShowAddress,
@@ -881,6 +958,9 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       'show_upi_qr': _billShowUpiQr,
       'show_reseller_footer': _billShowResellerFooter,
       'show_currency_symbol': _billShowCurrency,
+      'show_fssai': _billShowFssai,
+      'show_drug_license': _billShowDrugLicense,
+      'show_dl_no': _billShowDrugLicense,
       'reseller_footer_text': _billResellerFooterCtrl.text.trim(),
       'font_size': _billFontSize,
       'thermal_width': _billThermalWidth,
@@ -899,6 +979,9 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       'header_subtext': _a4HeaderSubtextCtrl.text.trim(),
       'tax_reg_no': _a4TaxRegNoCtrl.text.trim(),
       'pan_no': _a4PanNoCtrl.text.trim(),
+      'fssai_no': _a4FssaiCtrl.text.trim(),
+      'drug_license_no': _a4DrugLicenseCtrl.text.trim(),
+      'dl_no': _a4DrugLicenseCtrl.text.trim(),
       'footer_note': _a4FooterNoteCtrl.text.trim(),
       'terms_and_conditions': _a4TermsCtrl.text.trim(),
       'bank_name': _a4BankNameCtrl.text.trim(),
@@ -911,6 +994,9 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       'show_cashier': _a4ShowCashier,
       'show_reseller_footer': _a4ShowResellerFooter,
       'reseller_footer_text': _a4ResellerFooterCtrl.text.trim(),
+      'show_fssai': _a4ShowFssai,
+      'show_drug_license': _a4ShowDrugLicense,
+      'show_dl_no': _a4ShowDrugLicense,
       'signatory_label': _a4SignatoryLabelCtrl.text.trim(),
       'show_logo': _a4ShowLogo,
       'show_address': _a4ShowCompanyAddress,
@@ -945,6 +1031,9 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       'header_subtext': _a5HeaderSubtextCtrl.text.trim(),
       'tax_reg_no': _a5TaxRegNoCtrl.text.trim(),
       'pan_no': _a5PanNoCtrl.text.trim(),
+      'fssai_no': _a5FssaiCtrl.text.trim(),
+      'drug_license_no': _a5DrugLicenseCtrl.text.trim(),
+      'dl_no': _a5DrugLicenseCtrl.text.trim(),
       'footer_note': _a5FooterNoteCtrl.text.trim(),
       'terms_and_conditions': _a5TermsCtrl.text.trim(),
       'bank_name': _a5BankNameCtrl.text.trim(),
@@ -957,6 +1046,9 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
       'show_cashier': _a5ShowCashier,
       'show_reseller_footer': _a5ShowResellerFooter,
       'reseller_footer_text': _a5ResellerFooterCtrl.text.trim(),
+      'show_fssai': _a5ShowFssai,
+      'show_drug_license': _a5ShowDrugLicense,
+      'show_dl_no': _a5ShowDrugLicense,
       'signatory_label': _a5SignatoryLabelCtrl.text.trim(),
       'show_logo': _a5ShowLogo,
       'show_address': _a5ShowCompanyAddress,
@@ -1428,6 +1520,28 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                         ],
                       ),
                       const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              'FSSAI License No',
+                              _billFssaiCtrl,
+                              'e.g. 10019011000123',
+                              onChanged: (v) => _syncText('fssai', v, from: '80mm'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildTextField(
+                              'Drug License (DL No)',
+                              _billDrugLicenseCtrl,
+                              'e.g. DL-20B/1234',
+                              onChanged: (v) => _syncText('drug_license', v, from: '80mm'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
                       _buildTextField(
                         'Thermal Footer Note',
                         _billFooterNoteCtrl,
@@ -1459,6 +1573,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       _buildSwitch('Print Phone Number', _billShowPhone, (v) => setState(() { _billShowPhone = v; _syncToggle('show_phone', v, from: '80mm'); })),
                       _buildSwitch('Print Email Address', _billShowEmail, (v) => setState(() { _billShowEmail = v; _syncToggle('show_email', v, from: '80mm'); })),
                       _buildSwitch('Print Website Address', _billShowWebsite, (v) => setState(() { _billShowWebsite = v; _syncToggle('show_website', v, from: '80mm'); })),
+                      _buildSwitch('Print FSSAI License No', _billShowFssai, (v) => setState(() { _billShowFssai = v; _syncToggle('show_fssai', v, from: '80mm'); })),
+                      _buildSwitch('Print Drug License (DL No)', _billShowDrugLicense, (v) => setState(() { _billShowDrugLicense = v; _syncToggle('show_drug_license', v, from: '80mm'); })),
                       _buildSwitch('Print Customer Name & Phone', _billShowCustomer, (v) => setState(() => _billShowCustomer = v)),
                       _buildSwitch('Print Cashier / Server Name', _billShowCashier, (v) => setState(() { _billShowCashier = v; _syncToggle('show_cashier', v, from: '80mm'); })),
                       _buildSwitch('Print Token Number (e.g. TK-101)', _billShowToken, (v) => setState(() => _billShowToken = v)),
@@ -1671,6 +1787,28 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       ),
                       const SizedBox(height: 12),
                       _buildTextField('Company Reg / PAN', _a4PanNoCtrl, 'e.g. CPR/2023/88990'),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              'FSSAI License No',
+                              _a4FssaiCtrl,
+                              'e.g. 10019011000123',
+                              onChanged: (v) => _syncText('fssai', v, from: 'a4'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildTextField(
+                              'Drug License (DL No)',
+                              _a4DrugLicenseCtrl,
+                              'e.g. DL-20B/1234',
+                              onChanged: (v) => _syncText('drug_license', v, from: 'a4'),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -1718,6 +1856,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       _buildSwitch('Print Store Email Address', _a4ShowEmail, (v) => setState(() { _a4ShowEmail = v; _a4ShowCompanyContact = _a4ShowPhone || v || _a4ShowWebsite; _syncToggle('show_email', v, from: 'a4'); })),
                       _buildSwitch('Print Store Website Address', _a4ShowWebsite, (v) => setState(() { _a4ShowWebsite = v; _a4ShowCompanyContact = _a4ShowPhone || _a4ShowEmail || v; _syncToggle('show_website', v, from: 'a4'); })),
                       _buildSwitch('Print Tax PIN / GSTIN Block', _a4ShowTaxReg, (v) => setState(() { _a4ShowTaxReg = v; _syncToggle('show_tax_reg', v, from: 'a4'); })),
+                      _buildSwitch('Print FSSAI License No', _a4ShowFssai, (v) => setState(() { _a4ShowFssai = v; _syncToggle('show_fssai', v, from: 'a4'); })),
+                      _buildSwitch('Print Drug License (DL No)', _a4ShowDrugLicense, (v) => setState(() { _a4ShowDrugLicense = v; _syncToggle('show_drug_license', v, from: 'a4'); })),
                       _buildSwitch('Print "Billed To" Customer Card (Name, PIN, Address)', _a4ShowBuyerDetails, (v) => setState(() => _a4ShowBuyerDetails = v)),
                       _buildSwitch('Print "Shipped To" Delivery Address Card', _a4ShowShippingDetails, (v) => setState(() => _a4ShowShippingDetails = v)),
                       _buildSwitch('Print Cashier / Server Name', _a4ShowCashier, (v) => setState(() { _a4ShowCashier = v; _syncToggle('show_cashier', v, from: 'a4'); })),
@@ -1908,6 +2048,28 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       ),
                       const SizedBox(height: 12),
                       _buildTextField('Company Reg / PAN', _a5PanNoCtrl, 'e.g. CPR/2023/88990'),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              'FSSAI License No',
+                              _a5FssaiCtrl,
+                              'e.g. 10019011000123',
+                              onChanged: (v) => _syncText('fssai', v, from: 'a5'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildTextField(
+                              'Drug License (DL No)',
+                              _a5DrugLicenseCtrl,
+                              'e.g. DL-20B/1234',
+                              onChanged: (v) => _syncText('drug_license', v, from: 'a5'),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -1955,6 +2117,8 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       _buildSwitch('Print Store Email Address', _a5ShowEmail, (v) => setState(() { _a5ShowEmail = v; _a5ShowCompanyContact = _a5ShowPhone || v || _a5ShowWebsite; _syncToggle('show_email', v, from: 'a5'); })),
                       _buildSwitch('Print Store Website Address', _a5ShowWebsite, (v) => setState(() { _a5ShowWebsite = v; _a5ShowCompanyContact = _a5ShowPhone || _a5ShowEmail || v; _syncToggle('show_website', v, from: 'a5'); })),
                       _buildSwitch('Print Tax PIN / GSTIN Block', _a5ShowTaxReg, (v) => setState(() { _a5ShowTaxReg = v; _syncToggle('show_tax_reg', v, from: 'a5'); })),
+                      _buildSwitch('Print FSSAI License No', _a5ShowFssai, (v) => setState(() { _a5ShowFssai = v; _syncToggle('show_fssai', v, from: 'a5'); })),
+                      _buildSwitch('Print Drug License (DL No)', _a5ShowDrugLicense, (v) => setState(() { _a5ShowDrugLicense = v; _syncToggle('show_drug_license', v, from: 'a5'); })),
                       _buildSwitch('Print "Billed To" Customer Card (Name, PIN, Address)', _a5ShowBuyerDetails, (v) => setState(() => _a5ShowBuyerDetails = v)),
                       _buildSwitch('Print "Shipped To" Delivery Address Card', _a5ShowShippingDetails, (v) => setState(() => _a5ShowShippingDetails = v)),
                       _buildSwitch('Print Cashier / Server Name', _a5ShowCashier, (v) => setState(() { _a5ShowCashier = v; _syncToggle('show_cashier', v, from: 'a5'); })),
@@ -2128,6 +2292,13 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       SizedBox(height: 2 * scale),
                       Text('${_a5TaxRegNoCtrl.text} | ${_a5PanNoCtrl.text}', style: TextStyle(fontSize: 8 * scale, fontWeight: FontWeight.w600, color: const Color(0xFF0F172A))),
                     ],
+                    if ((_a5ShowFssai && _a5FssaiCtrl.text.trim().isNotEmpty) || (_a5ShowDrugLicense && _a5DrugLicenseCtrl.text.trim().isNotEmpty)) ...[
+                      SizedBox(height: 2 * scale),
+                      Text([
+                        if (_a5ShowFssai && _a5FssaiCtrl.text.trim().isNotEmpty) 'FSSAI: ${_a5FssaiCtrl.text.trim()}',
+                        if (_a5ShowDrugLicense && _a5DrugLicenseCtrl.text.trim().isNotEmpty) 'DL No: ${_a5DrugLicenseCtrl.text.trim()}',
+                      ].join('  |  '), style: TextStyle(fontSize: 7.8 * scale, fontWeight: FontWeight.w600, color: const Color(0xFF334155))),
+                    ],
                   ],
                 ),
               ),
@@ -2206,14 +2377,14 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                   padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 4 * scale),
                   child: Row(
                     children: [
-                      SizedBox(width: 18 * scale, child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      Expanded(flex: 4, child: Text('ITEM DESCRIPTION', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      if (_a5ShowHsnCode) Expanded(flex: 2, child: Text('HSN/SAC', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      Expanded(flex: 1, child: Text('QTY', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      Expanded(flex: 2, child: Text('RATE', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      if (_a5ShowItemDiscount) Expanded(flex: 2, child: Text('DISC', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      if (_a5ShowTaxBreakup) Expanded(flex: 2, child: Text('TAX', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      Expanded(flex: 2, child: Text('AMOUNT', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
+                      SizedBox(width: 18 * scale, child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      Expanded(flex: 4, child: Text('ITEM DESCRIPTION', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      if (_a5ShowHsnCode) Expanded(flex: 2, child: Text('HSN/SAC', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      Expanded(flex: 1, child: Text('QTY', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      Expanded(flex: 2, child: Text('RATE', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      if (_a5ShowItemDiscount) Expanded(flex: 2, child: Text('DISC', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      if (_a5ShowTaxBreakup) Expanded(flex: 2, child: Text('TAX', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      Expanded(flex: 2, child: Text('AMOUNT', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
                     ],
                   ),
                 ),
@@ -2738,6 +2909,22 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
               style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: taxIdSize, color: Colors.black),
             ),
           ],
+          if (_billShowFssai && _billFssaiCtrl.text.trim().isNotEmpty) ...[
+            SizedBox(height: 1.5 * scale),
+            Text(
+              'FSSAI: ${_billFssaiCtrl.text.trim()}',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'monospace', fontSize: subtextSize, color: const Color(0xFF475569)),
+            ),
+          ],
+          if (_billShowDrugLicense && _billDrugLicenseCtrl.text.trim().isNotEmpty) ...[
+            SizedBox(height: 1.5 * scale),
+            Text(
+              'DL No: ${_billDrugLicenseCtrl.text.trim()}',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: subtextSize, color: Colors.black),
+            ),
+          ],
 
           // 5. TAX INVOICE Header Badge
           SizedBox(height: 3 * scale),
@@ -3101,6 +3288,13 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                       SizedBox(height: 2 * scale),
                       Text('${_a4TaxRegNoCtrl.text}  |  ${_a4PanNoCtrl.text}', style: TextStyle(fontSize: 9 * scale, fontWeight: FontWeight.w600, color: const Color(0xFF0F172A))),
                     ],
+                    if ((_a4ShowFssai && _a4FssaiCtrl.text.trim().isNotEmpty) || (_a4ShowDrugLicense && _a4DrugLicenseCtrl.text.trim().isNotEmpty)) ...[
+                      SizedBox(height: 2 * scale),
+                      Text([
+                        if (_a4ShowFssai && _a4FssaiCtrl.text.trim().isNotEmpty) 'FSSAI: ${_a4FssaiCtrl.text.trim()}',
+                        if (_a4ShowDrugLicense && _a4DrugLicenseCtrl.text.trim().isNotEmpty) 'DL No: ${_a4DrugLicenseCtrl.text.trim()}',
+                      ].join('  |  '), style: TextStyle(fontSize: 8.5 * scale, fontWeight: FontWeight.w600, color: const Color(0xFF334155))),
+                    ],
                   ],
                 ),
               ),
@@ -3179,14 +3373,14 @@ class _ReceiptTemplateDesignerScreenState extends State<ReceiptTemplateDesignerS
                   padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 5 * scale),
                   child: Row(
                     children: [
-                      SizedBox(width: 22 * scale, child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      Expanded(flex: 4, child: Text('ITEM DESCRIPTION', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      if (_a4ShowHsnCode) Expanded(flex: 2, child: Text('HSN/SAC', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      Expanded(flex: 1, child: Text('QTY', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      Expanded(flex: 2, child: Text('RATE', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      if (_a4ShowItemDiscount) Expanded(flex: 2, child: Text('DISC', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      if (_a4ShowTaxBreakup) Expanded(flex: 2, child: Text('TAX', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
-                      Expanded(flex: 2, child: Text('AMOUNT', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize))),
+                      SizedBox(width: 22 * scale, child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      Expanded(flex: 4, child: Text('ITEM DESCRIPTION', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      if (_a4ShowHsnCode) Expanded(flex: 2, child: Text('HSN/SAC', style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      Expanded(flex: 1, child: Text('QTY', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      Expanded(flex: 2, child: Text('RATE', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      if (_a4ShowItemDiscount) Expanded(flex: 2, child: Text('DISC', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      if (_a4ShowTaxBreakup) Expanded(flex: 2, child: Text('TAX', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
+                      Expanded(flex: 2, child: Text('AMOUNT', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.bold, fontSize: tableHeaderSize, color: const Color(0xFF1E293B)))),
                     ],
                   ),
                 ),
