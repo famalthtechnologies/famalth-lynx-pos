@@ -31,6 +31,7 @@ import 'mobile_billing_splash_screen.dart';
 import 'mobile_cash_ledger_sheet.dart';
 import 'mobile_customer_ledger_sheet.dart';
 import 'mobile_item_master_sheet.dart';
+import 'mobile_stock_balance_sheet.dart';
 
 class MobileBillingAppScreen extends StatefulWidget {
   const MobileBillingAppScreen({super.key});
@@ -810,6 +811,15 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
           _loadCatalogAndMetadata();
         },
       ),
+    );
+  }
+
+  void _openStockBalanceModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => const MobileStockBalanceSheet(),
     );
   }
 
@@ -2078,7 +2088,24 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (modalCtx, setModalState) {
           final itemRate = selectedItem != null ? _getItemPrice(selectedItem!) : 0.0;
-          final totalAmount = itemRate * dailyQty * durationDays;
+          final bonusQty = double.tryParse(bonusQtyCtrl.text.trim()) ?? 0.0;
+          final payableDays = (bonusQty > 0) ? (durationDays - 1).clamp(0, durationDays) : durationDays;
+          final baseAmount = itemRate * dailyQty * payableDays;
+
+          final taxPercent = selectedItem?.taxPercent ?? 0.0;
+          final isInclusive = selectedItem != null &&
+              (selectedItem!.isTaxInclusive || selectedItem!.taxType.trim().toUpperCase() == 'GST_INCLUSIVE');
+
+          final double taxableAmount;
+          final double taxAmount;
+          if (isInclusive && taxPercent > 0) {
+            taxableAmount = baseAmount / (1 + (taxPercent / 100));
+            taxAmount = baseAmount - taxableAmount;
+          } else {
+            taxableAmount = baseAmount;
+            taxAmount = baseAmount * (taxPercent / 100);
+          }
+          final totalAmount = isInclusive ? baseAmount : (taxableAmount + taxAmount);
           final endDate = startDate.add(Duration(days: durationDays - 1));
 
           void searchSubCustomer(String query) {
@@ -2348,6 +2375,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                             isDense: true,
                             border: OutlineInputBorder(),
                           ),
+                          onChanged: (val) => setModalState(() {}),
                         ),
                       ),
                     ],
@@ -2439,11 +2467,25 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                           children: [
                             const Text('Validity Range:', style: TextStyle(color: Color(0xFF1E40AF), fontSize: 12)),
                             Text(
-                              '${DateFormat('dd MMM yyyy').format(startDate)} to ${DateFormat('dd MMM yyyy').format(endDate)}',
+                              '${DateFormat('dd MMM yyyy').format(startDate)} to ${DateFormat('dd MMM yyyy').format(endDate)} ($durationDays Days)',
                               style: const TextStyle(color: Color(0xFF1E40AF), fontSize: 12, fontWeight: FontWeight.bold),
                             ),
                           ],
                         ),
+                        if (bonusQty > 0 || taxPercent > 0) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Taxable: ₹${taxableAmount.toStringAsFixed(2)}${taxPercent > 0 ? ' | GST (${taxPercent.toStringAsFixed(2)}%): ₹${taxAmount.toStringAsFixed(2)}' : ''}',
+                                style: const TextStyle(color: Color(0xFF475569), fontSize: 11),
+                              ),
+                              if (bonusQty > 0)
+                                Text('Bonus: ${bonusQty.toStringAsFixed(0)} Free', style: const TextStyle(color: Color(0xFF2563EB), fontSize: 11, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ],
                         const SizedBox(height: 4),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2768,6 +2810,89 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 14),
+
+                  // Inventory Stock Health Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderSubtle),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.inventory_2_rounded, size: 18, color: Color(0xFF2563EB)),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Inventory Stock Health',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textDark),
+                                ),
+                              ],
+                            ),
+                            InkWell(
+                              onTap: _openStockBalanceModal,
+                              child: const Row(
+                                children: [
+                                  Text('View Details', style: TextStyle(color: Color(0xFF2563EB), fontSize: 12, fontWeight: FontWeight.bold)),
+                                  SizedBox(width: 2),
+                                  Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFF2563EB), size: 10),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        InkWell(
+                          onTap: _openStockBalanceModal,
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: borderSubtle),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.check_circle_outline_rounded, color: Color(0xFF059669), size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Healthy Stock', style: TextStyle(color: Color(0xFF059669), fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                                Text('|', style: TextStyle(color: borderSubtle)),
+                                Row(
+                                  children: [
+                                    Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Need Reorder', style: TextStyle(color: Color(0xFFD97706), fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                                Text('|', style: TextStyle(color: borderSubtle)),
+                                Row(
+                                  children: [
+                                    Icon(Icons.cancel_outlined, color: Color(0xFFDC2626), size: 16),
+                                    SizedBox(width: 4),
+                                    Text('Out of Stock', style: TextStyle(color: Color(0xFFDC2626), fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 20),
 
                   // Top Selling Items
@@ -3036,6 +3161,16 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
             color: const Color(0xFF7C3AED),
             bg: const Color(0xFFF5F3FF),
             onTap: _openItemMasterModal,
+          ),
+          const SizedBox(height: 10),
+          _buildHubTile(
+            icon: Icons.inventory_2_rounded,
+            title: 'Stock Balance & Health Report',
+            subtitle: 'Healthy vs unhealthy items, live stock levels & reorder alerts',
+            badge: 'Stock Health',
+            color: const Color(0xFFD97706),
+            bg: const Color(0xFFFFFBEB),
+            onTap: _openStockBalanceModal,
           ),
           const SizedBox(height: 24),
 
@@ -3809,6 +3944,11 @@ class _CheckoutModalSheetState extends State<_CheckoutModalSheet> {
   bool _loadingCredit = false;
   bool _isSaving = false;
 
+  bool get _hasCustomer =>
+      _selectedCustomer != null ||
+      _customerPhoneCtrl.text.trim().isNotEmpty ||
+      _customerNameCtrl.text.trim().isNotEmpty;
+
   // Active customer subscriptions
   List<Map<String, dynamic>> _customerSubscriptions = [];
   bool _loadingSubscriptions = false;
@@ -3846,7 +3986,14 @@ class _CheckoutModalSheetState extends State<_CheckoutModalSheet> {
     final nameQ = _customerNameCtrl.text.trim().toLowerCase();
 
     if (phoneQ.isEmpty && nameQ.isEmpty) {
-      setState(() => _customerSuggestions = []);
+      setState(() {
+        _customerSuggestions = [];
+        _selectedCustomer = null;
+        _selectedScheme = null;
+        if (_selectedPaymentMode == 'CREDIT') {
+          _selectedPaymentMode = 'CASH';
+        }
+      });
       return;
     }
     setState(() {
@@ -4777,33 +4924,75 @@ class _CheckoutModalSheetState extends State<_CheckoutModalSheet> {
 
             // Scheme / Promotion Selector
             if (widget.schemes.isNotEmpty) ...[
-              DropdownButtonFormField<SaleScheme?>(
-                initialValue: _selectedScheme,
-                style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'Apply Scheme / Discount',
-                  labelStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                  prefixIcon: const Icon(Icons.local_offer_outlined, color: Color(0xFF2563EB), size: 18),
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-                ),
-                items: [
-                  const DropdownMenuItem<SaleScheme?>(
-                    value: null,
-                    child: Text('No Scheme Applied'),
+              if (!_hasCustomer) ...[
+                InkWell(
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Customer selection required to apply schemes. Please select or enter a customer first.'),
+                        backgroundColor: Color(0xFFD97706),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.local_offer_outlined, color: Color(0xFF94A3B8), size: 18),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Apply Scheme / Discount', style: TextStyle(color: Color(0xFF64748B), fontSize: 11.5)),
+                              SizedBox(height: 2),
+                              Text('Customer selection required to apply schemes',
+                                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12.5, fontStyle: FontStyle.italic)),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.lock_outline, size: 16, color: Color(0xFF94A3B8)),
+                      ],
+                    ),
                   ),
-                  ...widget.schemes.map((s) => DropdownMenuItem(
-                        value: s,
-                        child: Text(s.schemeName),
-                      )),
-                ],
-                onChanged: (val) {
-                  setState(() => _selectedScheme = val);
-                },
-              ),
-              const SizedBox(height: 12),
+                ),
+                const SizedBox(height: 12),
+              ] else ...[
+                DropdownButtonFormField<SaleScheme?>(
+                  initialValue: _selectedScheme,
+                  style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13),
+                  decoration: InputDecoration(
+                    labelText: 'Apply Scheme / Discount',
+                    labelStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                    prefixIcon: const Icon(Icons.local_offer_outlined, color: Color(0xFF2563EB), size: 18),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    isDense: true,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                  ),
+                  items: [
+                    const DropdownMenuItem<SaleScheme?>(
+                      value: null,
+                      child: Text('No Scheme Applied'),
+                    ),
+                    ...widget.schemes.map((s) => DropdownMenuItem(
+                          value: s,
+                          child: Text(s.schemeName),
+                        )),
+                  ],
+                  onChanged: (val) {
+                    setState(() => _selectedScheme = val);
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
             ],
 
             // Customer Info & Autocomplete by Name OR Phone
@@ -5086,17 +5275,37 @@ class _CheckoutModalSheetState extends State<_CheckoutModalSheet> {
                 if (subAdj > 0 && !widget.paymentMethods.contains('SUBSCRIPTION')) 'SUBSCRIPTION',
               ].map((mode) {
                 final isSel = _selectedPaymentMode == mode;
+                final isLockedCredit = mode == 'CREDIT' && !_hasCustomer;
                 return ChoiceChip(
-                  label: Text(mode, style: TextStyle(
-                    color: isSel ? Colors.white : const Color(0xFF0F172A),
-                    fontSize: 12,
-                    fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
-                  )),
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(mode, style: TextStyle(
+                        color: isSel ? Colors.white : (isLockedCredit ? const Color(0xFF94A3B8) : const Color(0xFF0F172A)),
+                        fontSize: 12,
+                        fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
+                      )),
+                      if (isLockedCredit) ...[
+                        const SizedBox(width: 4),
+                        const Icon(Icons.lock_outline, size: 12, color: Color(0xFF94A3B8)),
+                      ],
+                    ],
+                  ),
                   selected: isSel,
                   selectedColor: const Color(0xFF2563EB),
-                  backgroundColor: const Color(0xFFF8FAFC),
+                  backgroundColor: isLockedCredit ? const Color(0xFFF1F5F9) : const Color(0xFFF8FAFC),
                   side: BorderSide(color: isSel ? const Color(0xFF2563EB) : const Color(0xFFE2E8F0)),
                   onSelected: (val) {
+                    if (mode == 'CREDIT' && !_hasCustomer) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Customer selection required for Credit billing. Please select or enter a customer first.'),
+                          backgroundColor: Color(0xFFDC2626),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                      return;
+                    }
                     if (val) setState(() => _selectedPaymentMode = mode);
                   },
                 );

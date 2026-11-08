@@ -67,9 +67,10 @@ export const RETENTION_TABLES: TablePurgeDef[] = [
   { table: 'delivery_challan_headers', module: 'INVENTORY', dateColumn: 'created_at' },
 
   // 6. Milk Subscriptions
-  { table: 'milk_subscription_consumptions', module: 'SALES', dateColumn: 'created_at' },
-  { table: 'milk_subscription_settlements', module: 'SALES', dateColumn: 'created_at' },
-  { table: 'milk_subscription_schemes', module: 'SALES', dateColumn: 'created_at' },
+  { table: 'milk_subscription_consumptions', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
+  { table: 'milk_subscription_items', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
+  { table: 'milk_subscription_schemes', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
+  { table: 'milk_subscription_settlements', module: 'SALES', isChild: true, parentTable: 'milk_subscriptions', parentFk: 'subscription_id' },
   { table: 'milk_subscriptions', module: 'SALES', dateColumn: 'created_at' },
 
   // 7. HRMS Transactional Tables

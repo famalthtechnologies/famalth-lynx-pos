@@ -56,12 +56,19 @@ export function addDays(value: any, days: number): Date {
 
 function entryDelta(entry: any): number {
     const type = String(entry?.transaction_type || '').toUpperCase();
-    if (type === 'SALE_CREDIT' || type === 'PURCHASE_GRN' || type === 'SUBSCRIPTION_SETTLEMENT_CREDIT' || type === 'SUBSCRIPTION_SETTLEMENT_PARTIAL') {
+    const mode = String(entry?.payment_method || '').toUpperCase();
+    if (type === 'SALE_CREDIT' || type === 'PURCHASE_GRN' || type === 'SUBSCRIPTION_SETTLEMENT_CREDIT' || type === 'SUBSCRIPTION_SETTLEMENT_PARTIAL' || mode === 'CREDIT') {
         return 0;
     }
     if (type === 'ADVANCE_APPLY' || type === 'ADVANCE_ADJUSTMENT') {
+        if (mode === 'SUBSCRIPTION' || mode === 'ADVANCE') {
+            return 0;
+        }
         const out = roundAmount(entry?.amount_out ?? 0) > 0.009 ? roundAmount(entry?.amount_out ?? 0) : roundAmount(entry?.adjustment_amount ?? 0);
         return roundAmount(roundAmount(entry?.amount_in ?? 0) - out);
+    }
+    if (mode === 'SUBSCRIPTION') {
+        return 0;
     }
     if (type === 'SUPPLIER_PAYMENT' || type === 'REPAYMENT' || type === 'CUSTOMER_REPAYMENT' || type === 'WAIVE_OFF' || type.startsWith('SALE_')) {
         return roundAmount(entry?.amount_in ?? 0) - roundAmount(entry?.amount_out ?? 0);

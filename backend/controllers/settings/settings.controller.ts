@@ -59,6 +59,7 @@ const TRANSACTION_TABLES = [
 
     // Milk Subscription tables
     'milk_subscription_consumptions',
+    'milk_subscription_items',
     'milk_subscription_settlements',
     'milk_subscription_schemes',
     'milk_subscriptions',

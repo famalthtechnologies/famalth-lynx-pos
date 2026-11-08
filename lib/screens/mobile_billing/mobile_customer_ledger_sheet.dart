@@ -251,13 +251,13 @@ class _MobileCustomerLedgerSheetState extends State<MobileCustomerLedgerSheet> {
                               'note': notesCtrl.text.trim(),
                             });
                           } else {
-                            await ApiClient.post(ApiEndpoints.financeRepayments, {
+                            await ApiClient.post(ApiEndpoints.financeRepaymentsBulkAdjust, {
                               'customer_name': custName,
                               'customer_phone': custPhone,
                               'amount': amt,
                               'payment_mode': paymentMode,
                               'payment_date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
-                              'notes': notesCtrl.text.trim(),
+                              'note': notesCtrl.text.trim(),
                             });
                           }
                           HapticFeedback.heavyImpact();
@@ -1209,7 +1209,7 @@ class _CustomerStatementSheetState extends State<_CustomerStatementSheet> {
                           // 4) Customer advance / extra payment -> GREEN (ADVANCE RECEIVED, not labelled CREDIT)
                           final isSubscription = vType.contains('SUBSCRIPTION') || mode == 'SUBSCRIPTION';
                           final isAdvanceOrPayment = debit <= 0.009 && credit > 0.009;
-                          final double remainingDue = debit - credit;
+                          final double remainingDue = math.max(0.0, debit - credit);
                           final isUnpaidDue = !isSubscription && !isAdvanceOrPayment && remainingDue > 0.009;
                           final isFullyPaidSale = !isSubscription && !isAdvanceOrPayment && !isUnpaidDue;
                           final double availAdv = double.tryParse((widget.customer['total_advance'] ?? 0).toString()) ?? (_closingBalance < -0.009 ? _closingBalance.abs() : 0.0);
@@ -1343,7 +1343,7 @@ class _CustomerStatementSheetState extends State<_CustomerStatementSheet> {
                                     ),
                                   ] else if (isAdvanceOrPayment) ...[
                                     Text(
-                                      '-₹${credit.toStringAsFixed(2)}',
+                                      '+₹${credit.toStringAsFixed(2)}',
                                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF059669)),
                                     ),
                                   ] else ...[

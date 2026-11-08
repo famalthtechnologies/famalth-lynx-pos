@@ -10,12 +10,15 @@ exports.getStockBalance = async (req: any, res: any) => {
 
         const [rows] = await req.propertyDb.query(`
   SELECT
+    im.item_code       AS code,
+    im.barcode         AS barcode,
     im.item_name       AS name,
     im.brand           AS brand,
     im.item_group      AS category,
     im.unit,
     im.min_level       AS reorder,
     im.rate,
+    im.retail_sale_price AS selling_price,
 
     (
       COALESCE(im.opening_balance, 0)
@@ -33,12 +36,15 @@ exports.getStockBalance = async (req: any, res: any) => {
 
   GROUP BY
     im.id,
+    im.item_code,
+    im.barcode,
     im.item_name,
     im.brand,
     im.item_group,
     im.unit,
     im.min_level,
     im.rate,
+    im.retail_sale_price,
     im.opening_balance
 
   ORDER BY im.item_name

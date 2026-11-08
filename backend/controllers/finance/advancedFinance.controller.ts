@@ -1174,10 +1174,14 @@ exports.updateExpense = async (req, res) => {
 };
 
 exports.createRepayment = async (req, res) => {
+    const sale_id = Number(req.body.sale_id);
+    if ((!Number.isFinite(sale_id) || sale_id <= 0) && (req.body.customer_phone || req.body.customer_name || req.body.customer_gstin)) {
+        return exports.adjustBulkRepayment(req, res);
+    }
+
     const t = await req.propertyDb.transaction();
 
     try {
-        const sale_id = Number(req.body.sale_id);
         const payment_date = dateKey(req.body.payment_date || new Date());
         const amount = toAmount(req.body.amount);
         const payment_mode = String(req.body.payment_mode || 'CASH').trim().toUpperCase();
@@ -2538,12 +2542,18 @@ exports.getLedgerReport = async (req, res) => {
             .filter((entry) => String(entry.transaction_type || '').toUpperCase() === 'OPENING_DEPOSIT')
             .reduce((sum, entry) => sum + toAmount(entry.amount_in), 0);
         const totalIn = entries.reduce((sum, entry) => {
-            if (String(entry.transaction_type || '').toUpperCase() === 'OPENING_DEPOSIT') {
-                return sum;
-            }
+            const isCredit = String(entry.transaction_type || '').toUpperCase() === 'SALE_CREDIT' || String(entry.payment_method || '').toUpperCase() === 'CREDIT';
+            if (isCredit || String(entry.transaction_type || '').toUpperCase() === 'OPENING_DEPOSIT') return sum;
             return sum + toAmount(entry.amount_in);
         }, 0);
-        const totalOut = entries.reduce((sum, entry) => sum + toAmount(entry.amount_out), 0);
+        const totalOut = entries.reduce((sum, entry) => {
+            const isCredit = String(entry.transaction_type || '').toUpperCase() === 'SALE_CREDIT' || String(entry.payment_method || '').toUpperCase() === 'CREDIT';
+            if (isCredit) return sum;
+            if (toAmount(entry.amount_out) > 0.009) return sum + toAmount(entry.amount_out);
+            const isAdv = String(entry.transaction_type || '').toUpperCase() === 'ADVANCE_APPLY' || String(entry.transaction_type || '').toUpperCase() === 'ADVANCE_ADJUSTMENT';
+            if (isAdv && toAmount(entry.adjustment_amount) > 0.009) return sum + toAmount(entry.adjustment_amount);
+            return sum;
+        }, 0);
         const paymentMethodSummary = entries.reduce((acc, entry) => {
             const key = String(entry.payment_method || 'UNKNOWN').trim().toUpperCase() || 'UNKNOWN';
             if (!acc[key]) {
@@ -2555,7 +2565,9 @@ exports.getLedgerReport = async (req, res) => {
                 };
             }
             acc[key].amount_in += toAmount(entry.amount_in);
-            acc[key].amount_out += toAmount(entry.amount_out);
+            const isAdv = String(entry.transaction_type || '').toUpperCase() === 'ADVANCE_APPLY' || String(entry.transaction_type || '').toUpperCase() === 'ADVANCE_ADJUSTMENT';
+            const outVal = toAmount(entry.amount_out) > 0.009 ? toAmount(entry.amount_out) : (isAdv ? toAmount(entry.adjustment_amount) : 0);
+            acc[key].amount_out += outVal;
             acc[key].count += 1;
             return acc;
         }, {});

@@ -146,12 +146,10 @@ class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with Sing
       final res = await ApiClient.get('/api/finance/ledger?from_date=$fromStr&to_date=$toStr');
       final List<Map<String, dynamic>> rawList = [];
 
+      // Exactly like desktop: use res['data'] directly. Only fallback to daily if data is absent.
       if (res['data'] is List && (res['data'] as List).isNotEmpty) {
         rawList.addAll((res['data'] as List).map((e) => Map<String, dynamic>.from(e)));
-      }
-
-      // Flatten daily groups if present
-      if (res['daily'] is List) {
+      } else if (res['daily'] is List) {
         for (final day in res['daily']) {
           if (day is Map && day['entries'] is List) {
             for (final entry in day['entries']) {
@@ -167,68 +165,38 @@ class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with Sing
         }
       }
 
-      // If raw entries don't have sales, also fetch sales for the date range
-      try {
-        final salesRes = await ApiClient.get('${ApiEndpoints.sales}?from_date=$fromStr&to_date=$toStr');
-        final salesList = (salesRes['data'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)).toList();
-        final Set<String> existingVouchers = rawList
-            .map((e) => (e['voucherNo'] ?? e['voucher_no'] ?? e['reference_no'] ?? '').toString().trim())
-            .where((s) => s.isNotEmpty)
-            .toSet();
-
-        for (final s in salesList) {
-          final saleNo = (s['sale_no'] ?? '').toString();
-          if (saleNo.isNotEmpty && !existingVouchers.contains(saleNo)) {
-            final netAmt = double.tryParse((s['net_amount'] ?? s['total_amount'] ?? 0).toString()) ?? 0.0;
-            final taxAmt = double.tryParse((s['total_tax'] ?? s['tax_amount'] ?? 0).toString()) ?? 0.0;
-            final mode = (s['payment_mode'] ?? s['payment_method'] ?? 'CASH').toString().toUpperCase();
-            final isCredit = mode == 'CREDIT';
-            final paidAmt = isCredit ? 0.0 : (double.tryParse((s['amount_paid'] ?? netAmt).toString()) ?? netAmt);
-            final balDue = isCredit ? netAmt : (double.tryParse((s['balance_due'] ?? 0).toString()) ?? 0.0);
-            final dateStr = (s['sale_date'] ?? s['created_at'] ?? '').toString().split('T').first;
-
-            rawList.add({
-              'voucher_no': saleNo,
-              'reference_no': saleNo,
-              'description': isCredit
-                  ? 'Credit Sale: ${s['customer_name'] ?? 'Customer'} (Pending Due)'
-                  : 'POS Sale: ${s['customer_name'] ?? 'Walk-in'}',
-              'payment_mode': mode,
-              'payment_method': mode,
-              'amount_in': paidAmt,
-              'amount_out': 0.0,
-              'net_amount': netAmt,
-              'balance_due': balDue,
-              'is_credit': isCredit,
-              'tax_amount': taxAmt,
-              'date': dateStr,
-            });
-          }
-        }
-      } catch (_) {}
-
       final summary = res['summary'] ?? {};
+      final paySummary = res['payment_method_summary'] is List ? (res['payment_method_summary'] as List) : [];
       double cashIn = 0;
       double bankIn = 0;
       double gstSum = 0;
 
+      for (final pm in paySummary) {
+        final m = (pm['payment_method'] ?? '').toString().toUpperCase();
+        final inVal = double.tryParse((pm['amount_in'] ?? 0).toString()) ?? 0.0;
+        if (m == 'CASH') {
+          cashIn += inVal;
+        } else if (m != 'CREDIT' && m != 'SUBSCRIPTION') {
+          bankIn += inVal;
+        }
+      }
+
+      // Fallback calculation from entries if payment_method_summary wasn't provided
+      if (cashIn == 0 && bankIn == 0 && rawList.isNotEmpty) {
+        for (final e in rawList) {
+          final mode = (e['payment_method'] ?? e['paymentMethod'] ?? e['payment_mode'] ?? 'CASH').toString().toUpperCase();
+          final inAmt = _ledgerEntryCredit(e);
+          if (mode == 'CASH') {
+            cashIn += inAmt;
+          } else if (mode != 'CREDIT' && mode != 'SUBSCRIPTION') {
+            bankIn += inAmt;
+          }
+        }
+      }
+
       for (final e in rawList) {
-        final mode = (e['payment_method'] ?? e['paymentMethod'] ?? e['payment_mode'] ?? e['paymentMode'] ?? 'CASH').toString().toUpperCase();
-        final amt = double.tryParse((e['amountIn'] ?? e['amount_in'] ?? e['credit'] ?? 0).toString()) ?? 0.0;
         final tax = double.tryParse((e['tax_amount'] ?? e['total_tax'] ?? e['tax'] ?? 0).toString()) ?? 0.0;
         gstSum += tax;
-
-        if (mode == 'CREDIT' || e['is_credit'] == true) {
-          // Unpaid credit sales do not create cash/bank inflows
-          continue;
-        }
-
-        final isCash = mode == 'CASH';
-        if (isCash) {
-          cashIn += amt;
-        } else {
-          bankIn += amt;
-        }
       }
 
       if (mounted) {
@@ -281,59 +249,111 @@ class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with Sing
     });
   }
 
-  String _resolveEntryType(Map<String, dynamic> e) {
-    final type = (e['transaction_type'] ?? e['transactionType'] ?? e['reference_type'] ?? e['referenceType'] ?? '').toString().trim().toUpperCase();
-    final party = (e['party_name'] ?? e['partyName'] ?? '').toString().trim();
-    final notes = (e['notes'] ?? e['expense_note'] ?? '').toString().trim();
-    final ref = (e['reference_no'] ?? e['voucher_no'] ?? e['voucherNo'] ?? '').toString().trim().toUpperCase();
+  String _ledgerTypeLabel(String type) {
+    switch (type.trim().toUpperCase()) {
+      case 'SALE_CASH':
+      case 'SALE':
+        return 'Sales';
+      case 'SALE_CREDIT':
+        return 'Sales Credit';
+      case 'SALE_DISCOUNT_EXPENSE':
+        return 'Sale Discount Expense';
+      case 'CUSTOMER_ADVANCE':
+        return 'Customer Advance';
+      case 'ADVANCE_APPLY':
+      case 'ADVANCE_ADJUSTMENT':
+      case 'SALE_SUBSCRIPTION_ADJUSTMENT':
+        return 'Advance Adjustment';
+      case 'SUBSCRIPTION_SETTLEMENT':
+        return 'Subscription Settlement';
+      case 'REPAYMENT':
+      case 'CUSTOMER_REPAYMENT':
+        return 'Credit Payment';
+      case 'WAIVE_OFF':
+        return 'Waive Off';
+      case 'OPENING_DEPOSIT':
+      case 'OPENING':
+        return 'Opening';
+      case 'WITHDRAWAL':
+        return 'Cash Withdrawal';
+      case 'INCOME':
+        return 'Other Income';
+      case 'EXPENSE':
+        return 'Expense';
+      case 'SUPPLIER_PAYMENT':
+        return 'Supplier Payment';
+      case 'PURCHASE_GRN':
+        return 'Purchase GRN';
+      case 'SALE_SCHEME_FREE_EXPENSE':
+      case 'SUBSCRIPTION_SCHEME_FREE_EXPENSE':
+      case 'SALE_SUBSCRIPTION_FREE_EXPENSE':
+        return 'Scheme Free Expense';
+      case 'SALE_MODIFY_ADJUSTMENT':
+        return 'Bill Adjustment';
+      default:
+        return type
+            .trim()
+            .split('_')
+            .where((part) => part.isNotEmpty)
+            .map((part) => '${part[0]}${part.substring(1).toLowerCase()}')
+            .join(' ');
+    }
+  }
 
-    if (type == 'SALE_CASH' || type == 'SALE') {
-      return party.isNotEmpty ? 'Sale ($party)' : 'Sale Invoice';
-    }
-    if (type == 'SALE_CREDIT') {
-      return party.isNotEmpty ? 'Sale Credit ($party)' : 'Sale Credit';
-    }
-    if (type == 'EXPENSE') {
-      return notes.isNotEmpty ? 'Expense: $notes' : (party.isNotEmpty ? 'Expense ($party)' : 'Store Expense');
-    }
-    if (type == 'SUPPLIER_PAYMENT') {
-      return party.isNotEmpty ? 'Supplier Payment ($party)' : 'Supplier Payment';
-    }
-    if (type == 'PURCHASE_GRN' || type == 'SUPPLIER_BILL') {
-      return party.isNotEmpty ? 'Purchase ($party)' : 'Purchase GRN';
-    }
-    if (type.contains('SUBSCRIPTION')) {
-      return party.isNotEmpty ? 'Subscription ($party)' : 'Subscription Adjustment';
-    }
-    if (type == 'REPAYMENT' || type == 'CUSTOMER_REPAYMENT') {
-      return party.isNotEmpty ? 'Customer Payment ($party)' : 'Customer Payment';
-    }
-    if (type == 'INCOME') {
-      return notes.isNotEmpty ? 'Income: $notes' : 'Other Income';
-    }
-    if (type == 'WITHDRAWAL') return 'Cash Withdrawal';
-    if (type == 'OPENING_DEPOSIT') return 'Opening Deposit';
+  String _resolveVoucherNo(Map<String, dynamic> entry) {
+    final ref = (entry['reference_no'] ?? entry['voucher_no'] ?? entry['voucherNo'] ?? '').toString().trim();
+    final type = (entry['transaction_type'] ?? entry['transactionType'] ?? '').toString().trim().toUpperCase();
+    final refType = (entry['reference_type'] ?? entry['referenceType'] ?? '').toString().trim().toUpperCase();
 
-    // Fallbacks based on voucher reference format
-    if (ref.startsWith('FAM-') || ref.startsWith('INV-')) {
-      return party.isNotEmpty ? 'Sale Invoice ($party)' : 'Sale Invoice';
+    if (ref.startsWith('PV-') ||
+        ref.startsWith('SV-') ||
+        ref.startsWith('RV-') ||
+        ref.startsWith('CN-') ||
+        ref.startsWith('JV-')) {
+      return ref;
     }
-    if (ref.startsWith('PAY') || ref.startsWith('PV-')) {
-      return party.isNotEmpty ? 'Supplier Payment ($party)' : 'Supplier Payment';
-    }
-    if (ref.startsWith('SUB')) {
-      return party.isNotEmpty ? 'Subscription ($party)' : 'Subscription Plan';
-    }
-    if (ref.startsWith('ADV')) {
-      return party.isNotEmpty ? 'Advance Received ($party)' : 'Advance Received';
-    }
-    if (notes.isNotEmpty) return notes;
-    if (party.isNotEmpty) return party;
 
-    final rawDesc = (e['description'] ?? e['particulars'] ?? '').toString().trim();
-    if (rawDesc.isNotEmpty && rawDesc != 'Entry') return rawDesc;
+    if (type.contains('SALE') || refType == 'SALE') {
+      return ref.isNotEmpty ? 'SV-$ref' : 'SV-0001';
+    } else if (type.contains('REPAYMENT') || type.contains('CREDIT PAYMENT') || refType == 'REPAYMENT') {
+      return ref.isNotEmpty ? 'RV-$ref' : 'RV-0001';
+    } else if (type.contains('SUBSCRIPTION') || type.contains('ADVANCE') || refType.contains('ADVANCE')) {
+      return ref.isNotEmpty ? (ref.startsWith('RV-') ? ref : 'RV-$ref') : 'RV-0001';
+    } else if (type.contains('SUPPLIER') || type.contains('VENDOR') || type.contains('REFUND') || refType.contains('SUPPLIER')) {
+      return ref.isNotEmpty ? (ref.startsWith('PV-') ? ref : 'PV-$ref') : 'PV-0001';
+    } else if (type == 'EXPENSE' || refType == 'EXPENSE') {
+      return ref.isNotEmpty ? 'PV-$ref' : 'PV-0001';
+    } else if (type == 'INCOME' || refType == 'INCOME') {
+      return ref.isNotEmpty ? 'RV-$ref' : 'RV-0001';
+    } else if (type == 'WITHDRAWAL' || type == 'CONTRA' || refType == 'WITHDRAWAL') {
+      return ref.isNotEmpty ? 'CN-$ref' : 'CN-0001';
+    } else if (type == 'OPENING' || refType == 'OPENING_DEPOSIT') {
+      return ref.isNotEmpty ? (ref.startsWith('RV-') ? ref : 'RV-$ref') : 'RV-OPENING';
+    }
+    return ref.isNotEmpty ? ref : '-';
+  }
 
-    return 'General Entry';
+  double _ledgerEntryCredit(Map<String, dynamic> entry) {
+    final mode = (entry['payment_method'] ?? entry['paymentMethod'] ?? entry['payment_mode'] ?? '').toString().toUpperCase();
+    final type = (entry['transaction_type'] ?? entry['transactionType'] ?? '').toString().toUpperCase();
+    final isCreditMode = type == 'SALE_CREDIT' || mode == 'CREDIT';
+    if (isCreditMode) return 0.0;
+    return double.tryParse((entry['amount_in'] ?? entry['amountIn'] ?? entry['credit'] ?? 0).toString()) ?? 0.0;
+  }
+
+  double _ledgerEntryDebit(Map<String, dynamic> entry) {
+    final mode = (entry['payment_method'] ?? entry['paymentMethod'] ?? entry['payment_mode'] ?? '').toString().toUpperCase();
+    final type = (entry['transaction_type'] ?? entry['transactionType'] ?? '').toString().toUpperCase();
+    final isCreditMode = type == 'SALE_CREDIT' || mode == 'CREDIT';
+    if (isCreditMode) return 0.0;
+    final outAmt = double.tryParse((entry['amount_out'] ?? entry['amountOut'] ?? entry['debit'] ?? 0).toString()) ?? 0.0;
+    if (outAmt > 0.009) return outAmt;
+    final isAdvanceAdjust = type == 'ADVANCE_APPLY' || type == 'ADVANCE_ADJUSTMENT' || type == 'SALE_SUBSCRIPTION_ADJUSTMENT';
+    final adjAmt = double.tryParse((entry['adjustment_amount'] ?? entry['adjustmentAmount'] ?? 0).toString()) ?? 0.0;
+    if (isAdvanceAdjust && adjAmt > 0.009) {
+      return adjAmt;
+    }
+    return 0.0;
   }
 
   void _openAddExpenseModal() {
@@ -870,24 +890,27 @@ class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with Sing
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, idx) {
                           final e = _filteredEntries[idx];
-                          final voucher = (e['voucherNo'] ?? e['voucher_no'] ?? e['reference_no'] ?? 'Txn').toString();
-                          final date = (e['date'] ?? '').toString();
-                          final time = (e['time'] ?? '').toString();
-                          final desc = _resolveEntryType(e);
-                          final mode = (e['payment_method'] ?? e['paymentMethod'] ?? e['payment_mode'] ?? e['paymentMode'] ?? 'CASH').toString().toUpperCase();
-                          final amtIn = double.tryParse((e['amountIn'] ?? e['amount_in'] ?? e['credit'] ?? 0).toString()) ?? 0.0;
-                          final amtOut = double.tryParse((e['amountOut'] ?? e['amount_out'] ?? e['debit'] ?? 0).toString()) ?? 0.0;
+                          final voucher = _resolveVoucherNo(e);
+                          final rawType = (e['transaction_type'] ?? e['transactionType'] ?? e['reference_type'] ?? '').toString().trim();
+                          final typeLabel = _ledgerTypeLabel(rawType);
+                          final party = (e['party_name'] ?? e['partyName'] ?? '').toString().trim();
+                          final note = (e['notes'] ?? e['expense_note'] ?? '').toString().trim();
+                          final date = (e['date'] ?? e['txn_date'] ?? '').toString().split('T').first;
+                          final mode = (e['payment_method'] ?? e['paymentMethod'] ?? e['payment_mode'] ?? 'CASH').toString().toUpperCase();
+                          final creditAmt = _ledgerEntryCredit(e);
+                          final debitAmt = _ledgerEntryDebit(e);
+                          final balance = double.tryParse((e['balance'] ?? 0).toString()) ?? 0.0;
                           final taxAmt = double.tryParse((e['tax_amount'] ?? e['total_tax'] ?? 0).toString()) ?? 0.0;
-                          final isIn = amtIn > 0;
 
-                          final isCredit = mode == 'CREDIT' || e['is_credit'] == true;
-                          final netAmt = double.tryParse((e['net_amount'] ?? 0).toString()) ?? 0.0;
-                          final balDue = double.tryParse((e['balance_due'] ?? 0).toString()) ?? 0.0;
-                          final creditAmt = balDue > 0 ? balDue : (netAmt > 0 ? netAmt : amtIn);
+                          final isCredit = mode == 'CREDIT' || e['is_credit'] == true || rawType == 'SALE_CREDIT';
+                          final isDebit = debitAmt > 0.009;
+                          final isCreditIn = creditAmt > 0.009;
 
                           Color modeColor = const Color(0xFF059669);
                           if (isCredit) {
                             modeColor = const Color(0xFFD97706);
+                          } else if (mode.contains('SUBSCRIPTION')) {
+                            modeColor = const Color(0xFF0284C7);
                           } else if (mode.contains('BANK')) {
                             modeColor = const Color(0xFF2563EB);
                           } else if (mode.contains('UPI') || mode.contains('PHONEPE') || mode.contains('GPAY')) {
@@ -898,13 +921,13 @@ class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with Sing
 
                           final Color leadingBg = isCredit
                               ? const Color(0xFFFFFBEB)
-                              : (isIn ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2));
+                              : (isDebit ? const Color(0xFFFEF2F2) : const Color(0xFFECFDF5));
                           final Color leadingColor = isCredit
                               ? const Color(0xFFD97706)
-                              : (isIn ? const Color(0xFF059669) : const Color(0xFFDC2626));
+                              : (isDebit ? const Color(0xFFDC2626) : const Color(0xFF059669));
                           final IconData leadingIcon = isCredit
                               ? Icons.hourglass_top_rounded
-                              : (isIn ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded);
+                              : (isDebit ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded);
 
                           return Container(
                             padding: const EdgeInsets.all(12),
@@ -943,7 +966,20 @@ class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with Sing
                                           ),
                                           const SizedBox(width: 6),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFEFF6FF),
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(color: const Color(0xFFBFDBFE)),
+                                            ),
+                                            child: Text(
+                                              typeLabel,
+                                              style: const TextStyle(color: Color(0xFF1D4ED8), fontSize: 9.5, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                             decoration: BoxDecoration(
                                               color: modeColor.withValues(alpha: 0.12),
                                               borderRadius: BorderRadius.circular(4),
@@ -953,7 +989,7 @@ class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with Sing
                                           if (taxAmt > 0) ...[
                                             const SizedBox(width: 4),
                                             Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
                                               decoration: BoxDecoration(
                                                 color: const Color(0xFFF1F5F9),
                                                 borderRadius: BorderRadius.circular(4),
@@ -964,42 +1000,96 @@ class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with Sing
                                           ],
                                         ],
                                       ),
-                                      const SizedBox(height: 2),
-                                      Text(desc, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textMuted, fontSize: 11)),
-                                      Text('$date ${time.isNotEmpty ? '• $time' : ''}', style: const TextStyle(color: textMuted, fontSize: 10)),
+                                      const SizedBox(height: 3),
+                                      if (party.isNotEmpty || note.isNotEmpty) ...[
+                                        Text(
+                                          party.isNotEmpty && note.isNotEmpty ? '$party • $note' : (note.isNotEmpty ? note : party),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(color: textMuted, fontSize: 11),
+                                        ),
+                                      ],
+                                      Text(date, style: const TextStyle(color: textMuted, fontSize: 10)),
                                     ],
                                   ),
                                 ),
-                                if (isCredit && amtIn <= 0.009) ...[
+                                if (isCredit) ...[
+                                  Builder(
+                                    builder: (context) {
+                                      double dueAmt = double.tryParse((e['adjustment_amount'] ?? e['customer_due'] ?? e['balance_due'] ?? e['amount'] ?? 0).toString()) ?? 0.0;
+                                      if (dueAmt <= 0.009) {
+                                        final notesStr = (e['notes'] ?? e['expense_note'] ?? '').toString();
+                                        final match = RegExp(r'outstanding\s+([\d\.]+)').firstMatch(notesStr);
+                                        if (match != null) {
+                                          dueAmt = double.tryParse(match.group(1) ?? '0') ?? 0.0;
+                                        }
+                                      }
+                                      return Column(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            '₹${dueAmt.toStringAsFixed(2)}',
+                                            style: const TextStyle(
+                                              color: Color(0xFFB45309),
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const Text(
+                                            'Credit / Due',
+                                            style: TextStyle(
+                                              color: Color(0xFFD97706),
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                ] else if (isDebit) ...[
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
                                       Text(
-                                        '₹${creditAmt.toStringAsFixed(2)}',
+                                        '-₹${debitAmt.toStringAsFixed(2)}',
                                         style: const TextStyle(
-                                          color: Color(0xFFB45309),
+                                          color: Color(0xFFDC2626),
                                           fontSize: 14,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                      const Text(
-                                        'Credit / Due',
-                                        style: TextStyle(
-                                          color: Color(0xFFD97706),
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w600,
+                                      if (balance > 0.009)
+                                        Text(
+                                          'Bal: ₹${balance.toStringAsFixed(2)}',
+                                          style: const TextStyle(
+                                            color: Color(0xFF64748B),
+                                            fontSize: 10,
+                                          ),
                                         ),
-                                      ),
                                     ],
                                   ),
                                 ] else ...[
-                                  Text(
-                                    isIn ? '+₹${amtIn.toStringAsFixed(2)}' : '-₹${amtOut.toStringAsFixed(2)}',
-                                    style: TextStyle(
-                                      color: isIn ? const Color(0xFF059669) : const Color(0xFFDC2626),
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        '+₹${creditAmt.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          color: Color(0xFF059669),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      if (balance > 0.009)
+                                        Text(
+                                          'Bal: ₹${balance.toStringAsFixed(2)}',
+                                          style: const TextStyle(
+                                            color: Color(0xFF64748B),
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 ],
                               ],

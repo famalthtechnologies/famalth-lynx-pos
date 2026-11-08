@@ -120,6 +120,7 @@ class ApiEndpoints {
   static const financeIncome = '/api/finance/income';
   static const financeWithdrawals = '/api/finance/withdrawals';
   static const financeRepayments = '/api/finance/repayments';
+  static const financeRepaymentsBulkAdjust = '/api/finance/repayments/bulk-adjust';
   static const financeAdvances = '/api/finance/advances';
   static const financeApplyAdvance = '/api/finance/advances/apply';
   static const financeAdjustBulkAdvance = '/api/finance/advances/adjust-bulk';

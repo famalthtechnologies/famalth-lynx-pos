@@ -3504,7 +3504,7 @@ async function createSaleVersion({
                 party_name: header.customer_name || header.customer_phone || 'Customer',
                 payment_method: 'ADVANCE',
                 amount_in: 0,
-                amount_out: advanceApplied,
+                amount_out: 0,
                 adjustment_amount: advanceApplied,
                 notes: `Advance adjusted while billing #${sale.sale_no}`,
                 created_by,
@@ -4216,7 +4216,9 @@ exports.createSale = async (req, res) => {
                             reference_no: referenceSale.sale_no,
                             party_name: header.customer_name || header.customer_phone || 'Subscription Customer',
                             payment_method: 'SUBSCRIPTION',
-                            amount_out: appliedCashAdvanceAmount,
+                            amount_in: 0,
+                            amount_out: 0,
+                            adjustment_amount: appliedCashAdvanceAmount,
                             notes: `Advance adjusted for subscription item consumption in ${referenceSale.sale_no}`,
                             created_by: req.user.id,
                             transaction: t
@@ -5492,6 +5494,10 @@ exports.listSales = async (req, res) => {
         }
         const sales = await req.propertyDb.models.sales_headers.findAll({
             where,
+            include: [
+                { model: req.propertyDb.models.sales_items, as: 'items', required: false },
+                { model: req.propertyDb.models.customer_repayments, as: 'repayments', required: false }
+            ],
             order: [['sale_date', 'DESC'], ['id', 'DESC']]
         });
 
@@ -6488,6 +6494,18 @@ exports.listSubscriptions = async (req, res) => {
         const search = String(req.query.search || '').trim().toLowerCase();
         const status = String(req.query.status || '').trim().toUpperCase();
 
+        const todayStr = formatDateLocalYmd(new Date());
+        await req.propertyDb.models.milk_subscriptions.update(
+            { status: 'EXPIRED', active_subscription: false },
+            {
+                where: {
+                    status: 'ACTIVE',
+                    end_date: { [Op.lt]: todayStr }
+                },
+                bypassOutletFilter: true
+            }
+        ).catch(() => {});
+
         const where: any = {};
         if (outletIds.length === 1) {
             where.outlet_id = outletIds[0];
@@ -6540,9 +6558,18 @@ exports.listSubscriptions = async (req, res) => {
             const remainingQty = isSettled ? 0 : advanceSummary.available_qty;
             const consumedQty = isSettled ? advanceSummary.original_qty : advanceSummary.consumed_qty;
 
+            const startDateStr = formatDateLocalYmd(subscription.start_date);
+            const endDateStr = subscription.end_date ? formatDateLocalYmd(subscription.end_date) : null;
+            const asOfDay = formatDateLocalYmd(new Date());
+            const isStarted = !startDateStr || asOfDay >= startDateStr;
+            const isEnded = endDateStr ? asOfDay > endDateStr : false;
+            const isActuallyActive = !isEnded && isStarted && subscription.status === 'ACTIVE' && Boolean(subscription.active_subscription);
+            const computedStatus = isEnded && subscription.status === 'ACTIVE' ? 'EXPIRED' : subscription.status;
+
             data.push({
                 ...subscription.toJSON(),
-                active_subscription: subscription.active_subscription === true && subscription.status === 'ACTIVE',
+                status: computedStatus,
+                active_subscription: isActuallyActive,
                 scheme_totals: {
                     bonus_qty: sumNumeric(subscription.schemes, 'bonus_qty'),
                     discount_amount: sumNumeric(subscription.schemes, 'discount_amount')
@@ -6638,8 +6665,12 @@ exports.listCustomerSubscriptions = async (req, res) => {
             const remainingQty = isSettled ? 0 : advanceSummary.available_qty;
             const consumedQty = isSettled ? advanceSummary.original_qty : advanceSummary.consumed_qty;
 
+            const computedStatus = isEnded && subscription.status === 'ACTIVE' ? 'EXPIRED' : subscription.status;
+
             rows.push({
                 ...subscription.toJSON(),
+                status: computedStatus,
+                active_subscription: isApplicableToday,
                 scheme_totals: {
                     bonus_qty: sumNumeric(subscription.schemes, 'bonus_qty'),
                     discount_amount: sumNumeric(subscription.schemes, 'discount_amount')
@@ -6655,7 +6686,6 @@ exports.listCustomerSubscriptions = async (req, res) => {
                 today_remaining_qty: todayRemainingQty,
                 daily_allowed_qty: dailyLimit,
                 consumption: coveredRows.map((row) => row.toJSON()),
-                active_subscription: isApplicableToday,
                 ...buildSubscriptionMetrics(subscription, coveredRows)
             });
         }
