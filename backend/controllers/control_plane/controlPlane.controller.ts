@@ -6,6 +6,7 @@ import initMasterModels from '../../models/master';
 import { broadcastRemoteKillSwitch, broadcastQuotaUpdated } from '../../services/socketHub.service';
 import { sendOtpEmail } from '../../modules/emailService';
 import { generateSubscriptionInvoicePdf } from '../../services/subscriptionInvoicePdf.service';
+import licensorBillingService from '../../services/licensorBilling.service';
 import ControlPlaneNotificationService from '../../services/controlPlaneNotification.service';
 const { invalidateLicenseCache } = require('../public/licenseManager');
 import { ensureMasterDatabaseSync } from '../../services/masterSync.service';
@@ -28,11 +29,10 @@ export class ControlPlaneController {
    */
   public static async getFleetOverview(req: Request, res: Response) {
     try {
-      try {
-        await ensureMasterDatabaseSync(propertyDb);
-      } catch (syncErr: any) {
-        console.warn('[CONTROL_PLANE] Database auto-sync warning:', syncErr.message);
-      }
+      // Trigger background sync non-blocking so the telemetry API responds instantly
+      ensureMasterDatabaseSync(propertyDb).catch((syncErr: any) => {
+        console.warn('[CONTROL_PLANE] Background database sync notice:', syncErr.message);
+      });
 
       const isResellerRole = req.masterStaff?.role === 'RESELLER_ADMIN' || (req.masterStaff?.role as any) === 'RESELLER';
       let resellerFilterId: string | null = null;
@@ -193,9 +193,7 @@ export class ControlPlaneController {
    */
   public static async getAllTenants(req: Request, res: Response) {
     try {
-      try {
-        await ensureMasterDatabaseSync(propertyDb);
-      } catch (_) {}
+      ensureMasterDatabaseSync(propertyDb).catch(() => {});
 
       const { search, status, reseller_id, rm_id } = req.query;
 
@@ -880,12 +878,15 @@ export class ControlPlaneController {
       const totalAmount = Number(invoice ? invoice.total_amount : (subtotal + taxAmount));
       const invoiceNumber = invoice ? invoice.invoice_number : `INV-${tenant.client_code}-${Date.now().toString(36).toUpperCase()}`;
 
+      const licensorConfig = licensorBillingService.getConfig();
+
       const pdfBuffer = await generateSubscriptionInvoicePdf({
         invoiceNumber,
         issueDate: invoice ? invoice.billing_period_start : (activeLicense.valid_from || new Date()),
         dueDate: invoice ? invoice.due_date : (activeLicense.next_payment_date || activeLicense.valid_till || new Date()),
         paymentStatus: (invoice?.status === 'PAID' || activeLicense.payment_status === 'PAID') ? 'PAID' : 'PENDING',
         paidAt: invoice?.paid_at,
+        licensor: licensorConfig,
         tenant: {
           clientCode: tenant.client_code,
           legalName: tenant.legal_name,
@@ -1603,6 +1604,39 @@ export class ControlPlaneController {
     } catch (err: any) {
       console.error('triggerExpiryAndRenewalNotices error:', err);
       return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+  /**
+   * 13. Get SaaS Licensor Subscription Billing Profile
+   */
+  public static async getSubscriptionBillingConfig(req: Request, res: Response) {
+    try {
+      const config = licensorBillingService.getConfig();
+      return res.json({
+        success: true,
+        data: config,
+      });
+    } catch (err: any) {
+      console.error('getSubscriptionBillingConfig error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to retrieve billing config: ' + err.message });
+    }
+  }
+
+  /**
+   * 14. Save SaaS Licensor Subscription Billing Profile
+   */
+  public static async saveSubscriptionBillingConfig(req: Request, res: Response) {
+    try {
+      const updates = req.body || {};
+      const updated = licensorBillingService.saveConfig(updates);
+      return res.json({
+        success: true,
+        message: 'Subscription billing profile saved successfully.',
+        data: updated,
+      });
+    } catch (err: any) {
+      console.error('saveSubscriptionBillingConfig error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to save billing config: ' + err.message });
     }
   }
 }

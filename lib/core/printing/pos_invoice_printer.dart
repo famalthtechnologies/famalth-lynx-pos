@@ -129,6 +129,7 @@ class PosInvoicePrinter {
   static pw.Font? _cachedBold;
   static pw.Font? _cachedItalic;
   static pw.Font? _cachedBoldItalic;
+  static bool _isFallbackFont = false;
 
   /// Loads and caches Unicode-compatible TrueType fonts (Noto Sans / Roboto)
   /// so that currency symbols such as ₹ (Indian Rupee), € (Euro), ₽, etc.
@@ -146,6 +147,7 @@ class PosInvoicePrinter {
       _cachedBold = bld;
       _cachedItalic = itl;
       _cachedBoldItalic = bldItl;
+      _isFallbackFont = false;
       return (regular: reg, bold: bld, italic: itl, boldItalic: bldItl);
     } catch (_) {
       try {
@@ -157,8 +159,10 @@ class PosInvoicePrinter {
         _cachedBold = bld;
         _cachedItalic = itl;
         _cachedBoldItalic = bldItl;
+        _isFallbackFont = false;
         return (regular: reg, bold: bld, italic: itl, boldItalic: bldItl);
       } catch (_) {
+        _isFallbackFont = true;
         final reg = _cachedRegular ?? pw.Font.helvetica();
         final bld = _cachedBold ?? pw.Font.helveticaBold();
         final itl = _cachedItalic ?? pw.Font.helveticaOblique();
@@ -3488,7 +3492,11 @@ class PosInvoicePrinter {
   static String _money(double value, [bool? showCurrency]) {
     final useCurrency = showCurrency ?? _currentShowCurrency;
     if (useCurrency) {
-      return CurrencyService.format(value);
+      final formatted = CurrencyService.format(value);
+      if (_isFallbackFont) {
+        return formatted.replaceAll('₹', 'Rs. ');
+      }
+      return formatted;
     }
     return _currency.format(value);
   }

@@ -1,0 +1,1222 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+
+import '../../core/api/api_client.dart';
+import '../../core/api/endpoints.dart';
+
+class MobileCashLedgerSheet extends StatefulWidget {
+  final int initialTab; // 0: Ledger, 1: Expenses
+
+  const MobileCashLedgerSheet({super.key, this.initialTab = 0});
+
+  @override
+  State<MobileCashLedgerSheet> createState() => _MobileCashLedgerSheetState();
+}
+
+class _MobileCashLedgerSheetState extends State<MobileCashLedgerSheet> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  bool _loading = true;
+  String _dateFilter = 'TODAY'; // TODAY, WEEK, MONTH, CUSTOM
+  DateTimeRange? _customRange;
+  String _modeFilter = 'ALL'; // ALL, CASH, BANK
+
+  // Ledger entries & summary
+  List<Map<String, dynamic>> _entries = [];
+  List<Map<String, dynamic>> _filteredEntries = [];
+  double _openingBalance = 0.0;
+  double _totalIn = 0.0;
+  double _totalOut = 0.0;
+  double _closingBalance = 0.0;
+  double _totalCash = 0.0;
+  double _totalBank = 0.0;
+  double _totalGst = 0.0;
+
+  // Expenses entries & summary
+  List<Map<String, dynamic>> _expenses = [];
+  double _totalExpenseAmount = 0.0;
+
+  List<String> _dynamicCategories = [];
+  final Map<String, String> _categoryNameToId = {};
+  List<String> _dynamicPaymentMethods = [];
+
+  static const Color textDark = Color(0xFF0F172A);
+  static const Color textMuted = Color(0xFF64748B);
+  static const Color borderSubtle = Color(0xFFE2E8F0);
+
+  final List<String> _expensePresets = const [
+    'Salary',
+    'Petrol',
+    'Diesel',
+    'Rent',
+    'Tea & Refreshment',
+    'Office Supplies',
+    'Electricity',
+    'Maintenance',
+    'Delivery & Freight',
+    'General Expense',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this, initialIndex: widget.initialTab.clamp(0, 1));
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
+    });
+    _loadAllData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  DateTimeRange _resolveDateRange() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    switch (_dateFilter) {
+      case 'TODAY':
+        return DateTimeRange(start: today, end: today);
+      case 'WEEK':
+        final weekStart = today.subtract(Duration(days: today.weekday - 1));
+        return DateTimeRange(start: weekStart, end: today);
+      case 'MONTH':
+        final monthStart = DateTime(now.year, now.month, 1);
+        return DateTimeRange(start: monthStart, end: today);
+      case 'CUSTOM':
+        return _customRange ?? DateTimeRange(start: today.subtract(const Duration(days: 7)), end: today);
+      default:
+        return DateTimeRange(start: today, end: today);
+    }
+  }
+
+  Future<void> _loadMetadata() async {
+    try {
+      final catRes = await ApiClient.get(ApiEndpoints.financeExpenseCategories);
+      final rawCats = catRes['data'] as List? ?? [];
+      final List<String> cats = [];
+      for (final c in rawCats) {
+        final name = (c['category_name'] ?? c['name'] ?? '').toString().trim();
+        final id = (c['id'] ?? '').toString().trim();
+        if (name.isNotEmpty) {
+          if (id.isNotEmpty) _categoryNameToId[name.toLowerCase()] = id;
+          if (!cats.contains(name)) cats.add(name);
+        }
+      }
+      if (cats.isNotEmpty) {
+        _dynamicCategories = cats;
+      }
+    } catch (_) {}
+
+    try {
+      final pmRes = await ApiClient.get('/api/sales/payment-methods');
+      final rawPm = pmRes['data'] as List? ?? [];
+      final methods = rawPm
+          .where((e) => e['is_active'] == true || e['is_active'] == 1)
+          .map((e) => (e['name'] ?? '').toString().trim().toUpperCase())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (methods.isNotEmpty) {
+        _dynamicPaymentMethods = methods;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadAllData() async {
+    setState(() => _loading = true);
+    await Future.wait([
+      _loadMetadata(),
+      _loadLedgerInternal(),
+      _loadExpensesInternal(),
+    ]);
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _loadLedgerInternal() async {
+    final range = _resolveDateRange();
+    final fromStr = DateFormat('yyyy-MM-dd').format(range.start);
+    final toStr = DateFormat('yyyy-MM-dd').format(range.end);
+
+    try {
+      final res = await ApiClient.get('/api/finance/ledger?from_date=$fromStr&to_date=$toStr');
+      final List<Map<String, dynamic>> rawList = [];
+
+      if (res['data'] is List && (res['data'] as List).isNotEmpty) {
+        rawList.addAll((res['data'] as List).map((e) => Map<String, dynamic>.from(e)));
+      }
+
+      // Flatten daily groups if present
+      if (res['daily'] is List) {
+        for (final day in res['daily']) {
+          if (day is Map && day['entries'] is List) {
+            for (final entry in day['entries']) {
+              if (entry is Map) {
+                final m = Map<String, dynamic>.from(entry);
+                if (m['date'] == null && day['date'] != null) {
+                  m['date'] = day['date'].toString().split('T').first;
+                }
+                rawList.add(m);
+              }
+            }
+          }
+        }
+      }
+
+      // If raw entries don't have sales, also fetch sales for the date range
+      try {
+        final salesRes = await ApiClient.get('${ApiEndpoints.sales}?from_date=$fromStr&to_date=$toStr');
+        final salesList = (salesRes['data'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)).toList();
+        final Set<String> existingVouchers = rawList
+            .map((e) => (e['voucherNo'] ?? e['voucher_no'] ?? e['reference_no'] ?? '').toString().trim())
+            .where((s) => s.isNotEmpty)
+            .toSet();
+
+        for (final s in salesList) {
+          final saleNo = (s['sale_no'] ?? '').toString();
+          if (saleNo.isNotEmpty && !existingVouchers.contains(saleNo)) {
+            final netAmt = double.tryParse((s['net_amount'] ?? s['total_amount'] ?? 0).toString()) ?? 0.0;
+            final taxAmt = double.tryParse((s['total_tax'] ?? s['tax_amount'] ?? 0).toString()) ?? 0.0;
+            final mode = (s['payment_mode'] ?? s['payment_method'] ?? 'CASH').toString().toUpperCase();
+            final isCredit = mode == 'CREDIT';
+            final paidAmt = isCredit ? 0.0 : (double.tryParse((s['amount_paid'] ?? netAmt).toString()) ?? netAmt);
+            final balDue = isCredit ? netAmt : (double.tryParse((s['balance_due'] ?? 0).toString()) ?? 0.0);
+            final dateStr = (s['sale_date'] ?? s['created_at'] ?? '').toString().split('T').first;
+
+            rawList.add({
+              'voucher_no': saleNo,
+              'reference_no': saleNo,
+              'description': isCredit
+                  ? 'Credit Sale: ${s['customer_name'] ?? 'Customer'} (Pending Due)'
+                  : 'POS Sale: ${s['customer_name'] ?? 'Walk-in'}',
+              'payment_mode': mode,
+              'payment_method': mode,
+              'amount_in': paidAmt,
+              'amount_out': 0.0,
+              'net_amount': netAmt,
+              'balance_due': balDue,
+              'is_credit': isCredit,
+              'tax_amount': taxAmt,
+              'date': dateStr,
+            });
+          }
+        }
+      } catch (_) {}
+
+      final summary = res['summary'] ?? {};
+      double cashIn = 0;
+      double bankIn = 0;
+      double gstSum = 0;
+
+      for (final e in rawList) {
+        final mode = (e['payment_method'] ?? e['paymentMethod'] ?? e['payment_mode'] ?? e['paymentMode'] ?? 'CASH').toString().toUpperCase();
+        final amt = double.tryParse((e['amountIn'] ?? e['amount_in'] ?? e['credit'] ?? 0).toString()) ?? 0.0;
+        final tax = double.tryParse((e['tax_amount'] ?? e['total_tax'] ?? e['tax'] ?? 0).toString()) ?? 0.0;
+        gstSum += tax;
+
+        if (mode == 'CREDIT' || e['is_credit'] == true) {
+          // Unpaid credit sales do not create cash/bank inflows
+          continue;
+        }
+
+        final isCash = mode == 'CASH';
+        if (isCash) {
+          cashIn += amt;
+        } else {
+          bankIn += amt;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _entries = rawList;
+          _openingBalance = double.tryParse((summary['openingBalance'] ?? 0).toString()) ?? 0.0;
+          _totalIn = double.tryParse((summary['totalIn'] ?? 0).toString()) ?? (cashIn + bankIn);
+          _totalOut = double.tryParse((summary['totalOut'] ?? 0).toString()) ?? 0.0;
+          _closingBalance = double.tryParse((summary['closingBalance'] ?? 0).toString()) ?? (_openingBalance + _totalIn - _totalOut);
+          _totalCash = cashIn;
+          _totalBank = bankIn;
+          _totalGst = gstSum;
+          _filterEntries();
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadExpensesInternal() async {
+    final range = _resolveDateRange();
+    final fromStr = DateFormat('yyyy-MM-dd').format(range.start);
+    final toStr = DateFormat('yyyy-MM-dd').format(range.end);
+
+    try {
+      final res = await ApiClient.get('${ApiEndpoints.financeExpenses}?from_date=$fromStr&to_date=$toStr');
+      final list = (res['data'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)).toList();
+      final total = double.tryParse((res['summary']?['totalAmount'] ?? 0).toString()) ??
+          list.fold<double>(0.0, (sum, e) => sum + (double.tryParse((e['net_payable_amount'] ?? e['amount'] ?? e['total_amount'] ?? 0).toString()) ?? 0.0));
+
+      if (mounted) {
+        setState(() {
+          _expenses = list;
+          _totalExpenseAmount = total;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _filterEntries() {
+    setState(() {
+      _filteredEntries = _entries.where((e) {
+        if (_modeFilter == 'ALL') return true;
+        final mode = (e['payment_method'] ?? e['paymentMethod'] ?? e['payment_mode'] ?? e['paymentMode'] ?? 'CASH').toString().toUpperCase();
+        if (_modeFilter == 'CASH') {
+          return mode == 'CASH';
+        } else {
+          return mode != 'CASH' && mode != 'CREDIT' && e['is_credit'] != true;
+        }
+      }).toList();
+    });
+  }
+
+  String _resolveEntryType(Map<String, dynamic> e) {
+    final type = (e['transaction_type'] ?? e['transactionType'] ?? e['reference_type'] ?? e['referenceType'] ?? '').toString().trim().toUpperCase();
+    final party = (e['party_name'] ?? e['partyName'] ?? '').toString().trim();
+    final notes = (e['notes'] ?? e['expense_note'] ?? '').toString().trim();
+    final ref = (e['reference_no'] ?? e['voucher_no'] ?? e['voucherNo'] ?? '').toString().trim().toUpperCase();
+
+    if (type == 'SALE_CASH' || type == 'SALE') {
+      return party.isNotEmpty ? 'Sale ($party)' : 'Sale Invoice';
+    }
+    if (type == 'SALE_CREDIT') {
+      return party.isNotEmpty ? 'Sale Credit ($party)' : 'Sale Credit';
+    }
+    if (type == 'EXPENSE') {
+      return notes.isNotEmpty ? 'Expense: $notes' : (party.isNotEmpty ? 'Expense ($party)' : 'Store Expense');
+    }
+    if (type == 'SUPPLIER_PAYMENT') {
+      return party.isNotEmpty ? 'Supplier Payment ($party)' : 'Supplier Payment';
+    }
+    if (type == 'PURCHASE_GRN' || type == 'SUPPLIER_BILL') {
+      return party.isNotEmpty ? 'Purchase ($party)' : 'Purchase GRN';
+    }
+    if (type.contains('SUBSCRIPTION')) {
+      return party.isNotEmpty ? 'Subscription ($party)' : 'Subscription Adjustment';
+    }
+    if (type == 'REPAYMENT' || type == 'CUSTOMER_REPAYMENT') {
+      return party.isNotEmpty ? 'Customer Payment ($party)' : 'Customer Payment';
+    }
+    if (type == 'INCOME') {
+      return notes.isNotEmpty ? 'Income: $notes' : 'Other Income';
+    }
+    if (type == 'WITHDRAWAL') return 'Cash Withdrawal';
+    if (type == 'OPENING_DEPOSIT') return 'Opening Deposit';
+
+    // Fallbacks based on voucher reference format
+    if (ref.startsWith('FAM-') || ref.startsWith('INV-')) {
+      return party.isNotEmpty ? 'Sale Invoice ($party)' : 'Sale Invoice';
+    }
+    if (ref.startsWith('PAY') || ref.startsWith('PV-')) {
+      return party.isNotEmpty ? 'Supplier Payment ($party)' : 'Supplier Payment';
+    }
+    if (ref.startsWith('SUB')) {
+      return party.isNotEmpty ? 'Subscription ($party)' : 'Subscription Plan';
+    }
+    if (ref.startsWith('ADV')) {
+      return party.isNotEmpty ? 'Advance Received ($party)' : 'Advance Received';
+    }
+    if (notes.isNotEmpty) return notes;
+    if (party.isNotEmpty) return party;
+
+    final rawDesc = (e['description'] ?? e['particulars'] ?? '').toString().trim();
+    if (rawDesc.isNotEmpty && rawDesc != 'Entry') return rawDesc;
+
+    return 'General Entry';
+  }
+
+  void _openAddExpenseModal() {
+    final amountCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    final refCtrl = TextEditingController();
+    final customCatCtrl = TextEditingController();
+    final allCats = _dynamicCategories.isNotEmpty ? List<String>.from(_dynamicCategories) : List<String>.from(_expensePresets);
+    String selectedCategory = allCats.first;
+    final allModes = _dynamicPaymentMethods.isNotEmpty ? List<String>.from(_dynamicPaymentMethods) : ['CASH', 'UPI', 'BANK', 'CARD'];
+    String paymentMethod = allModes.first;
+    double taxPercent = 0.0;
+    bool isTaxInclusive = false;
+    bool saving = false;
+    bool isAddingNewCat = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalCtx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return Container(
+            padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(modalCtx).viewInsets.bottom + 20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.add_card_rounded, color: Color(0xFFDC2626), size: 22),
+                          SizedBox(width: 8),
+                          Text('Record Store Expense', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: textMuted),
+                        onPressed: () => Navigator.pop(modalCtx),
+                      ),
+                    ],
+                  ),
+                  const Divider(color: borderSubtle),
+                  const SizedBox(height: 8),
+
+                  // Amount
+                  TextField(
+                    controller: amountCtrl,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFDC2626)),
+                    decoration: const InputDecoration(
+                      labelText: 'Expense Amount (₹) *',
+                      prefixText: '₹ ',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Category Selection Chips & Add Category
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Category', style: TextStyle(color: textDark, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      InkWell(
+                        onTap: () => setModalState(() => isAddingNewCat = !isAddingNewCat),
+                        child: Text(
+                          isAddingNewCat ? 'Cancel' : '+ New Category',
+                          style: const TextStyle(color: Color(0xFF2563EB), fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (isAddingNewCat) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: customCatCtrl,
+                            style: const TextStyle(fontSize: 13),
+                            decoration: const InputDecoration(
+                              labelText: 'New Category Name',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          ),
+                          onPressed: () async {
+                            final name = customCatCtrl.text.trim();
+                            if (name.isNotEmpty) {
+                              try {
+                                final postRes = await ApiClient.post(ApiEndpoints.financeExpenseCategories, {'category_name': name});
+                                final newId = (postRes is Map && postRes['data'] is Map ? postRes['data']['id'] : null)?.toString() ?? '';
+                                if (newId.isNotEmpty) _categoryNameToId[name.toLowerCase()] = newId;
+                                if (!allCats.contains(name)) allCats.add(name);
+                                if (!_dynamicCategories.contains(name)) _dynamicCategories.add(name);
+                                setModalState(() {
+                                  selectedCategory = name;
+                                  isAddingNewCat = false;
+                                  customCatCtrl.clear();
+                                });
+                              } catch (_) {
+                                if (!allCats.contains(name)) allCats.add(name);
+                                setModalState(() {
+                                  selectedCategory = name;
+                                  isAddingNewCat = false;
+                                });
+                              }
+                            }
+                          },
+                          child: const Text('Add', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: allCats.take(12).map((cat) {
+                      final isSel = selectedCategory == cat;
+                      return ChoiceChip(
+                        label: Text(cat, style: TextStyle(fontSize: 11.5, color: isSel ? Colors.white : textDark)),
+                        selected: isSel,
+                        selectedColor: const Color(0xFFDC2626),
+                        backgroundColor: Colors.white,
+                        side: BorderSide(color: isSel ? const Color(0xFFDC2626) : borderSubtle),
+                        onSelected: (val) {
+                          if (val) setModalState(() => selectedCategory = cat);
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Payment Mode
+                  const Text('Payment Mode', style: TextStyle(color: textDark, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: allModes.map((m) {
+                        final isSel = paymentMethod == m;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(m, style: TextStyle(fontSize: 11.5, color: isSel ? Colors.white : textDark)),
+                            selected: isSel,
+                            selectedColor: const Color(0xFF0F172A),
+                            backgroundColor: Colors.white,
+                            side: BorderSide(color: isSel ? const Color(0xFF0F172A) : borderSubtle),
+                            onSelected: (val) {
+                              if (val) setModalState(() => paymentMethod = m);
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Description / Note
+                  TextField(
+                    controller: noteCtrl,
+                    style: const TextStyle(fontSize: 13),
+                    decoration: const InputDecoration(
+                      labelText: 'Notes / Particulars',
+                      hintText: 'e.g. Paid diesel for generator, tea for staff...',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Reference No & GST Tax %
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: refCtrl,
+                          style: const TextStyle(fontSize: 13),
+                          decoration: const InputDecoration(
+                            labelText: 'Bill / Voucher No',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<double>(
+                          value: taxPercent,
+                          style: const TextStyle(color: textDark, fontSize: 13),
+                          decoration: const InputDecoration(labelText: 'GST Tax %', border: OutlineInputBorder(), isDense: true),
+                          items: const [
+                            DropdownMenuItem(value: 0.0, child: Text('0% (Exempt)')),
+                            DropdownMenuItem(value: 5.0, child: Text('5% GST')),
+                            DropdownMenuItem(value: 12.0, child: Text('12% GST')),
+                            DropdownMenuItem(value: 18.0, child: Text('18% GST')),
+                            DropdownMenuItem(value: 28.0, child: Text('28% GST')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) setModalState(() => taxPercent = val);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+
+                  SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFDC2626),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 0,
+                      ),
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              final amt = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+                              if (amt <= 0) {
+                                ScaffoldMessenger.of(modalCtx).showSnackBar(
+                                  const SnackBar(content: Text('Please enter a valid expense amount')),
+                                );
+                                return;
+                              }
+                              setModalState(() => saving = true);
+                              try {
+                                final now = DateTime.now();
+                                final resolvedCatId = _categoryNameToId[selectedCategory.toLowerCase()] ?? selectedCategory;
+                                final payload = {
+                                  'payment_date': DateFormat('yyyy-MM-dd').format(now),
+                                  'category_name': selectedCategory,
+                                  'category_id': resolvedCatId,
+                                  'amount': amt,
+                                  'invoice_ref_no': refCtrl.text.trim(),
+                                  'payment_method': paymentMethod,
+                                  'is_tax_inclusive': isTaxInclusive,
+                                  'expense_note': noteCtrl.text.trim(),
+                                  'note': noteCtrl.text.trim(),
+                                  'status': 'PAID',
+                                  'taxes': taxPercent > 0
+                                      ? [
+                                          {'tax_name': 'GST', 'tax_rate': taxPercent}
+                                        ]
+                                      : [],
+                                  'deductions': [],
+                                };
+
+                                await ApiClient.post(ApiEndpoints.financeExpenses, payload);
+                                HapticFeedback.heavyImpact();
+                                Navigator.pop(modalCtx);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Expense of ₹${amt.toStringAsFixed(2)} recorded successfully!'),
+                                    backgroundColor: const Color(0xFF059669),
+                                  ),
+                                );
+                                _loadAllData();
+                              } catch (e) {
+                                setModalState(() => saving = false);
+                                ScaffoldMessenger.of(modalCtx).showSnackBar(
+                                  SnackBar(content: Text('Error saving expense: $e'), backgroundColor: Colors.redAccent),
+                                );
+                              }
+                            },
+                      child: saving
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Save Expense Voucher', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.92,
+      decoration: const BoxDecoration(
+        color: Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          // Header with Tabs
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 0),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border(bottom: BorderSide(color: borderSubtle)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Expanded(
+                      child: Row(
+                        children: [
+                          Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF059669), size: 22),
+                          SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Cash, Bank & Expenses',
+                              style: TextStyle(color: textDark, fontSize: 16, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFDC2626),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                            minimumSize: const Size(44, 28),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            elevation: 0,
+                          ),
+                          icon: const Icon(Icons.add, size: 13),
+                          label: const Text('Expense', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          onPressed: _openAddExpenseModal,
+                        ),
+                        IconButton(
+                          padding: const EdgeInsets.all(2),
+                          constraints: const BoxConstraints(),
+                          icon: const Icon(Icons.close, color: textMuted, size: 20),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                TabBar(
+                  controller: _tabController,
+                  labelColor: const Color(0xFF2563EB),
+                  unselectedLabelColor: textMuted,
+                  indicatorColor: const Color(0xFF2563EB),
+                  indicatorWeight: 3,
+                  labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  tabs: const [
+                    Tab(text: 'Cash & Bank Ledger'),
+                    Tab(text: 'Store Expenses'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Date Filter Chips
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 36,
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              scrollDirection: Axis.horizontal,
+              children: [
+                _buildDateChip('TODAY', 'Today'),
+                const SizedBox(width: 8),
+                _buildDateChip('WEEK', 'This Week'),
+                const SizedBox(width: 8),
+                _buildDateChip('MONTH', 'This Month'),
+                const SizedBox(width: 8),
+                _buildDateChip(
+                  'CUSTOM',
+                  _customRange != null
+                      ? '${DateFormat('dd MMM').format(_customRange!.start)} - ${DateFormat('dd MMM').format(_customRange!.end)}'
+                      : 'Custom',
+                ),
+              ],
+            ),
+          ),
+
+          // Tab Content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildLedgerTab(),
+                _buildExpensesTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLedgerTab() {
+    return Column(
+      children: [
+        // Summary Strip with Cash & Bank breakdown
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderSubtle),
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Opening Balance: ₹${_openingBalance.toStringAsFixed(2)}',
+                      style: const TextStyle(color: textMuted, fontSize: 12, fontWeight: FontWeight.w600)),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(6)),
+                    child: Text('Closing: ₹${_closingBalance.toStringAsFixed(2)}',
+                        style: const TextStyle(color: Color(0xFF2563EB), fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+              const Divider(height: 16, color: borderSubtle),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Cash In (+)', style: TextStyle(color: textMuted, fontSize: 11)),
+                        Text('₹${_totalCash.toStringAsFixed(2)}',
+                            style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold, fontSize: 15)),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Bank / UPI In (+)', style: TextStyle(color: textMuted, fontSize: 11)),
+                        Text('₹${_totalBank.toStringAsFixed(2)}',
+                            style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 15)),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Total Out (-)', style: TextStyle(color: textMuted, fontSize: 11)),
+                        Text('₹${_totalOut.toStringAsFixed(2)}',
+                            style: const TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold, fontSize: 15)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (_totalGst > 0) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(4)),
+                      child: Text('GST Collected: ₹${_totalGst.toStringAsFixed(2)}',
+                          style: const TextStyle(color: Color(0xFF475569), fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        // Mode filter row (All, Cash, Bank/UPI)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              _buildModePill('ALL', 'All Modes'),
+              const SizedBox(width: 8),
+              _buildModePill('CASH', 'Cash Only'),
+              const SizedBox(width: 8),
+              _buildModePill('BANK', 'Bank / UPI / Card'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // Ledger Transactions List
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _filteredEntries.isEmpty
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.receipt_long_outlined, size: 54, color: textMuted),
+                          SizedBox(height: 10),
+                          Text('No transactions recorded for this period', style: TextStyle(color: textMuted, fontSize: 13)),
+                        ],
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _loadAllData,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _filteredEntries.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, idx) {
+                          final e = _filteredEntries[idx];
+                          final voucher = (e['voucherNo'] ?? e['voucher_no'] ?? e['reference_no'] ?? 'Txn').toString();
+                          final date = (e['date'] ?? '').toString();
+                          final time = (e['time'] ?? '').toString();
+                          final desc = _resolveEntryType(e);
+                          final mode = (e['payment_method'] ?? e['paymentMethod'] ?? e['payment_mode'] ?? e['paymentMode'] ?? 'CASH').toString().toUpperCase();
+                          final amtIn = double.tryParse((e['amountIn'] ?? e['amount_in'] ?? e['credit'] ?? 0).toString()) ?? 0.0;
+                          final amtOut = double.tryParse((e['amountOut'] ?? e['amount_out'] ?? e['debit'] ?? 0).toString()) ?? 0.0;
+                          final taxAmt = double.tryParse((e['tax_amount'] ?? e['total_tax'] ?? 0).toString()) ?? 0.0;
+                          final isIn = amtIn > 0;
+
+                          final isCredit = mode == 'CREDIT' || e['is_credit'] == true;
+                          final netAmt = double.tryParse((e['net_amount'] ?? 0).toString()) ?? 0.0;
+                          final balDue = double.tryParse((e['balance_due'] ?? 0).toString()) ?? 0.0;
+                          final creditAmt = balDue > 0 ? balDue : (netAmt > 0 ? netAmt : amtIn);
+
+                          Color modeColor = const Color(0xFF059669);
+                          if (isCredit) {
+                            modeColor = const Color(0xFFD97706);
+                          } else if (mode.contains('BANK')) {
+                            modeColor = const Color(0xFF2563EB);
+                          } else if (mode.contains('UPI') || mode.contains('PHONEPE') || mode.contains('GPAY')) {
+                            modeColor = const Color(0xFF7C3AED);
+                          } else if (mode.contains('CARD')) {
+                            modeColor = const Color(0xFFD97706);
+                          }
+
+                          final Color leadingBg = isCredit
+                              ? const Color(0xFFFFFBEB)
+                              : (isIn ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2));
+                          final Color leadingColor = isCredit
+                              ? const Color(0xFFD97706)
+                              : (isIn ? const Color(0xFF059669) : const Color(0xFFDC2626));
+                          final IconData leadingIcon = isCredit
+                              ? Icons.hourglass_top_rounded
+                              : (isIn ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded);
+
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: borderSubtle),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: leadingBg,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    leadingIcon,
+                                    size: 16,
+                                    color: leadingColor,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              voucher,
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textDark),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: modeColor.withValues(alpha: 0.12),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(mode, style: TextStyle(color: modeColor, fontSize: 9.5, fontWeight: FontWeight.bold)),
+                                          ),
+                                          if (taxAmt > 0) ...[
+                                            const SizedBox(width: 4),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFF1F5F9),
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: Text('GST: ₹${taxAmt.toStringAsFixed(0)}',
+                                                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 9, fontWeight: FontWeight.bold)),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(desc, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textMuted, fontSize: 11)),
+                                      Text('$date ${time.isNotEmpty ? '• $time' : ''}', style: const TextStyle(color: textMuted, fontSize: 10)),
+                                    ],
+                                  ),
+                                ),
+                                if (isCredit && amtIn <= 0.009) ...[
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        '₹${creditAmt.toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          color: Color(0xFFB45309),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const Text(
+                                        'Credit / Due',
+                                        style: TextStyle(
+                                          color: Color(0xFFD97706),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ] else ...[
+                                  Text(
+                                    isIn ? '+₹${amtIn.toStringAsFixed(2)}' : '-₹${amtOut.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      color: isIn ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildExpensesTab() {
+    return Column(
+      children: [
+        // Expense Total Card
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderSubtle),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Total Outflow / Expenses', style: TextStyle(color: textMuted, fontSize: 12)),
+                  const SizedBox(height: 2),
+                  Text('₹${_totalExpenseAmount.toStringAsFixed(2)}',
+                      style: const TextStyle(color: Color(0xFFDC2626), fontSize: 20, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFDC2626),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  elevation: 0,
+                ),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Add Expense', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                onPressed: _openAddExpenseModal,
+              ),
+            ],
+          ),
+        ),
+
+        // Expense Entries List
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _expenses.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.receipt_outlined, size: 54, color: textMuted),
+                          const SizedBox(height: 10),
+                          const Text('No expenses recorded for this period', style: TextStyle(color: textMuted, fontSize: 13)),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFDC2626),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('Record First Expense'),
+                            onPressed: _openAddExpenseModal,
+                          ),
+                        ],
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _loadAllData,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _expenses.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, idx) {
+                          final exp = _expenses[idx];
+                          final rawCat = (exp['category_name'] ?? exp['category']?['category_name'] ?? '').toString().trim();
+                          final isUuid = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', caseSensitive: false).hasMatch(rawCat);
+                          final cat = (!isUuid && rawCat.isNotEmpty)
+                              ? rawCat
+                              : ((exp['expense_note'] ?? exp['note'] ?? '').toString().trim().isNotEmpty
+                                  ? (exp['expense_note'] ?? exp['note']).toString()
+                                  : 'Store Expense');
+                          final amt = double.tryParse((exp['net_payable_amount'] ?? exp['amount'] ?? exp['total_amount'] ?? 0).toString()) ?? 0.0;
+                          final date = (exp['payment_date'] ?? exp['created_at'] ?? '').toString().split('T').first;
+                          final note = (exp['expense_note'] ?? exp['note'] ?? '').toString();
+                          final mode = (exp['payment_method'] ?? exp['payment_mode'] ?? 'CASH').toString().toUpperCase();
+
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: borderSubtle),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFFEF2F2),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.arrow_upward_rounded, size: 16, color: Color(0xFFDC2626)),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              cat,
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textDark),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF1F5F9),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(mode, style: const TextStyle(color: textMuted, fontSize: 9.5, fontWeight: FontWeight.bold)),
+                                          ),
+                                        ],
+                                      ),
+                                      if (note.isNotEmpty && note != cat) ...[
+                                        const SizedBox(height: 2),
+                                        Text(note, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: textMuted, fontSize: 11)),
+                                      ],
+                                      Text(date, style: const TextStyle(color: textMuted, fontSize: 10)),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '-₹${amt.toStringAsFixed(2)}',
+                                  style: const TextStyle(color: Color(0xFFDC2626), fontSize: 14, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDateChip(String key, String label) {
+    final isSel = _dateFilter == key;
+    return ChoiceChip(
+      label: Text(label, style: TextStyle(color: isSel ? Colors.white : textDark, fontSize: 12)),
+      selected: isSel,
+      selectedColor: const Color(0xFF059669),
+      backgroundColor: Colors.white,
+      side: BorderSide(color: isSel ? const Color(0xFF059669) : borderSubtle),
+      onSelected: (val) async {
+        if (key == 'CUSTOM') {
+          final picked = await showDateRangePicker(
+            context: context,
+            firstDate: DateTime(2020),
+            lastDate: DateTime.now().add(const Duration(days: 365)),
+            initialDateRange: _customRange ?? DateTimeRange(start: DateTime.now().subtract(const Duration(days: 7)), end: DateTime.now()),
+          );
+          if (picked != null) {
+            setState(() {
+              _dateFilter = 'CUSTOM';
+              _customRange = picked;
+            });
+            _loadAllData();
+          }
+        } else {
+          setState(() {
+            _dateFilter = key;
+          });
+          _loadAllData();
+        }
+      },
+    );
+  }
+
+  Widget _buildModePill(String key, String label) {
+    final isSel = _modeFilter == key;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _modeFilter = key);
+        _filterEntries();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSel ? const Color(0xFF0F172A) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isSel ? const Color(0xFF0F172A) : borderSubtle),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(color: isSel ? Colors.white : textDark, fontSize: 11, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+}

@@ -3,7 +3,21 @@ import path from 'path';
 import initMasterModels from '../models/master';
 const { invalidateLicenseCache } = require('../controllers/public/licenseManager');
 
-export async function syncClientsJsonToMaster(db: any) {
+let isSyncInProgress = false;
+let lastMasterSyncTimestamp = 0;
+const SYNC_THROTTLE_MS = 15 * 60 * 1000; // 15 minutes throttle
+
+export async function syncClientsJsonToMaster(db: any, force: boolean = false) {
+  const now = Date.now();
+  if (isSyncInProgress) {
+    console.log('⚡ [MASTER_SYNC] Sync already in progress, skipping duplicate execution.');
+    return;
+  }
+  if (!force && (now - lastMasterSyncTimestamp < SYNC_THROTTLE_MS)) {
+    return;
+  }
+
+  isSyncInProgress = true;
   const rootDir = (process as any).pkg ? path.dirname(process.execPath) : process.cwd();
   
   const candidateClientPaths = [
@@ -208,8 +222,11 @@ export async function syncClientsJsonToMaster(db: any) {
       console.warn('⚠️ [MASTER_SYNC] Notice syncing database outlets:', dbErr.message);
     }
 
+    lastMasterSyncTimestamp = Date.now();
   } catch (err: any) {
     console.warn('⚠️ syncClientsJsonToMaster global notice:', err.message);
+  } finally {
+    isSyncInProgress = false;
   }
 }
 

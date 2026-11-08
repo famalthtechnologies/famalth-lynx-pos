@@ -854,20 +854,54 @@ exports.createExpense = async (req, res) => {
         const taxes = req.body.taxes || [];
         const deductions = req.body.deductions || [];
         const vendor_id = req.body.vendor_id ? Number(req.body.vendor_id) : null;
-        const category_id = req.body.category_id;
+        let category_id = req.body.category_id;
+        const category_name = String(req.body.category_name || '').trim();
         const invoice_ref_no = req.body.invoice_ref_no ? String(req.body.invoice_ref_no).trim() : null;
         const payment_date = dateKey(req.body.payment_date || new Date());
         const payment_method = String(req.body.payment_method || req.body.payment_mode || 'CASH').trim();
         const expense_note = req.body.expense_note || req.body.note || null;
         const status = req.body.status || 'Paid';
 
-        if (!category_id) throw new Error('Category is required');
+        if (!category_id && !category_name) throw new Error('Category is required');
         if (amount <= 0) throw new Error('Amount must be greater than 0');
 
-        const categoryRow = await req.propertyDb.models.expense_categories.findOne({
-            where: { id: category_id, outlet_id: req.user.outlet_id },
-            transaction: t
-        });
+        // Safely validate UUID vs Name
+        const isUuid = category_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(category_id).trim());
+        let categoryRow: any = null;
+
+        if (isUuid) {
+            categoryRow = await req.propertyDb.models.expense_categories.findOne({
+                where: { id: category_id, outlet_id: req.user.outlet_id },
+                transaction: t
+            });
+        }
+
+        // If not found by UUID or category_id is a text name like "TEST", find by name or auto-create
+        if (!categoryRow) {
+            const nameToFind = (category_name || String(category_id || '')).trim();
+            if (nameToFind) {
+                categoryRow = await req.propertyDb.models.expense_categories.findOne({
+                    where: {
+                        outlet_id: req.user.outlet_id,
+                        category_name: req.propertyDb.Sequelize.where(
+                            req.propertyDb.Sequelize.fn('lower', req.propertyDb.Sequelize.col('category_name')),
+                            nameToFind.toLowerCase()
+                        )
+                    },
+                    transaction: t
+                });
+                if (!categoryRow) {
+                    categoryRow = await req.propertyDb.models.expense_categories.create({
+                        outlet_id: req.user.outlet_id,
+                        user_id: req.user.id,
+                        category_name: nameToFind,
+                        is_active: true
+                    }, { transaction: t });
+                }
+                category_id = categoryRow.id;
+            }
+        }
+
         if (!categoryRow) throw new Error('Category not found');
 
         const {
@@ -1876,15 +1910,25 @@ exports.adjustBulkAdvance = async (req: any, res: any) => {
             throw new Error(`Adjustment amount (${adjustAmount.toFixed(2)}) exceeds available advance (${totalAvailable.toFixed(2)})`);
         }
 
+        const salesWhere: any = {
+            outlet_id: req.user.outlet_id,
+            status: 'COMPLETED',
+            is_latest: true,
+            is_deleted: false,
+            ...match
+        };
+        if (req.body.sale_id) {
+            salesWhere.id = req.body.sale_id;
+        } else {
+            salesWhere[Op.or] = [
+                { balance_due: { [Op.gt]: 0 } },
+                { payment_mode: 'CREDIT' }
+            ];
+        }
+
         const sales = await req.propertyDb.models.sales_headers.findAll({
-            where: {
-                outlet_id: req.user.outlet_id,
-                status: 'COMPLETED',
-                is_latest: true,
-                is_deleted: false,
-                balance_due: { [Op.gt]: 0 },
-                ...match
-            },
+            where: salesWhere,
+            include: [{ model: req.propertyDb.models.customer_repayments, as: 'repayments', required: false }],
             order: [['sale_date', 'ASC'], ['id', 'ASC']],
             transaction: t
         });
@@ -1895,7 +1939,12 @@ exports.adjustBulkAdvance = async (req: any, res: any) => {
         for (const sale of sales) {
             if (remainingToAdjust <= 0.009) break;
 
-            const due = toAmount(sale.balance_due);
+            const repaymentTotal = (sale.repayments || []).reduce((s: number, r: any) => s + toAmount(r.amount), 0);
+            const isCredit = String(sale.payment_mode || '').toUpperCase() === 'CREDIT';
+            let due = toAmount(sale.balance_due);
+            if (isCredit && due <= 0.009) {
+                due = Math.max(0, toAmount(sale.net_amount) - repaymentTotal);
+            }
             if (due <= 0.009) continue;
 
             const alloc = Math.min(remainingToAdjust, due);
@@ -2226,6 +2275,10 @@ exports.getExpenseReport = async (req, res) => {
         const formattedData = data.map(e => {
             const json = e.toJSON();
             json.voucher_no = ledgerMap.get(String(e.id)) || (e.invoice_ref_no && e.invoice_ref_no.startsWith('PV-') ? e.invoice_ref_no : null);
+            const rawCatName = json.category?.category_name || json.category_name;
+            const isCatUuid = rawCatName && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(rawCatName).trim());
+            json.category_name = (!isCatUuid && rawCatName) ? rawCatName : (json.expense_note || 'Store Expense');
+            json.amount = Number(json.net_payable_amount ?? json.total_amount ?? json.amount ?? 0);
             return json;
         });
 
@@ -2777,11 +2830,31 @@ exports.getCustomerLedger = async (req, res) => {
         const customerName = String(req.query.customer_name || req.query.name || '').trim();
         const search = String(req.query.customer || req.query.search || customerPhone || customerName).trim();
 
-        if (!search && !customerName) {
+        if (!search && !customerName && !customerPhone) {
             return res.status(400).json({ success: false, error: 'Customer phone or name is required' });
         }
 
-        const customerMatch = buildCustomerMatch(customerPhone || search, customerName);
+        let customerMatch: any = null;
+        if (customerPhone) {
+            const variants = getPhoneSearchVariants(customerPhone);
+            const cleanDigits = customerPhone.replace(/\D/g, '');
+            const phoneConditions: any[] = [];
+            if (variants.length > 0) {
+                phoneConditions.push({ [Op.in]: variants });
+            }
+            if (cleanDigits.length >= 4) {
+                phoneConditions.push({ [Op.iLike]: `%${cleanDigits}%` });
+            }
+            customerMatch = {
+                customer_phone: phoneConditions.length > 1 ? { [Op.or]: phoneConditions } : (phoneConditions[0] || customerPhone)
+            };
+        } else if (customerName) {
+            customerMatch = {
+                customer_name: { [Op.iLike]: `%${customerName}%` }
+            };
+        } else if (search) {
+            customerMatch = buildCustomerMatch(search);
+        }
         let customerProfile = null;
         if (req.propertyDb.models.customers) {
             customerProfile = await req.propertyDb.models.customers.findOne({
@@ -2840,9 +2913,18 @@ exports.getCustomerLedger = async (req, res) => {
 
             const repaymentTotal = (sale.repayments || []).reduce((sum, p) => sum + toAmount(p.amount), 0);
             const parsedInitial = extractInitialPaid(sale);
-            const initialPaid = parsedInitial !== null
+            const isCreditSale = String(sale.payment_mode || '').toUpperCase() === 'CREDIT';
+            let initialPaid = isCreditSale ? 0 : (parsedInitial !== null && parsedInitial > 0
                 ? parsedInitial
-                : Math.max(0, toAmount(sale.amount_paid) - repaymentTotal);
+                : Math.max(0, toAmount(sale.amount_paid) - repaymentTotal));
+
+            const isNonCreditSale = !isCreditSale;
+            const balDue = isCreditSale && repaymentTotal <= 0.009
+                ? netAmount
+                : toAmount(sale.balance_due);
+            if (isNonCreditSale && balDue <= 0.01 && initialPaid <= 0.009) {
+                initialPaid = netAmount;
+            }
 
             const sameDateRepayments: any[] = [];
             const otherDateRepayments: any[] = [];
@@ -2857,30 +2939,47 @@ exports.getCustomerLedger = async (req, res) => {
             }
 
             const sameDateRepaymentTotal = sameDateRepayments.reduce((sum, p) => sum + toAmount(p.amount), 0);
-            const sameDateCredit = roundAmount(initialPaid + sameDateRepaymentTotal);
+            const isSettled = !isCreditSale ? balDue <= 0.01 : (repaymentTotal >= netAmount - 0.01 || (balDue <= 0.01 && repaymentTotal > 0.009));
+            let sameDateCredit = 0;
+            if (String(sale.payment_mode || '').toUpperCase() === 'SUBSCRIPTION') {
+                sameDateCredit = netAmount;
+            } else if (isCreditSale) {
+                sameDateCredit = Math.min(netAmount, sameDateRepaymentTotal);
+            } else if (isSettled) {
+                sameDateCredit = netAmount;
+            } else {
+                sameDateCredit = Math.min(netAmount, Math.max(0, netAmount - balDue));
+            }
 
             const advanceRepayments = (sale.repayments || []).filter((p: any) => String(p.payment_mode || '').toUpperCase() === 'ADVANCE');
             const totalAdvanceAdjusted = advanceRepayments.reduce((sum: number, p: any) => sum + toAmount(p.amount), 0);
 
             let noteText = `Mode: ${sale.payment_mode || 'CREDIT'}`;
-            if (sameDateCredit >= netAmount && netAmount > 0) {
-                noteText = initialPaid > 0.009 ? 'Paid at checkout' : 'Settled on same date';
+            if (String(sale.payment_mode || '').toUpperCase() === 'SUBSCRIPTION') {
+                noteText = 'Paid via Subscription';
+            } else if (isSettled) {
+                noteText = initialPaid > 0.009 ? 'Paid at checkout' : 'Settled / Paid';
+            } else if (isCreditSale) {
+                noteText = 'Credit Sale (Outstanding Due)';
             } else if (sameDateCredit > 0.009) {
-                noteText = `Partially paid (${sameDateCredit}) on bill date`;
+                noteText = `Partially paid (${sameDateCredit.toFixed(2)})`;
             } else if (totalAdvanceAdjusted >= netAmount && netAmount > 0) {
                 noteText = 'Settled from customer advance';
             } else if (totalAdvanceAdjusted > 0.009) {
                 noteText = `Advance adjusted (${totalAdvanceAdjusted.toFixed(2)})`;
             }
 
-            const effectivePaymentMode = (sameDateCredit >= netAmount && netAmount > 0)
-                ? (sale.payment_mode || (sameDateRepayments[0]?.payment_mode || 'CASH'))
-                : (totalAdvanceAdjusted > 0.009 ? 'ADVANCE' : (sale.payment_mode || 'CREDIT'));
+            const effectivePaymentMode = String(sale.payment_mode || '').toUpperCase() === 'SUBSCRIPTION'
+                ? 'SUBSCRIPTION'
+                : (isSettled
+                    ? (sale.payment_mode === 'CREDIT' ? 'PAID' : (sale.payment_mode || 'PAID'))
+                    : (sale.payment_mode || 'CREDIT'));
 
             rawTransactions.push({
                 date: sale.sale_date,
                 sort_time: sale.created_at || sale.sale_date,
                 id: `sale-${sale.id}`,
+                sale_id: sale.id,
                 voucher_type: 'SALE_INVOICE',
                 voucher_no: sale.sale_no,
                 description: `Invoice #${sale.sale_no} (${sale.order_type || 'Sale'})`,

@@ -334,6 +334,7 @@ class SaleOrder {
         'total_qty': totalQty,
         'tax_percent': taxPercent,
         'scheme_id': schemeId,
+        'initial_amount_paid': initialAmountPaid,
         'amount_paid': amountPaid,
         'change_amount': changeAmount,
         'advance_amount': advanceAmount,

@@ -37,9 +37,7 @@ export function resolvePaymentStatus(totalPaid: number, netAmount: number, payme
 }
 
 export function extractInitialPaid(sale: any): number | null {
-  if (sale.initial_amount_paid !== null && sale.initial_amount_paid !== undefined) {
-    return roundAmount(sale.initial_amount_paid);
-  }
+  const isPureCredit = String(sale.payment_mode || '').toUpperCase() === 'CREDIT';
   const ref = String(sale.payment_reference || '');
   if (ref.startsWith('POSPAY:')) {
     try {
@@ -56,6 +54,12 @@ export function extractInitialPaid(sale: any): number | null {
         );
       }
     } catch (_) {}
+  }
+  if (isPureCredit) {
+    return 0;
+  }
+  if (sale.initial_amount_paid !== null && sale.initial_amount_paid !== undefined) {
+    return roundAmount(sale.initial_amount_paid);
   }
   return null;
 }

@@ -671,6 +671,10 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
     'durationMinutes': 30,
   };
 
+  // SaaS Licensor Subscription Billing Profile
+  Map<String, dynamic> _licensorBilling = {};
+  bool _isLoadingLicensorBilling = false;
+
   @override
   void initState() {
     super.initState();
@@ -740,22 +744,40 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
 
   Future<void> _loadAllControlPlaneData() async {
     setState(() => _isLoading = true);
-    await Future.wait([
-      _fetchOverview(),
-      _fetchTenants(),
-      _fetchTickets(),
-      _fetchSupportAgents(),
-      _fetchRMs(),
-      _fetchStaffMembers(),
-      _fetchEnterpriseStorage(silent: true),
-      _fetchMaintenanceStatus(),
-    ]);
+    try {
+      // 1. Fetch overview first with a safety timeout so UI renders immediately without getting stuck
+      await _fetchOverview().timeout(const Duration(seconds: 4), onTimeout: () {});
+    } catch (_) {}
+
     if (mounted) {
       setState(() => _isLoading = false);
       if (_tabController.index == 2) {
         _startSupportLiveTimer();
       }
     }
+
+    // 2. Fetch other sections asynchronously so tabs populate smoothly in parallel without blocking screen
+    Future.wait([
+      _fetchTenants().timeout(const Duration(seconds: 8), onTimeout: () {}),
+      _fetchTickets().timeout(const Duration(seconds: 8), onTimeout: () {}),
+      _fetchSupportAgents().timeout(const Duration(seconds: 8), onTimeout: () {}),
+      _fetchRMs().timeout(const Duration(seconds: 8), onTimeout: () {}),
+      _fetchStaffMembers().timeout(const Duration(seconds: 8), onTimeout: () {}),
+      _fetchEnterpriseStorage(silent: true).timeout(const Duration(seconds: 8), onTimeout: () {}),
+      _fetchMaintenanceStatus().timeout(const Duration(seconds: 8), onTimeout: () {}),
+      _fetchLicensorBillingConfig().timeout(const Duration(seconds: 8), onTimeout: () {}),
+    ]).catchError((_) {});
+  }
+
+  Future<void> _fetchLicensorBillingConfig() async {
+    try {
+      final res = await ApiClient.get('/api/v1/control-plane/subscription-billing-config', silent: true);
+      if (res != null && res['success'] == true && res['data'] != null && mounted) {
+        setState(() {
+          _licensorBilling = Map<String, dynamic>.from(res['data']);
+        });
+      }
+    } catch (_) {}
   }
 
   void _startSupportLiveTimer() {
@@ -1395,7 +1417,414 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
     );
   }
 
-    Future<void> _triggerSystemBackup() async {
+  Future<void> _openSubscriptionBillingConfigDialog() async {
+    if (_licensorBilling.isEmpty) {
+      await _fetchLicensorBillingConfig();
+    }
+
+    final companyNameCtrl = TextEditingController(text: _licensorBilling['companyName']?.toString() ?? 'Famalth Technologies');
+    final brandSubtitleCtrl = TextEditingController(text: _licensorBilling['brandSubtitle']?.toString() ?? 'Famalth Lynx Enterprise Retail Platform');
+    final addressCtrl = TextEditingController(text: _licensorBilling['address']?.toString() ?? 'Dehradun, Uttarakhand 248001');
+    final cityStatePinCtrl = TextEditingController(text: _licensorBilling['cityStatePin']?.toString() ?? 'Dehradun, Uttarakhand 248001');
+    final countryCtrl = TextEditingController(text: _licensorBilling['country']?.toString() ?? 'India');
+    final taxIdCtrl = TextEditingController(text: _licensorBilling['taxIdentifier']?.toString() ?? 'GSTIN: 07AAAAF1234A1Z5');
+    final cinCtrl = TextEditingController(text: _licensorBilling['cin']?.toString() ?? 'U72900DL2022PTC123456');
+    final emailCtrl = TextEditingController(text: _licensorBilling['contactEmail']?.toString() ?? 'enterprise@famalth.com');
+    final phoneCtrl = TextEditingController(text: _licensorBilling['contactPhone']?.toString() ?? '+91 00000 00000');
+    final websiteCtrl = TextEditingController(text: _licensorBilling['website']?.toString() ?? 'www.famalth.com');
+    final bankNameCtrl = TextEditingController(text: _licensorBilling['bankName']?.toString() ?? '');
+    final accountNumCtrl = TextEditingController(text: _licensorBilling['accountNumber']?.toString() ?? '');
+    final accountNameCtrl = TextEditingController(text: _licensorBilling['accountName']?.toString() ?? '');
+    final ifscCtrl = TextEditingController(text: _licensorBilling['ifscSwift']?.toString() ?? '');
+    final upiCtrl = TextEditingController(text: _licensorBilling['upiId']?.toString() ?? '');
+    final termsCtrl = TextEditingController(
+      text: _licensorBilling['paymentTerms']?.toString() ?? 'Payment due within 15 days of invoice date. All payments subject to standard SaaS license terms.',
+    );
+
+    bool isSaving = false;
+
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.receipt_long_rounded, color: Color(0xFF0284C7), size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SaaS Licensor Subscription Billing Profile',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Configure Software Owner entity details, tax IDs, contact channels, and bank info printed on client subscription invoices.',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 720,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 18, color: Color(0xFF0284C7)),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Client subscription invoices and renewal notices will automatically pick and print these details instead of dummy placeholder data.',
+                            style: TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Section 1: Entity & Legal Info
+                  const Text('LICENSOR LEGAL ENTITY & REGISTRATION',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: companyNameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Licensor Legal Company Name *',
+                            hintText: 'e.g. Famalth Technologies',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: brandSubtitleCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Product / Platform Subtitle',
+                            hintText: 'e.g. Famalth Lynx Retail Platform',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: taxIdCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Tax Registration ID (GSTIN / VAT / TIN)',
+                            hintText: 'e.g. GSTIN: 07AAAAF1234A1Z5',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: cinCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'CIN / Corporate Reg No.',
+                            hintText: 'e.g. U72900DL2022PTC123456',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Section 2: Contact & Website
+                  const Text('COMMUNICATION & OFFICIAL PORTAL',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: emailCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Billing / Enterprise Email *',
+                            hintText: 'e.g. enterprise@famalth.com',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: phoneCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Helpline / Phone',
+                            hintText: 'e.g. +91 00000 00000',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: websiteCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Official Website / Portal',
+                            hintText: 'e.g. www.famalth.com',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Section 3: Registered Office Address
+                  const Text('REGISTERED ADDRESS',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: TextField(
+                          controller: addressCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Street Address / Suite / Building',
+                            hintText: 'e.g. Dehradun, Uttarakhand 248001',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: cityStatePinCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'City, State, PIN / Zip',
+                            hintText: 'e.g. Dehradun, UK 248001',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: countryCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Country',
+                            hintText: 'e.g. India',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Section 4: Remittance & Bank Settlement Details
+                  const Text('BANK & REMITTANCE SETTLEMENT DETAILS (PRINTED ON INVOICES)',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: bankNameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Bank Name',
+                            hintText: 'e.g. HDFC Bank Ltd.',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: accountNameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Beneficiary / Account Name',
+                            hintText: 'e.g. Famalth Technologies',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: accountNumCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Account Number',
+                            hintText: 'e.g. 50200012345678',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: ifscCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'IFSC / SWIFT Code',
+                            hintText: 'e.g. HDFC0001234',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: upiCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'UPI ID / VPA',
+                            hintText: 'e.g. famalth@okhdfcbank',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Section 5: Terms & Payment Notes
+                  const Text('INVOICE TERMS & CONDITIONS',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: termsCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Terms of Service / Remittance Instructions',
+                      hintText: 'Payment due within 15 days of invoice date...',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      setDlgState(() => isSaving = true);
+                      final payload = {
+                        'companyName': companyNameCtrl.text.trim(),
+                        'brandSubtitle': brandSubtitleCtrl.text.trim(),
+                        'address': addressCtrl.text.trim(),
+                        'cityStatePin': cityStatePinCtrl.text.trim(),
+                        'country': countryCtrl.text.trim(),
+                        'taxIdentifier': taxIdCtrl.text.trim(),
+                        'cin': cinCtrl.text.trim(),
+                        'contactEmail': emailCtrl.text.trim(),
+                        'contactPhone': phoneCtrl.text.trim(),
+                        'website': websiteCtrl.text.trim(),
+                        'bankName': bankNameCtrl.text.trim(),
+                        'accountNumber': accountNumCtrl.text.trim(),
+                        'accountName': accountNameCtrl.text.trim(),
+                        'ifscSwift': ifscCtrl.text.trim(),
+                        'upiId': upiCtrl.text.trim(),
+                        'paymentTerms': termsCtrl.text.trim(),
+                      };
+                      try {
+                        final res = await ApiClient.post('/api/v1/control-plane/subscription-billing-config', payload);
+                        if (res != null && res['success'] == true) {
+                          if (mounted) {
+                            setState(() {
+                              _licensorBilling = Map<String, dynamic>.from(res['data'] ?? payload);
+                            });
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('SaaS Licensor billing info updated successfully! All client invoices will now pick these details.'),
+                                backgroundColor: Color(0xFF16A34A),
+                              ),
+                            );
+                          }
+                        } else {
+                          throw Exception(res?['message'] ?? 'Failed to update billing info');
+                        }
+                      } catch (err) {
+                        setDlgState(() => isSaving = false);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $err'), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    },
+              child: isSaving
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Save Billing Profile', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _triggerSystemBackup() async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Preparing complete enterprise system backup archive (.ZIP with database & media)...'),
@@ -3084,6 +3513,19 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
           ),
         ),
         const SizedBox(width: 12),
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF0284C7),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          icon: const Icon(Icons.receipt_long_rounded, size: 16),
+          label: const Text('Subscription Billing Info', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          onPressed: _openSubscriptionBillingConfigDialog,
+        ),
+        const SizedBox(width: 8),
         IconButton(
           icon: const Icon(Icons.refresh_rounded, color: Color(0xFF94A3B8)),
           tooltip: 'Refresh Telemetry',
@@ -3215,6 +3657,19 @@ class _MasterControlPlaneScreenState extends State<MasterControlPlaneScreen> wit
                 onPressed: _exportRenewalsCsv,
                 icon: const Icon(Icons.file_download_outlined, size: 16),
                 label: const Text('Export Fleet Audit', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF0F766E),
+                  side: const BorderSide(color: Color(0xFF0F766E)),
+                  backgroundColor: const Color(0xFFF0FDFA),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: _openSubscriptionBillingConfigDialog,
+                icon: const Icon(Icons.receipt_long_rounded, size: 16),
+                label: const Text('Subscription Billing Info', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
               const SizedBox(width: 12),
               IconButton(

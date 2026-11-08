@@ -54,6 +54,7 @@ dependencies:
   path: ^1.9.1
   qr_flutter: ^4.1.0
   url_launcher: ^6.3.3
+  mobile_scanner: 5.2.3
 
 
 dev_dependencies:

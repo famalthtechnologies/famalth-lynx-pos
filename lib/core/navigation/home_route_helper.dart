@@ -71,8 +71,8 @@ class HomeRouteHelper {
       return const SaleScreen();
     }
 
-    // 4. Mobile Retailer Console Fallback (for store/owner mobile apps)
-    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+    // 4. Explicit preference for Retailer Console
+    if (preference == 'RETAILER_CONSOLE') {
       return const RetailerConsoleScreen();
     }
 

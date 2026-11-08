@@ -1247,12 +1247,15 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
             itemName: row.item_name || '',
             cartQty: 0,
             freeQty: 0,
-            rate: 0,
+            rate: toAmount(row.reference_rate || row.original_rate || row.rate || 0),
             taxPercent: toAmount(row.tax_percent || 0)
         };
         bucket.cartQty += qty;
         if (row.is_advance_free === true) {
             bucket.freeQty += qty;
+            if (bucket.rate <= 0 && toAmount(row.reference_rate || row.original_rate) > 0) {
+                bucket.rate = toAmount(row.reference_rate || row.original_rate);
+            }
         } else if (toAmount(row.rate) > 0) {
             bucket.rate = toAmount(row.rate);
         }
@@ -1349,7 +1352,7 @@ async function collectPreSplitSubscriptionAllocation({ req, header, items, trans
             chosenSubscription = subscription;
             agreedRate = toAmount(bucket.rate) > 0
                 ? toAmount(bucket.rate)
-                : toAmount(subscriptionAdvance?.rate || 0);
+                : (toAmount(subscriptionAdvance?.rate || 0) || toAmount(subscription?.rate || 0) || toAmount(subscription?.item?.selling_price || 0));
             coveredQty = Math.min(bucket.freeQty, remainingCoverage);
             break;
         }
@@ -2743,9 +2746,10 @@ async function createSaleVersion({
     let roundOffAmount = toAmount(header.round_off_amount || 0);
     const netAmount = toAmount(header.net_amount);
     const invoiceDiscount = Math.max(0, toAmount(invoiceDiscountAmount || header.total_discount || 0));
-    const amountPaid = toAmount(
-        header.amount_paid ?? (paymentMode === 'CREDIT' ? 0 : netAmount)
-    );
+    const isPureCredit = paymentMode === 'CREDIT';
+    const amountPaid = isPureCredit
+        ? 0
+        : toAmount(header.amount_paid ?? netAmount);
     const changeAmount = header.change_amount != null
         ? Math.max(toAmount(header.change_amount), 0)
         : (paymentMode === 'CASH' ? Math.max(amountPaid - netAmount, 0) : 0);
@@ -3878,8 +3882,9 @@ exports.createSale = async (req, res) => {
             totalCoveredAmount: 0,
             subscriptionId: 0
         };
+        const hasPreSplitItems = itemsPreSplit || (Array.isArray(saleItemsRaw) && saleItemsRaw.some((row: any) => row.is_advance_free === true || row._subscription_free === true));
         if (status === 'COMPLETED') {
-            if (itemsPreSplit) {
+            if (hasPreSplitItems) {
                 let t2 = Date.now();
                 subscriptionAllocation = await collectPreSplitSubscriptionAllocation({
                     req,
@@ -6474,18 +6479,27 @@ exports.getSchemeProgress = async (req, res) => {
 
 exports.listSubscriptions = async (req, res) => {
     try {
+        await resolveOutletId(req);
+        const { getLinkedOutletIds } = require('../../utils/outletScopeHelper');
+        const sessionOutletId = Number(req.user?.outlet_id || 0);
+        const linkedIds = await getLinkedOutletIds(req, sessionOutletId);
+        const outletIds = linkedIds.length > 0 ? linkedIds : (sessionOutletId ? [sessionOutletId] : []);
+
         const search = String(req.query.search || '').trim().toLowerCase();
         const status = String(req.query.status || '').trim().toUpperCase();
 
-        console.log("[DEBUG listSubscriptions] Received request. Query:", req.query);
-        console.log("[DEBUG listSubscriptions] User resolved:", req.user);
+        const where: any = {};
+        if (outletIds.length === 1) {
+            where.outlet_id = outletIds[0];
+        } else if (outletIds.length > 1) {
+            where.outlet_id = { [Op.in]: outletIds };
+        } else if (sessionOutletId) {
+            where.outlet_id = sessionOutletId;
+        }
 
-        const where: any = { outlet_id: req.user.outlet_id };
         if (status === 'ACTIVE' || status === 'EXPIRED' || status === 'SETTLED' || status === 'CANCELLED') {
             where.status = status;
         }
-
-        console.log("[DEBUG listSubscriptions] Where clause:", where);
 
         const subscriptions = await req.propertyDb.models.milk_subscriptions.findAll({
             where,
@@ -6494,7 +6508,8 @@ exports.listSubscriptions = async (req, res) => {
                 { model: req.propertyDb.models.milk_subscription_schemes, as: 'schemes', required: false },
                 { model: req.propertyDb.models.milk_subscription_consumptions, as: 'consumptions', required: false }
             ],
-            order: [['created_at', 'DESC'], ['id', 'DESC']]
+            order: [['created_at', 'DESC'], ['id', 'DESC']],
+            bypassOutletFilter: true
         });
 
         console.log("[DEBUG listSubscriptions] Found subscriptions count:", subscriptions.length);
@@ -6555,6 +6570,11 @@ exports.listSubscriptions = async (req, res) => {
 exports.listCustomerSubscriptions = async (req, res) => {
     try {
         await resolveOutletId(req);
+        const { getLinkedOutletIds } = require('../../utils/outletScopeHelper');
+        const sessionOutletId = Number(req.user?.outlet_id || 0);
+        const linkedIds = await getLinkedOutletIds(req, sessionOutletId);
+        const outletIds = linkedIds.length > 0 ? linkedIds : (sessionOutletId ? [sessionOutletId] : []);
+
         const identity = normalizeCustomerIdentity(req.query);
         const scope = buildCustomerScope(identity);
         if (!scope) {
@@ -6563,16 +6583,23 @@ exports.listCustomerSubscriptions = async (req, res) => {
 
         const today = req.query.date || new Date();
         const asOfDay = formatDateLocalYmd(today);
+        const where: any = { ...scope };
+        if (outletIds.length === 1) {
+            where.outlet_id = outletIds[0];
+        } else if (outletIds.length > 1) {
+            where.outlet_id = { [Op.in]: outletIds };
+        } else if (sessionOutletId) {
+            where.outlet_id = sessionOutletId;
+        }
+
         const subscriptions = await req.propertyDb.models.milk_subscriptions.findAll({
-            where: {
-                outlet_id: req.user.outlet_id,
-                ...scope
-            },
+            where,
             include: [
                 { model: req.propertyDb.models.item_master, as: 'item', required: false },
                 { model: req.propertyDb.models.milk_subscription_schemes, as: 'schemes', required: false }
             ],
-            order: [['start_date', 'DESC'], ['id', 'DESC']]
+            order: [['start_date', 'DESC'], ['id', 'DESC']],
+            bypassOutletFilter: true
         });
 
         const rows = [];
