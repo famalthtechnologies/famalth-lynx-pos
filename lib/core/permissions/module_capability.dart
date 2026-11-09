@@ -396,6 +396,12 @@ class ModuleCapability {
 
     if (mods.contains(all)) return true;
 
+    // If permissionKey contains alternative keys separated by '|' or ','
+    if (key.contains('|') || key.contains(',')) {
+      final keys = key.split(RegExp(r'[,|]')).map((k) => k.trim()).where((k) => k.isNotEmpty);
+      return keys.any((k) => isPermissionAllowed(k, module));
+    }
+
     // Rules for Stock Transfer
     if (key.contains('STOCK_TRANSFER') || key.contains('TRANSFER')) {
       if (!isStockTransferAllowed(module)) return false;

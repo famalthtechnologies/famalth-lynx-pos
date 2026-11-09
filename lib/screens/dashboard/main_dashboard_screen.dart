@@ -2130,6 +2130,9 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
     PackageInfo packageInfo = await PackageInfo.fromPlatform();
     currentVersion = packageInfo.version;
     final u = await UserProfiledata.load();
+    final perms = await TokenStorage.getPermissions();
+    final role = await TokenStorage.getRole() ?? u?.role ?? '';
+    PermissionService.init(role: role, permissions: perms);
     try {
       setState(() {
         user = u;
@@ -5001,9 +5004,17 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Doctor Appointments & Consultation',
         'subLabel': 'Patient consultation, Rx prescription auto-fill, vital signs & token queue',
         'isBeta': true,
-        'permission': 'POS_SALE',
+        'permission': 'CLINIC_MODULE|CLINIC_APPOINTMENTS|DOCTOR_CONSULTATION|PRESCRIPTIONS|POS_SALE',
         'keywords': ['doctor', 'clinic', 'appointment', 'consultation', 'prescription', 'patient', 'token'],
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialIndex: 0))),
+        'onTap': () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ClinicDashboardScreen(
+              initialTab: ClinicTab.doctor,
+              userRole: user?.role,
+            ),
+          ),
+        ),
       },
       {
         'category': 'Clinic & Health (Beta)',
@@ -5011,7 +5022,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Clinic Billing & Pharmacy POS',
         'subLabel': 'Prescription billing, direct medicine dispense & pharmacy cashier register',
         'isBeta': true,
-        'permission': 'POS_SALE',
+        'permission': 'CLINIC_MODULE|CLINIC_PHARMACY|POS_SALE',
         'keywords': ['clinic billing', 'pharmacy pos', 'medicine billing', 'dispense', 'rx bill'],
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleScreen(businessModule: 'CLINIC'))),
       },
@@ -5021,7 +5032,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Medicines, Lab Tests & Services Master',
         'subLabel': 'Manage pharmaceutical formulations, lab investigation pricing & therapy catalog',
         'isBeta': true,
-        'permission': 'ITEM_MASTER',
+        'permission': 'CLINIC_MODULE|CLINIC_PHARMACY|ITEM_MASTER',
         'keywords': ['medicine master', 'drug master', 'lab test master', 'clinical services', 'pharmacy items'],
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemMasterScreen(isClinicMode: true))),
       },
@@ -5031,7 +5042,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Receiving Expiry & Batch Tracker',
         'subLabel': 'Medicine expiry watch, batch-wise shelf life & supplier receiving ledger',
         'isBeta': true,
-        'permission': 'INVENTORY_MANAGEMENT',
+        'permission': 'CLINIC_MODULE|CLINIC_PHARMACY|INVENTORY_MANAGEMENT',
         'keywords': ['expiry', 'batch', 'shelf life', 'receiving ledger', 'grn expiry', 'medicine expiry'],
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExpiryTrackerScreen())),
       },
@@ -5041,9 +5052,17 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Clinic Operational Intelligence',
         'subLabel': 'Doctor workload, consultation revenue analytics & patient demographics',
         'isBeta': true,
-        'permission': 'STORE_ANALYSIS',
+        'permission': 'CLINIC_MODULE|CLINIC_ANALYTICS|STORE_ANALYSIS',
         'keywords': ['clinic analytics', 'doctor workload', 'consultation fees', 'demographics', 'clinic kpi'],
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialIndex: 1))),
+        'onTap': () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ClinicDashboardScreen(
+              initialTab: ClinicTab.analytics,
+              userRole: user?.role,
+            ),
+          ),
+        ),
       },
       {
         'category': 'Clinic & Health (Beta)',
@@ -5051,7 +5070,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Doctor Profiles & Public Directory Settings',
         'subLabel': 'Clinician fees, specialities, license registration numbers & public listing options',
         'isBeta': true,
-        'permission': 'POS_SALE',
+        'permission': 'CLINIC_MODULE|DOCTOR_CONSULTATION|CLINIC_APPOINTMENTS|POS_SALE',
         'keywords': ['doctor profile', 'clinician', 'consultation fee', 'public doctor', 'license', 'registration'],
         'onTap': () => showDialog(context: context, builder: (_) => const ClinicDoctorManagementDialog()),
       },
@@ -5061,7 +5080,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Explore Doctors & Online Patient Booking',
         'subLabel': 'Patient-facing portal for online appointment booking, doctor search & medical history',
         'isBeta': true,
-        'permission': 'POS_SALE',
+        'permission': 'CLINIC_MODULE|CLINIC_APPOINTMENTS|DOCTOR_CONSULTATION|POS_SALE',
         'keywords': ['online booking', 'explore doctors', 'patient portal', 'public appointment', 'telehealth'],
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PublicAppointmentBookingScreen())),
       },

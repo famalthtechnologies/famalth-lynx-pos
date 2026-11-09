@@ -7,7 +7,8 @@ import 'mobile_billing_app_screen.dart';
 import 'mobile_billing_splash_screen.dart';
 
 class MobileBillingAuthScreen extends StatefulWidget {
-  const MobileBillingAuthScreen({super.key});
+  final String? notice;
+  const MobileBillingAuthScreen({super.key, this.notice});
 
   @override
   State<MobileBillingAuthScreen> createState() => _MobileBillingAuthScreenState();
@@ -27,6 +28,9 @@ class _MobileBillingAuthScreenState extends State<MobileBillingAuthScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.notice != null && widget.notice!.trim().isNotEmpty) {
+      _errorMessage = widget.notice!.trim();
+    }
     final defaultOutlet =
         AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : 'OUTLET001';
     _outletCtrl.text = defaultOutlet;

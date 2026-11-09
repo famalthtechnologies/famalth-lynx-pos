@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/auth/token_storage.dart';
 import '../../core/config/app_constants.dart';
 import '../../core/currency/currency_service.dart';
+import '../../models/auth/permission_service.dart';
 
 /// ================= SCREEN =================
 class Permission1 {
@@ -1502,6 +1503,19 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     await userCtrl.updatePermissions(u.id, u.permissions);
                     final freshPerms = await userCtrl.getPermissions(u.id);
                     u.permissions = freshPerms;
+
+                    final currentUser = await TokenStorage.getUser();
+                    final currentUserId = currentUser?['id'] != null ? int.tryParse('${currentUser!['id']}') : null;
+                    final currentUsername = (currentUser?['username'] ?? '').toString().toLowerCase();
+                    if ((currentUserId != null && currentUserId == u.id) ||
+                        (currentUsername.isNotEmpty && currentUsername == u.username.toLowerCase())) {
+                      final permsList = freshPerms.toList();
+                      await TokenStorage.savePermissions(permsList);
+                      PermissionService.init(
+                        role: u.role,
+                        permissions: permsList,
+                      );
+                    }
 
                     Navigator.pop(ctx);
                   },

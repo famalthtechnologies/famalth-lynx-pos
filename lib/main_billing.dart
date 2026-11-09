@@ -17,6 +17,7 @@ import 'screens/mobile_billing/mobile_billing_splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppConfig.isMobileBilling = true;
   await NotificationService.init();
   await AppConfig.init();
   await DateTimeService.instance.init();

@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 
 import '../../main.dart';
 import '../../screens/auth/login_screen.dart';
+import '../../screens/mobile_billing/mobile_billing_auth_screen.dart';
+import '../../screens/control_plane/control_plane_login_screen.dart';
 import '../auth/control_plane_storage.dart';
 import '../auth/token_storage.dart';
 import '../config/app_config.dart';
@@ -101,7 +103,7 @@ class ApiClient {
       uri,
       headers: await _headers(path),
     ).timeout(_resolveTimeout(path, timeout));
-    return _handleResponse(response, silent: silent);
+    return _handleResponse(response, path: path, silent: silent);
   }
 
   // ---------------- POST ----------------
@@ -116,7 +118,7 @@ class ApiClient {
       headers: await _headers(path),
       body: jsonEncode(body),
     ).timeout(_resolveTimeout(path, timeout));
-    return _handleResponse(response, silent: silent);
+    return _handleResponse(response, path: path, silent: silent);
   }
 
   // ---------------- PUT ----------------
@@ -131,7 +133,7 @@ class ApiClient {
       headers: await _headers(path),
       body: jsonEncode(body),
     ).timeout(_resolveTimeout(path, timeout));
-    return _handleResponse(response, silent: silent);
+    return _handleResponse(response, path: path, silent: silent);
   }
 
   // ---------------- PATCH ----------------
@@ -146,7 +148,7 @@ class ApiClient {
       headers: await _headers(path),
       body: jsonEncode(body),
     ).timeout(_resolveTimeout(path, timeout));
-    return _handleResponse(response, silent: silent);
+    return _handleResponse(response, path: path, silent: silent);
   }
 
   // ---------------- DELETE ----------------
@@ -161,7 +163,7 @@ class ApiClient {
       headers: await _headers(path),
       body: body != null ? jsonEncode(body) : null,
     ).timeout(_resolveTimeout(path, timeout));
-    return _handleResponse(response, silent: silent);
+    return _handleResponse(response, path: path, silent: silent);
   }
 
   static bool isAdminConsole = false;
@@ -264,8 +266,13 @@ class ApiClient {
                     await ControlPlaneStorage.clear();
                     final nav = globalNavigatorKey.currentState;
                     if (nav != null) {
+                      final targetScreen = AppConfig.isMobileBilling
+                          ? const MobileBillingAuthScreen()
+                          : (isAdminConsole
+                              ? const ControlPlaneLoginScreen()
+                              : const LoginScreen());
                       nav.pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
+                        MaterialPageRoute(builder: (_) => targetScreen),
                         (route) => false,
                       );
                     }
@@ -279,8 +286,63 @@ class ApiClient {
     );
   }
 
+  // ---------------- AUTOMATIC SESSION EXPIRATION & RELOGIN HANDLER ----------------
+  static bool _isHandlingSessionExpired = false;
+
+  static Future<void> handleSessionExpired({String? reason}) async {
+    if (_isHandlingSessionExpired) return;
+    _isHandlingSessionExpired = true;
+
+    try {
+      // Clear stored sessions
+      await TokenStorage.clear();
+      await ControlPlaneStorage.clear();
+
+      final message = reason ?? 'Session expired. Please log in again.';
+      showErrorSnackbar(message);
+
+      final nav = globalNavigatorKey.currentState;
+      if (nav != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final targetScreen = AppConfig.isMobileBilling
+              ? MobileBillingAuthScreen(notice: message)
+              : (isAdminConsole
+                  ? const ControlPlaneLoginScreen()
+                  : const LoginScreen());
+
+          nav.pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => targetScreen),
+            (route) => false,
+          );
+        });
+      }
+    } catch (_) {
+    } finally {
+      Future.delayed(const Duration(seconds: 4), () {
+        _isHandlingSessionExpired = false;
+      });
+    }
+  }
+
+  static Future<void> checkSessionValidityOnResume() async {
+    try {
+      final rawToken = await TokenStorage.getRawToken();
+      if (rawToken != null && rawToken.isNotEmpty) {
+        if (TokenStorage.isExpired(rawToken)) {
+          await handleSessionExpired(
+            reason: 'Session expired while inactive. Please log in again.',
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
   // ---------------- RESPONSE HANDLER ----------------
-  static dynamic _handleResponse(http.Response response, {bool silent = false}) {
+  static dynamic _handleResponse(
+    http.Response response, {
+    String? path,
+    bool silent = false,
+  }) {
     if (response.body.isEmpty) {
       if (!silent) showErrorSnackbar('Empty server response');
       throw Exception('Empty server response');
@@ -327,16 +389,36 @@ class ApiClient {
         };
       }
 
-      String errorMessage = data['error'] ?? data['message'] ?? "API Error";
+      final String errorMessage = (data is Map ? (data['error'] ?? data['message']) : null)?.toString() ?? "API Error";
+      final String errorCode = (data is Map ? (data['error_code'] ?? data['error']) : null)?.toString() ?? "";
+
+      final cleanPath = (path ?? '').toLowerCase().trim();
+      final isAuthLoginPath = cleanPath.contains('/auth/login') ||
+          cleanPath.contains('/auth/pin-login') ||
+          cleanPath.contains('/auth/qr-login') ||
+          cleanPath.contains('/auth/quick-users') ||
+          cleanPath.contains('/auth/request-owner-setup-otp') ||
+          cleanPath.contains('/auth/forgot-password') ||
+          cleanPath.contains('/auth/recover-username');
 
       final lowerMsg = errorMessage.toLowerCase();
-      final isAuthError = response.statusCode == 401 ||
-          lowerMsg.contains('no token provided') ||
+      final lowerCode = errorCode.toLowerCase();
+
+      final bool isSessionExpired = response.statusCode == 401 ||
+          lowerCode == 'session_expired' ||
+          lowerCode == 'invalid_token' ||
+          lowerCode == 'token_expired' ||
+          lowerCode == 'control_plane_unauthorized' ||
+          lowerMsg.contains('session expired') ||
           lowerMsg.contains('token expired') ||
           lowerMsg.contains('jwt expired') ||
-          lowerMsg.contains('unauthorized');
+          lowerMsg.contains('no token provided') ||
+          lowerMsg.contains('unauthorized staff request') ||
+          (response.statusCode == 403 && (lowerMsg.contains('session') || lowerMsg.contains('token')));
 
-      if (!isAuthError && !silent) {
+      if (isSessionExpired && !isAuthLoginPath) {
+        handleSessionExpired(reason: 'Session expired. Please log in again.');
+      } else if (!isSessionExpired && !silent) {
         showErrorSnackbar(errorMessage);
       }
 
@@ -352,6 +434,8 @@ void showErrorSnackbar(String message) {
       message.contains('Locked') ||
       message.contains('Blocked') ||
       message.toLowerCase().contains('temporarily locked');
+  final isSessionExpired = message.toLowerCase().contains('session expired') ||
+      message.toLowerCase().contains('relogin required');
 
   globalSnackbarKey.currentState?.showSnackBar(
     SnackBar(
@@ -360,21 +444,26 @@ void showErrorSnackbar(String message) {
           if (isLockout) ...[
             const Icon(Icons.lock_clock, color: Colors.white, size: 24),
             const SizedBox(width: 12),
+          ] else if (isSessionExpired) ...[
+            const Icon(Icons.timer_off_rounded, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
           ],
           Expanded(
             child: Text(
               message,
               style: TextStyle(
-                fontWeight: isLockout ? FontWeight.bold : FontWeight.normal,
-                fontSize: isLockout ? 13.5 : 13,
+                fontWeight: (isLockout || isSessionExpired) ? FontWeight.bold : FontWeight.normal,
+                fontSize: (isLockout || isSessionExpired) ? 13.5 : 13,
               ),
             ),
           ),
         ],
       ),
-      backgroundColor: isLockout ? Colors.red.shade800 : Colors.red.shade600,
+      backgroundColor: isLockout
+          ? Colors.red.shade800
+          : (isSessionExpired ? const Color(0xFFDC2626) : Colors.red.shade600),
       behavior: SnackBarBehavior.floating,
-      duration: Duration(seconds: isLockout ? 10 : 4),
+      duration: Duration(seconds: isLockout ? 10 : (isSessionExpired ? 5 : 4)),
     ),
   );
 }

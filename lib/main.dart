@@ -15,6 +15,7 @@ import 'controllers/settings/property_info_controller.dart';
 import 'core/config/app_config.dart';
 import 'core/config/date_time_service.dart';
 import 'core/theme/app_theme.dart';
+import 'core/api/api_client.dart';
 import 'screens/splash_screen.dart';
 import 'package:flutter/services.dart';
 import 'screens/settings/settings_screen.dart';
@@ -89,6 +90,12 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (homeWidget != null) {
+      final name = homeWidget.runtimeType.toString();
+      if (name.contains('MobileBilling')) {
+        AppConfig.isMobileBilling = true;
+      }
+    }
     final themeCtrl = context.watch<ThemeController>();
     final uiPrefs = context.watch<UiPreferencesController>();
     final brandingCtrl = context.watch<AppBrandingController>();
@@ -483,6 +490,7 @@ class _AppLifecycleObserverState extends State<AppLifecycleObserver>
     if (state == AppLifecycleState.resumed) {
       // Re-sync clock when app comes back from background / PC wakes from sleep.
       DateTimeService.instance.resync();
+      ApiClient.checkSessionValidityOnResume();
     }
   }
 

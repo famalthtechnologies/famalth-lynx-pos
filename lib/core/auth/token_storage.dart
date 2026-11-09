@@ -12,6 +12,15 @@ class TokenStorage {
   static const _sessionTimeKey = 'session_login_time';
   static const _serverUrlKey = 'client_authenticated_server_url';
 
+  // In-memory synchronous cache to prevent asynchronous layout thrashing during navigation
+  static Map<String, dynamic>? _cachedUser;
+  static String? _cachedRole;
+  static List<String>? _cachedPermissions;
+
+  static Map<String, dynamic>? get cachedUser => _cachedUser;
+  static String? get cachedRole => _cachedRole;
+  static List<String> get cachedPermissions => _cachedPermissions ?? [];
+
   static Future<void> saveLoginTime([DateTime? time]) async {
     final prefs = await SharedPreferences.getInstance();
     final loginTime = time ?? DateTime.now();
@@ -37,23 +46,34 @@ class TokenStorage {
   }
 
   static Future<void> saveRole(String role) async {
+    _cachedRole = role;
     final pref = await SharedPreferences.getInstance();
     await pref.setString(_roleKey, role);
   }
 
   static Future<void> savePermissions(List<String> perms) async {
+    _cachedPermissions = perms;
     final pref = await SharedPreferences.getInstance();
     await pref.setStringList(_permKey, perms);
   }
 
   static Future<String?> getRole() async {
+    if (_cachedRole != null) return _cachedRole;
     final pref = await SharedPreferences.getInstance();
-    return pref.getString(_roleKey);
+    _cachedRole = pref.getString(_roleKey);
+    return _cachedRole;
   }
 
   static Future<List<String>> getPermissions() async {
+    if (_cachedPermissions != null) return _cachedPermissions!;
     final pref = await SharedPreferences.getInstance();
-    return pref.getStringList(_permKey) ?? [];
+    _cachedPermissions = pref.getStringList(_permKey) ?? [];
+    return _cachedPermissions!;
+  }
+
+  static Future<String?> getRawToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_key);
   }
 
   static Future<String?> read() async {
@@ -65,10 +85,20 @@ class TokenStorage {
       await clear();
       return null;
     }
-    return prefs.getString(_key);
+    final token = prefs.getString(_key);
+    if (token != null && token.isNotEmpty) {
+      if (isExpired(token)) {
+        await clear();
+        return null;
+      }
+    }
+    return token;
   }
 
   static Future<void> clear() async {
+    _cachedUser = null;
+    _cachedRole = null;
+    _cachedPermissions = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
     await prefs.remove(_userKey);
@@ -79,21 +109,40 @@ class TokenStorage {
   }
 
   static bool isExpired(String token) {
-    return Jwt.isExpired(token);
+    try {
+      return Jwt.isExpired(token);
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<void> saveUser(Map<String, dynamic> user) async {
+    _cachedUser = user;
+    if (user['role'] != null) _cachedRole = user['role'].toString();
+    if (user['permissions'] is List) {
+      _cachedPermissions = List<String>.from(user['permissions']);
+    }
     final pref = await SharedPreferences.getInstance();
     await pref.setString(_userKey, jsonEncode(user));
   }
 
   static Future<Map<String, dynamic>?> getUser() async {
+    if (_cachedUser != null) return _cachedUser;
     final pref = await SharedPreferences.getInstance();
     final data = pref.getString(_userKey);
 
     if (data == null) return null;
 
-    return jsonDecode(data);
+    try {
+      _cachedUser = jsonDecode(data);
+      if (_cachedUser?['role'] != null) _cachedRole = _cachedUser!['role'].toString();
+      if (_cachedUser?['permissions'] is List) {
+        _cachedPermissions = List<String>.from(_cachedUser!['permissions']);
+      }
+      return _cachedUser;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<String?> getOutletCode() async {

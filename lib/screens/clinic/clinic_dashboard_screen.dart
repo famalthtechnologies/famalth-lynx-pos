@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -20,7 +21,16 @@ import '../reports/cash_ledger_screen.dart';
 
 class ClinicDashboardScreen extends StatefulWidget {
   final int initialIndex;
-  const ClinicDashboardScreen({super.key, this.initialIndex = 0});
+  final ClinicTab? initialTab;
+  final String? userRole;
+  final List<String>? userPermissions;
+  const ClinicDashboardScreen({
+    super.key,
+    this.initialIndex = 0,
+    this.initialTab,
+    this.userRole,
+    this.userPermissions,
+  });
 
   @override
   State<ClinicDashboardScreen> createState() => _ClinicDashboardScreenState();
@@ -35,7 +45,8 @@ enum ClinicTab {
 }
 
 class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabCtrl;
+  TabController? _tabCtrl;
+  bool _isRoleLoaded = false;
   bool _isLoading = false;
   List<dynamic> _appointments = [];
   Map<String, dynamic> _analytics = {};
@@ -93,15 +104,23 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   @override
   void initState() {
     super.initState();
-    _availableTabs = _computeAllowedTabs(_userRole);
-    _tabCtrl = TabController(
-      length: _availableTabs.length,
-      vsync: this,
-      initialIndex: widget.initialIndex.clamp(0, _availableTabs.length - 1),
-    );
-    _tabCtrl.addListener(() {
-      if (_tabCtrl.indexIsChanging && mounted) setState(() {});
-    });
+    // Resolve role synchronously if cached in TokenStorage or passed via constructor
+    final synRole = (widget.userRole ?? TokenStorage.cachedRole ?? TokenStorage.cachedUser?['role'] ?? '').toString().trim().toUpperCase();
+    final synPerms = widget.userPermissions ?? TokenStorage.cachedPermissions;
+
+    if (synRole.isNotEmpty) {
+      _userRole = synRole;
+      _userPermissions = synPerms;
+      final cachedUser = TokenStorage.cachedUser;
+      if (cachedUser != null) {
+        _loggedInDoctorName = (cachedUser['name'] ?? cachedUser['full_name'] ?? cachedUser['username'] ?? '').toString();
+        _loggedInDoctorId = cachedUser['id'] != null ? int.tryParse('${cachedUser['id']}') : null;
+      }
+      _availableTabs = _computeAllowedTabs(synRole, synPerms);
+      _setupTabController(_availableTabs);
+      _isRoleLoaded = true;
+    }
+
     _checkUserRole();
     _fetchClinicDoctors();
     _fetchAppointments();
@@ -110,10 +129,33 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     _fetchOperatingStatus();
   }
 
+  void _setupTabController(List<ClinicTab> tabs) {
+    int initIdx = 0;
+    if (widget.initialTab != null && tabs.contains(widget.initialTab)) {
+      initIdx = tabs.indexOf(widget.initialTab!);
+    } else {
+      initIdx = widget.initialIndex.clamp(0, tabs.length - 1);
+    }
+    final ctrl = TabController(
+      length: tabs.length,
+      vsync: this,
+      initialIndex: initIdx,
+    );
+    ctrl.addListener(() {
+      if (ctrl.indexIsChanging && mounted) setState(() {});
+    });
+    _tabCtrl = ctrl;
+  }
+
   List<ClinicTab> _computeAllowedTabs(String role, [List<String>? permissions]) {
     final r = role.trim().toUpperCase();
     final p = (permissions ?? _userPermissions).map((e) => e.trim().toUpperCase()).toSet();
     final isAdmin = r == 'ADMIN' || r == 'SUPERADMIN' || r == 'OWNER' || r == 'CLINIC_ADMIN' || r == 'DOCTOR_ADMIN';
+
+    // If role is DOCTOR, clinician, or physician without admin rights, show Doctor Consultation tab immediately
+    if (!isAdmin && (r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN'))) {
+      return [ClinicTab.doctor];
+    }
 
     // If explicit clinic permissions are granted to the user, strictly respect them
     final hasSpecificClinicPerms = p.contains('CLINIC_MODULE') ||
@@ -288,19 +330,61 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         });
 
         final allowed = _computeAllowedTabs(role, permissions);
-        final bool tabsChanged = _availableTabs.length != allowed.length ||
-            !_availableTabs.asMap().entries.every((e) => allowed[e.key] == e.value);
-        if (tabsChanged) {
-          _tabCtrl.dispose();
-          _availableTabs = allowed;
-          _tabCtrl = TabController(
-            length: _availableTabs.length,
-            vsync: this,
-            initialIndex: 0,
-          );
-          _tabCtrl.addListener(() {
-            if (_tabCtrl.indexIsChanging && mounted) setState(() {});
+
+        if (_tabCtrl == null) {
+          setState(() {
+            _userRole = role;
+            _userPermissions = permissions;
+            _loggedInDoctorName = name;
+            _loggedInDoctorId = id;
+            _availableTabs = allowed;
+            _setupTabController(allowed);
+            _isRoleLoaded = true;
           });
+        } else {
+          final bool tabsChanged = _availableTabs.length != allowed.length ||
+              !_availableTabs.asMap().entries.every((e) => allowed[e.key] == e.value);
+          if (tabsChanged) {
+            final oldCtrl = _tabCtrl;
+            int targetIndex = 0;
+            if (widget.initialTab != null && allowed.contains(widget.initialTab)) {
+              targetIndex = allowed.indexOf(widget.initialTab!);
+            } else {
+              targetIndex = widget.initialIndex.clamp(0, allowed.length - 1);
+            }
+
+            final newCtrl = TabController(
+              length: allowed.length,
+              vsync: this,
+              initialIndex: targetIndex,
+            );
+            newCtrl.addListener(() {
+              if (newCtrl.indexIsChanging && mounted) setState(() {});
+            });
+
+            setState(() {
+              _userRole = role;
+              _userPermissions = permissions;
+              _loggedInDoctorName = name;
+              _loggedInDoctorId = id;
+              _availableTabs = allowed;
+              _tabCtrl = newCtrl;
+            });
+
+            // Defer disposing old controller until after the current frame finishes rendering with the new controller
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              try {
+                oldCtrl?.dispose();
+              } catch (_) {}
+            });
+          } else {
+            setState(() {
+              _userRole = role;
+              _userPermissions = permissions;
+              _loggedInDoctorName = name;
+              _loggedInDoctorId = id;
+            });
+          }
         }
         if (role == 'DOCTOR') {
           setState(() {
@@ -315,8 +399,9 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
 
   @override
   void dispose() {
-    _tabCtrl.dispose();
+    _tabCtrl?.dispose();
     _searchCtrl.dispose();
+    _subSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -1057,6 +1142,22 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
 
   @override
   Widget build(BuildContext context) {
+    if (!_isRoleLoaded || _tabCtrl == null) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF1F5F9),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF0284C7)),
+        ),
+      );
+    }
+
+    final isAdmin = _userRole == 'ADMIN' ||
+        _userRole == 'SUPERADMIN' ||
+        _userRole == 'OWNER' ||
+        _userRole == 'CLINIC_ADMIN' ||
+        _userRole == 'DOCTOR_ADMIN' ||
+        _userRole.isEmpty;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       appBar: AppBar(
@@ -1065,6 +1166,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
         titleSpacing: 0,
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               padding: const EdgeInsets.all(7),
@@ -1075,58 +1177,65 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
               child: const Icon(Icons.local_hospital_rounded, color: Color(0xFF0284C7), size: 22),
             ),
             const SizedBox(width: 12),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Clinic & Doctor Consultation',
-                  style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                Text(
-                  'OPD Patient Queue, Medical Records & In-Stock Rx Dispensing',
-                  style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.normal),
-                ),
-              ],
+            const Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Clinic & Doctor Consultation',
+                    style: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 16),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    'OPD Patient Queue, Medical Records & In-Stock Rx Dispensing',
+                    style: TextStyle(color: Color(0xFF64748B), fontSize: 11, fontWeight: FontWeight.normal),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
         actions: [
-          // Clinic Operating Status Toggle (Open / Closed Today)
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              backgroundColor: _isClinicClosedToday ? const Color(0xFFFEF2F2) : const Color(0xFFF0FDF4),
-              foregroundColor: _isClinicClosedToday ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
-              side: BorderSide(
-                color: _isClinicClosedToday ? const Color(0xFFF87171) : const Color(0xFF86EFAC),
-                width: 1.5,
+          // Clinic Operating Status Toggle (Open / Closed Today) - Admin only
+          if (isAdmin) ...[
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                backgroundColor: _isClinicClosedToday ? const Color(0xFFFEF2F2) : const Color(0xFFF0FDF4),
+                foregroundColor: _isClinicClosedToday ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+                side: BorderSide(
+                  color: _isClinicClosedToday ? const Color(0xFFF87171) : const Color(0xFF86EFAC),
+                  width: 1.5,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              icon: Icon(
+                _isClinicClosedToday ? Icons.do_not_disturb_on_rounded : Icons.check_circle_rounded,
+                size: 16,
+                color: _isClinicClosedToday ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+              ),
+              label: Text(
+                _isClinicClosedToday ? 'Clinic Closed Today' : 'Clinic Open Today',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+              onPressed: _openToggleClinicClosedDialog,
             ),
-            icon: Icon(
-              _isClinicClosedToday ? Icons.do_not_disturb_on_rounded : Icons.check_circle_rounded,
-              size: 16,
-              color: _isClinicClosedToday ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF0F172A),
+                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: const Icon(Icons.badge_outlined, size: 18, color: Color(0xFF0284C7)),
+              label: const Text('Doctors & Profiles', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              onPressed: _openDoctorManagementDialog,
             ),
-            label: Text(
-              _isClinicClosedToday ? 'Clinic Closed Today' : 'Clinic Open Today',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-            ),
-            onPressed: _openToggleClinicClosedDialog,
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF0F172A),
-              side: const BorderSide(color: Color(0xFFCBD5E1)),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            icon: const Icon(Icons.badge_outlined, size: 18, color: Color(0xFF0284C7)),
-            label: const Text('Doctors & Profiles', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            onPressed: _openDoctorManagementDialog,
-          ),
-          const SizedBox(width: 8),
+            const SizedBox(width: 8),
+          ],
           IconButton(
             tooltip: 'Refresh Appointments',
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0284C7)),
@@ -1156,7 +1265,8 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
             padding: const EdgeInsets.symmetric(horizontal: 16),
             alignment: Alignment.centerLeft,
             child: TabBar(
-              controller: _tabCtrl,
+              key: ValueKey(_tabCtrl),
+              controller: _tabCtrl!,
               isScrollable: true,
               labelColor: const Color(0xFF0284C7),
               unselectedLabelColor: const Color(0xFF64748B),
@@ -1170,7 +1280,8 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         ),
       ),
       body: TabBarView(
-        controller: _tabCtrl,
+        key: ValueKey(_tabCtrl),
+        controller: _tabCtrl!,
         children: _availableTabs.map((t) => _buildTabView(t)).toList(),
       ),
     );
@@ -6362,7 +6473,6 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
   List<dynamic> _patientActivePackages = [];
   bool _loadingPatientPackages = false;
   dynamic _selectedPackage;
-  bool _manualPackageEntry = false;
 
   String _gender = 'MALE';
   String _doctorName = '';
@@ -6450,27 +6560,60 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
     } else {
       _doctorName = 'Consultant Physician';
     }
-    _phoneCtrl.addListener(_onPhoneChanged);
+    _phoneCtrl.addListener(_onPatientInfoChanged);
+    _nameCtrl.addListener(_onPatientInfoChanged);
     _loadMasterPaymentMethods();
   }
 
-  void _onPhoneChanged() {
-    if (_paymentOption == 'PACKAGE') {
+  Timer? _lookupDebounce;
+
+  void _onPatientInfoChanged() {
+    _lookupDebounce?.cancel();
+    _lookupDebounce = Timer(const Duration(milliseconds: 350), () {
       _fetchPatientPackages();
+    });
+  }
+
+  void _restoreDoctorFee() {
+    if (_doctorId != null) {
+      final doc = widget.doctors.firstWhere(
+        (d) => d['id'] == _doctorId,
+        orElse: () => null,
+      );
+      if (doc != null) {
+        _feeCtrl.text = (((doc['consultation_fee'] ?? 0.0) as num).toDouble()).toStringAsFixed(2);
+      }
     }
   }
 
   Future<void> _fetchPatientPackages() async {
     final phone = _phoneCtrl.text.trim();
-    if (phone.isEmpty) {
-      if (mounted) setState(() => _patientActivePackages = []);
+    final name = _nameCtrl.text.trim();
+    if (phone.isEmpty && name.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _patientActivePackages = [];
+          _selectedPackage = null;
+          if (_paymentOption == 'PACKAGE') {
+            _paymentOption = 'PAY_LATER';
+            _restoreDoctorFee();
+          }
+        });
+      }
       return;
     }
     setState(() => _loadingPatientPackages = true);
     try {
+      final queryParams = <String, dynamic>{'status': 'ACTIVE'};
+      if (phone.isNotEmpty) {
+        queryParams['customer_phone'] = phone;
+      } else if (name.isNotEmpty) {
+        queryParams['search'] = name;
+      }
+
       final res = await ApiClient.get(
         ApiEndpoints.clinicSubscriptions,
-        queryParams: {'search': phone, 'status': 'ACTIVE'},
+        queryParams: queryParams,
       );
       if (res != null && res['success'] == true && mounted) {
         final list = (res['data'] as List? ?? []);
@@ -6480,9 +6623,10 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
           final isActive = status == 'ACTIVE' || p['active_subscription'] == true;
           final endDate = (p['end_date'] ?? '').toString().split('T').first;
           final isNotExpired = endDate.isEmpty || endDate.compareTo(todayStr) >= 0;
-          final total = int.tryParse('${p['total_package_sessions'] ?? p['total_sessions']}') ?? 6;
+          final total = int.tryParse('${p['total_package_sessions'] ?? p['total_sessions'] ?? p['total_allowed_services']}') ?? 0;
           final consumed = int.tryParse('${p['services_consumed']}') ?? 0;
-          final notConsumed = consumed < total;
+          final remaining = int.tryParse('${p['remaining_sessions']}') ?? (total - consumed);
+          final notConsumed = remaining > 0 && consumed < total;
           return isActive && isNotExpired && notConsumed;
         }).toList();
 
@@ -6490,9 +6634,15 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
           _patientActivePackages = eligible;
           if (_patientActivePackages.isNotEmpty) {
             _selectPackage(_patientActivePackages.first);
-            _manualPackageEntry = false;
+            // Auto switch to Therapy Package mode when active package is found for this patient
+            _paymentOption = 'PACKAGE';
+            _feeCtrl.text = '0.00';
           } else {
             _selectedPackage = null;
+            if (_paymentOption == 'PACKAGE') {
+              _paymentOption = 'PAY_LATER';
+              _restoreDoctorFee();
+            }
           }
         });
       }
@@ -6505,11 +6655,12 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
   void _selectPackage(dynamic pkg) {
     _selectedPackage = pkg;
     final name = (pkg['item_name'] ?? pkg['package_name'] ?? 'Therapy Package').toString();
-    final total = int.tryParse('${pkg['total_package_sessions'] ?? pkg['total_sessions']}') ?? 6;
+    final total = int.tryParse('${pkg['total_package_sessions'] ?? pkg['total_sessions'] ?? pkg['total_allowed_services']}') ?? 6;
     final consumed = int.tryParse('${pkg['services_consumed']}') ?? 0;
     _packageNameCtrl.text = name;
     _sessionNumCtrl.text = '${consumed + 1}';
     _totalSessionsCtrl.text = '$total';
+    _feeCtrl.text = '0.00';
     setState(() {});
   }
 
@@ -6533,7 +6684,9 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
 
   @override
   void dispose() {
-    _phoneCtrl.removeListener(_onPhoneChanged);
+    _lookupDebounce?.cancel();
+    _phoneCtrl.removeListener(_onPatientInfoChanged);
+    _nameCtrl.removeListener(_onPatientInfoChanged);
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
     _ageCtrl.dispose();
@@ -6611,6 +6764,12 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
         payMode = _paymentMode;
         paidAmt = fee;
       } else if (_paymentOption == 'PACKAGE') {
+        if (_patientActivePackages.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No active therapy package found for this patient. Please select Pay Later or Paid Now.'), backgroundColor: Colors.red),
+          );
+          return;
+        }
         payStatus = 'PACKAGE_INCLUDED';
         isPack = true;
         packName = _packageNameCtrl.text.trim().isNotEmpty ? _packageNameCtrl.text.trim() : 'Therapy Care Plan';
@@ -6629,15 +6788,16 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
           'appointment_time': timeStr,
           'doctor_name': _doctorName,
           'doctor_id': _doctorId,
-          'consultation_fee': fee,
+          'consultation_fee': isPack ? 0.0 : fee,
           'reason_for_visit': _reasonCtrl.text.trim(),
           'payment_status': payStatus,
-          'payment_mode': payMode,
+          'payment_mode': isPack ? 'PACKAGE_SUBSCRIPTION' : payMode,
           'paid_amount': paidAmt,
           'package_name': packName,
           'session_number': sessNum,
           'total_package_sessions': totSess,
           'is_package_session': isPack,
+          'subscription_id': _selectedPackage?['id'],
         },
       );
 
@@ -6733,6 +6893,15 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                   labelText: 'Phone Number *',
                   isDense: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  suffixIcon: _loadingPatientPackages
+                      ? const SizedBox(width: 16, height: 16, child: Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF7C3AED)))))
+                      : _patientActivePackages.isNotEmpty
+                          ? const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 20)
+                          : null,
+                  helperText: _patientActivePackages.isNotEmpty
+                      ? 'Subscribed Therapy Package Found: ${_patientActivePackages.first['item_name'] ?? 'Care Plan'} (${(int.tryParse('${_patientActivePackages.first['total_package_sessions'] ?? _patientActivePackages.first['total_sessions'] ?? _patientActivePackages.first['total_allowed_services']}') ?? 6) - (int.tryParse('${_patientActivePackages.first['services_consumed']}') ?? 0)} sessions left)'
+                      : null,
+                  helperStyle: const TextStyle(color: Color(0xFF15803D), fontWeight: FontWeight.bold, fontSize: 11),
                 ),
               ),
               const SizedBox(height: 10),
@@ -6921,23 +7090,60 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                         ChoiceChip(
                           label: const Text('Pay Later'),
                           selected: _paymentOption == 'PAY_LATER',
-                          onSelected: (val) => setState(() => _paymentOption = 'PAY_LATER'),
+                          onSelected: (val) => setState(() {
+                            _paymentOption = 'PAY_LATER';
+                            _restoreDoctorFee();
+                          }),
                         ),
                         const SizedBox(width: 6),
                         ChoiceChip(
                           label: const Text('Paid Now'),
                           selected: _paymentOption == 'PAID_NOW',
-                          onSelected: (val) => setState(() => _paymentOption = 'PAID_NOW'),
+                          onSelected: (val) => setState(() {
+                            _paymentOption = 'PAID_NOW';
+                            _restoreDoctorFee();
+                          }),
                         ),
-                        const SizedBox(width: 6),
-                        ChoiceChip(
-                          label: const Text('Therapy Package'),
-                          selected: _paymentOption == 'PACKAGE',
-                          onSelected: (val) {
-                            setState(() => _paymentOption = 'PACKAGE');
-                            _fetchPatientPackages();
-                          },
-                        ),
+                        // Only active if patient has an active subscribed package on their mobile/name
+                        if (_patientActivePackages.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          ChoiceChip(
+                            avatar: const Icon(Icons.spa_rounded, size: 16, color: Color(0xFF7C3AED)),
+                            label: Text(
+                              'Therapy Package (${(int.tryParse('${_patientActivePackages.first['total_package_sessions'] ?? _patientActivePackages.first['total_sessions'] ?? _patientActivePackages.first['total_allowed_services']}') ?? 6) - (int.tryParse('${_patientActivePackages.first['services_consumed']}') ?? 0)} Left)',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            selected: _paymentOption == 'PACKAGE',
+                            selectedColor: const Color(0xFFF3E8FF),
+                            onSelected: (val) {
+                              setState(() {
+                                _paymentOption = 'PACKAGE';
+                                if (_selectedPackage != null) {
+                                  _selectPackage(_selectedPackage);
+                                } else if (_patientActivePackages.isNotEmpty) {
+                                  _selectPackage(_patientActivePackages.first);
+                                }
+                              });
+                            },
+                          ),
+                        ] else if (_loadingPatientPackages) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF7C3AED))),
+                                SizedBox(width: 6),
+                                Text('Checking...', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
 
@@ -6973,42 +7179,63 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                       ),
                     ],
 
-                    if (_paymentOption == 'PACKAGE') ...[
-                      if (_loadingPatientPackages) ...[
-                        const SizedBox(height: 8),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-                              SizedBox(width: 8),
-                              Text('Checking active patient packages...', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                            ],
-                          ),
+                    if (_paymentOption == 'PACKAGE' && _patientActivePackages.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFAF5FF),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFD8B4FE), width: 1.5),
                         ),
-                      ],
-                      if (_patientActivePackages.isNotEmpty && !_manualPackageEntry) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFAF5FF),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFD8B4FE)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text('Select Active Package:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6D28D9))),
-                                  InkWell(
-                                    onTap: () => setState(() => _manualPackageEntry = true),
-                                    child: const Text('Custom/Manual Entry', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED))),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF7C3AED).withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
-                                ],
-                              ),
+                                  child: const Icon(Icons.spa_rounded, color: Color(0xFF7C3AED), size: 18),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _packageNameCtrl.text.isNotEmpty ? _packageNameCtrl.text : 'Subscribed Therapy Package',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF581C87)),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      const Text(
+                                        'Pre-paid Subscribed Package • Fee Auto-Covered',
+                                        style: TextStyle(fontSize: 10.5, color: Color(0xFF7C3AED), fontWeight: FontWeight.w500),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF16A34A),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    'PRE-PAID',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Divider(height: 16, color: Color(0xFFE9D5FF)),
+
+                            // Multi-package selection dropdown if patient has more than 1 active therapy package
+                            if (_patientActivePackages.length > 1) ...[
+                              const Text('Select Subscribed Package:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6D28D9))),
                               const SizedBox(height: 6),
                               DropdownButtonFormField<dynamic>(
                                 value: _selectedPackage ?? _patientActivePackages.first,
@@ -7022,14 +7249,14 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                                 ),
                                 items: _patientActivePackages.map((pkg) {
                                   final name = (pkg['item_name'] ?? pkg['package_name'] ?? 'Therapy Package').toString();
-                                  final total = int.tryParse('${pkg['total_package_sessions'] ?? pkg['total_sessions']}') ?? 6;
+                                  final total = int.tryParse('${pkg['total_package_sessions'] ?? pkg['total_sessions'] ?? pkg['total_allowed_services']}') ?? 6;
                                   final consumed = int.tryParse('${pkg['services_consumed']}') ?? 0;
                                   final left = total - consumed;
                                   final endDate = (pkg['end_date'] ?? '').toString().split('T').first;
                                   return DropdownMenuItem<dynamic>(
                                     value: pkg,
                                     child: Text(
-                                      '$name • Session ${consumed + 1}/$total ($left left • Exp: $endDate)',
+                                      '$name • $consumed Consumed • $left Left of $total (Exp: $endDate)',
                                       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -7039,93 +7266,113 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                                   if (val != null) _selectPackage(val);
                                 },
                               ),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              const SizedBox(height: 10),
+                            ],
+
+                            // Consumption and Left metrics
+                            Builder(builder: (context) {
+                              final total = int.tryParse(_totalSessionsCtrl.text) ?? 6;
+                              final sessNum = int.tryParse(_sessionNumCtrl.text) ?? 1;
+                              final consumed = (sessNum - 1).clamp(0, total);
+                              final left = (total - consumed).clamp(0, total);
+                              final progress = total > 0 ? (consumed / total).clamp(0.0, 1.0) : 0.0;
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'Session #${_sessionNumCtrl.text} of ${_totalSessionsCtrl.text} (Pre-paid)',
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16A34A)),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              const Text('Consumed', style: TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '$consumed Sessions',
+                                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFEA580C)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              const Text('Remaining Left', style: TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '$left Sessions Left',
+                                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF16A34A)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              const Text('Booking Session', style: TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'Session #$sessNum of $total',
+                                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFECFDF5),
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                                  const SizedBox(height: 10),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: LinearProgressIndicator(
+                                      value: progress,
+                                      minHeight: 6,
+                                      backgroundColor: const Color(0xFFE9D5FF),
+                                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7C3AED)),
                                     ),
-                                    child: const Text('Package Covered', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text('$consumed of $total consumed (${(progress * 100).toStringAsFixed(0)}%)', style: const TextStyle(fontSize: 10, color: Color(0xFF6B21A8), fontWeight: FontWeight.w500)),
+                                      Text('$left sessions left', style: const TextStyle(fontSize: 10, color: Color(0xFF15803D), fontWeight: FontWeight.bold)),
+                                    ],
                                   ),
                                 ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ] else ...[
-                        if (_patientActivePackages.isEmpty && !_loadingPatientPackages && _phoneCtrl.text.trim().isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFEF3C7),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: const Color(0xFFFDE68A)),
-                            ),
-                            child: const Row(
-                              children: [
-                                Icon(Icons.info_outline, size: 14, color: Color(0xFFD97706)),
-                                SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    'No active unconsumed package found for this phone number. Enter manually below:',
-                                    style: TextStyle(fontSize: 10.5, color: Color(0xFF92400E)),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                        if (_manualPackageEntry && _patientActivePackages.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: InkWell(
-                              onTap: () => setState(() => _manualPackageEntry = false),
-                              child: const Text('← Back to Active Packages Dropdown', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED))),
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _packageNameCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Package / Care Plan Name',
-                            hintText: 'e.g. Physiotherapy 6-Sessions Care Plan',
-                            isDense: true,
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _sessionNumCtrl,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(labelText: 'Current Session #', isDense: true, border: OutlineInputBorder()),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: _totalSessionsCtrl,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(labelText: 'Total Free / Covered', isDense: true, border: OutlineInputBorder()),
-                              ),
-                            ),
+                              );
+                            }),
                           ],
                         ),
-                      ],
+                      ),
                     ],
                   ],
                 ),

@@ -27,6 +27,7 @@ import '../../models/inventory/sale_order_model.dart';
 import '../../models/inventory/sale_scheme_model.dart';
 import '../../models/inventory/tax_breakdown_model.dart';
 import 'mobile_bill_modify_sheet.dart';
+import 'mobile_billing_auth_screen.dart';
 import 'mobile_billing_splash_screen.dart';
 import 'mobile_cash_ledger_sheet.dart';
 import 'mobile_customer_ledger_sheet.dart';
@@ -3539,9 +3540,10 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
             onPressed: () async {
               await TokenStorage.clear();
               if (!mounted) return;
-              Navigator.pushReplacement(
+              Navigator.pushAndRemoveUntil(
                 context,
-                MaterialPageRoute(builder: (context) => const MobileBillingSplashScreen()),
+                MaterialPageRoute(builder: (context) => const MobileBillingAuthScreen()),
+                (route) => false,
               );
             },
           ),

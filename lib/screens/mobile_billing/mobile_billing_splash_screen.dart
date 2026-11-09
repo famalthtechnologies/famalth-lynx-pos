@@ -39,6 +39,12 @@ class _MobileBillingSplashScreenState extends State<MobileBillingSplashScreen> {
         return;
       }
 
+      final rawToken = await TokenStorage.getRawToken();
+      final bool wasExpired = rawToken != null && rawToken.isNotEmpty && TokenStorage.isExpired(rawToken);
+      if (wasExpired) {
+        await TokenStorage.clear();
+      }
+
       final token = await TokenStorage.read();
       if (!mounted) return;
 
@@ -51,7 +57,9 @@ class _MobileBillingSplashScreenState extends State<MobileBillingSplashScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => const MobileBillingAuthScreen(),
+            builder: (context) => MobileBillingAuthScreen(
+              notice: wasExpired ? 'Session expired. Please log in again.' : null,
+            ),
           ),
         );
       }

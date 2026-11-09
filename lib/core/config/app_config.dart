@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AppConfig {
   static String baseUrl = 'http://127.0.0.1:3000';
   static List<String> outlets = [];
+  static bool isMobileBilling = false;
   static late String _configPath;
 
   static Future<void> init() async {
@@ -16,6 +17,7 @@ class AppConfig {
       if (kIsWeb) {
         _configPath = 'server_config.json';
       } else if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        isMobileBilling = true;
         final directory = await getApplicationDocumentsDirectory();
         _configPath = p.join(directory.path, 'server_config.json');
       } else {
