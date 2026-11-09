@@ -26,6 +26,8 @@ import '../../models/inventory/settings/system_settings_model.dart';
 import '../../models/settings/app_branding_model.dart';
 import '../../core/printing/device_printer_routing.dart';
 import '../../controllers/sales/sales_controller.dart';
+import '../../controllers/public/outlet_controller.dart';
+import '../../core/permissions/module_capability.dart';
 import '../../widgets/storage_backup_card.dart';
 import 'document_sequence_screen.dart';
 import 'commission_rules_screen.dart';
@@ -212,6 +214,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
   bool _showExpiryAlerts = true;
   bool _requireDepartmentForNonStockable = false;
   String _currentActiveModule = 'ALL';
+  Set<String> _selectedCustomModules = {};
   bool _didLoadBranding = false;
   bool _isCreatingEncBackup = false;
   bool _isCreatingFambakBackup = false;
@@ -222,12 +225,30 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
 
   bool get _isAdmin => PermissionService.user?.role == 'ADMIN';
 
+  int _calculateTabCount(String? module) {
+    final showBillingAndPrint = ModuleCapability.hasBilling(module) ||
+        ModuleCapability.hasRetail(module) ||
+        ModuleCapability.hasRestaurant(module) ||
+        ModuleCapability.hasClinic(module);
+    final showShortcuts = ModuleCapability.hasBilling(module) || ModuleCapability.hasRetail(module);
+    final showSaleAndPayment = ModuleCapability.hasBilling(module) || ModuleCapability.hasRetail(module);
+    final showPromosAndConfigs = ModuleCapability.hasBilling(module) || ModuleCapability.hasRetail(module);
+    final showMarketplace = ModuleCapability.hasRetail(module) || ModuleCapability.hasInventory(module);
+    int count = 5; // Operations, Security, Appearance, Branding, Business Module
+    if (showBillingAndPrint) count++;
+    if (showShortcuts) count++;
+    if (showSaleAndPayment) count++;
+    if (showPromosAndConfigs) count++;
+    if (showMarketplace) count++;
+    return count;
+  }
+
   @override
   void initState() {
     super.initState();
     _currentTabIndex = widget.initialIndex;
-    final showSale = _currentActiveModule != 'INVENTORY';
-    _initTabController(showSale ? 10 : 9, widget.initialIndex);
+    final count = _calculateTabCount(_currentActiveModule);
+    _initTabController(count, widget.initialIndex);
     Future.microtask(() => context.read<SystemSettingsController>().load());
     Future.microtask(
         () => context.read<AppBrandingController>().loadFromServer());
@@ -273,6 +294,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
       _showExpiryAlerts = showExpiryAlerts;
       _requireDepartmentForNonStockable = requireDept;
       _currentActiveModule = mod;
+      _selectedCustomModules = ModuleCapability.parseModules(mod).where((m) => m != 'ALL').toSet();
       _currentMachineId = machineId;
     });
   }
@@ -1138,8 +1160,20 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
       );
     }
 
-    final showSaleAndPayment = _currentActiveModule != 'INVENTORY';
-    final tabCount = showSaleAndPayment ? 10 : 9;
+    final showBillingAndPrint = ModuleCapability.hasBilling(_currentActiveModule) ||
+        ModuleCapability.hasRetail(_currentActiveModule) ||
+        ModuleCapability.hasRestaurant(_currentActiveModule) ||
+        ModuleCapability.hasClinic(_currentActiveModule);
+    final showShortcuts = ModuleCapability.hasBilling(_currentActiveModule) || ModuleCapability.hasRetail(_currentActiveModule);
+    final showSaleAndPayment = ModuleCapability.hasBilling(_currentActiveModule) || ModuleCapability.hasRetail(_currentActiveModule);
+    final showPromosAndConfigs = ModuleCapability.hasBilling(_currentActiveModule) || ModuleCapability.hasRetail(_currentActiveModule);
+    final showMarketplace = ModuleCapability.hasRetail(_currentActiveModule) || ModuleCapability.hasInventory(_currentActiveModule);
+    final hasBilling = ModuleCapability.hasBilling(_currentActiveModule) || ModuleCapability.hasRetail(_currentActiveModule);
+    final hasInventory = ModuleCapability.hasInventory(_currentActiveModule);
+    if (!hasInventory && !s.allowNegativeStock) {
+      s.allowNegativeStock = true;
+    }
+    final tabCount = _calculateTabCount(_currentActiveModule);
     if (_tabController == null || _tabController!.length != tabCount) {
       _initTabController(tabCount, _currentTabIndex);
     }
@@ -1157,12 +1191,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
             const Tab(text: 'Operations'),
             const Tab(text: 'Security & Gateways'),
             const Tab(text: 'Appearance'),
-            const Tab(text: 'Billing & Print'),
+            if (showBillingAndPrint) const Tab(text: 'Billing & Print'),
             const Tab(text: 'Branding'),
-            const Tab(text: 'Keyboard Shortcuts'),
+            if (showShortcuts) const Tab(text: 'Keyboard Shortcuts'),
             if (showSaleAndPayment) const Tab(text: 'Sale & Payment'),
-            const Tab(text: 'Promos & Configs'),
-            const Tab(text: 'Marketplace & Vendor'),
+            if (showPromosAndConfigs) const Tab(text: 'Promos & Configs'),
+            if (showMarketplace) const Tab(text: 'Marketplace & Vendor'),
             const Tab(text: 'Business Module'),
           ],
         ),
@@ -1452,60 +1486,71 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                       ),
                     ],
                   ),
-                  _customSection(
-                    'Inventory Settings',
-                    'Configure behaviors and triggers for product inventory management.',
-                    [
-                      _settingRow(
-                        title: 'Enable Auto Reorder Alert',
-                        description: 'Notify when stock falls below specified reorder thresholds',
-                        control: Switch.adaptive(
-                          value: s.autoReorder,
-                          onChanged: (v) => setState(() => s.autoReorder = v),
+                  if (hasInventory || hasBilling)
+                    _customSection(
+                      hasInventory ? 'Inventory Settings' : 'Catalog & POS Settings',
+                      hasInventory
+                          ? 'Configure behaviors and triggers for product inventory management.'
+                          : 'Configure item catalog behaviors, negative stock, and POS sales settings.',
+                      [
+                        if (hasInventory) ...[
+                          _settingRow(
+                            title: 'Enable Auto Reorder Alert',
+                            description: 'Notify when stock falls below specified reorder thresholds',
+                            control: Switch.adaptive(
+                              value: s.autoReorder,
+                              onChanged: (v) => setState(() => s.autoReorder = v),
+                            ),
+                          ),
+                          _settingRow(
+                            title: 'Direct Department Issue for Non-Stockable Items',
+                            description: 'Show Department option in Vendor Receive Order (GRN) to issue non-stockable items directly upon receipt. When disabled, Department is hidden and not required.',
+                            control: Switch.adaptive(
+                              value: _requireDepartmentForNonStockable,
+                              onChanged: (v) => setState(() {
+                                _requireDepartmentForNonStockable = v;
+                                s.requireDepartmentForNonStockable = v;
+                              }),
+                            ),
+                          ),
+                        ],
+                        _settingRow(
+                          title: 'Allow Negative Stock',
+                          description: hasInventory
+                              ? 'Allow issue/sale transactions even if current stock is zero or insufficient'
+                              : 'Allow sale transactions even if current stock is zero or insufficient (by default ON when inventory is inactive)',
+                          isLast: !hasBilling,
+                          control: Switch.adaptive(
+                            value: s.allowNegativeStock,
+                            onChanged: (v) => setState(() => s.allowNegativeStock = v),
+                          ),
                         ),
-                      ),
-                      _settingRow(
-                        title: 'Direct Department Issue for Non-Stockable Items',
-                        description: 'Show Department option in Vendor Receive Order (GRN) to issue non-stockable items directly upon receipt. When disabled, Department is hidden and not required.',
-                        control: Switch.adaptive(
-                          value: _requireDepartmentForNonStockable,
-                          onChanged: (v) => setState(() {
-                            _requireDepartmentForNonStockable = v;
-                            s.requireDepartmentForNonStockable = v;
-                          }),
-                        ),
-                      ),
-                      _settingRow(
-                        title: 'Allow Negative Stock',
-                        description: 'Allow issue/sale transactions even if current stock is zero or insufficient',
-                        control: Switch.adaptive(
-                          value: s.allowNegativeStock,
-                          onChanged: (v) => setState(() => s.allowNegativeStock = v),
-                        ),
-                      ),
-                      _settingRow(
-                        title: 'Show Item Images in Sales',
-                        description: 'Display item photographs directly on the POS sale screen',
-                        control: Switch.adaptive(
-                          value: s.enableItemImagesInSales,
-                          onChanged: (v) => setState(() => s.enableItemImagesInSales = v),
-                        ),
-                      ),
-                      _settingRow(
-                        title: 'Enable Salesperson Tagging',
-                        description: 'Show salesperson selector and calculate commission on sale',
-                        isLast: true,
-                        control: Switch.adaptive(
-                          value: s.enableSalespersonTagging,
-                          onChanged: (v) => setState(() => s.enableSalespersonTagging = v),
-                        ),
-                      ),
-                    ],
-                  ),
-                  _customSection(
-                    'Subscription Delivery',
-                    'Manage automated workflows for daily recurring orders.',
-                    [
+                        if (hasBilling) ...[
+                          _settingRow(
+                            title: 'Show Item Images in Sales',
+                            description: 'Display item photographs directly on the POS sale screen',
+                            control: Switch.adaptive(
+                              value: s.enableItemImagesInSales,
+                              onChanged: (v) => setState(() => s.enableItemImagesInSales = v),
+                            ),
+                          ),
+                          _settingRow(
+                            title: 'Enable Salesperson Tagging',
+                            description: 'Show salesperson selector and calculate commission on sale',
+                            isLast: true,
+                            control: Switch.adaptive(
+                              value: s.enableSalespersonTagging,
+                              onChanged: (v) => setState(() => s.enableSalespersonTagging = v),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  if (hasBilling)
+                    _customSection(
+                      'Subscription Delivery',
+                      'Manage automated workflows for daily recurring orders.',
+                      [
                       _settingRow(
                         title: 'Enable Home Delivery Subscription (From App or Store)',
                         description: 'Enable home delivery subscriptions when subscribing from the Customer App or from the Store',
@@ -1607,21 +1652,22 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                       ],
                     ],
                   ),
-                  _customSection(
-                    'Approval Rules',
-                    'Set authorization constraints for warehouse managers.',
-                    [
-                      _settingRow(
-                        title: 'Damage Approval Required',
-                        description: 'Require manager approval/authorization before writing off damaged items',
-                        isLast: true,
-                        control: Switch.adaptive(
-                          value: s.damageApprovalRequired,
-                          onChanged: (v) => setState(() => s.damageApprovalRequired = v),
+                  if (hasInventory)
+                    _customSection(
+                      'Approval Rules',
+                      'Set authorization constraints for warehouse managers.',
+                      [
+                        _settingRow(
+                          title: 'Damage Approval Required',
+                          description: 'Require manager approval/authorization before writing off damaged items',
+                          isLast: true,
+                          control: Switch.adaptive(
+                            value: s.damageApprovalRequired,
+                            onChanged: (v) => setState(() => s.damageApprovalRequired = v),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
                   _customSection(
                     'Audit & Compliance',
                     'Maintain system logs and dashboard communication.',
@@ -1642,14 +1688,15 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                           onChanged: (v) => setState(() => _showNotifications = v),
                         ),
                       ),
-                      _settingRow(
-                        title: 'Stock Expiry Alerts (6-Hourly)',
-                        description: 'Display 6-hourly critical stock expiry warnings and popup banners',
-                        control: Switch.adaptive(
-                          value: _showExpiryAlerts,
-                          onChanged: (v) => setState(() => _showExpiryAlerts = v),
+                      if (hasInventory)
+                        _settingRow(
+                          title: 'Stock Expiry Alerts (6-Hourly)',
+                          description: 'Display 6-hourly critical stock expiry warnings and popup banners',
+                          control: Switch.adaptive(
+                            value: _showExpiryAlerts,
+                            onChanged: (v) => setState(() => _showExpiryAlerts = v),
+                          ),
                         ),
-                      ),
                       _settingRow(
                         title: 'Customize Navigation Favorites',
                         description: 'Select features to pin directly to the FAVORITES section in your sidebar drawer',
@@ -2081,7 +2128,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                 ], constraints),
 
                 // 3. BILLING & PRINT TAB
-                buildTabBody([
+                if (showBillingAndPrint)
+                  buildTabBody([
                   _customSection(
                     'Printing Config',
                     'Receipt printing triggers, defaults, and printer outputs.',
@@ -2579,7 +2627,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                 ], constraints),
 
                 // 5. KEYBOARD SHORTCUTS TAB
-                buildTabBody([
+                if (showShortcuts)
+                  buildTabBody([
                   _customSection(
                     'Keyboard Shortcuts Guide',
                     'Use hotkeys to quickly navigate screens without using a mouse.',
@@ -2614,10 +2663,12 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                   ], constraints),
 
                 // 8. PROMOS & CONFIGS TAB
-                _buildPromosAndConfigsTab(buildTabBody, constraints),
+                if (showPromosAndConfigs)
+                  _buildPromosAndConfigsTab(buildTabBody, constraints),
 
                 // 9. MARKETPLACE & VENDOR TAB
-                const VendorMarketplaceSettingsView(),
+                if (showMarketplace)
+                  const VendorMarketplaceSettingsView(),
 
                 // 10. BUSINESS MODULE TAB
                 _buildBusinessModuleTab(buildTabBody, constraints),
@@ -2699,6 +2750,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
       final userMap = await TokenStorage.getUser();
       if (userMap != null) {
         userMap['business_module'] = value;
+        userMap['outlet_module'] = value;
         await TokenStorage.saveUser(userMap);
       }
       final outletCode = await TokenStorage.getOutletCode();
@@ -2706,15 +2758,17 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('brand_module_$outletCode', value);
       }
-      final newShowSale = value != 'INVENTORY';
-      final newCount = newShowSale ? 10 : 9;
+      final newCount = _calculateTabCount(value);
       final targetIndex = newCount - 1; // Explicitly stay on Business Module tab
       _initTabController(newCount, targetIndex);
-      setState(() => _currentActiveModule = value);
+      setState(() {
+        _currentActiveModule = value;
+        _selectedCustomModules = ModuleCapability.parseModules(value).where((m) => m != 'ALL').toSet();
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Business Module updated to $value. Navigation menus refreshed.'),
+            content: Text('Business Modules updated to ${ModuleCapability.formatDisplayModules(value)}. Navigation menus refreshed.'),
             backgroundColor: const Color(0xFF10B981),
           ),
         );
@@ -2734,61 +2788,224 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
   Widget _buildBusinessModuleTab(
       Widget Function(List<Widget>, BoxConstraints) buildTabBody,
       BoxConstraints constraints) {
+    final activeModulesList = ModuleCapability.parseModules(_currentActiveModule).where((m) => m != 'ALL').toList();
+    final activeTitle = ModuleCapability.formatDisplayModules(_currentActiveModule);
+
+    final allModulesDef = [
+      {
+        'key': 'RETAIL',
+        'name': 'Retail POS & Counter Billing',
+        'desc': 'Point of Sale counter, barcode scanner, hold/draft bills, and online delivery portal',
+        'icon': Icons.point_of_sale_rounded,
+        'color': const Color(0xFF10B981),
+        'features': [
+          'Enterprise Counter Billing & POS',
+          'Hold Bills & Draft Sales',
+          'Sales Bill Modify & Reprint',
+          'Online Orders & Delivery Portal',
+          'Customer CRM & Loyalty Program',
+        ]
+      },
+      {
+        'key': 'RESTAURANT',
+        'name': 'Restaurant & Dining (KDS/KOTs)',
+        'desc': 'Kitchen Display System (KDS), Table Designer, Floor Plan, Captain & Waiter Floor',
+        'icon': Icons.restaurant_rounded,
+        'color': Colors.orange,
+        'features': [
+          'Kitchen Display System (KDS Live Screen)',
+          'Floor Plan & Dining Table Configurator',
+          'Captain Dashboard & Waiter Handheld',
+          'Table Reservations & Running Orders',
+          'Kitchen Order Tickets (KOTs History)',
+        ]
+      },
+      {
+        'key': 'INVENTORY',
+        'name': 'Stock & Warehouse Management',
+        'desc': 'Item Master, Stock Issue, Goods Receiving (GRN), Purchase Orders, and Warehouse Transfers',
+        'icon': Icons.inventory_2_rounded,
+        'color': Colors.blue,
+        'features': [
+          'Item Master, Barcodes & Units',
+          'Purchase Orders & Goods Receiving (GRN)',
+          'Location Stock Transfers & Dispatches',
+          'Damage Items & Wastage Registry',
+          'Product Assembly & Recipe BOM',
+        ]
+      },
+      {
+        'key': 'CLINIC',
+        'name': 'Clinic & OPD Healthcare',
+        'desc': 'Doctor Appointments, Patient OPD Consultations, Medical Prescriptions & Pharmacy',
+        'icon': Icons.local_hospital_rounded,
+        'color': const Color(0xFF0D9488),
+        'features': [
+          'Doctor Directory & Specialist Profiles',
+          'Patient Reception & Appointments',
+          'Clinical Notes & Doctor Consultations',
+          'Medical Prescriptions with Medicine Stock',
+          'OPD Queue & Healthcare Billing',
+        ]
+      },
+      {
+        'key': 'ACCOUNTING',
+        'name': 'Finance & Accounting Hub',
+        'desc': 'Double-entry accounting, Chart of Accounts, Vouchers, Bank Accounts, and Balance Sheets',
+        'icon': Icons.account_balance_rounded,
+        'color': const Color(0xFF7C3AED),
+        'features': [
+          'Chart of Accounts & Ledgers',
+          'Accounting Vouchers (Contra, Payment, Receipt, Journal)',
+          'Company Bank Accounts & Cash Registry',
+          'Trial Balance, Profit & Loss & Balance Sheet',
+          'Financial Analytics & Expense Tracking',
+        ]
+      },
+      {
+        'key': 'HRMS',
+        'name': 'HRMS & Staff Management',
+        'desc': 'Employee Master, Shifts & Roster, Biometric Attendance Sync, and Monthly Payroll',
+        'icon': Icons.badge_rounded,
+        'color': const Color(0xFF6366F1),
+        'features': [
+          'Employee Directory & KYC Profiles',
+          'Shifts & Weekly Roster Scheduler',
+          'Punch-In / Out Attendance Logs',
+          'Biometric Integration (ZKTeco/eSSL & Push)',
+          'Leave Requests & Monthly Payroll Run',
+        ]
+      },
+    ];
+
+    void applyPreset(String preset) {
+      if (preset == 'ALL') {
+        _changeModuleSuite('ALL');
+      } else if (preset == 'RETAIL') {
+        _changeModuleSuite('RETAIL');
+      } else if (preset == 'RETAIL_INVENTORY') {
+        _changeModuleSuite('RETAIL,INVENTORY');
+      } else if (preset == 'RESTAURANT') {
+        _changeModuleSuite('RESTAURANT');
+      } else if (preset == 'RESTAURANT_INVENTORY') {
+        _changeModuleSuite('RESTAURANT,INVENTORY');
+      } else if (preset == 'CLINIC') {
+        _changeModuleSuite('CLINIC');
+      } else if (preset == 'CLINIC_INVENTORY') {
+        _changeModuleSuite('CLINIC,INVENTORY');
+      } else if (preset == 'INVENTORY') {
+        _changeModuleSuite('INVENTORY');
+      } else if (preset == 'ACCOUNTING') {
+        _changeModuleSuite('ACCOUNTING');
+      } else if (preset == 'HRMS') {
+        _changeModuleSuite('HRMS');
+      }
+    }
+
     return buildTabBody([
-      _customSection(
-        'Active Business Feature Suite',
-        'Configure feature set visibility and menu permissions for this outlet (Inventory, Retail POS, Restaurant, or All Modules).',
-        [
-          _settingRow(
-            title: 'Selected Module Suite',
-            description:
-                'Choose active module suite to enable corresponding workflows and hide unauthorized menus',
-            isLast: true,
-            control: SizedBox(
-              width: 260,
-              child: DropdownButtonFormField<String>(
-                value: _currentActiveModule,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.widgets_outlined),
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: 'INVENTORY',
-                    child: Text('Inventory Only (Stock & Warehouse)', overflow: TextOverflow.ellipsis),
-                  ),
-                  DropdownMenuItem(
-                    value: 'RETAIL',
-                    child: Text('Retail (POS Billing + Inventory)', overflow: TextOverflow.ellipsis),
-                  ),
-                  DropdownMenuItem(
-                    value: 'RESTAURANT',
-                    child: Text('Restaurant (Dining + KDS + Inventory)', overflow: TextOverflow.ellipsis),
-                  ),
-                  DropdownMenuItem(
-                    value: 'CLINIC',
-                    child: Text('Clinic (Doctors + Appointments + Billing + Inventory)', overflow: TextOverflow.ellipsis),
-                  ),
-                  DropdownMenuItem(
-                    value: 'HRMS',
-                    child: Text('HRMS (Staff, Attendance & Biometrics Only)', overflow: TextOverflow.ellipsis),
-                  ),
-                  DropdownMenuItem(
-                    value: 'ALL',
-                    child: Text('All Modules (Complete Enterprise Suite)', overflow: TextOverflow.ellipsis),
-                  ),
-                ],
-                onChanged: (value) async {
-                  if (value != null) {
-                    await _changeModuleSuite(value);
-                  }
-                },
-              ),
+      // 1. Current Active Suite Banner
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-          ),
-        ],
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.widgets_rounded, color: Color(0xFF2563EB), size: 26),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Active Workstation Feature Suite',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        activeTitle,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFA7F3D0)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(width: 8, height: 8, decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF10B981))),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${activeModulesList.length} Active Modules',
+                        style: const TextStyle(color: Color(0xFF065F46), fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: activeModulesList.map((modKey) {
+                final match = allModulesDef.firstWhere((m) => m['key'] == modKey, orElse: () => {
+                  'name': modKey,
+                  'color': const Color(0xFF2563EB),
+                });
+                final color = match['color'] as Color;
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: color.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_circle_rounded, size: 14, color: color),
+                      const SizedBox(width: 6),
+                      Text(
+                        match['name'] as String,
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
       ),
       const SizedBox(height: 20),
+
+      // 2. Quick Presets Section
       Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
@@ -2800,100 +3017,296 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Module Features Suite Overview',
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E293B)),
+              '1. Quick Module Presets (Single Click)',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Switch to a standard business suite with 1 click',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
             ),
             const SizedBox(height: 14),
-            _moduleCard(
-              title: '📦 Inventory Only',
-              badgeColor: Colors.blue,
-              isSelected: _currentActiveModule == 'INVENTORY',
-              onTap: () => _changeModuleSuite('INVENTORY'),
-              features: [
-                'Item Master & Stock Locations',
-                'Purchase Orders & Goods Receiving (GRN)',
-                'Stock Dispatches & Location Transfers',
-                'Assembly / BOM & Damage Management',
-                'HRMS Employee Directory, Attendance & Payroll',
-                'Stock Ledger & Financial Ledger Reports'
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              children: [
+                ActionChip(
+                  avatar: const Icon(Icons.point_of_sale_outlined, size: 16),
+                  label: const Text('🛒 Retail POS Only'),
+                  backgroundColor: _currentActiveModule == 'RETAIL' ? const Color(0xFFD1FAE5) : Colors.white,
+                  onPressed: () => applyPreset('RETAIL'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.shopping_bag_outlined, size: 16),
+                  label: const Text('🛍️ POS + Stock'),
+                  backgroundColor: _currentActiveModule == 'RETAIL,INVENTORY' ? const Color(0xFFD1FAE5) : Colors.white,
+                  onPressed: () => applyPreset('RETAIL_INVENTORY'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.restaurant_outlined, size: 16),
+                  label: const Text('🍽️ Restaurant Only'),
+                  backgroundColor: _currentActiveModule == 'RESTAURANT' ? const Color(0xFFFFEDD5) : Colors.white,
+                  onPressed: () => applyPreset('RESTAURANT'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.restaurant_menu_outlined, size: 16),
+                  label: const Text('🍽️ Restaurant + Stock'),
+                  backgroundColor: _currentActiveModule == 'RESTAURANT,INVENTORY' ? const Color(0xFFFFEDD5) : Colors.white,
+                  onPressed: () => applyPreset('RESTAURANT_INVENTORY'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.local_hospital_outlined, size: 16),
+                  label: const Text('🩺 Clinic / OPD Only'),
+                  backgroundColor: _currentActiveModule == 'CLINIC' ? const Color(0xFFCCFBF1) : Colors.white,
+                  onPressed: () => applyPreset('CLINIC'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.medical_services_outlined, size: 16),
+                  label: const Text('🩺 Clinic + Pharmacy'),
+                  backgroundColor: _currentActiveModule == 'CLINIC,INVENTORY' ? const Color(0xFFCCFBF1) : Colors.white,
+                  onPressed: () => applyPreset('CLINIC_INVENTORY'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.inventory_2_outlined, size: 16),
+                  label: const Text('📦 Inventory Only (Warehouse & PO)'),
+                  backgroundColor: _currentActiveModule == 'INVENTORY' ? const Color(0xFFDBEAFE) : Colors.white,
+                  onPressed: () => applyPreset('INVENTORY'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.account_balance_outlined, size: 16),
+                  label: const Text('📊 Finance & Accounts Hub'),
+                  backgroundColor: _currentActiveModule == 'ACCOUNTING' ? const Color(0xFFEDE9FE) : Colors.white,
+                  onPressed: () => applyPreset('ACCOUNTING'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.badge_outlined, size: 16),
+                  label: const Text('👥 HRMS & Attendance Only'),
+                  backgroundColor: _currentActiveModule == 'HRMS' ? const Color(0xFFE0E7FF) : Colors.white,
+                  onPressed: () => applyPreset('HRMS'),
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.all_inclusive, size: 16, color: Color(0xFF7C3AED)),
+                  label: const Text('🌐 Full Enterprise Suite (All Modules)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF7C3AED))),
+                  backgroundColor: _currentActiveModule == 'ALL' ? const Color(0xFFEDE9FE) : Colors.white,
+                  onPressed: () => applyPreset('ALL'),
+                ),
               ],
             ),
-            const SizedBox(height: 12),
-            _moduleCard(
-              title: '🛍️ Retail (POS + Inventory Included)',
-              badgeColor: const Color(0xFF10B981),
-              isSelected: _currentActiveModule == 'RETAIL',
-              onTap: () => _changeModuleSuite('RETAIL'),
-              features: [
-                'Point of Sale (Enterprise POS & Cashier)',
-                'Customer App & Online Delivery Integration',
-                'Supplier / Retailer Console',
-                'Rider Delivery Portal',
-                'Sales Reprints & Daily Closing Reports',
-                '+ All Inventory, Stock & HRMS Features Included'
+          ],
+        ),
+      ),
+      const SizedBox(height: 20),
+
+      // 3. Custom Multi-Module Suite Selector (Checkbox Grid)
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      '2. Custom Multi-Module Selection',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Select any custom combination of modules for this outlet',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedCustomModules = allModulesDef.map((m) => m['key'] as String).toSet();
+                        });
+                      },
+                      child: const Text('Select All', style: TextStyle(fontSize: 12)),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedCustomModules = {'RETAIL'};
+                        });
+                      },
+                      child: const Text('Reset', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    ),
+                  ],
+                ),
               ],
             ),
-            const SizedBox(height: 12),
-            _moduleCard(
-              title: '🍽️ Restaurant (KDS/KOTs + Inventory Included)',
-              badgeColor: Colors.orange,
-              isSelected: _currentActiveModule == 'RESTAURANT',
-              onTap: () => _changeModuleSuite('RESTAURANT'),
-              features: [
-                'Kitchen Display System (KDS Queue)',
-                'Floor Plan & Dining Table Designer',
-                'Captain Console & KOT Builder',
-                'Running Orders & KOT History Logs',
-                'Delivery Challans & Recurring Expenses',
-                '+ All Inventory, Stock & HRMS Features Included'
-              ],
+            const SizedBox(height: 14),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: allModulesDef.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (ctx, i) {
+                final m = allModulesDef[i];
+                final key = m['key'] as String;
+                final name = m['name'] as String;
+                final desc = m['desc'] as String;
+                final icon = m['icon'] as IconData;
+                final color = m['color'] as Color;
+                final isChecked = _selectedCustomModules.contains(key);
+
+                return InkWell(
+                  onTap: () {
+                    setState(() {
+                      if (isChecked) {
+                        if (_selectedCustomModules.length > 1) {
+                          _selectedCustomModules.remove(key);
+                        }
+                      } else {
+                        _selectedCustomModules.add(key);
+                      }
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isChecked ? color.withOpacity(0.05) : const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isChecked ? color : const Color(0xFFE2E8F0),
+                        width: isChecked ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: isChecked ? color : const Color(0xFFE2E8F0),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(icon, size: 20, color: isChecked ? Colors.white : const Color(0xFF64748B)),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: isChecked ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                desc,
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Checkbox(
+                          value: isChecked,
+                          activeColor: color,
+                          onChanged: (val) {
+                            setState(() {
+                              if (val == true) {
+                                _selectedCustomModules.add(key);
+                              } else {
+                                if (_selectedCustomModules.length > 1) {
+                                  _selectedCustomModules.remove(key);
+                                }
+                              }
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
-            const SizedBox(height: 12),
-            _moduleCard(
-              title: '🩺 Clinic (Doctors + Appointments + Billing + Inventory)',
-              badgeColor: const Color(0xFF0D9488),
-              isSelected: _currentActiveModule == 'CLINIC',
-              onTap: () => _changeModuleSuite('CLINIC'),
-              features: [
-                'Doctor Directory & Specialty Profiles',
-                'Patient Reception & Online Appointment Booking',
-                'Clinical Notes & Doctor Consultation Screen',
-                'Medical Prescription Builder with Pharmacy Stock Lookup',
-                'Send Prescriptions to POS Billing Draft',
-                '+ All Inventory, Medicine Batches & Expiry Tracking Included'
-              ],
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2563EB),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: const Icon(Icons.save_rounded, size: 18),
+                label: Text(
+                  'Apply ${_selectedCustomModules.length} Selected Modules',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                onPressed: () {
+                  if (_selectedCustomModules.isEmpty) {
+                    _selectedCustomModules.add('RETAIL');
+                  }
+                  String targetValue;
+                  if (_selectedCustomModules.length == allModulesDef.length) {
+                    targetValue = 'ALL';
+                  } else if (_selectedCustomModules.length == 1) {
+                    targetValue = _selectedCustomModules.first;
+                  } else {
+                    targetValue = _selectedCustomModules.join(',');
+                  }
+                  _changeModuleSuite(targetValue);
+                },
+              ),
             ),
-            const SizedBox(height: 12),
-            _moduleCard(
-              title: '👥 Dedicated HRMS (Staff, Attendance & Biometrics)',
-              badgeColor: const Color(0xFF6366F1),
-              isSelected: _currentActiveModule == 'HRMS',
-              onTap: () => _changeModuleSuite('HRMS'),
-              features: [
-                'Employee Profiles, Designations & Staff Documents',
-                'Shifts & Weekly Offs Auto-Scheduler',
-                'Attendance Logs (Punch-In / Out, Overtime & Lateness)',
-                'Bulk Import Attendance from Excel / CSV Sheets',
-                'Biometric Machine Integration (ZKTeco/eSSL & HTTP Push Webhooks)',
-                'Leave Applications, Approvals & Monthly Payroll Processing'
-              ],
+          ],
+        ),
+      ),
+      const SizedBox(height: 20),
+
+      // 4. Detailed Module Features Breakdown
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '3. Module Feature Suite Reference',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
             ),
-            const SizedBox(height: 12),
-            _moduleCard(
-              title: '🌐 All Modules (Full Suite Access)',
-              badgeColor: Colors.purple,
-              isSelected: _currentActiveModule == 'ALL',
-              onTap: () => _changeModuleSuite('ALL'),
-              features: [
-                'Retail Sales (POS), Customer App & Delivery Portals',
-                'Restaurant KDS, KOTs, Tables & Dining Operations',
-                'Complete Inventory, Stock Control & Purchase Orders',
-                'HRMS, Payroll Processing & AI Query Analytics'
-              ],
-            ),
+            const SizedBox(height: 14),
+            ...allModulesDef.map((m) {
+              final key = m['key'] as String;
+              final name = m['name'] as String;
+              final color = m['color'] as Color;
+              final features = m['features'] as List<String>;
+              final isEnabled = activeModulesList.contains(key) || _currentActiveModule == 'ALL';
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _moduleCard(
+                  title: name,
+                  badgeColor: color,
+                  isSelected: isEnabled,
+                  features: features,
+                  onTap: () => applyPreset(key),
+                ),
+              );
+            }).toList(),
           ],
         ),
       ),

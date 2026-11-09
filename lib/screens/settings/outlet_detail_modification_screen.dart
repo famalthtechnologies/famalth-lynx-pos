@@ -5,11 +5,13 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../controllers/settings/property_info_controller.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/auth/token_storage.dart';
+import '../../core/permissions/module_capability.dart';
 import '../../models/common/property_info_model.dart';
 import '../../utils/branding_storage.dart';
 import '../../widgets/state_dropdown_field.dart';
@@ -468,7 +470,14 @@ class _OutletDetailModificationScreenState extends State<OutletDetailModificatio
           userMap['outlet_name'] = _propertyName.text.trim();
           userMap['property_name'] = _propertyName.text.trim();
           userMap['name'] = _propertyName.text.trim();
+          userMap['business_module'] = _selectedOutletModule;
+          userMap['outlet_module'] = _selectedOutletModule;
           await TokenStorage.saveUser(userMap);
+        }
+        final outletCode = await TokenStorage.getOutletCode();
+        if (outletCode != null && outletCode.isNotEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('brand_module_$outletCode', _selectedOutletModule);
         }
       } catch (_) {}
       try {
@@ -646,13 +655,7 @@ class _OutletDetailModificationScreenState extends State<OutletDetailModificatio
                                 onChanged: _isEditEnabled ? (v) => setState(() => _selectedBusinessType = v!) : null,
                                 prefixIcon: Icons.category_rounded,
                               ),
-                              _dropdownField(
-                                label: 'Business Module',
-                                value: _selectedOutletModule,
-                                items: _moduleOptions,
-                                onChanged: _isEditEnabled ? (v) => setState(() => _selectedOutletModule = v!) : null,
-                                prefixIcon: Icons.space_dashboard_rounded,
-                              ),
+                              _buildModuleSelectorField(),
                             ],
                           ),
 
@@ -1108,6 +1111,381 @@ class _OutletDetailModificationScreenState extends State<OutletDetailModificatio
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildModuleSelectorField() {
+    final title = ModuleCapability.formatDisplayModules(_selectedOutletModule);
+    final activeList = ModuleCapability.parseModules(_selectedOutletModule).where((m) => m != 'ALL').toList();
+
+    return SizedBox(
+      width: 310,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RichText(
+            text: const TextSpan(
+              text: 'Business Modules ',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF334155),
+              ),
+              children: [
+                TextSpan(text: '*', style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          InkWell(
+            onTap: _isEditEnabled ? () => _showModuleSelectorDialog() : null,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: _isEditEnabled ? Colors.white : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _isEditEnabled ? const Color(0xFFCBD5E1) : Colors.grey.shade300),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.space_dashboard_rounded, color: Color(0xFF2563EB), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: _isEditEnabled ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (_isEditEnabled)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text('Change', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (activeList.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: activeList.map((m) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                  ),
+                  child: Text(
+                    m,
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showModuleSelectorDialog() {
+    Set<String> tempSelected = ModuleCapability.parseModules(_selectedOutletModule).where((m) => m != 'ALL').toSet();
+    if (tempSelected.isEmpty) {
+      tempSelected = {'RETAIL'};
+    }
+
+    final allModulesDef = [
+      {
+        'key': 'RETAIL',
+        'name': 'Retail POS & Billing Counter',
+        'desc': 'Counter POS, Fast Checkout, Customer App & Delivery Orders',
+        'icon': Icons.point_of_sale_rounded,
+        'color': const Color(0xFF10B981),
+      },
+      {
+        'key': 'RESTAURANT',
+        'name': 'Restaurant & Dining (KDS/KOTs)',
+        'desc': 'Dine-In Tables, Captain Floor, KDS Kitchen Display & KOT History',
+        'icon': Icons.restaurant_rounded,
+        'color': Colors.orange,
+      },
+      {
+        'key': 'INVENTORY',
+        'name': 'Stock & Warehouse Management',
+        'desc': 'Item Master, Stock Issue, Goods Receiving (GRN), PO & Suppliers',
+        'icon': Icons.inventory_2_rounded,
+        'color': Colors.blue,
+      },
+      {
+        'key': 'CLINIC',
+        'name': 'Clinic & OPD Healthcare',
+        'desc': 'Doctor Appointments, Patient OPD Consultations & Pharmacy Stock',
+        'icon': Icons.local_hospital_rounded,
+        'color': const Color(0xFF0D9488),
+      },
+      {
+        'key': 'ACCOUNTING',
+        'name': 'Finance & Accounting Hub',
+        'desc': 'Chart of Accounts, Journal/Payment Vouchers, Ledger & Balance Sheet',
+        'icon': Icons.account_balance_rounded,
+        'color': const Color(0xFF7C3AED),
+      },
+      {
+        'key': 'HRMS',
+        'name': 'HRMS & Staff Management',
+        'desc': 'Employee Profiles, Shifts, Attendance Tracking & Monthly Payroll',
+        'icon': Icons.badge_rounded,
+        'color': const Color(0xFF6366F1),
+      },
+    ];
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void applySinglePreset(String preset) {
+              setDialogState(() {
+                if (preset == 'ALL') {
+                  tempSelected = {'RETAIL', 'RESTAURANT', 'INVENTORY', 'CLINIC', 'ACCOUNTING', 'HRMS'};
+                } else if (preset == 'RETAIL') {
+                  tempSelected = {'RETAIL'};
+                } else if (preset == 'RETAIL_INVENTORY') {
+                  tempSelected = {'RETAIL', 'INVENTORY'};
+                } else if (preset == 'RESTAURANT') {
+                  tempSelected = {'RESTAURANT'};
+                } else if (preset == 'RESTAURANT_INVENTORY') {
+                  tempSelected = {'RESTAURANT', 'INVENTORY'};
+                } else if (preset == 'CLINIC') {
+                  tempSelected = {'CLINIC'};
+                } else if (preset == 'CLINIC_INVENTORY') {
+                  tempSelected = {'CLINIC', 'INVENTORY'};
+                } else if (preset == 'INVENTORY') {
+                  tempSelected = {'INVENTORY'};
+                } else if (preset == 'ACCOUNTING') {
+                  tempSelected = {'ACCOUNTING'};
+                } else if (preset == 'HRMS') {
+                  tempSelected = {'HRMS'};
+                }
+              });
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640, maxHeight: 680),
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFF6FF),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.space_dashboard_rounded, color: Color(0xFF2563EB), size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: const [
+                                Text(
+                                  'Select Business Modules',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Enable single or multiple feature suites for this outlet',
+                                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      const Text('Quick Presets:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          ActionChip(
+                            label: const Text('🛒 Retail POS Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('RETAIL'),
+                          ),
+                          ActionChip(
+                            label: const Text('🛍️ POS + Stock', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('RETAIL_INVENTORY'),
+                          ),
+                          ActionChip(
+                            label: const Text('🍽️ Restaurant Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('RESTAURANT'),
+                          ),
+                          ActionChip(
+                            label: const Text('🍽️ Restaurant + Stock', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('RESTAURANT_INVENTORY'),
+                          ),
+                          ActionChip(
+                            label: const Text('🩺 Clinic / OPD Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('CLINIC'),
+                          ),
+                          ActionChip(
+                            label: const Text('🩺 Clinic + Pharmacy', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('CLINIC_INVENTORY'),
+                          ),
+                          ActionChip(
+                            label: const Text('📦 Inventory Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('INVENTORY'),
+                          ),
+                          ActionChip(
+                            label: const Text('📊 Accounts Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('ACCOUNTING'),
+                          ),
+                          ActionChip(
+                            label: const Text('👥 HRMS Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('HRMS'),
+                          ),
+                          ActionChip(
+                            backgroundColor: const Color(0xFFEDE9FE),
+                            label: const Text('🌐 All Modules', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED))),
+                            onPressed: () => applySinglePreset('ALL'),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 24),
+                      Text(
+                        'Module Toggles (${tempSelected.length} Selected):',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: allModulesDef.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (ctx, i) {
+                            final m = allModulesDef[i];
+                            final key = m['key'] as String;
+                            final name = m['name'] as String;
+                            final desc = m['desc'] as String;
+                            final icon = m['icon'] as IconData;
+                            final color = m['color'] as Color;
+                            final isChecked = tempSelected.contains(key);
+
+                            return InkWell(
+                              onTap: () {
+                                setDialogState(() {
+                                  if (isChecked) {
+                                    if (tempSelected.length > 1) tempSelected.remove(key);
+                                  } else {
+                                    tempSelected.add(key);
+                                  }
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: isChecked ? color.withOpacity(0.06) : const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: isChecked ? color : const Color(0xFFE2E8F0)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(icon, size: 20, color: isChecked ? color : Colors.grey),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(name, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isChecked ? const Color(0xFF0F172A) : Colors.grey.shade700)),
+                                          Text(desc, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                        ],
+                                      ),
+                                    ),
+                                    Checkbox(
+                                      value: isChecked,
+                                      activeColor: color,
+                                      onChanged: (val) {
+                                        setDialogState(() {
+                                          if (val == true) {
+                                            tempSelected.add(key);
+                                          } else {
+                                            if (tempSelected.length > 1) tempSelected.remove(key);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2563EB),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                if (tempSelected.length == allModulesDef.length) {
+                                  _selectedOutletModule = 'ALL';
+                                } else if (tempSelected.length == 1) {
+                                  _selectedOutletModule = tempSelected.first;
+                                } else {
+                                  _selectedOutletModule = tempSelected.join(',');
+                                }
+                              });
+                              Navigator.pop(context);
+                            },
+                            child: const Text('Apply Modules', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

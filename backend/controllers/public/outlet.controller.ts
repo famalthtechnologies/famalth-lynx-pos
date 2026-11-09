@@ -355,15 +355,24 @@ exports.updateOutletModule = async (req, res) => {
             });
         }
 
-        const validModules = ['INVENTORY', 'RETAIL', 'RESTAURANT', 'CLINIC', 'HRMS', 'ALL'];
-        if (!validModules.includes(business_module.toUpperCase())) {
+        const resolved = resolveBusinessModule(business_module, outlet.outlet_type);
+        if (!resolved) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid business_module value. Allowed: INVENTORY, RETAIL, RESTAURANT, CLINIC, HRMS, ALL'
+                message: 'Invalid business_module value. Allowed: INVENTORY, RETAIL, RESTAURANT, CLINIC, HRMS, ACCOUNTING, ALL (single or comma-separated)'
             });
         }
 
-        await outlet.update({ business_module: business_module.toUpperCase() });
+        await outlet.update({ business_module: resolved });
+
+        if (req.propertyDb.models.property_info) {
+            try {
+                await req.propertyDb.models.property_info.update(
+                    { outlet_module: resolved, business_module: resolved },
+                    { where: { outlet_id: outlet.id } }
+                );
+            } catch (_) {}
+        }
 
         res.json({
             success: true,

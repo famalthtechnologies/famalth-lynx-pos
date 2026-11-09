@@ -48,6 +48,7 @@ import '../../models/inventory/tax_group_model.dart';
 import '../../models/inventory/settings/system_settings_model.dart';
 import 'customer_list_screen.dart';
 import '../reports/sales_report_screen.dart';
+import '../../core/permissions/module_capability.dart';
 import '../settings/settings_screen.dart';
 import 'item_master_screen.dart';
 import 'subscription_screen.dart';
@@ -68,6 +69,7 @@ class SaleScreen extends StatefulWidget {
   final bool affectStock;
   final String? challanNo;
   final bool openDraftsOnLaunch;
+  final String? businessModule;
 
   const SaleScreen({
     super.key,
@@ -82,6 +84,7 @@ class SaleScreen extends StatefulWidget {
     this.affectStock = true,
     this.challanNo,
     this.openDraftsOnLaunch = false,
+    this.businessModule,
   });
   @override
   State<SaleScreen> createState() => _SaleScreenState();
@@ -177,6 +180,9 @@ class _SaleScreenState extends State<SaleScreen> {
   bool _selectedCustomerSchemeSuppressed = false;
   final List<SaleScheme> _selectedSchemes = [];
 
+  String _cachedBusinessModule = 'ALL';
+  String get _businessModule => _cachedBusinessModule;
+
   final List<SaleItem> _items = [];
   List<BillingCharge> _charges = const [];
   List<_VoucherDefinition> _voucherCatalog = const [];
@@ -242,6 +248,9 @@ class _SaleScreenState extends State<SaleScreen> {
 
   @override
   void initState() {
+    if (widget.businessModule != null && widget.businessModule!.isNotEmpty) {
+      _cachedBusinessModule = widget.businessModule!;
+    }
     _barcodeFocusNode = KeyboardControlFocusNode(
       shouldPreventKeyboard: () {
         if (!mounted) return false;
@@ -276,6 +285,12 @@ class _SaleScreenState extends State<SaleScreen> {
       _preloadedTableId = widget.preloadedTableId;
       _preloadedAppointmentId = widget.preloadedAppointmentId;
       _preloadedKotIds = widget.preloadedKotIds;
+
+      TokenStorage.getBusinessModule().then((m) {
+        if (mounted && m.isNotEmpty) {
+          setState(() => _cachedBusinessModule = m);
+        }
+      }).catchError((_) => null);
 
       // Run independent initial HTTP requests in parallel for 10x faster screen launch
       await Future.wait([
@@ -10237,7 +10252,8 @@ class _SaleScreenState extends State<SaleScreen> {
                   if (PermissionService.can('SCHEME_MANAGEMENT') || PermissionService.can('PROMO_VOUCHERS') || PermissionService.can('SCHEME_REPORT'))
                     _sidebarButton(Icons.local_offer_outlined,
                         onTap: _showManageSchemesDialog, tooltip: 'Manage schemes'),
-                  if (PermissionService.can('STOCK_IN') || PermissionService.can('PURCHASE_ORDER'))
+                  if (ModuleCapability.hasInventory(_businessModule) &&
+                      (PermissionService.can('STOCK_IN') || PermissionService.can('PURCHASE_ORDER')))
                     _sidebarButton(Icons.storefront,
                         onTap: _goback, tooltip: 'Receiving'),
                   if (PermissionService.can('POS_SUBSCRIPTIONS') || PermissionService.can('SUBSCRIPTION_REPORT'))
@@ -11085,8 +11101,9 @@ class _SaleScreenState extends State<SaleScreen> {
                         : 0.0;
                     final double effectiveCartQty = cartQty - origQty;
                     final double stock = item.openingBalance - effectiveCartQty;
-                    final bool isOutOfStock = isStockable && stock <= 0;
-                    final bool allowNegativeStock = settingsCtrl.settings?.allowNegativeStock ?? false;
+                    final bool hasInv = ModuleCapability.hasInventory(_businessModule);
+                    final bool isOutOfStock = hasInv && isStockable && stock <= 0;
+                    final bool allowNegativeStock = !hasInv || (settingsCtrl.settings?.allowNegativeStock ?? true);
 
                     return Card(
                       margin: EdgeInsets.zero,
@@ -11115,7 +11132,7 @@ class _SaleScreenState extends State<SaleScreen> {
                         child: Stack(
                           children: [
                             // Stock Badge (Top Left)
-                            if (isOutOfStock)
+                            if (hasInv && isOutOfStock)
                               Positioned(
                                 top: 8,
                                 left: 8,
@@ -11131,7 +11148,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                   ),
                                 ),
                               )
-                            else if (isStockable)
+                            else if (hasInv && isStockable)
                               Positioned(
                                 top: 8,
                                 left: 8,
@@ -11272,7 +11289,7 @@ class _SaleScreenState extends State<SaleScreen> {
                                           );
                                         })(),
                                       ),
-                                      if (isOutOfStock && !allowNegativeStock)
+                                      if (hasInv && isOutOfStock && !allowNegativeStock)
                                         const Padding(
                                           padding: EdgeInsets.only(left: 4.0),
                                           child: Text(

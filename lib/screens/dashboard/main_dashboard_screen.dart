@@ -30,6 +30,7 @@ import '../../controllers/settings/system_settings_controller.dart';
 import '../../core/currency/currency_service.dart';
 import '../../core/config/date_time_service.dart';
 import '../../core/api/api_client.dart';
+import '../../core/api/endpoints.dart';
 import '../../core/auth/token_storage.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/navigation/home_route_helper.dart';
@@ -238,6 +239,20 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   Timer? _customerOrderPollTimer;
   final Set<String> _seenCustomerOrderIds = {};
   bool _isCustomerOrderAlertOpen = false;
+
+  // HRMS DASHBOARD STATE
+  bool _loadingHrmsData = false;
+  List<Map<String, dynamic>> _hrmsEmployees = [];
+  List<Map<String, dynamic>> _hrmsAttendanceToday = [];
+  List<Map<String, dynamic>> _hrmsLeavesPending = [];
+  List<Map<String, dynamic>> _hrmsDesignations = [];
+  List<Map<String, dynamic>> _hrmsShifts = [];
+  int _hrmsTotalEmployees = 0;
+  int _hrmsActiveEmployees = 0;
+  int _hrmsPresentToday = 0;
+  int _hrmsOnLeaveToday = 0;
+  int _hrmsAbsentToday = 0;
+  double _hrmsMonthlyPayrollEst = 0.0;
   bool _hasInitializedCustomerOrders = false;
   final Set<String> _seenDiningCallIds = {};
   bool _isDiningAlertOpen = false;
@@ -497,9 +512,14 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        context.read<NightAuditController>().fetchStatus();
+        if (ModuleCapability.hasBilling(_businessModule)) {
+          context.read<NightAuditController>().fetchStatus();
+        }
         context.read<SystemSettingsController>().load();
         _checkActiveAnnouncements();
+        if (ModuleCapability.hasHrms(_businessModule)) {
+          _loadHrmsDashboardData();
+        }
       }
     });
   }
@@ -1811,6 +1831,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
   }
 
   Widget _buildNightAuditPendingBanner(NightAuditController nightAuditCtrl) {
+    if (!ModuleCapability.hasBilling(_businessModule)) return const SizedBox.shrink();
     final validation = nightAuditCtrl.validationData;
     final bool isOverdue = validation?['isOverdue'] == true;
     final String businessDate = nightAuditCtrl.currentBusinessDay?['business_date'] ?? '';
@@ -2452,6 +2473,9 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         };
       });
       _checkLuckyDrawCampaignStatus();
+      if (ModuleCapability.hasHrms(_businessModule)) {
+        _loadHrmsDashboardData();
+      }
     } catch (e) {
       if (e
               .toString()
@@ -2906,64 +2930,69 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
                   children: [
                     _buildScheduledMaintenanceNoticeBanner(),
                     const LicenseWarningBanner(),
-                    Consumer<NightAuditController>(
-                      builder: (context, nightAuditCtrl, _) {
-                        return _buildNightAuditPendingBanner(nightAuditCtrl);
-                      },
-                    ),
+                    if (ModuleCapability.hasBilling(_businessModule))
+                      Consumer<NightAuditController>(
+                        builder: (context, nightAuditCtrl, _) {
+                          return _buildNightAuditPendingBanner(nightAuditCtrl);
+                        },
+                      ),
                     _buildBackupStatusBanner(),
                     _buildDashboardOutletScopeSelector(),
                     _buildLinkedOutletsDirectoryCard(),
-                    if (_hasPendingDraw) ...[
+                    if (_hasPendingDraw && ModuleCapability.isLuckyDrawAllowed(_businessModule)) ...[
                       _buildLuckyDrawPendingBanner(),
                       const SizedBox(height: 12),
                     ],
-                    _kpiRow(),
-                    const SizedBox(height: 12),
-                    _lowStockAlert(),
-                    const SizedBox(height: 12),
-                    _ownerAnalyticsSection(),
-                    const SizedBox(height: 12),
-                    _financialOverviewSection(),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 760,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: SingleChildScrollView(
-                              child: Column(
-                                children: [
-                                  _card(_issueReceiveChart()),
-                                  const SizedBox(height: 12),
-                                  _card(_damageChart()),
-                                ],
+                    if (ModuleCapability.isHrmsOnly(_businessModule)) ...[
+                      _buildHrmsDashboard(isWide: isWide),
+                    ] else ...[
+                      if (ModuleCapability.hasInventory(_businessModule)) _kpiRow(),
+                      const SizedBox(height: 12),
+                      if (ModuleCapability.hasInventory(_businessModule)) _lowStockAlert(),
+                      const SizedBox(height: 12),
+                      if (ModuleCapability.hasBilling(_businessModule)) _ownerAnalyticsSection(),
+                      const SizedBox(height: 12),
+                      if (ModuleCapability.hasAccounting(_businessModule) || ModuleCapability.hasBilling(_businessModule)) _financialOverviewSection(),
+                      const SizedBox(height: 12),
+                      if (ModuleCapability.hasInventory(_businessModule)) SizedBox(
+                        height: 760,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  children: [
+                                    _card(_issueReceiveChart()),
+                                    const SizedBox(height: 12),
+                                    _card(_damageChart()),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          SizedBox(
-                            width: isWide ? 420 : 320,
-                            child: SingleChildScrollView(
-                              child: Column(
-                                children: [
-                                  _card(_deptIssueChart()),
-                                  const SizedBox(height: 12),
-                                  _card(_categoryStockChart()),
-                                  const SizedBox(height: 12),
-                                  _card(_supplierPaidUnpaidChart()),
-                                  const SizedBox(height: 12),
-                                  _card(_supplierValueChart()),
-                                  const SizedBox(height: 12),
-                                  _card(_unpaidSupplierList()),
-                                ],
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: isWide ? 420 : 320,
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  children: [
+                                    _card(_deptIssueChart()),
+                                    const SizedBox(height: 12),
+                                    _card(_categoryStockChart()),
+                                    const SizedBox(height: 12),
+                                    _card(_supplierPaidUnpaidChart()),
+                                    const SizedBox(height: 12),
+                                    _card(_supplierValueChart()),
+                                    const SizedBox(height: 12),
+                                    _card(_unpaidSupplierList()),
+                                  ],
+                                ),
                               ),
-                            ),
-                          )
-                        ],
+                            )
+                          ],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -4984,7 +5013,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'isBeta': true,
         'permission': 'POS_SALE',
         'keywords': ['clinic billing', 'pharmacy pos', 'medicine billing', 'dispense', 'rx bill'],
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleScreen())),
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleScreen(businessModule: 'CLINIC'))),
       },
       {
         'category': 'Clinic & Health (Beta)',
@@ -4992,7 +5021,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Medicines, Lab Tests & Services Master',
         'subLabel': 'Manage pharmaceutical formulations, lab investigation pricing & therapy catalog',
         'isBeta': true,
-        'permission': 'INVENTORY_MANAGEMENT',
+        'permission': 'ITEM_MASTER',
         'keywords': ['medicine master', 'drug master', 'lab test master', 'clinical services', 'pharmacy items'],
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemMasterScreen(isClinicMode: true))),
       },
@@ -5168,7 +5197,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
           'icon': Icons.point_of_sale,
           'label': 'Retail Sales Report',
           'permission': 'RETAIL_SALES_REPORT',
-          'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SalesReportScreen())),
+          'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => SalesReportScreen(businessModule: _businessModule))),
         },
         {
           'category': 'Reports',
@@ -6808,6 +6837,945 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
       size: size,
     );
   }
+
+  // ==================== HRMS DEDICATED DASHBOARD ====================
+
+  Future<void> _loadHrmsDashboardData() async {
+    if (!mounted) return;
+    setState(() => _loadingHrmsData = true);
+    try {
+      final now = DateTime.now();
+      final todayStr = DateFormat('yyyy-MM-dd').format(now);
+      final monthStr = DateFormat('yyyy-MM').format(now);
+
+      final resEmployees = await ApiClient.get(ApiEndpoints.hrmsEmployees, silent: true);
+      final List<Map<String, dynamic>> empList =
+          resEmployees != null && resEmployees['data'] is List
+              ? List<Map<String, dynamic>>.from(resEmployees['data'])
+              : [];
+
+      final resAttendance = await ApiClient.get(
+          '${ApiEndpoints.hrmsAttendance}?month=$monthStr',
+          silent: true);
+      final List<Map<String, dynamic>> attList =
+          resAttendance != null && resAttendance['data'] is List
+              ? List<Map<String, dynamic>>.from(resAttendance['data'])
+              : [];
+
+      final resLeaves = await ApiClient.get(
+          '${ApiEndpoints.hrmsLeaves}?status=Pending',
+          silent: true);
+      final List<Map<String, dynamic>> leavesList =
+          resLeaves != null && resLeaves['data'] is List
+              ? List<Map<String, dynamic>>.from(resLeaves['data'])
+              : [];
+
+      final resDesignations =
+          await ApiClient.get(ApiEndpoints.hrmsDesignations, silent: true);
+      final List<Map<String, dynamic>> desigList =
+          resDesignations != null && resDesignations['data'] is List
+              ? List<Map<String, dynamic>>.from(resDesignations['data'])
+              : [];
+
+      final resShifts =
+          await ApiClient.get(ApiEndpoints.hrmsShifts, silent: true);
+      final List<Map<String, dynamic>> shiftsList =
+          resShifts != null && resShifts['data'] is List
+              ? List<Map<String, dynamic>>.from(resShifts['data'])
+              : [];
+
+      final totalEmp = empList.length;
+      final activeEmp = empList.where((e) {
+        final s = (e['status'] ?? 'active').toString().toLowerCase();
+        return s == 'active';
+      }).length;
+
+      double monthlyEst = 0.0;
+      for (final e in empList) {
+        final s = (e['status'] ?? 'active').toString().toLowerCase();
+        if (s == 'active') {
+          final salary = double.tryParse(
+                  e['base_salary']?.toString() ?? e['salary']?.toString() ?? '0') ??
+              0.0;
+          monthlyEst += salary;
+        }
+      }
+
+      final todayPunches = attList.where((a) {
+        final punchDate = a['punch_date']?.toString() ?? '';
+        return punchDate.startsWith(todayStr);
+      }).toList();
+
+      final presentIds = todayPunches.map((a) => a['employee_id']).toSet();
+      final presentCount = presentIds.length;
+      final onLeaveCount = leavesList.length;
+      final absentCount =
+          (activeEmp - presentCount) > 0 ? (activeEmp - presentCount) : 0;
+
+      if (mounted) {
+        setState(() {
+          _hrmsEmployees = empList;
+          _hrmsAttendanceToday = todayPunches;
+          _hrmsLeavesPending = leavesList;
+          _hrmsDesignations = desigList;
+          _hrmsShifts = shiftsList;
+          _hrmsTotalEmployees = totalEmp;
+          _hrmsActiveEmployees = activeEmp;
+          _hrmsPresentToday = presentCount;
+          _hrmsOnLeaveToday = onLeaveCount;
+          _hrmsAbsentToday = absentCount;
+          _hrmsMonthlyPayrollEst = monthlyEst;
+          _loadingHrmsData = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading HRMS dashboard data: $e');
+      if (mounted) {
+        setState(() => _loadingHrmsData = false);
+      }
+    }
+  }
+
+  Widget _buildHrmsDashboard({required bool isWide}) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final textPrimaryColor = isDark ? Colors.white : const Color(0xFF1E293B);
+    final textSecondaryColor = isDark ? Colors.white70 : const Color(0xFF64748B);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildHrmsHeroBanner(isWide, isDark, textPrimaryColor),
+        const SizedBox(height: 16),
+        _buildHrmsKpiGrid(isWide, isDark),
+        const SizedBox(height: 16),
+        _buildHrmsQuickHub(isWide, isDark),
+        const SizedBox(height: 16),
+        if (isWide)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 6,
+                child: _buildHrmsStaffDirectoryCard(isDark, textPrimaryColor, textSecondaryColor),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 4,
+                child: Column(
+                  children: [
+                    _buildHrmsWorkforceAnalyticsCard(isDark, textPrimaryColor, textSecondaryColor),
+                    const SizedBox(height: 16),
+                    _buildHrmsShiftsAndLeavesCard(isDark, textPrimaryColor, textSecondaryColor),
+                  ],
+                ),
+              ),
+            ],
+          )
+        else ...[
+          _buildHrmsStaffDirectoryCard(isDark, textPrimaryColor, textSecondaryColor),
+          const SizedBox(height: 16),
+          _buildHrmsWorkforceAnalyticsCard(isDark, textPrimaryColor, textSecondaryColor),
+          const SizedBox(height: 16),
+          _buildHrmsShiftsAndLeavesCard(isDark, textPrimaryColor, textSecondaryColor),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildHrmsHeroBanner(bool isWide, bool isDark, Color textPrimaryColor) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isDark
+              ? [const Color(0xFF0F172A), const Color(0xFF1E293B)]
+              : [const Color(0xFF1E3A8A), const Color(0xFF2563EB)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: (isDark ? Colors.black : const Color(0xFF2563EB)).withValues(alpha: 0.15),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.badge_rounded, color: Colors.white, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Workforce & HRMS Command Center',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Real-time employee tracking, daily attendance punches, leave management, and automated payroll operations.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isWide)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.business_rounded, color: Colors.white, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        (user?.propertyName?.trim().isNotEmpty == true ? user!.propertyName! : 'Active Outlet'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF1E3A8A),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const EmployeeScreen()),
+                ).then((_) => _loadHrmsDashboardData()),
+                icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                label: const Text('Add Employee', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white70),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AttendanceScreen()),
+                ).then((_) => _loadHrmsDashboardData()),
+                icon: const Icon(Icons.co_present_rounded, size: 18),
+                label: const Text('Daily Attendance'),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white70),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PayrollScreen()),
+                ).then((_) => _loadHrmsDashboardData()),
+                icon: const Icon(Icons.payments_outlined, size: 18),
+                label: const Text('Process Payroll'),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white70),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HrmsMastersScreen()),
+                ).then((_) => _loadHrmsDashboardData()),
+                icon: const Icon(Icons.work_history_rounded, size: 18),
+                label: const Text('Shifts & Masters'),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white70),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CashLedgerScreen(businessModule: _businessModule),
+                  ),
+                ),
+                icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
+                label: const Text('Cash / Bank Ledger'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHrmsKpiGrid(bool isWide, bool isDark) {
+    final kpis = [
+      _HrmsMetricItem(
+        title: 'Total Workforce',
+        value: '$_hrmsTotalEmployees',
+        subtitle: '$_hrmsActiveEmployees Active Staff',
+        icon: Icons.groups_rounded,
+        color: const Color(0xFF2563EB),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeeScreen())).then((_) => _loadHrmsDashboardData()),
+      ),
+      _HrmsMetricItem(
+        title: 'Present Today',
+        value: '$_hrmsPresentToday',
+        subtitle: _hrmsActiveEmployees > 0
+            ? '${((_hrmsPresentToday / _hrmsActiveEmployees) * 100).toStringAsFixed(0)}% Clocked In'
+            : '0% Clocked In',
+        icon: Icons.how_to_reg_rounded,
+        color: const Color(0xFF059669),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceScreen())).then((_) => _loadHrmsDashboardData()),
+      ),
+      _HrmsMetricItem(
+        title: 'Absent / Off Today',
+        value: '$_hrmsAbsentToday',
+        subtitle: '$_hrmsOnLeaveToday On Approved Leave',
+        icon: Icons.person_off_rounded,
+        color: const Color(0xFFD97706),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceScreen())).then((_) => _loadHrmsDashboardData()),
+      ),
+      _HrmsMetricItem(
+        title: 'Est. Monthly Payroll',
+        value: _formatMoney(_hrmsMonthlyPayrollEst),
+        subtitle: 'Base Salary Commitment',
+        icon: Icons.monetization_on_rounded,
+        color: const Color(0xFF7C3AED),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayrollScreen())).then((_) => _loadHrmsDashboardData()),
+      ),
+      _HrmsMetricItem(
+        title: 'Pending Leaves',
+        value: '${_hrmsLeavesPending.length}',
+        subtitle: 'Awaiting Authorization',
+        icon: Icons.pending_actions_rounded,
+        color: const Color(0xFFE11D48),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceScreen())).then((_) => _loadHrmsDashboardData()),
+      ),
+    ];
+
+    if (isWide) {
+      return Row(
+        children: kpis.map((kpi) {
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: _buildHrmsMetricCard(kpi, isDark),
+            ),
+          );
+        }).toList(),
+      );
+    } else {
+      return Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: kpis.map((kpi) {
+          return SizedBox(
+            width: 260,
+            child: _buildHrmsMetricCard(kpi, isDark),
+          );
+        }).toList(),
+      );
+    }
+  }
+
+  Widget _buildHrmsMetricCard(_HrmsMetricItem m, bool isDark) {
+    return InkWell(
+      onTap: m.onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E293B) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: m.color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(m.icon, color: m.color, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    m.title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white70 : const Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    m.value,
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    m.subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: m.color,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHrmsQuickHub(bool isWide, bool isDark) {
+    final hubs = [
+      _HrmsHubCardItem(
+        title: 'Employee Directory',
+        desc: 'Master directory of employee profiles, contracts, contact info & bank records.',
+        icon: Icons.badge_outlined,
+        color: const Color(0xFF2563EB),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeeScreen())).then((_) => _loadHrmsDashboardData()),
+      ),
+      _HrmsHubCardItem(
+        title: 'Attendance & Punch Clock',
+        desc: 'Track daily clock-in/out records, shift schedules, overtime, and leave applications.',
+        icon: Icons.fingerprint_rounded,
+        color: const Color(0xFF059669),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AttendanceScreen())).then((_) => _loadHrmsDashboardData()),
+      ),
+      _HrmsHubCardItem(
+        title: 'Payroll & Payslips',
+        desc: 'Compute salaries, bonuses, deductions, loans, advances and print professional payslips.',
+        icon: Icons.receipt_long_rounded,
+        color: const Color(0xFF7C3AED),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayrollScreen())).then((_) => _loadHrmsDashboardData()),
+      ),
+      _HrmsHubCardItem(
+        title: 'Cash / Bank Ledger (Finance)',
+        desc: 'Manage company cash books, bank books, staff advances, and petty cash expenses.',
+        icon: Icons.account_balance_rounded,
+        color: const Color(0xFFD97706),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CashLedgerScreen(businessModule: _businessModule))),
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossCount = constraints.maxWidth > 900 ? 4 : (constraints.maxWidth > 550 ? 2 : 1);
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: hubs.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossCount,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            mainAxisExtent: 105,
+          ),
+          itemBuilder: (context, index) {
+            final h = hubs[index];
+            return InkWell(
+              onTap: h.onTap,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: h.color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(h.icon, color: h.color, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            h.title,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Expanded(
+                            child: Text(
+                              h.desc,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                                height: 1.25,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildHrmsStaffDirectoryCard(bool isDark, Color textPrimaryColor, Color textSecondaryColor) {
+    final staffToShow = _hrmsEmployees.take(6).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.people_alt_outlined, size: 20, color: Color(0xFF2563EB)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Workforce Directory & Status',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: textPrimaryColor,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${_hrmsEmployees.length}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2563EB),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const EmployeeScreen()),
+                ).then((_) => _loadHrmsDashboardData()),
+                child: const Text('Manage All ➜', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_hrmsEmployees.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 36),
+                child: Column(
+                  children: [
+                    Icon(Icons.badge_outlined, size: 48, color: textSecondaryColor.withValues(alpha: 0.5)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No staff profiles registered yet',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: textPrimaryColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Add your workforce to begin tracking daily attendance and payroll.',
+                      style: TextStyle(fontSize: 12, color: textSecondaryColor),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const EmployeeScreen()),
+                      ).then((_) => _loadHrmsDashboardData()),
+                      icon: const Icon(Icons.person_add_alt_1, size: 16),
+                      label: const Text('Add First Employee'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: staffToShow.length,
+              separatorBuilder: (_, __) => Divider(
+                height: 1,
+                color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+              ),
+              itemBuilder: (context, index) {
+                final emp = staffToShow[index];
+                final name = (emp['full_name'] ?? emp['name'] ?? 'Staff Member').toString();
+                final code = (emp['employee_code'] ?? '#EMP-${emp['id']}').toString();
+                final desig = (emp['designation']?['name'] ?? emp['designation_name'] ?? 'Staff').toString();
+                final shift = (emp['shift']?['name'] ?? 'General').toString();
+                final isActive = (emp['status'] ?? 'active').toString().toLowerCase() == 'active';
+
+                return ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  leading: CircleAvatar(
+                    backgroundColor: const Color(0xFF2563EB).withValues(alpha: 0.15),
+                    child: Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : 'E',
+                      style: const TextStyle(
+                        color: Color(0xFF2563EB),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  title: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: textPrimaryColor,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isActive
+                              ? const Color(0xFF059669).withValues(alpha: 0.12)
+                              : Colors.grey.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          isActive ? 'Active' : 'Inactive',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: isActive ? const Color(0xFF059669) : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  subtitle: Row(
+                    children: [
+                      Text(code, style: TextStyle(fontSize: 11, color: textSecondaryColor)),
+                      const SizedBox(width: 8),
+                      Text('•', style: TextStyle(fontSize: 10, color: textSecondaryColor)),
+                      const SizedBox(width: 8),
+                      Text(desig, style: const TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 8),
+                      Text('•', style: TextStyle(fontSize: 10, color: textSecondaryColor)),
+                      const SizedBox(width: 8),
+                      Text(shift, style: TextStyle(fontSize: 11, color: textSecondaryColor)),
+                    ],
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const EmployeeScreen()),
+                    ).then((_) => _loadHrmsDashboardData()),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHrmsWorkforceAnalyticsCard(bool isDark, Color textPrimaryColor, Color textSecondaryColor) {
+    // Group employees by designation
+    final Map<String, int> desigCounts = {};
+    for (final emp in _hrmsEmployees) {
+      final dName = (emp['designation']?['name'] ?? emp['designation_name'] ?? 'General Staff').toString();
+      desigCounts[dName] = (desigCounts[dName] ?? 0) + 1;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.pie_chart_outline_rounded, size: 20, color: Color(0xFF7C3AED)),
+              const SizedBox(width: 8),
+              Text(
+                'Department & Role Breakdown',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: textPrimaryColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (desigCounts.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: Text('No designations mapped', style: TextStyle(fontSize: 12, color: textSecondaryColor)),
+              ),
+            )
+          else
+            ...desigCounts.entries.map((entry) {
+              final pct = _hrmsTotalEmployees > 0 ? (entry.value / _hrmsTotalEmployees) : 0.0;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          entry.key,
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: textPrimaryColor),
+                        ),
+                        Text(
+                          '${entry.value} (${(pct * 100).toStringAsFixed(0)}%)',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textSecondaryColor),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: pct,
+                        minHeight: 6,
+                        backgroundColor: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7C3AED)),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHrmsShiftsAndLeavesCard(bool isDark, Color textPrimaryColor, Color textSecondaryColor) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.schedule_rounded, size: 20, color: Color(0xFFD97706)),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Shifts & Today's Attendance",
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: textPrimaryColor,
+                    ),
+                  ),
+                ],
+              ),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AttendanceScreen()),
+                ).then((_) => _loadHrmsDashboardData()),
+                child: const Text('Open Register ➜', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF059669).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF059669).withValues(alpha: 0.2)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle_outline_rounded, color: Color(0xFF059669), size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$_hrmsPresentToday out of $_hrmsActiveEmployees Active Clocked In',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                      ),
+                      Text(
+                        '$_hrmsAbsentToday staff absent • $_hrmsOnLeaveToday approved leave',
+                        style: TextStyle(fontSize: 11, color: textSecondaryColor),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_hrmsShifts.isNotEmpty) ...[
+            Text(
+              'Configured Shifts (${_hrmsShifts.length})',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textPrimaryColor),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: _hrmsShifts.map((s) {
+                final sName = (s['name'] ?? 'Shift').toString();
+                final start = (s['start_time'] ?? '').toString();
+                final end = (s['end_time'] ?? '').toString();
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    start.isNotEmpty ? '$sName ($start - $end)' : sName,
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textPrimaryColor),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 // ================= MODELS =================
@@ -6992,4 +7960,38 @@ double _safeDouble(dynamic value) {
   if (value is double) return value;
   if (value is num) return value.toDouble();
   return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+class _HrmsMetricItem {
+  final String title;
+  final String value;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  _HrmsMetricItem({
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+}
+
+class _HrmsHubCardItem {
+  final String title;
+  final String desc;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  _HrmsHubCardItem({
+    required this.title,
+    required this.desc,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
 }

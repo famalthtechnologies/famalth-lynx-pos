@@ -35,6 +35,12 @@ class _DocumentSequenceScreenState extends State<DocumentSequenceScreen> {
   List<MapEntry<String, String>> get _visibleModuleDefs {
     return _moduleDefs
         .where((def) => ModuleCapability.isSequenceAllowed(def.value, _businessModule))
+        .map((def) {
+          if (def.value == 'TOKEN' && ModuleCapability.hasClinic(_businessModule)) {
+            return const MapEntry('Appointment Token', 'TOKEN');
+          }
+          return def;
+        })
         .toList();
   }
 
@@ -267,9 +273,32 @@ class _DocumentSequenceScreenState extends State<DocumentSequenceScreen> {
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            ..._visibleModuleDefs.map(
-              (def) => _buildPolarisModuleSection(def.key, def.value, primaryTeal),
-            ),
+            if (_visibleModuleDefs.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Center(
+                  child: Column(
+                    children: [
+                      const Icon(Icons.info_outline, size: 40, color: Color(0xFF64748B)),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No document sequence prefixes required for active modules (${ModuleCapability.formatDisplayModules(_businessModule)}).',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ..._visibleModuleDefs.map(
+                (def) => _buildPolarisModuleSection(def.key, def.value, primaryTeal),
+              ),
             const SizedBox(height: 24),
             Align(
               alignment: Alignment.centerRight,

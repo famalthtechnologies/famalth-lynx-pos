@@ -6552,11 +6552,16 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
       );
 
       if (res != null && res['success'] == true && mounted) {
+        final appointmentData = res['data'] != null ? Map<String, dynamic>.from(res['data']) : null;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Appointment scheduled successfully!'), backgroundColor: Color(0xFF059669)),
         );
         widget.onCreated();
         Navigator.pop(context);
+
+        if (appointmentData != null) {
+          PosInvoicePrinter.printAppointmentToken(appointment: appointmentData);
+        }
       }
     } catch (e) {
       if (mounted) {

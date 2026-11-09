@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/currency/currency_service.dart';
+import '../../core/printing/pos_invoice_printer.dart';
 
 class PublicAppointmentBookingScreen extends StatefulWidget {
   final dynamic initialOutletId;
@@ -2839,13 +2840,23 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
                         const SizedBox(height: 4),
                         Text(isPack ? '🎟️ Covered by Package: $packName' : '💳 Consultation Fee: ${CurrencyService.format(fee)} ($payStatus)', style: const TextStyle(fontSize: 12, color: Color(0xFF166534))),
                         const SizedBox(height: 4),
-                        Text('🔖 Token / Ref No: #${res['data']?['id'] ?? ''}', style: const TextStyle(fontSize: 11, color: Color(0xFF166534))),
+                        Text('🔖 Appointment Token: #${res['data']?['token_number'] ?? res['data']?['id'] ?? ''}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF166534))),
                       ],
                     ),
                   ),
                 ],
               ),
               actions: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.print_outlined, size: 16),
+                  label: const Text('Print Token'),
+                  onPressed: () {
+                    final apptData = res['data'] != null ? Map<String, dynamic>.from(res['data']) : null;
+                    if (apptData != null) {
+                      PosInvoicePrinter.printAppointmentToken(appointment: apptData);
+                    }
+                  },
+                ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0F766E),

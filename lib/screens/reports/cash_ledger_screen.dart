@@ -27,22 +27,42 @@ import '../../utils/branding_storage.dart';
 import '../../utils/pdf_report_builder.dart';
 import '../../widgets/sale_bill_preview_dialog.dart';
 import 'expiry_tracker_screen.dart';
+import '../../core/auth/token_storage.dart';
+import '../../core/permissions/module_capability.dart';
 
 class CashLedgerScreen extends StatefulWidget {
   final int initialIndex;
-  const CashLedgerScreen({super.key, this.initialIndex = 0});
+  final String? businessModule;
+  const CashLedgerScreen({super.key, this.initialIndex = 0, this.businessModule});
 
   @override
   State<CashLedgerScreen> createState() => _CashLedgerScreenState();
 }
 
+class _FinanceTabDef {
+  final String id;
+  final String title;
+  final Widget Function() builder;
+  final Future<void> Function() loader;
+  final FloatingActionButton? Function()? fab;
+
+  const _FinanceTabDef({
+    required this.id,
+    required this.title,
+    required this.builder,
+    required this.loader,
+    this.fab,
+  });
+}
+
 class _CashLedgerScreenState extends State<CashLedgerScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final ctrl = FinanceHubController();
   final _transferCtrl = StockTransferController();
   Map<String, dynamic>? _hierarchyData;
   int? _selectedOutletId;
-  late final TabController _tabController;
+  late TabController _tabController;
+  String _businessModule = 'ALL';
 
   final List<String> expensePresets = const [
     'Salary',
@@ -81,26 +101,178 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
   final Set<String> _expandedBillsCustomers = {};
   final Set<String> _expandedAdvancesCustomers = {};
 
+  List<_FinanceTabDef> get _visibleTabs {
+    return [
+      if (!ModuleCapability.isHrmsOnly(_businessModule))
+        _FinanceTabDef(
+          id: 'credit',
+        title: 'Credit (Receipt)',
+        builder: _creditTab,
+        loader: () => ctrl.loadCreditReport(
+          fromDate: fromDate,
+          toDate: toDate,
+          customer: creditSearchCtrl.text,
+          includeAll: _showAllCustomers,
+        ),
+      ),
+      _FinanceTabDef(
+        id: 'ledger',
+        title: 'Ledger (Cash/Bank)',
+        builder: _ledgerTab,
+        loader: () => ctrl.loadLedger(
+          fromDate: fromDate,
+          toDate: toDate,
+          search: ledgerSearchCtrl.text,
+          type: ledgerType,
+          paymentMethod: ledgerPaymentMethod,
+        ),
+      ),
+      _FinanceTabDef(
+        id: 'expense',
+        title: 'Expenses (Payment)',
+        builder: _expenseTab,
+        loader: () async {
+          await ctrl.loadExpenseCategories();
+          await ctrl.loadExpenses(
+            fromDate: fromDate,
+            toDate: toDate,
+            category: expenseCategoryCtrl.text,
+          );
+        },
+        fab: () => FloatingActionButton.extended(
+          onPressed: () => _showExpenseDialog(),
+          icon: const Icon(Icons.add),
+          label: const Text('Add Expense (Payment)'),
+        ),
+      ),
+      _FinanceTabDef(
+        id: 'income',
+        title: 'Income (Receipt)',
+        builder: _incomeTab,
+        loader: () => ctrl.loadIncome(
+          fromDate: fromDate,
+          toDate: toDate,
+          search: incomeSearchCtrl.text,
+        ),
+        fab: () => FloatingActionButton.extended(
+          onPressed: () => _showIncomeDialog(),
+          icon: const Icon(Icons.add_chart_outlined),
+          label: const Text('Add Income (Receipt)'),
+        ),
+      ),
+      _FinanceTabDef(
+        id: 'withdrawal',
+        title: 'Withdrawal (Contra)',
+        builder: _withdrawalTab,
+        loader: () => ctrl.loadWithdrawals(
+          fromDate: fromDate,
+          toDate: toDate,
+          search: withdrawalSearchCtrl.text,
+        ),
+        fab: () => FloatingActionButton.extended(
+          onPressed: () => _showWithdrawalDialog(),
+          icon: const Icon(Icons.money_off_csred_outlined),
+          label: const Text('Add Withdrawal (Contra)'),
+        ),
+      ),
+      _FinanceTabDef(
+        id: 'opening',
+        title: 'Opening (Contra)',
+        builder: _openingTab,
+        loader: () async {
+          await ctrl.loadOpeningBalances(fromDate: fromDate, toDate: toDate);
+          openingAmountCtrl.text = ctrl.carriedOpeningBalance.toStringAsFixed(2);
+        },
+      ),
+      if (ModuleCapability.hasBilling(_businessModule))
+        _FinanceTabDef(
+          id: 'sales',
+          title: 'Sales (Sales POS)',
+          builder: _deliveryTab,
+          loader: () => ctrl.loadDeliveryReport(
+            fromDate: fromDate,
+            toDate: toDate,
+            search: deliverySearchCtrl.text,
+            status: deliveryStatus,
+          ),
+        ),
+      if (ModuleCapability.hasInventory(_businessModule))
+        _FinanceTabDef(
+          id: 'expiry',
+          title: 'Expiry & Damage',
+          builder: _expiryTab,
+          loader: () => ctrl.loadExpiryReport(
+            search: expirySearchCtrl.text,
+            status: expiryStatus,
+            alertDays: int.tryParse(alertDaysCtrl.text) ?? 7,
+          ),
+        ),
+    ];
+  }
+
+  
+  Widget? _visibleTabsFab() {
+    final tabs = _visibleTabs;
+    if (_tabController.index >= 0 && _tabController.index < tabs.length) {
+      return tabs[_tabController.index].fab?.call();
+    }
+    return null;
+  }
+
+  String get _currentTabId {
+    final tabs = _visibleTabs;
+    if (_tabController.index >= 0 && _tabController.index < tabs.length) {
+      return tabs[_tabController.index].id;
+    }
+    return '';
+  }
+
+  void _initTabController([int? targetIndex]) {
+    final tabs = _visibleTabs;
+    final prevIndex = targetIndex ?? _tabController.index;
+    _tabController.removeListener(_onTabChanged);
+    _tabController.dispose();
+    _tabController = TabController(
+      length: tabs.length,
+      vsync: this,
+      initialIndex: prevIndex.clamp(0, tabs.length - 1),
+    );
+    _tabController.addListener(_onTabChanged);
+  }
+
+  void _onTabChanged() {
+    if (!_tabController.indexIsChanging) {
+      _loadCurrentTab();
+      setState(() {});
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    if (widget.businessModule != null && widget.businessModule!.isNotEmpty) {
+      _businessModule = widget.businessModule!;
+    }
+    final tabs = _visibleTabs;
     _tabController = TabController(
-      length: 8,
+      length: tabs.length,
       vsync: this,
-      initialIndex: widget.initialIndex.clamp(0, 7),
+      initialIndex: widget.initialIndex.clamp(0, tabs.length - 1),
     );
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
-        _loadCurrentTab();
-        setState(() {});
-      }
-    });
+    _tabController.addListener(_onTabChanged);
     fromCtrl.text = _fmtDate(fromDate);
     toCtrl.text = _fmtDate(toDate);
     _initData();
   }
 
   Future<void> _initData() async {
+    final mod = await TokenStorage.getBusinessModule();
+    if (mounted && mod.isNotEmpty && mod != _businessModule) {
+      setState(() {
+        _businessModule = mod;
+        _initTabController();
+      });
+    }
     await _loadOutletHierarchy();
     if (_selectedOutletId != null) {
       ctrl.outletId = _selectedOutletId;
@@ -174,6 +346,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     fromCtrl.dispose();
     toCtrl.dispose();
@@ -279,56 +452,9 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
   }
 
   Future<void> _loadCurrentTab() async {
-    switch (_tabController.index) {
-      case 0:
-        await ctrl.loadCreditReport(
-            fromDate: fromDate,
-            toDate: toDate,
-            customer: creditSearchCtrl.text,
-            includeAll: _showAllCustomers);
-        break;
-      case 1:
-        await ctrl.loadLedger(
-            fromDate: fromDate,
-            toDate: toDate,
-            search: ledgerSearchCtrl.text,
-            type: ledgerType,
-            paymentMethod: ledgerPaymentMethod);
-        break;
-      case 2:
-        await ctrl.loadExpenseCategories();
-        await ctrl.loadExpenses(
-            fromDate: fromDate,
-            toDate: toDate,
-            category: expenseCategoryCtrl.text);
-        break;
-      case 3:
-        await ctrl.loadIncome(
-            fromDate: fromDate, toDate: toDate, search: incomeSearchCtrl.text);
-        break;
-      case 4:
-        await ctrl.loadWithdrawals(
-            fromDate: fromDate,
-            toDate: toDate,
-            search: withdrawalSearchCtrl.text);
-        break;
-      case 5:
-        await ctrl.loadOpeningBalances(fromDate: fromDate, toDate: toDate);
-        openingAmountCtrl.text = ctrl.carriedOpeningBalance.toStringAsFixed(2);
-        break;
-      case 6:
-        await ctrl.loadDeliveryReport(
-            fromDate: fromDate,
-            toDate: toDate,
-            search: deliverySearchCtrl.text,
-            status: deliveryStatus);
-        break;
-      case 7:
-        await ctrl.loadExpiryReport(
-            search: expirySearchCtrl.text,
-            status: expiryStatus,
-            alertDays: int.tryParse(alertDaysCtrl.text) ?? 7);
-        break;
+    final tabs = _visibleTabs;
+    if (_tabController.index >= 0 && _tabController.index < tabs.length) {
+      await tabs[_tabController.index].loader();
     }
   }
 
@@ -2336,7 +2462,10 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
 
   void _navigateToLedgerForAdvance(CreditCustomerReport customer, AdvanceEntry advance) {
     setState(() {
-      _tabController.index = 1;
+      final ledgerIdx = _visibleTabs.indexWhere((t) => t.id == 'ledger');
+      if (ledgerIdx != -1) {
+        _tabController.index = ledgerIdx;
+      }
       ledgerSearchCtrl.text = customer.customerName.isNotEmpty 
           ? customer.customerName 
           : customer.customerPhone;
@@ -3037,7 +3166,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
       backgroundColorHex: exc.ExcelColor.fromHexString('#DCFCE7'),
     );
 
-    if (_tabController.index == 2) {
+    if (_currentTabId == 'expense') {
       writeRow(['Date', 'Type', 'Amount', 'Remark']);
       for (final item in ctrl.expenses) {
         writeRow([
@@ -3047,7 +3176,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           item.note
         ]);
       }
-    } else if (_tabController.index == 0) {
+    } else if (_currentTabId == 'credit') {
       writeRow(
         ['Customer Name', 'Phone', 'Address', 'Bill', 'Date', 'Amount', 'Outstanding', 'Status'],
         style: headerStyle,
@@ -3086,7 +3215,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         ctrl.totalOutstanding.toStringAsFixed(2),
         '',
       ], style: creditTotalStyle);
-    } else if (_tabController.index == 1) {
+    } else if (_currentTabId == 'ledger') {
       writeRow([
         'Date',
         'Type',
@@ -3178,7 +3307,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         _ledgerDebitGrandTotal.toStringAsFixed(2),
         ''
       ], style: ledgerGrandTotalStyle);
-    } else if (_tabController.index == 3) {
+    } else if (_currentTabId == 'income') {
       writeRow([
         'Date',
         'Source',
@@ -3199,7 +3328,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           item.note,
         ]);
       }
-    } else if (_tabController.index == 4) {
+    } else if (_currentTabId == 'withdrawal') {
       writeRow([
         'Date',
         'Purpose',
@@ -3218,7 +3347,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           item.note,
         ]);
       }
-    } else if (_tabController.index == 5) {
+    } else if (_currentTabId == 'opening') {
       writeRow(['Date', 'Opening Deposit', 'Note']);
       for (final item in ctrl.openings) {
         writeRow([
@@ -3227,7 +3356,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           item.note
         ]);
       }
-    } else if (_tabController.index == 6) {
+    } else if (_currentTabId == 'sales') {
       writeRow(
         ['Date', 'Bill', 'Customer', 'Amount', 'Outstanding', 'Status'],
         style: headerStyle,
@@ -3291,7 +3420,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
       'Expiry Report'
     ];
 
-    if (_tabController.index == 2) {
+    if (_currentTabId == 'expense') {
       headers = const ['Date', 'Type', 'Amount', 'Remark'];
       for (final item in ctrl.expenses) {
         rows.add([
@@ -3301,7 +3430,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           item.note
         ]);
       }
-    } else if (_tabController.index == 0) {
+    } else if (_currentTabId == 'credit') {
       accent = PdfColors.lightBlue700;
       headers = const [
         'Customer Name',
@@ -3347,7 +3476,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         ctrl.totalOutstanding.toStringAsFixed(2),
         '',
       ]);
-    } else if (_tabController.index == 1) {
+    } else if (_currentTabId == 'ledger') {
       accent = PdfColors.indigo700;
       tableRowDecoration = const pw.BoxDecoration(color: PdfColors.blue50);
       tableOddRowDecoration =
@@ -3442,7 +3571,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         _ledgerDebitGrandTotal.toStringAsFixed(2),
         ''
       ]);
-    } else if (_tabController.index == 3) {
+    } else if (_currentTabId == 'income') {
       headers = const [
         'Date',
         'Source',
@@ -3463,7 +3592,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           item.note
         ]);
       }
-    } else if (_tabController.index == 4) {
+    } else if (_currentTabId == 'withdrawal') {
       headers = const [
         'Date',
         'Purpose',
@@ -3482,7 +3611,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           item.note
         ]);
       }
-    } else if (_tabController.index == 5) {
+    } else if (_currentTabId == 'opening') {
       headers = const ['Date', 'Opening Deposit', 'Note'];
       for (final item in ctrl.openings) {
         rows.add([
@@ -3491,7 +3620,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           item.note
         ]);
       }
-    } else if (_tabController.index == 6) {
+    } else if (_currentTabId == 'sales') {
       accent = PdfColors.green700;
       headers = const [
         'Date',
@@ -3535,12 +3664,12 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
 
     final currency = CurrencyService.currencyFormat;
     List<PdfKpiItem>? kpis;
-    if (_tabController.index == 0) {
+    if (_currentTabId == 'credit') {
       kpis = [
         PdfKpiItem(label: 'Total Credit Bills', value: '${ctrl.totalCreditBills}', color: PdfColor.fromHex('#1E40AF')),
         PdfKpiItem(label: 'Total Outstanding', value: currency.format(ctrl.totalOutstanding), color: PdfColor.fromHex('#DC2626')),
       ];
-    } else if (_tabController.index == 6) {
+    } else if (_currentTabId == 'sales') {
       kpis = [
         PdfKpiItem(label: 'Total Deliveries', value: '${ctrl.deliveries.length}', color: PdfColor.fromHex('#1E40AF')),
         PdfKpiItem(label: 'Delivery Amount', value: currency.format(ctrl.deliveryTotal), color: PdfColor.fromHex('#166534')),
@@ -3548,8 +3677,12 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
       ];
     }
 
+    final currentTabTitle = (_tabController.index >= 0 && _tabController.index < _visibleTabs.length)
+        ? _visibleTabs[_tabController.index].title
+        : 'Finance Report';
+
     await PdfReportBuilder.generateAndPrintReport(
-      title: titles[_tabController.index],
+      title: currentTabTitle,
       subtitle: 'From ${_fmtDate(fromDate)} To ${_fmtDate(toDate)}',
       headers: headers,
       data: rows,
@@ -3599,34 +3732,10 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
-          tabs: const [
-            Tab(text: 'Credit (Receipt)'),
-            Tab(text: 'Ledger (Cash/Bank)'),
-            Tab(text: 'Expenses (Payment)'),
-            Tab(text: 'Income (Receipt)'),
-            Tab(text: 'Withdrawal (Contra)'),
-            Tab(text: 'Opening (Contra)'),
-            Tab(text: 'Sales (Sales POS)'),
-            Tab(text: 'Expiry & Damage'),
-          ],
+          tabs: _visibleTabs.map((t) => Tab(text: t.title)).toList(),
         ),
       ),
-      floatingActionButton: _tabController.index == 2
-          ? FloatingActionButton.extended(
-              onPressed: () => _showExpenseDialog(),
-              icon: const Icon(Icons.add),
-              label: const Text('Add Expense (Payment)'))
-          : _tabController.index == 3
-              ? FloatingActionButton.extended(
-                  onPressed: () => _showIncomeDialog(),
-                  icon: const Icon(Icons.add_chart_outlined),
-                  label: const Text('Add Income (Receipt)'))
-              : _tabController.index == 4
-                  ? FloatingActionButton.extended(
-                      onPressed: () => _showWithdrawalDialog(),
-                      icon: const Icon(Icons.money_off_csred_outlined),
-                      label: const Text('Add Withdrawal (Contra)'))
-              : null,
+      floatingActionButton: _visibleTabsFab(),
       body: AnimatedBuilder(
         animation: ctrl,
         builder: (context, _) {
@@ -3635,20 +3744,11 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
           return Column(
             children: [
               _buildOutletScopeSelector(),
-              if (_tabController.index != 0) _filterCard(),
+              if (_currentTabId != 'credit') _filterCard(),
               Expanded(
                 child: TabBarView(
                   controller: _tabController,
-                  children: [
-                    _creditTab(),
-                    _ledgerTab(),
-                    _expenseTab(),
-                    _incomeTab(),
-                    _withdrawalTab(),
-                    _openingTab(),
-                    _deliveryTab(),
-                    _expiryTab()
-                  ],
+                  children: _visibleTabs.map((t) => t.builder()).toList(),
                 ),
               ),
             ],
@@ -3697,10 +3797,10 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                   width: smallFieldWidth),
               _dateField('To', toCtrl, () => _pickDate(false),
                   width: smallFieldWidth),
-              if (_tabController.index == 0)
+              if (_currentTabId == 'credit')
                 _textField(creditSearchCtrl, 'Customer name / number',
                     width: fieldWidth),
-              if (_tabController.index == 1) ...[
+              if (_currentTabId == 'ledger') ...[
                 _textField(ledgerSearchCtrl, 'Ledger search', width: fieldWidth),
                 _dropdown(
                   ledgerType,
@@ -3729,16 +3829,16 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                   width: narrowFieldWidth,
                 ),
               ],
-              if (_tabController.index == 2)
+              if (_currentTabId == 'expense')
                 _textField(expenseCategoryCtrl, 'Expense type',
                     width: fieldWidth),
-              if (_tabController.index == 3)
+              if (_currentTabId == 'income')
                 _textField(incomeSearchCtrl, 'Income source / note',
                     width: fieldWidth),
-              if (_tabController.index == 4)
+              if (_currentTabId == 'withdrawal')
                 _textField(withdrawalSearchCtrl, 'Withdrawal purpose / note',
                     width: fieldWidth),
-              if (_tabController.index == 6) ...[
+              if (_currentTabId == 'sales') ...[
                 _textField(deliverySearchCtrl, 'Customer / Bill search',
                     width: fieldWidth),
                 _dropdown(
@@ -3749,7 +3849,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
                   width: narrowFieldWidth,
                 ),
               ],
-              if (_tabController.index == 7) ...[
+              if (_currentTabId == 'expiry') ...[
                 _textField(expirySearchCtrl, 'Item search', width: fieldWidth),
                 _dropdown(
                   expiryStatus,

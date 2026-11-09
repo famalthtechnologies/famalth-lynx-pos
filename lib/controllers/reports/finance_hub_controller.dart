@@ -45,14 +45,45 @@ class FinanceHubController extends ChangeNotifier {
   int expiredCount = 0;
   int nearExpiryCount = 0;
 
+  bool _isDisposed = false;
+  bool get isDisposed => _isDisposed;
+
+  @override
+  void addListener(VoidCallback listener) {
+    if (_isDisposed) return;
+    super.addListener(listener);
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    if (_isDisposed) return;
+    super.removeListener(listener);
+  }
+
+  @override
+  void dispose() {
+    if (_isDisposed) return;
+    _isDisposed = true;
+    super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (_isDisposed) return;
+    super.notifyListeners();
+  }
+
   Future<void> _run(Future<void> Function() action) async {
+    if (_isDisposed) return;
     loading = true;
     notifyListeners();
     try {
       await action();
     } finally {
-      loading = false;
-      notifyListeners();
+      if (!_isDisposed) {
+        loading = false;
+        notifyListeners();
+      }
     }
   }
 

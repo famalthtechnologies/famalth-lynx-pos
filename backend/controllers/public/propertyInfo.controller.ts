@@ -192,8 +192,9 @@ exports.savePropertyInfo = async (req: any, res: any) => {
                     outletUpdates.outlet_type = req.body.business_type;
                 }
                 if (req.body.outlet_module) {
-                    outletUpdates.outlet_module = req.body.outlet_module;
-                    outletUpdates.business_module = req.body.outlet_module;
+                    const resolvedMod = resolveBusinessModule(req.body.outlet_module, req.body.business_type);
+                    outletUpdates.outlet_module = resolvedMod;
+                    outletUpdates.business_module = resolvedMod;
                 } else if (req.body.business_type && !req.body.outlet_module) {
                     const resolvedMod = resolveBusinessModule('', req.body.business_type);
                     outletUpdates.business_module = resolvedMod;

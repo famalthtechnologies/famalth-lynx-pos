@@ -123,13 +123,15 @@ exports.getSettings = async (req, res) => {
                 console.error("❌ Fallback query in getSettings failed:", fallbackErr.stack);
             }
         }
+        const outlet = await req.propertyDb.models.outlets.findByPk(outlet_id).catch(() => null);
+        const hasInv = (typeof require('../../utils/moduleHelper').hasInventory === 'function' ? require('../../utils/moduleHelper').hasInventory(outlet?.business_module) : false);
         // first time → defaults
         if (!settings) {
             return res.json({
                 success: true,
                 data: {
                     auto_reorder: true,
-                    allow_negative_stock: false,
+                    allow_negative_stock: !hasInv,
                     damage_approval_required: true,
                     enable_audit_log: true,
                     auto_print_on_save: false,
@@ -171,6 +173,9 @@ exports.getSettings = async (req, res) => {
             });
         }
         let settingsData = settings.toJSON ? settings.toJSON() : settings;
+        if (!hasInv && !settingsData.allow_negative_stock) {
+            settingsData.allow_negative_stock = true;
+        }
         if (!settingsData.merchant_upi_id && req.propertyDb.models.property_info) {
             const propInfo = await req.propertyDb.models.property_info.findOne({
                 where: { outlet_id }

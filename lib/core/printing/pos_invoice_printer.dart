@@ -7034,6 +7034,161 @@ class PosInvoicePrinter {
     return document.save();
   }
 
+  static Future<Uint8List> buildAppointmentTokenPdf({
+    required Map<String, dynamic> appointment,
+    PropertyInfo? property,
+    SystemSettings? settings,
+    Map<String, dynamic>? tokenTemplateConfig,
+  }) async {
+    final fonts = await getInvoiceFonts();
+    final document = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: fonts.regular,
+        bold: fonts.bold,
+        italic: fonts.italic,
+        boldItalic: fonts.boldItalic,
+      ),
+    );
+    final regular = fonts.regular;
+    final bold = fonts.bold;
+
+    final clinicName = (property?.propertyName ?? 'Healthcare Clinic').trim();
+    final clinicPhone = (property?.mobile ?? '').trim();
+    final clinicAddress = (property?.address ?? '').trim();
+
+    final tokenNo = appointment['token_number'] ?? appointment['token_no'] ?? appointment['id'] ?? '1';
+    final patientName = (appointment['patient_name'] ?? 'Walk-in Patient').toString();
+    final patientPhone = (appointment['patient_phone'] ?? '').toString();
+    final patientAge = appointment['patient_age']?.toString() ?? '';
+    final patientGender = (appointment['patient_gender'] ?? '').toString();
+    final doctorName = (appointment['doctor_name'] ?? 'Doctor').toString();
+    final department = (appointment['department'] ?? appointment['speciality'] ?? '').toString();
+    final apptDate = (appointment['appointment_date'] ?? '').toString();
+    final apptTime = (appointment['appointment_time'] ?? '').toString();
+    final reason = (appointment['reason_for_visit'] ?? '').toString();
+
+    document.addPage(
+      pw.Page(
+        pageFormat: const PdfPageFormat(80 * PdfPageFormat.mm, double.infinity, marginAll: 4 * PdfPageFormat.mm),
+        build: (pw.Context context) {
+          return pw.Container(
+            padding: const pw.EdgeInsets.all(6),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
+              children: [
+                pw.Text(clinicName, style: pw.TextStyle(font: bold, fontSize: 14), textAlign: pw.TextAlign.center),
+                if (clinicAddress.isNotEmpty)
+                  pw.Text(clinicAddress, style: pw.TextStyle(font: regular, fontSize: 8), textAlign: pw.TextAlign.center),
+                if (clinicPhone.isNotEmpty)
+                  pw.Text('Tel: $clinicPhone', style: pw.TextStyle(font: regular, fontSize: 8), textAlign: pw.TextAlign.center),
+                pw.Divider(thickness: 1, borderStyle: pw.BorderStyle.dashed),
+                pw.SizedBox(height: 2),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.black, width: 1),
+                    borderRadius: pw.BorderRadius.circular(4),
+                  ),
+                  child: pw.Text('APPOINTMENT TOKEN', style: pw.TextStyle(font: bold, fontSize: 11)),
+                ),
+                pw.SizedBox(height: 6),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.grey200,
+                    borderRadius: pw.BorderRadius.circular(6),
+                    border: pw.Border.all(color: PdfColors.black, width: 1.5),
+                  ),
+                  child: pw.Text('#$tokenNo', style: pw.TextStyle(font: bold, fontSize: 28)),
+                ),
+                pw.SizedBox(height: 6),
+                pw.Divider(thickness: 0.8),
+                pw.Align(
+                  alignment: pw.Alignment.centerLeft,
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Row(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Patient: ', style: pw.TextStyle(font: bold, fontSize: 9)),
+                          pw.Expanded(child: pw.Text(patientName, style: pw.TextStyle(font: bold, fontSize: 9))),
+                        ],
+                      ),
+                      if (patientAge.isNotEmpty || patientGender.isNotEmpty)
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.only(top: 1),
+                          child: pw.Text('Age/Gender: $patientAge ${patientGender.isNotEmpty ? "/ $patientGender" : ""}', style: pw.TextStyle(font: regular, fontSize: 8)),
+                        ),
+                      if (patientPhone.isNotEmpty)
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.only(top: 1),
+                          child: pw.Text('Phone: $patientPhone', style: pw.TextStyle(font: regular, fontSize: 8)),
+                        ),
+                      pw.SizedBox(height: 4),
+                      pw.Row(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Consultant: ', style: pw.TextStyle(font: bold, fontSize: 9)),
+                          pw.Expanded(child: pw.Text(doctorName, style: pw.TextStyle(font: bold, fontSize: 9))),
+                        ],
+                      ),
+                      if (department.isNotEmpty)
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.only(top: 1),
+                          child: pw.Text('Dept: $department', style: pw.TextStyle(font: regular, fontSize: 8)),
+                        ),
+                      pw.SizedBox(height: 4),
+                      pw.Row(
+                        children: [
+                          pw.Text('Date & Slot: ', style: pw.TextStyle(font: bold, fontSize: 8)),
+                          pw.Text('$apptDate  $apptTime', style: pw.TextStyle(font: regular, fontSize: 8)),
+                        ],
+                      ),
+                      if (reason.isNotEmpty)
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.only(top: 2),
+                          child: pw.Text('Visit: $reason', style: pw.TextStyle(font: regular, fontSize: 8)),
+                        ),
+                    ],
+                  ),
+                ),
+                pw.Divider(thickness: 0.8),
+                pw.SizedBox(height: 2),
+                pw.Text('Please wait for your token to be called.', style: pw.TextStyle(font: regular, fontSize: 8), textAlign: pw.TextAlign.center),
+                pw.Text('Thank you!', style: pw.TextStyle(font: bold, fontSize: 9), textAlign: pw.TextAlign.center),
+                pw.SizedBox(height: 4),
+                pw.Text('Printed: ${DateFormat("dd-MMM-yyyy hh:mm a").format(DateTime.now())}', style: pw.TextStyle(font: regular, fontSize: 7, color: PdfColors.grey700), textAlign: pw.TextAlign.center),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    return document.save();
+  }
+
+  static Future<void> printAppointmentToken({
+    required Map<String, dynamic> appointment,
+    PropertyInfo? property,
+    SystemSettings? settings,
+  }) async {
+    try {
+      final pdfBytes = await buildAppointmentTokenPdf(
+        appointment: appointment,
+        property: property,
+        settings: settings,
+      );
+
+      final tokenNo = appointment['token_number'] ?? appointment['token_no'] ?? appointment['id'] ?? '1';
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfBytes,
+        name: 'Appointment_Token_$tokenNo.pdf',
+      );
+    } catch (_) {}
+  }
+
   static Future<void> printTokenTickets({
     required SaleOrder order,
     required PropertyInfo? property,

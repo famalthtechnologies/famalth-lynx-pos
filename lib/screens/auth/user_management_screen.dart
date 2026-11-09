@@ -156,6 +156,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       Permission1('LYNX_TESTING', 'LYNX Feature Testing Hub'),
       Permission1('AUTONOMOUS_AGENT', 'Autonomous AI Agent'),
     ]),
+    PermissionGroup('Clinic & Healthcare', [
+      Permission1('CLINIC_MODULE', 'Clinic & Patients Management'),
+      Permission1('CLINIC_APPOINTMENTS', 'Appointments & Doctor Schedule'),
+      Permission1('DOCTOR_CONSULTATION', 'Doctor Consultation & Diagnosis'),
+      Permission1('PRESCRIPTIONS', 'E-Prescriptions & Rx Records'),
+    ]),
     PermissionGroup('Settings & Customizer', [
       Permission1('PROPERTY_INFORMATION', 'Property Information'),
       Permission1('NUMBERING_SETTINGS', 'Document Sequence Settings'),
@@ -174,17 +180,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   bool get _isAdmin => _currentUserRole.toUpperCase() == 'ADMIN';
 
   List<PermissionGroup> get filteredPermissionGroups {
-    return permissionGroups.where((group) {
-      if (group.categoryName == 'Retail Sales' &&
-          !ModuleCapability.hasRetail(_userBusinessModule)) {
-        return false;
-      }
-      if (group.categoryName == 'Restaurant (Beta)' &&
-          !ModuleCapability.hasRestaurant(_userBusinessModule)) {
-        return false;
-      }
-      return true;
-    }).map((group) {
+    return permissionGroups.map((group) {
       final filteredItems = group.items
           .where((p) =>
               ModuleCapability.isPermissionAllowed(p.key, _userBusinessModule))
@@ -265,6 +261,77 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         .toList();
   }
 
+  List<DropdownMenuItem<String>> _getAvailableModuleDropdownItems() {
+    final mods = ModuleCapability.parseModules(_userBusinessModule);
+    if (mods.contains(ModuleCapability.all)) {
+      return const [
+        DropdownMenuItem(value: 'ALL', child: Text('ALL (All Modules & Roles)')),
+        DropdownMenuItem(value: 'RETAIL', child: Text('RETAIL (Store, POS Billing)')),
+        DropdownMenuItem(value: 'INVENTORY', child: Text('INVENTORY (Stock, Warehouse)')),
+        DropdownMenuItem(value: 'HRMS', child: Text('HRMS (Workforce, Staff & Payroll)')),
+        DropdownMenuItem(value: 'RESTAURANT', child: Text('RESTAURANT (Dining, Waiter, Captain, KDS)')),
+        DropdownMenuItem(value: 'CLINIC', child: Text('CLINIC (Doctors, Patients, Pharmacy)')),
+      ];
+    }
+
+    final roleMods = <String>[];
+    if (ModuleCapability.hasRetail(_userBusinessModule)) roleMods.add('RETAIL');
+    if (ModuleCapability.hasInventory(_userBusinessModule)) roleMods.add('INVENTORY');
+    if (ModuleCapability.hasHrms(_userBusinessModule)) roleMods.add('HRMS');
+    if (ModuleCapability.hasRestaurant(_userBusinessModule)) roleMods.add('RESTAURANT');
+    if (ModuleCapability.hasClinic(_userBusinessModule)) roleMods.add('CLINIC');
+    if (ModuleCapability.hasAccounting(_userBusinessModule)) roleMods.add('ACCOUNTING');
+
+    final List<DropdownMenuItem<String>> items = [];
+
+    if (roleMods.length > 1) {
+      items.add(DropdownMenuItem(
+        value: _userBusinessModule,
+        child: Text('All Subscribed (${ModuleCapability.formatDisplayModules(_userBusinessModule)})'),
+      ));
+    }
+
+    for (final mod in roleMods) {
+      switch (mod) {
+        case 'RETAIL':
+          items.add(const DropdownMenuItem(value: 'RETAIL', child: Text('RETAIL (Store, POS Billing)')));
+          break;
+        case 'INVENTORY':
+          items.add(const DropdownMenuItem(value: 'INVENTORY', child: Text('INVENTORY (Stock, Warehouse)')));
+          break;
+        case 'HRMS':
+          items.add(const DropdownMenuItem(value: 'HRMS', child: Text('HRMS (Workforce, Staff & Payroll)')));
+          break;
+        case 'RESTAURANT':
+          items.add(const DropdownMenuItem(value: 'RESTAURANT', child: Text('RESTAURANT (Dining, Waiter, Captain, KDS)')));
+          break;
+        case 'CLINIC':
+          items.add(const DropdownMenuItem(value: 'CLINIC', child: Text('CLINIC (Doctors, Patients, Pharmacy)')));
+          break;
+        case 'ACCOUNTING':
+          items.add(const DropdownMenuItem(value: 'ACCOUNTING', child: Text('ACCOUNTING (Finance, Ledger)')));
+          break;
+      }
+    }
+
+    if (items.isEmpty) {
+      items.add(DropdownMenuItem(
+        value: _userBusinessModule,
+        child: Text(ModuleCapability.formatDisplayModules(_userBusinessModule)),
+      ));
+    }
+
+    final seen = <String>{};
+    final uniqueItems = <DropdownMenuItem<String>>[];
+    for (final it in items) {
+      if (it.value != null && seen.add(it.value!)) {
+        uniqueItems.add(it);
+      }
+    }
+    return uniqueItems;
+  }
+
+
   /// ================= UI =================
 
   @override
@@ -275,7 +342,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         title: const Text('User Management'),
         centerTitle: true,
         actions: [
-          if (_isAdmin) ...[
+          if (_isAdmin && ModuleCapability.hasRestaurant(_userBusinessModule)) ...[
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFFFF7A1A)),
@@ -348,16 +415,17 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               headingRowColor: WidgetStateProperty.all(
                 Theme.of(context).colorScheme.surfaceContainerHighest,
               ),
-              columns: const [
-                DataColumn(label: Text('Username')),
-                DataColumn(label: Text('Name')),
-                DataColumn(label: Text('Role')),
-                DataColumn(label: Text('Quick PIN')),
-                DataColumn(label: Text('Mobile')),
-                DataColumn(label: Text('Email')),
-                DataColumn(label: Text('Max Disc %')),
-                DataColumn(label: Text('Status')),
-                DataColumn(label: Text('Actions')),
+              columns: [
+                const DataColumn(label: Text('Username')),
+                const DataColumn(label: Text('Name')),
+                const DataColumn(label: Text('Role')),
+                const DataColumn(label: Text('Quick PIN')),
+                const DataColumn(label: Text('Mobile')),
+                const DataColumn(label: Text('Email')),
+                if (ModuleCapability.hasBilling(_userBusinessModule))
+                  const DataColumn(label: Text('Max Disc %')),
+                const DataColumn(label: Text('Status')),
+                const DataColumn(label: Text('Actions')),
               ],
               rows: filteredUsers.map((u) {
                 return DataRow(
@@ -488,7 +556,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ),
                     DataCell(Text(u.mobile)),
                     DataCell(Text(u.email)),
-                    DataCell(Text('${u.maxDiscountPercent.toStringAsFixed(0)}%')),
+                    if (ModuleCapability.hasBilling(_userBusinessModule))
+                      DataCell(Text('${u.maxDiscountPercent.toStringAsFixed(0)}%')),
                     DataCell(Chip(
                       label: Text(u.isActive ? 'ACTIVE' : 'INACTIVE'),
                       backgroundColor: u.isActive
@@ -728,8 +797,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     final docDays = TextEditingController(text: 'Mon,Tue,Wed,Thu,Fri,Sat');
     bool docIsPublic = true;
 
-    String selectedDialogModule = _userBusinessModule;
-    String role = AppConstants.getRolesForModule(selectedDialogModule).first;
+    final availableModuleItems = _getAvailableModuleDropdownItems();
+    String selectedDialogModule = availableModuleItems.any((it) => it.value == _userBusinessModule)
+        ? _userBusinessModule
+        : availableModuleItems.first.value!;
+    final initialRoles = AppConstants.getRolesForModule(selectedDialogModule);
+    String role = initialRoles.isNotEmpty ? initialRoles.first : 'ADMIN';
     bool showInQuickLogin = false;
 
     bool isEmailVerified = false;
@@ -865,34 +938,31 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                 border: OutlineInputBorder())),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: selectedDialogModule,
+                          key: ValueKey('add_mod_${selectedDialogModule}_${availableModuleItems.map((e) => e.value).join("_")}'),
+                          value: availableModuleItems.any((it) => it.value == selectedDialogModule)
+                              ? selectedDialogModule
+                              : availableModuleItems.first.value,
                           decoration: const InputDecoration(
                             labelText: 'Module Selection',
                             prefixIcon: Icon(Icons.widgets_outlined),
                             border: OutlineInputBorder(),
-                            helperText: 'Select module to filter roles (or ALL for all roles)',
+                            helperText: 'Select module to filter roles',
                           ),
-                          items: const [
-                            DropdownMenuItem(value: 'ALL', child: Text('ALL (All Modules & Roles)')),
-                            DropdownMenuItem(value: 'CLINIC', child: Text('CLINIC (Doctors, Patients, Pharmacy)')),
-                            DropdownMenuItem(value: 'RETAIL', child: Text('RETAIL (Store, POS Billing)')),
-                            DropdownMenuItem(value: 'RESTAURANT', child: Text('RESTAURANT (Dining, Waiter, Captain, KDS)')),
-                            DropdownMenuItem(value: 'INVENTORY', child: Text('INVENTORY (Stock, Warehouse)')),
-                          ],
+                          items: availableModuleItems,
                           onChanged: (val) {
                             if (val == null) return;
                             setDialogState(() {
                               selectedDialogModule = val;
                               final validRoles = AppConstants.getRolesForModule(selectedDialogModule);
                               if (!validRoles.contains(role)) {
-                                role = validRoles.first;
+                                role = validRoles.isNotEmpty ? validRoles.first : 'ADMIN';
                               }
                             });
                           },
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          key: ValueKey('add_role_${selectedDialogModule}'),
+                          key: ValueKey('add_role_${selectedDialogModule}_${role}'),
                           value: AppConstants.getRolesForModule(selectedDialogModule).contains(role)
                               ? role
                               : AppConstants.getRolesForModule(selectedDialogModule).first,
@@ -961,24 +1031,26 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             return null;
                           },
                         ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: maxDiscount,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Max Manual Discount (%)',
-                            border: OutlineInputBorder(),
-                            suffixText: '%',
+                        if (ModuleCapability.hasBilling(_userBusinessModule)) ...[
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: maxDiscount,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Max Manual Discount (%)',
+                              border: OutlineInputBorder(),
+                              suffixText: '%',
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) return null;
+                              final val = double.tryParse(v);
+                              if (val == null || val < 0 || val > 100) {
+                                return 'Enter 0 - 100%';
+                              }
+                              return null;
+                            },
                           ),
-                          validator: (v) {
-                            if (v == null || v.isEmpty) return null;
-                            final val = double.tryParse(v);
-                            if (val == null || val < 0 || val > 100) {
-                              return 'Enter 0 - 100%';
-                            }
-                            return null;
-                          },
-                        ),
+                        ],
                         const SizedBox(height: 12),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -996,7 +1068,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             contentPadding: EdgeInsets.zero,
                           ),
                         ),
-                        if (role.toUpperCase() == 'DOCTOR') ...[
+                        if (role.toUpperCase() == 'DOCTOR' && ModuleCapability.hasClinic(_userBusinessModule)) ...[
                           const SizedBox(height: 12),
                           Container(
                             padding: const EdgeInsets.all(12),
@@ -1237,7 +1309,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                               role: role,
                               pinCode: pinCode.text.trim().isNotEmpty ? pinCode.text.trim() : null,
                               showInQuickLogin: showInQuickLogin,
-                              maxDiscountPercent: double.tryParse(maxDiscount.text.trim()) ?? 100.0,
+                              maxDiscountPercent: ModuleCapability.hasBilling(_userBusinessModule)
+                                  ? (double.tryParse(maxDiscount.text.trim()) ?? 100.0)
+                                  : 0.0,
                               permissions: AppConstants.getDefaultPermissionsForRole(role, selectedDialogModule),
                               password: password.text,
                               speciality: role.toUpperCase() == 'DOCTOR' ? docSpeciality.text.trim() : null,
@@ -1429,14 +1503,26 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     final docDays = TextEditingController(text: u.availableDays ?? 'Mon,Tue,Wed,Thu,Fri,Sat');
     bool docIsPublic = u.isPublicListed;
 
+    final availableModuleItems = _getAvailableModuleDropdownItems();
     String editDialogModule = _userBusinessModule;
     final rUpper = u.role.toUpperCase().trim();
-    if (rUpper == 'DOCTOR' || rUpper == 'RECEPTIONIST' || rUpper == 'PHARMACIST') {
+    if (ModuleCapability.hasClinic(_userBusinessModule) &&
+        (rUpper == 'DOCTOR' || rUpper == 'RECEPTIONIST' || rUpper == 'PHARMACIST')) {
       editDialogModule = 'CLINIC';
-    } else if (rUpper == 'WAITER' || rUpper == 'CAPTAIN' || rUpper == 'KDS') {
+    } else if (ModuleCapability.hasRestaurant(_userBusinessModule) &&
+        (rUpper == 'WAITER' || rUpper == 'CAPTAIN' || rUpper == 'KDS')) {
       editDialogModule = 'RESTAURANT';
-    } else if (rUpper == 'RETAIL' || rUpper == 'STORE') {
+    } else if (ModuleCapability.hasRetail(_userBusinessModule) &&
+        (rUpper == 'RETAIL' || rUpper == 'CASHIER')) {
       editDialogModule = 'RETAIL';
+    } else if (ModuleCapability.hasInventory(_userBusinessModule) && rUpper == 'STORE') {
+      editDialogModule = 'INVENTORY';
+    } else if (ModuleCapability.hasHrms(_userBusinessModule) && rUpper == 'HR') {
+      editDialogModule = 'HRMS';
+    }
+
+    if (!availableModuleItems.any((it) => it.value == editDialogModule)) {
+      editDialogModule = availableModuleItems.first.value!;
     }
     String role = u.role;
     bool showInQuickLogin = u.showInQuickLogin;
@@ -1527,34 +1613,31 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                 border: OutlineInputBorder())),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: editDialogModule,
+                          key: ValueKey('edit_mod_${editDialogModule}_${availableModuleItems.map((e) => e.value).join("_")}'),
+                          value: availableModuleItems.any((it) => it.value == editDialogModule)
+                              ? editDialogModule
+                              : availableModuleItems.first.value,
                           decoration: const InputDecoration(
                             labelText: 'Module Selection',
                             prefixIcon: Icon(Icons.widgets_outlined),
                             border: OutlineInputBorder(),
-                            helperText: 'Select module to filter roles (or ALL for all roles)',
+                            helperText: 'Select module to filter roles',
                           ),
-                          items: const [
-                            DropdownMenuItem(value: 'ALL', child: Text('ALL (All Modules & Roles)')),
-                            DropdownMenuItem(value: 'CLINIC', child: Text('CLINIC (Doctors, Patients, Pharmacy)')),
-                            DropdownMenuItem(value: 'RETAIL', child: Text('RETAIL (Store, POS Billing)')),
-                            DropdownMenuItem(value: 'RESTAURANT', child: Text('RESTAURANT (Dining, Waiter, Captain, KDS)')),
-                            DropdownMenuItem(value: 'INVENTORY', child: Text('INVENTORY (Stock, Warehouse)')),
-                          ],
+                          items: availableModuleItems,
                           onChanged: (val) {
                             if (val == null) return;
                             setDialogState(() {
                               editDialogModule = val;
                               final validRoles = AppConstants.getRolesForModule(editDialogModule);
                               if (!validRoles.contains(role)) {
-                                role = validRoles.first;
+                                role = validRoles.isNotEmpty ? validRoles.first : 'ADMIN';
                               }
                             });
                           },
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          key: ValueKey('edit_role_${editDialogModule}'),
+                          key: ValueKey('edit_role_${editDialogModule}_${role}'),
                           value: AppConstants.getRolesForModule(editDialogModule).contains(role)
                               ? role
                               : AppConstants.getRolesForModule(editDialogModule).first,
@@ -1598,24 +1681,26 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             return null;
                           },
                         ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: maxDiscount,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Max Manual Discount (%)',
-                            border: OutlineInputBorder(),
-                            suffixText: '%',
+                        if (ModuleCapability.hasBilling(_userBusinessModule)) ...[
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: maxDiscount,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Max Manual Discount (%)',
+                              border: OutlineInputBorder(),
+                              suffixText: '%',
+                            ),
+                            validator: (v) {
+                              if (v == null || v.isEmpty) return null;
+                              final val = double.tryParse(v);
+                              if (val == null || val < 0 || val > 100) {
+                                return 'Enter 0 - 100%';
+                              }
+                              return null;
+                            },
                           ),
-                          validator: (v) {
-                            if (v == null || v.isEmpty) return null;
-                            final val = double.tryParse(v);
-                            if (val == null || val < 0 || val > 100) {
-                              return 'Enter 0 - 100%';
-                            }
-                            return null;
-                          },
-                        ),
+                        ],
                         const SizedBox(height: 12),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -1633,7 +1718,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             contentPadding: EdgeInsets.zero,
                           ),
                         ),
-                        if (role.toUpperCase() == 'DOCTOR') ...[
+                        if (role.toUpperCase() == 'DOCTOR' && ModuleCapability.hasClinic(_userBusinessModule)) ...[
                           const SizedBox(height: 12),
                           Container(
                             padding: const EdgeInsets.all(12),
@@ -1884,7 +1969,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                               contact_email: email.text,
                               role: role,
                               pinCode: pinCode.text.trim().isNotEmpty ? pinCode.text.trim() : null,
-                              maxDiscountPercent: double.tryParse(maxDiscount.text.trim()) ?? u.maxDiscountPercent,
+                              maxDiscountPercent: ModuleCapability.hasBilling(_userBusinessModule)
+                                  ? (double.tryParse(maxDiscount.text.trim()) ?? u.maxDiscountPercent)
+                                  : 0.0,
                               showInQuickLogin: showInQuickLogin,
                               speciality: role.toUpperCase() == 'DOCTOR' ? docSpeciality.text.trim() : null,
                               qualification: role.toUpperCase() == 'DOCTOR' ? docQualification.text.trim() : null,
@@ -2274,7 +2361,7 @@ class _StaffQrBadgeDialogState extends State<_StaffQrBadgeDialog> {
       final res = await ApiClient.get(ApiEndpoints.userLoginQr(widget.user.id));
       if (res != null && res['success'] == true) {
         setState(() {
-          _qrToken = res['data']?['qr_token'];
+          _qrToken = res['data']?['qr_token'] ?? res['data']?['login_qr_token'];
           _qrDisplayUrl = res['data']?['login_qr_url'];
         });
       } else {
@@ -2320,7 +2407,7 @@ class _StaffQrBadgeDialogState extends State<_StaffQrBadgeDialog> {
       final res = await ApiClient.post(ApiEndpoints.regenerateUserQr(widget.user.id), {});
       if (res != null && res['success'] == true) {
         setState(() {
-          _qrToken = res['data']?['qr_token'];
+          _qrToken = res['data']?['qr_token'] ?? res['data']?['login_qr_token'];
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

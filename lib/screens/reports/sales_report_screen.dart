@@ -21,9 +21,12 @@ import '../../controllers/inventory/stock_transfer_controller.dart';
 import '../../core/currency/currency_service.dart';
 import '../../core/printing/pos_invoice_printer.dart';
 import '../../models/reports/sales_report_model.dart';
+import '../../core/permissions/module_capability.dart';
+import '../../core/auth/token_storage.dart';
 
 class SalesReportScreen extends StatefulWidget {
-  const SalesReportScreen({super.key});
+  final String? businessModule;
+  const SalesReportScreen({super.key, this.businessModule});
 
   @override
   State<SalesReportScreen> createState() => _SalesReportScreenState();
@@ -79,6 +82,8 @@ class _ExtractedModifier {
 }
 
 class _SalesReportScreenState extends State<SalesReportScreen> {
+  String _cachedBusinessModule = 'ALL';
+  String get _effectiveBusinessModule => widget.businessModule ?? _cachedBusinessModule;
   List<_ExtractedModifier> _extractItemModifiers(SalesReportItem item) {
     final List<_ExtractedModifier> mods = [];
     if (item.modifierObjects != null && item.modifierObjects!.isNotEmpty) {
@@ -258,6 +263,11 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   @override
   void initState() {
     super.initState();
+    TokenStorage.getBusinessModule().then((m) {
+      if (mounted && m.isNotEmpty) {
+        setState(() => _cachedBusinessModule = m);
+      }
+    }).catchError((_) => null);
     propertyCtrl.load();
     _syncDates();
     _initData();
@@ -3161,7 +3171,11 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
       appBar: AppBar(
-        title: const Text('Retail Sales Report'),
+        title: Text(
+          ModuleCapability.hasClinic(_effectiveBusinessModule) && !ModuleCapability.hasRetail(_effectiveBusinessModule)
+              ? 'Pharmacy Sale Report'
+              : (ModuleCapability.hasRestaurant(_effectiveBusinessModule) ? 'Sales Report' : 'Retail Sales Report'),
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),

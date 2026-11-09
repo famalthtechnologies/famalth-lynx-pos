@@ -43,87 +43,43 @@ class AppConstants {
 
   static List<String> getRolesForModule(String? module) {
     if (module == null || module.trim().isEmpty) return availableRoles;
-    final normalized = ModuleCapability.normalize(module);
-    final mod = module.toUpperCase().trim();
+    final mods = ModuleCapability.parseModules(module);
 
-    // 1. Clinic & OPD Healthcare (Doctors, Receptionists, Pharmacists, Cashier, Admin/Managers)
-    // Strictly exclude restaurant dining roles (WAITER, CAPTAIN, KDS) and retail store roles (STORE, RETAIL)
-    if (normalized == ModuleCapability.clinic ||
-        mod == 'CLINIC' ||
-        mod.contains('CLINIC') ||
-        mod.contains('DOCTOR') ||
-        mod.contains('HEALTH')) {
-      return [
-        'ADMIN',
-        'MANAGER',
-        'DOCTOR',
-        'RECEPTIONIST',
-        'PHARMACIST',
-        'CASHIER',
-        'ACCOUNTS',
-        'HR',
-        'MARKETING',
-      ];
+    if (mods.contains(ModuleCapability.all)) {
+      return availableRoles;
     }
 
-    // 2. Restaurant & Dining / Hospitality (Waiters, Captains, KDS, Cashier, Admin/Managers)
-    // Strictly exclude clinic roles (DOCTOR, RECEPTIONIST, PHARMACIST)
-    if (normalized == ModuleCapability.restaurant ||
-        mod == 'RESTAURANT' ||
-        mod.contains('RESTAURANT') ||
-        mod.contains('HOTEL') ||
-        mod.contains('CAPTAIN') ||
-        mod.contains('KDS') ||
-        mod.contains('CAFE') ||
-        mod.contains('DINE')) {
-      return [
-        'ADMIN',
-        'MANAGER',
-        'WAITER',
-        'CAPTAIN',
-        'KDS',
-        'CASHIER',
-        'STORE',
-        'ACCOUNTS',
-        'HR',
-        'MARKETING',
-      ];
+    final Set<String> roles = {'ADMIN', 'MANAGER'};
+
+    if (ModuleCapability.hasRetail(module)) {
+      roles.addAll(['RETAIL', 'CASHIER']);
     }
 
-    // 3. Retail POS & Supermarket
-    // Strictly exclude restaurant dining roles and clinic roles
-    if (normalized == ModuleCapability.retail ||
-        mod == 'RETAIL' ||
-        mod.contains('RETAIL') ||
-        mod.contains('POS') ||
-        mod.contains('MART') ||
-        mod.contains('STORE')) {
-      return [
-        'ADMIN',
-        'MANAGER',
-        'STORE',
-        'RETAIL',
-        'CASHIER',
-        'ACCOUNTS',
-        'HR',
-        'MARKETING',
-      ];
+    if (ModuleCapability.hasRestaurant(module)) {
+      roles.addAll(['WAITER', 'CAPTAIN', 'KDS', 'CASHIER']);
     }
 
-    // 4. Inventory & Warehouse only
-    if (normalized == ModuleCapability.inventory ||
-        mod == 'INVENTORY' ||
-        mod.contains('INVENTORY') ||
-        mod.contains('WAREHOUSE')) {
-      return ['ADMIN', 'MANAGER', 'STORE', 'ACCOUNTS', 'HR', 'MARKETING'];
+    if (ModuleCapability.hasClinic(module)) {
+      roles.addAll(['DOCTOR', 'RECEPTIONIST', 'PHARMACIST', 'CASHIER']);
     }
 
-    // 5. HRMS only
-    if (normalized == ModuleCapability.hrms || mod == 'HRMS' || mod.contains('HRMS')) {
-      return ['ADMIN', 'MANAGER', 'HR', 'ACCOUNTS', 'MARKETING'];
+    if (ModuleCapability.hasInventory(module)) {
+      roles.add('STORE');
     }
 
-    return availableRoles;
+    if (ModuleCapability.hasAccounting(module)) {
+      roles.add('ACCOUNTS');
+    }
+
+    if (ModuleCapability.hasHrms(module)) {
+      roles.add('HR');
+    }
+
+    if (ModuleCapability.hasRetail(module) || ModuleCapability.hasRestaurant(module)) {
+      roles.add('MARKETING');
+    }
+
+    return availableRoles.where((r) => roles.contains(r)).toList();
   }
 
   static List<String> getDefaultPermissionsForRole(String role, [String? module]) {

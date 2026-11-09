@@ -234,9 +234,13 @@ exports.createUser = async (req, res) => {
     const finalMaxDiscount = (max_discount_percent !== undefined && max_discount_percent !== null)
         ? max_discount_percent
         : defaultRoleDisc;
-    const user = await req.propertyDb.models.users.create({
+
+    const crypto = require("crypto");
+    const initialQrToken = `LYNX-STAFF-${cleanUsername}-${crypto.randomBytes(12).toString("hex").toUpperCase()}`;
+    const user = await req.propertyDb.models.users.create({
         outlet_id,
         username: cleanUsername,
+        login_qr_token: initialQrToken,
         full_name,
         mobile,
         contact_email,
@@ -714,7 +718,8 @@ exports.regenerateUserQrToken = async (req: any, res: any) => {
                 username: user.username,
                 full_name: user.full_name,
                 role: user.role,
-                login_qr_token: newToken
+                login_qr_token: newToken,
+                qr_token: newToken
             }
         });
     } catch (err: any) {
@@ -753,7 +758,8 @@ exports.getUserQrToken = async (req: any, res: any) => {
                 role: user.role,
                 outlet_name: outlet?.outlet_name || 'Store',
                 outlet_code: outlet?.outlet_code || '',
-                login_qr_token: token
+                login_qr_token: token,
+                qr_token: token
             }
         });
     } catch (err: any) {

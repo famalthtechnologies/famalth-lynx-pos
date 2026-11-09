@@ -10,6 +10,7 @@ import '../../controllers/public/outlet_controller.dart';
 import '../../controllers/public/recovery_controller.dart';
 import '../../controllers/settings/theme_controller.dart';
 import '../../core/config/app_config.dart';
+import '../../core/permissions/module_capability.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/settings/local_preferences.dart';
 import '../../core/utils/file_download_helper.dart';
@@ -34,6 +35,7 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
   final _outletName = TextEditingController();
   String _outletType = 'RETAIL';
   String _businessModule = 'RETAIL';
+  Set<String> _selectedModules = {'RETAIL', 'INVENTORY'};
 
   // Enterprise Recovery Fields
   final _contactEmail = TextEditingController();
@@ -1408,9 +1410,39 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
           children: [
             Expanded(child: _modernDropdown(scheme)),
             const SizedBox(width: 14),
-            Expanded(child: _modernModuleDropdown(scheme)),
+            Expanded(child: _modernModuleSelector(scheme)),
           ],
         ),
+        if (_businessModule.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: ModuleCapability.parseModules(_businessModule)
+                .where((m) => m != 'ALL')
+                .map((m) {
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF2563EB)),
+                    const SizedBox(width: 4),
+                    Text(
+                      m,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
         const SizedBox(height: 24),
         _buildSectionTitle("2. Security & Verification", Icons.admin_panel_settings_rounded, scheme),
         const SizedBox(height: 12),
@@ -2088,14 +2120,19 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
                 'PETS',
                 'SOFTWARE'
               }.contains(_outletType)) {
+            _selectedModules = {'RETAIL', 'INVENTORY'};
             _businessModule = 'RETAIL';
           } else if (const {'RESTAURANT', 'CAFE', 'BAR'}.contains(_outletType)) {
+            _selectedModules = {'RESTAURANT', 'INVENTORY'};
             _businessModule = 'RESTAURANT';
           } else if (_outletType == 'MEDICAL') {
+            _selectedModules = {'CLINIC', 'INVENTORY'};
             _businessModule = 'CLINIC';
           } else if (_outletType == 'WAREHOUSE') {
+            _selectedModules = {'INVENTORY'};
             _businessModule = 'INVENTORY';
           } else if (_outletType == 'HOTEL') {
+            _selectedModules = {'RETAIL', 'RESTAURANT', 'INVENTORY', 'ACCOUNTING', 'HRMS'};
             _businessModule = 'ALL';
           }
         });
@@ -2103,50 +2140,415 @@ class _OutletSetupScreenState extends State<OutletSetupScreen> {
     );
   }
 
-  Widget _modernModuleDropdown(ColorScheme scheme) {
-    return DropdownButtonFormField<String>(
-      isExpanded: true,
-      value: _businessModule,
-      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF0F172A)),
-      decoration: InputDecoration(
-        labelText: "Feature Set & Module *",
-        labelStyle: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-        prefixIcon: const Icon(Icons.widgets_rounded, size: 20, color: Color(0xFF64748B)),
-        filled: true,
-        fillColor: const Color(0xFFF8FAFC),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        enabledBorder: OutlineInputBorder(
+  Widget _modernModuleSelector(ColorScheme scheme) {
+    final displayTitle = ModuleCapability.formatDisplayModules(_businessModule);
+    return InkWell(
+      onTap: () => _showModuleSelectorModal(scheme),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.primary, width: 1.5),
+        child: Row(
+          children: [
+            const Icon(Icons.widgets_rounded, size: 20, color: Color(0xFF64748B)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "Feature Set & Active Modules *",
+                    style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    displayTitle,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: scheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.tune_rounded, size: 14, color: scheme.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Select',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: scheme.primary),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
-      items: const [
-        DropdownMenuItem(
-          value: 'RETAIL',
-          child: Text('Retail POS (Billing + Stock Inventory)'),
-        ),
-        DropdownMenuItem(
-          value: 'RESTAURANT',
-          child: Text('Restaurant & Cafe (KDS, KOTs, Tables + POS)'),
-        ),
-        DropdownMenuItem(
-          value: 'CLINIC',
-          child: Text('Clinic & OPD Healthcare (Doctors, Patients, Pharmacy)'),
-        ),
-        DropdownMenuItem(
-          value: 'INVENTORY',
-          child: Text('Inventory Only (Stock, PO, HRMS & Reports)'),
-        ),
-        DropdownMenuItem(
-          value: 'ALL',
-          child: Text('All Features (Retail + Restaurant + Inventory)'),
-        ),
-      ],
-      onChanged: (v) => setState(() => _businessModule = v!),
+    );
+  }
+
+  void _showModuleSelectorModal(ColorScheme scheme) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        Set<String> tempSelected = Set.from(_selectedModules);
+        if (tempSelected.isEmpty) {
+          tempSelected = ModuleCapability.parseModules(_businessModule).where((m) => m != 'ALL').toSet();
+        }
+
+        final allModulesDef = [
+          {
+            'key': 'RETAIL',
+            'name': 'Retail POS & Billing Counter',
+            'desc': 'Counter POS, Fast Checkout, Customer App & Delivery Orders',
+            'icon': Icons.point_of_sale_rounded,
+            'color': const Color(0xFF10B981),
+          },
+          {
+            'key': 'RESTAURANT',
+            'name': 'Restaurant & Dining (KDS/KOTs)',
+            'desc': 'Dine-In Tables, Captain Floor, KDS Kitchen Display & KOT History',
+            'icon': Icons.restaurant_rounded,
+            'color': Colors.orange,
+          },
+          {
+            'key': 'INVENTORY',
+            'name': 'Stock & Warehouse Management',
+            'desc': 'Item Master, Stock Issue, Goods Receiving (GRN), PO & Suppliers',
+            'icon': Icons.inventory_2_rounded,
+            'color': Colors.blue,
+          },
+          {
+            'key': 'CLINIC',
+            'name': 'Clinic & OPD Healthcare',
+            'desc': 'Doctor Appointments, Patient OPD Consultations & Pharmacy Stock',
+            'icon': Icons.local_hospital_rounded,
+            'color': const Color(0xFF0D9488),
+          },
+          {
+            'key': 'ACCOUNTING',
+            'name': 'Finance & Accounting Hub',
+            'desc': 'Chart of Accounts, Journal/Payment Vouchers, Ledger & Balance Sheet',
+            'icon': Icons.account_balance_rounded,
+            'color': const Color(0xFF7C3AED),
+          },
+          {
+            'key': 'HRMS',
+            'name': 'HRMS & Staff Management',
+            'desc': 'Employee Profiles, Shifts, Attendance Tracking & Monthly Payroll',
+            'icon': Icons.badge_rounded,
+            'color': const Color(0xFF6366F1),
+          },
+        ];
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void applySinglePreset(String preset) {
+              setDialogState(() {
+                if (preset == 'ALL') {
+                  tempSelected = {'RETAIL', 'RESTAURANT', 'INVENTORY', 'CLINIC', 'ACCOUNTING', 'HRMS'};
+                } else if (preset == 'RETAIL') {
+                  tempSelected = {'RETAIL'};
+                } else if (preset == 'RETAIL_INVENTORY') {
+                  tempSelected = {'RETAIL', 'INVENTORY'};
+                } else if (preset == 'RESTAURANT') {
+                  tempSelected = {'RESTAURANT'};
+                } else if (preset == 'RESTAURANT_INVENTORY') {
+                  tempSelected = {'RESTAURANT', 'INVENTORY'};
+                } else if (preset == 'CLINIC') {
+                  tempSelected = {'CLINIC'};
+                } else if (preset == 'CLINIC_INVENTORY') {
+                  tempSelected = {'CLINIC', 'INVENTORY'};
+                } else if (preset == 'INVENTORY') {
+                  tempSelected = {'INVENTORY'};
+                } else if (preset == 'ACCOUNTING') {
+                  tempSelected = {'ACCOUNTING'};
+                } else if (preset == 'HRMS') {
+                  tempSelected = {'HRMS'};
+                }
+              });
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 680, maxHeight: 720),
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: scheme.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(Icons.widgets_rounded, color: scheme.primary, size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: const [
+                                Text(
+                                  "Select Business Feature Modules",
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  "Choose a single module or multiple modules for this business outlet",
+                                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        "Quick Presets (Single Click):",
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          ActionChip(
+                            avatar: const Icon(Icons.point_of_sale_outlined, size: 14),
+                            label: const Text('🛒 Retail POS Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('RETAIL'),
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.shopping_bag_outlined, size: 14),
+                            label: const Text('🛍️ POS + Stock', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('RETAIL_INVENTORY'),
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.restaurant_outlined, size: 14),
+                            label: const Text('🍽️ Restaurant Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('RESTAURANT'),
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.restaurant_menu_outlined, size: 14),
+                            label: const Text('🍽️ Restaurant + Stock', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('RESTAURANT_INVENTORY'),
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.local_hospital_outlined, size: 14),
+                            label: const Text('🩺 Clinic / OPD Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('CLINIC'),
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.medical_services_outlined, size: 14),
+                            label: const Text('🩺 Clinic + Pharmacy', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('CLINIC_INVENTORY'),
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.inventory_2_outlined, size: 14),
+                            label: const Text('📦 Inventory Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('INVENTORY'),
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.account_balance_outlined, size: 14),
+                            label: const Text('📊 Accounts Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('ACCOUNTING'),
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.badge_outlined, size: 14),
+                            label: const Text('👥 HRMS Only', style: TextStyle(fontSize: 12)),
+                            onPressed: () => applySinglePreset('HRMS'),
+                          ),
+                          ActionChip(
+                            backgroundColor: const Color(0xFFEDE9FE),
+                            avatar: const Icon(Icons.all_inclusive, size: 14, color: Color(0xFF7C3AED)),
+                            label: const Text('🌐 All Modules', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED))),
+                            onPressed: () => applySinglePreset('ALL'),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "Module Selection (${tempSelected.length} of ${allModulesDef.length} active):",
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                          ),
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: () {
+                                  setDialogState(() {
+                                    tempSelected = allModulesDef.map((m) => m['key'] as String).toSet();
+                                  });
+                                },
+                                child: const Text('Select All', style: TextStyle(fontSize: 12)),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  setDialogState(() {
+                                    tempSelected.clear();
+                                  });
+                                },
+                                child: const Text('Clear', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: allModulesDef.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (ctx, i) {
+                            final m = allModulesDef[i];
+                            final key = m['key'] as String;
+                            final name = m['name'] as String;
+                            final desc = m['desc'] as String;
+                            final icon = m['icon'] as IconData;
+                            final color = m['color'] as Color;
+                            final isChecked = tempSelected.contains(key);
+
+                            return InkWell(
+                              onTap: () {
+                                setDialogState(() {
+                                  if (isChecked) {
+                                    tempSelected.remove(key);
+                                  } else {
+                                    tempSelected.add(key);
+                                  }
+                                });
+                              },
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: isChecked ? color.withOpacity(0.06) : const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isChecked ? color : const Color(0xFFE2E8F0),
+                                    width: isChecked ? 1.5 : 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: isChecked ? color : const Color(0xFFE2E8F0),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Icon(icon, size: 20, color: isChecked ? Colors.white : const Color(0xFF64748B)),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            name,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: isChecked ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            desc,
+                                            style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Checkbox(
+                                      value: isChecked,
+                                      activeColor: color,
+                                      onChanged: (val) {
+                                        setDialogState(() {
+                                          if (val == true) {
+                                            tempSelected.add(key);
+                                          } else {
+                                            tempSelected.remove(key);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: scheme.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.check, size: 18),
+                            label: const Text('Confirm Modules', style: TextStyle(fontWeight: FontWeight.bold)),
+                            onPressed: () {
+                              if (tempSelected.isEmpty) {
+                                tempSelected.add('RETAIL');
+                              }
+                              setState(() {
+                                _selectedModules = Set.from(tempSelected);
+                                if (_selectedModules.length == allModulesDef.length) {
+                                  _businessModule = 'ALL';
+                                } else if (_selectedModules.length == 1) {
+                                  _businessModule = _selectedModules.first;
+                                } else {
+                                  _businessModule = _selectedModules.join(',');
+                                }
+                              });
+                              Navigator.pop(context);
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
