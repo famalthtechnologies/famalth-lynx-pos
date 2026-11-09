@@ -1715,7 +1715,24 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
     final endDate = (sub['end_date'] ?? '').toString();
     final status = (sub['status'] ?? 'ACTIVE').toString().toUpperCase();
     final isActive = sub['active_subscription'] == true || status == 'ACTIVE';
-    final totalPayment = double.tryParse((sub['total_payment_amount'] ?? 0).toString()) ?? 0.0;
+
+    final origAmount = double.tryParse((sub['advance_original_amount'] ?? sub['total_payment_amount'] ?? 0).toString()) ?? 0.0;
+    final consumedAmount = double.tryParse((sub['advance_consumed_amount'] ?? 0).toString()) ?? 0.0;
+    final remainingAmount = sub['advance_remaining_amount'] != null
+        ? (double.tryParse(sub['advance_remaining_amount'].toString()) ?? (origAmount - consumedAmount))
+        : (origAmount - consumedAmount);
+
+    final origQty = double.tryParse((sub['advance_original_qty'] ?? 0).toString()) ?? 0.0;
+    final consumedQty = double.tryParse((sub['advance_consumed_qty'] ?? 0).toString()) ?? 0.0;
+    final remainingQty = sub['advance_remaining_qty'] != null
+        ? (double.tryParse(sub['advance_remaining_qty'].toString()) ?? (origQty - consumedQty))
+        : (origQty - consumedQty);
+
+    final safeOrigQty = origQty > 0 ? origQty : (consumedQty + (remainingQty > 0 ? remainingQty : 0));
+    final double qtyRatio = safeOrigQty > 0 ? (consumedQty / safeOrigQty).clamp(0.0, 1.0) : 0.0;
+    final double amtRatio = origAmount > 0 ? (consumedAmount / origAmount).clamp(0.0, 1.0) : 0.0;
+    final double progress = qtyRatio > 0 ? qtyRatio : amtRatio;
+    final int percent = (progress * 100).round();
 
     Color badgeBg;
     Color badgeText;
@@ -1788,30 +1805,147 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                 ),
               ),
               Text(
-                '₹${totalPayment.toStringAsFixed(2)}',
+                '₹${origAmount.toStringAsFixed(2)}',
                 style: const TextStyle(color: Color(0xFF059669), fontSize: 14, fontWeight: FontWeight.bold),
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
+
+          // Advance & Consumed Qty Progress Graph Section
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Advance Left', style: TextStyle(color: textMuted, fontSize: 11)),
+                        const SizedBox(height: 2),
+                        Text(
+                          '₹${remainingAmount.clamp(0, double.infinity).toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            color: Color(0xFF059669),
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Paid: ₹${origAmount.toStringAsFixed(0)} • Used: ₹${consumedAmount.toStringAsFixed(0)}',
+                          style: const TextStyle(color: textMuted, fontSize: 10),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text('Quantity Left', style: TextStyle(color: textMuted, fontSize: 11)),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${(safeOrigQty - consumedQty).clamp(0, double.infinity).toStringAsFixed(0)} Nos',
+                          style: const TextStyle(
+                            color: Color(0xFF2563EB),
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Total: ${safeOrigQty.toInt()} • Consumed: ${consumedQty.toInt()}',
+                          style: const TextStyle(color: textMuted, fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Consumption Progress', style: TextStyle(color: textDark, fontSize: 11.5, fontWeight: FontWeight.w600)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: percent >= 90 ? const Color(0xFFFEF2F2) : const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '$percent% Consumed',
+                        style: TextStyle(
+                          color: percent >= 90 ? const Color(0xFFDC2626) : const Color(0xFF2563EB),
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 8,
+                    backgroundColor: const Color(0xFFE2E8F0),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      percent >= 100
+                          ? const Color(0xFFDC2626)
+                          : percent >= 75
+                              ? const Color(0xFFF59E0B)
+                              : const Color(0xFF10B981),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Period: $startDate to $endDate',
-                style: const TextStyle(color: textMuted, fontSize: 11.5),
+              Expanded(
+                child: Text(
+                  'Period: $startDate to $endDate',
+                  style: const TextStyle(color: textMuted, fontSize: 11),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF16A34A),
+                  side: const BorderSide(color: Color(0xFF16A34A)),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                ),
+                icon: const Icon(Icons.picture_as_pdf, size: 13),
+                label: const Text('PDF', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                onPressed: () => _shareSubscriptionPdf(sub),
+              ),
+              const SizedBox(width: 6),
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2563EB),
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  minimumSize: const Size(70, 30),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   elevation: 0,
                 ),
-                icon: const Icon(Icons.refresh, size: 14),
-                label: const Text('Renew', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                icon: const Icon(Icons.refresh, size: 13),
+                label: const Text('Renew', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                 onPressed: () => _openRenewSubscriptionModal(sub),
               ),
             ],
@@ -1820,6 +1954,222 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
       ),
     );
   }
+
+  Future<void> _shareSubscriptionPdf(Map<String, dynamic> sub) async {
+    try {
+      final custName = (sub['customer_name'] ?? 'Customer').toString();
+      final custPhone = (sub['customer_phone'] ?? '').toString();
+      final itemName = (sub['item_name'] ?? 'Plan Item').toString();
+      final dailyQty = (sub['daily_allowed_qty'] ?? 1).toString();
+      final startDate = (sub['start_date'] ?? '').toString();
+      final endDate = (sub['end_date'] ?? '').toString();
+      final status = (sub['status'] ?? 'ACTIVE').toString().toUpperCase();
+
+      final origAmount = double.tryParse((sub['advance_original_amount'] ?? sub['total_payment_amount'] ?? 0).toString()) ?? 0.0;
+      final consumedAmount = double.tryParse((sub['advance_consumed_amount'] ?? 0).toString()) ?? 0.0;
+      final remainingAmount = sub['advance_remaining_amount'] != null
+          ? (double.tryParse(sub['advance_remaining_amount'].toString()) ?? (origAmount - consumedAmount))
+          : (origAmount - consumedAmount);
+
+      final origQty = double.tryParse((sub['advance_original_qty'] ?? 0).toString()) ?? 0.0;
+      final consumedQty = double.tryParse((sub['advance_consumed_qty'] ?? 0).toString()) ?? 0.0;
+      final remainingQty = sub['advance_remaining_qty'] != null
+          ? (double.tryParse(sub['advance_remaining_qty'].toString()) ?? (origQty - consumedQty))
+          : (origQty - consumedQty);
+
+      final safeOrigQty = origQty > 0 ? origQty : (consumedQty + (remainingQty > 0 ? remainingQty : 0));
+      final double qtyRatio = safeOrigQty > 0 ? (consumedQty / safeOrigQty).clamp(0.0, 1.0) : 0.0;
+      final double amtRatio = origAmount > 0 ? (consumedAmount / origAmount).clamp(0.0, 1.0) : 0.0;
+      final double progress = qtyRatio > 0 ? qtyRatio : amtRatio;
+      final int percent = (progress * 100).round();
+
+      final propCtrl = Provider.of<PropertyInfoController>(context, listen: false);
+      PropertyInfo? prop = propCtrl.data;
+      if (prop == null) {
+        try {
+          await propCtrl.load();
+          prop = propCtrl.data;
+        } catch (_) {}
+      }
+
+      final propName = prop?.propertyName.isNotEmpty == true ? prop!.propertyName : 'Store Subscription Service';
+      final propAddress = prop?.address.isNotEmpty == true ? prop!.address : '';
+      final propMobile = prop?.mobile.isNotEmpty == true ? prop!.mobile : '';
+
+      final pdf = pw.Document();
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+          build: (pw.Context pContext) {
+            return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          propName,
+                          style: pw.TextStyle(
+                            fontSize: 18,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue900,
+                          ),
+                        ),
+                        if (propAddress.isNotEmpty)
+                          pw.Text(propAddress, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                        if (propMobile.isNotEmpty)
+                          pw.Text('Contact: $propMobile', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                      ],
+                    ),
+                    pw.Container(
+                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: pw.BoxDecoration(
+                        color: status == 'ACTIVE' ? PdfColors.green50 : PdfColors.grey100,
+                        border: pw.Border.all(
+                          color: status == 'ACTIVE' ? PdfColors.green700 : PdfColors.grey400,
+                        ),
+                        borderRadius: pw.BorderRadius.circular(6),
+                      ),
+                      child: pw.Text(
+                        status,
+                        style: pw.TextStyle(
+                          color: status == 'ACTIVE' ? PdfColors.green800 : PdfColors.grey700,
+                          fontWeight: pw.FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 12),
+                pw.Divider(color: PdfColors.grey300),
+                pw.SizedBox(height: 8),
+
+                pw.Center(
+                  child: pw.Text(
+                    'SUBSCRIPTION & ADVANCE STATEMENT',
+                    style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800),
+                  ),
+                ),
+                pw.SizedBox(height: 14),
+
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(12),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.grey100,
+                    borderRadius: pw.BorderRadius.circular(6),
+                  ),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Customer: $custName', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                          if (custPhone.isNotEmpty)
+                            pw.Text('Phone: $custPhone', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                        ],
+                      ),
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          pw.Text('Item: $itemName', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                          pw.Text('Daily Quota: $dailyQty Nos/day', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                          pw.Text('Period: $startDate to $endDate', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(height: 16),
+
+                pw.Text('Balance & Consumption Overview', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800)),
+                pw.SizedBox(height: 8),
+                pw.Table(
+                  border: pw.TableBorder.all(color: PdfColors.grey300),
+                  children: [
+                    pw.TableRow(
+                      decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                      children: [
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Metric', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Total Planned', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10), textAlign: pw.TextAlign.right)),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Consumed (Used)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10), textAlign: pw.TextAlign.right)),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Remaining (Balance)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10), textAlign: pw.TextAlign.right)),
+                      ],
+                    ),
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Advance Payment', style: const pw.TextStyle(fontSize: 10))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Rs. ${origAmount.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.right)),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Rs. ${consumedAmount.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.right)),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Rs. ${remainingAmount.clamp(0, double.infinity).toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.green800), textAlign: pw.TextAlign.right)),
+                      ],
+                    ),
+                    pw.TableRow(
+                      children: [
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('Quantity (Units)', style: const pw.TextStyle(fontSize: 10))),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('${safeOrigQty.toInt()} Nos', style: const pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.right)),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('${consumedQty.toInt()} Nos', style: const pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.right)),
+                        pw.Padding(padding: const pw.EdgeInsets.all(8), child: pw.Text('${(safeOrigQty - consumedQty).clamp(0, double.infinity).toInt()} Nos', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800), textAlign: pw.TextAlign.right)),
+                      ],
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 14),
+
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(10),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey300),
+                    borderRadius: pw.BorderRadius.circular(6),
+                  ),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text('Overall Consumption Progress:', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('$percent% Consumed  |  ${100 - percent}% Balance Left', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(height: 20),
+
+                pw.Spacer(),
+                pw.Divider(color: PdfColors.grey300),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('Generated: ${DateFormat("dd-MMM-yyyy hh:mm a").format(DateTime.now())}', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600)),
+                    pw.Text('Thank you for choosing $propName!', style: pw.TextStyle(fontSize: 9, fontStyle: pw.FontStyle.italic, color: PdfColors.grey600)),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      );
+
+      final pdfBytes = await pdf.save();
+      final cleanCust = custName.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: 'Subscription_Statement_$cleanCust.pdf',
+        subject: 'Subscription Statement - $custName',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to share subscription PDF: $e')),
+        );
+      }
+    }
+  }
+
 
   void _openRenewSubscriptionModal(Map<String, dynamic> sub) {
     final custName = (sub['customer_name'] ?? '').toString();
@@ -5170,89 +5520,148 @@ class _CheckoutModalSheetState extends State<_CheckoutModalSheet> {
                       final isQuotaExhausted = todayRemaining <= 0;
                       final isInCart = widget.cart.containsKey(itemId);
 
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      final origAmount = double.tryParse((sub['advance_original_amount'] ?? sub['total_payment_amount'] ?? 0).toString()) ?? 0.0;
+                      final consumedAmount = double.tryParse((sub['advance_consumed_amount'] ?? 0).toString()) ?? 0.0;
+                      final remainingAmount = sub['advance_remaining_amount'] != null
+                          ? (double.tryParse(sub['advance_remaining_amount'].toString()) ?? (origAmount - consumedAmount))
+                          : (origAmount - consumedAmount);
+
+                      final origQty = double.tryParse((sub['advance_original_qty'] ?? 0).toString()) ?? 0.0;
+                      final consumedQty = double.tryParse((sub['advance_consumed_qty'] ?? 0).toString()) ?? 0.0;
+                      final remainingQty = sub['advance_remaining_qty'] != null
+                          ? (double.tryParse(sub['advance_remaining_qty'].toString()) ?? (origQty - consumedQty))
+                          : (origQty - consumedQty);
+
+                      final safeOrigQty = origQty > 0 ? origQty : (consumedQty + (remainingQty > 0 ? remainingQty : 0));
+                      final double qtyRatio = safeOrigQty > 0 ? (consumedQty / safeOrigQty).clamp(0.0, 1.0) : 0.0;
+                      final double amtRatio = origAmount > 0 ? (consumedAmount / origAmount).clamp(0.0, 1.0) : 0.0;
+                      final double progress = qtyRatio > 0 ? qtyRatio : amtRatio;
+                      final int percent = (progress * 100).round();
+
+                      return Container(
+                        margin: const EdgeInsets.only(top: 6),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Text(
-                                isExpired
-                                    ? '$itemName • Expired ($endDate)'
-                                    : (isQuotaExhausted
-                                        ? '$itemName • 0/${dailyAllowed.toInt()} left today (Exhausted)'
-                                        : '$itemName • ${todayRemaining.toInt()}/${dailyAllowed.toInt()} Free today'),
-                                style: TextStyle(
-                                  color: isExpired || isQuotaExhausted ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    isExpired
+                                        ? '$itemName • Expired ($endDate)'
+                                        : (isQuotaExhausted
+                                            ? '$itemName • 0/${dailyAllowed.toInt()} left today (Exhausted)'
+                                            : '$itemName • ${todayRemaining.toInt()}/${dailyAllowed.toInt()} Free today'),
+                                    style: TextStyle(
+                                      color: isExpired || isQuotaExhausted ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                                overflow: TextOverflow.ellipsis,
+                                if (isExpired)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text('Plan Expired', style: TextStyle(color: Color(0xFF64748B), fontSize: 10, fontWeight: FontWeight.bold)),
+                                  )
+                                else if (isQuotaExhausted)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFEF3C7),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text('Quota Exhausted', style: TextStyle(color: Color(0xFFD97706), fontSize: 10, fontWeight: FontWeight.bold)),
+                                  )
+                                else if (isInCart)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFDCFCE7),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.check, size: 12, color: Color(0xFF16A34A)),
+                                        SizedBox(width: 3),
+                                        Text('Applied (FREE)', style: TextStyle(color: Color(0xFF15803D), fontSize: 10.5, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  InkWell(
+                                    onTap: () {
+                                      try {
+                                        final item = widget.allItems.firstWhere((it) => it.id == itemId);
+                                        widget.onIncreaseItem(item);
+                                        setState(() {});
+                                      } catch (_) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Item "$itemName" not found in active catalog')),
+                                        );
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF2563EB),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.add, size: 12, color: Colors.white),
+                                          SizedBox(width: 4),
+                                          Text('Add Free to Cart', style: TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Adv Left: ₹${remainingAmount.clamp(0, double.infinity).toStringAsFixed(0)}',
+                                  style: const TextStyle(color: Color(0xFF059669), fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  'Consumed: ${consumedQty.toInt()}/${safeOrigQty.toInt()} Nos ($percent%)',
+                                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 10.5, fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                minHeight: 4,
+                                backgroundColor: const Color(0xFFF1F5F9),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  percent >= 100
+                                      ? const Color(0xFFDC2626)
+                                      : percent >= 75
+                                          ? const Color(0xFFF59E0B)
+                                          : const Color(0xFF10B981),
+                                ),
                               ),
                             ),
-                            if (isExpired)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text('Plan Expired', style: TextStyle(color: Color(0xFF64748B), fontSize: 10, fontWeight: FontWeight.bold)),
-                              )
-                            else if (isQuotaExhausted)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFEF3C7),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text('Quota Exhausted', style: TextStyle(color: Color(0xFFD97706), fontSize: 10, fontWeight: FontWeight.bold)),
-                              )
-                            else if (isInCart)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFDCFCE7),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.check, size: 12, color: Color(0xFF16A34A)),
-                                    SizedBox(width: 3),
-                                    Text('Applied (FREE)', style: TextStyle(color: Color(0xFF15803D), fontSize: 10.5, fontWeight: FontWeight.bold)),
-                                  ],
-                                ),
-                              )
-                            else
-                              InkWell(
-                                onTap: () {
-                                  try {
-                                    final item = widget.allItems.firstWhere((it) => it.id == itemId);
-                                    widget.onIncreaseItem(item);
-                                    setState(() {});
-                                  } catch (_) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Item "$itemName" not found in active catalog')),
-                                    );
-                                  }
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF2563EB),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.add, size: 12, color: Colors.white),
-                                      SizedBox(width: 4),
-                                      Text('Add Free to Cart', style: TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.bold)),
-                                    ],
-                                  ),
-                                ),
-                              ),
                           ],
                         ),
                       );

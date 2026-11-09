@@ -501,5 +501,40 @@ void main() {
       expect(ModuleCapability.isSequenceAllowed('TOKEN', 'RETAIL'), isTrue);
       expect(ModuleCapability.isSequenceAllowed('TOKEN', 'HRMS'), isFalse);
     });
+
+    test('Scenario 20: User Management permissions and categories adapted strictly by active module', () {
+      // 20a. Category allowed check
+      expect(ModuleCapability.isCategoryAllowed('Inventory & Stock', 'CLINIC'), isFalse, reason: 'Inventory not allowed in pure clinic');
+      expect(ModuleCapability.isCategoryAllowed('Modify Documents', 'CLINIC'), isFalse);
+      expect(ModuleCapability.isCategoryAllowed('Restaurant & Dining', 'CLINIC'), isFalse);
+      expect(ModuleCapability.isCategoryAllowed('HR & Attendance', 'CLINIC'), isFalse);
+      expect(ModuleCapability.isCategoryAllowed('Clinic & Healthcare', 'CLINIC'), isTrue);
+      expect(ModuleCapability.isCategoryAllowed('Retail Sales & POS', 'CLINIC'), isTrue);
+
+      expect(ModuleCapability.isCategoryAllowed('Restaurant & Dining', 'RESTAURANT'), isTrue);
+      expect(ModuleCapability.isCategoryAllowed('Clinic & Healthcare', 'RESTAURANT'), isFalse);
+
+      // 20b. Category name adaptation
+      expect(ModuleCapability.adaptCategoryName('Retail Sales & POS', 'CLINIC'), 'Pharmacy & Clinic Billing');
+      expect(ModuleCapability.adaptCategoryName('Retail Sales & POS', 'RESTAURANT'), 'Restaurant Sales & Billing POS');
+      expect(ModuleCapability.adaptCategoryName('Retail Sales & POS', 'RETAIL'), 'Retail Sales & POS');
+      expect(ModuleCapability.adaptCategoryName('Accounts & Finance', 'CLINIC'), 'Clinic Finance & Cash Ledger');
+      expect(ModuleCapability.adaptCategoryName('Marketing & Campaigns', 'CLINIC'), 'Patient Outreach & Loyalty');
+      expect(ModuleCapability.adaptCategoryName('Reports & Intelligence', 'CLINIC'), 'Clinic Reports & Analytics');
+
+      // 20c. Permission label adaptation
+      expect(ModuleCapability.adaptPermissionLabel('ITEM_MASTER', 'Item Master / Products', 'CLINIC'), 'Medicines, Lab Tests & Services Master');
+      expect(ModuleCapability.adaptPermissionLabel('ITEM_MASTER', 'Item Master / Products', 'RESTAURANT'), 'Menu Items & Recipes Master');
+      expect(ModuleCapability.adaptPermissionLabel('ITEM_MASTER', 'Item Master / Products', 'RETAIL'), 'Item Master / Products');
+
+      expect(ModuleCapability.adaptPermissionLabel('ENTERPRISE_POS', 'Enterprise POS Terminal', 'CLINIC'), 'Pharmacy & Clinic Billing Terminal');
+      expect(ModuleCapability.adaptPermissionLabel('CUSTOMER_LIST', 'Customer Master & Directory', 'CLINIC'), 'Patient Directory & Profiles');
+      expect(ModuleCapability.adaptPermissionLabel('ADD_CUSTOMER', 'Add New Customer', 'CLINIC'), 'Add New Patient');
+      expect(ModuleCapability.adaptPermissionLabel('DRAFT_BILLS', 'Draft Bills & Saved Carts', 'CLINIC'), 'Draft Prescriptions & Saved Carts');
+
+      expect(ModuleCapability.adaptPermissionLabel('ENTERPRISE_POS', 'Enterprise POS Terminal', 'RESTAURANT'), 'Restaurant POS Terminal');
+      expect(ModuleCapability.adaptPermissionLabel('CUSTOMER_LIST', 'Customer Master & Directory', 'RESTAURANT'), 'Guest & Diner Directory');
+      expect(ModuleCapability.adaptPermissionLabel('PRODUCT_ASSEMBLY', 'Product Assembly / Recipe', 'RESTAURANT'), 'Recipe Management');
+    });
   });
 }

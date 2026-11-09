@@ -157,9 +157,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       Permission1('AUTONOMOUS_AGENT', 'Autonomous AI Agent'),
     ]),
     PermissionGroup('Clinic & Healthcare', [
-      Permission1('CLINIC_MODULE', 'Clinic & Patients Management'),
-      Permission1('CLINIC_APPOINTMENTS', 'Appointments & Doctor Schedule'),
-      Permission1('DOCTOR_CONSULTATION', 'Doctor Consultation & Diagnosis'),
+      Permission1('CLINIC_MODULE', 'Clinic & Patients Management (Full Access)'),
+      Permission1('CLINIC_APPOINTMENTS', 'Reception Desk (OPD Queue & Appointments)'),
+      Permission1('DOCTOR_CONSULTATION', 'Doctor Consultation Desk'),
+      Permission1('CLINIC_PHARMACY', 'Pharmacy & Medicine Dispensing'),
+      Permission1('CLINIC_THERAPY', 'Therapy & Packages Desk'),
+      Permission1('CLINIC_ANALYTICS', 'Store & Clinic Analytics'),
       Permission1('PRESCRIPTIONS', 'E-Prescriptions & Rx Records'),
     ]),
     PermissionGroup('Settings & Customizer', [
@@ -180,13 +183,42 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   bool get _isAdmin => _currentUserRole.toUpperCase() == 'ADMIN';
 
   List<PermissionGroup> get filteredPermissionGroups {
-    return permissionGroups.map((group) {
-      final filteredItems = group.items
-          .where((p) =>
-              ModuleCapability.isPermissionAllowed(p.key, _userBusinessModule))
-          .toList();
-      return PermissionGroup(group.categoryName, filteredItems);
-    }).where((group) => group.items.isNotEmpty).toList();
+    final mod = _userBusinessModule;
+    final hasInv = ModuleCapability.hasInventory(mod);
+    final hasBill = ModuleCapability.hasBilling(mod) || ModuleCapability.hasRetail(mod) || ModuleCapability.hasClinic(mod) || ModuleCapability.hasRestaurant(mod);
+
+    final List<PermissionGroup> result = [];
+
+    for (final group in permissionGroups) {
+      // Check if entire category is allowed for active module
+      if (!ModuleCapability.isCategoryAllowed(group.categoryName, mod)) {
+        continue;
+      }
+
+      final adaptedCat = ModuleCapability.adaptCategoryName(group.categoryName, mod);
+      final List<Permission1> filteredItems = [];
+
+      for (final p in group.items) {
+        if (ModuleCapability.isPermissionAllowed(p.key, mod)) {
+          final adaptedLbl = ModuleCapability.adaptPermissionLabel(p.key, p.label, mod);
+          filteredItems.add(Permission1(p.key, adaptedLbl));
+        }
+      }
+
+      // If Inventory is NOT active, but Billing/Clinic/Restaurant is active, include ITEM_MASTER in Sales & POS group
+      if (!hasInv && hasBill && group.categoryName == 'Retail Sales & POS') {
+        if (!filteredItems.any((it) => it.key == 'ITEM_MASTER')) {
+          final itemMasterLbl = ModuleCapability.adaptPermissionLabel('ITEM_MASTER', 'Item Master / Products', mod);
+          filteredItems.insert(0, Permission1('ITEM_MASTER', itemMasterLbl));
+        }
+      }
+
+      if (filteredItems.isNotEmpty) {
+        result.add(PermissionGroup(adaptedCat, filteredItems));
+      }
+    }
+
+    return result;
   }
 
   List<Permission1> get allPermissions {

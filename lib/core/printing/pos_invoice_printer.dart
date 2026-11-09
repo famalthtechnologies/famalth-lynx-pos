@@ -7150,6 +7150,49 @@ class PosInvoicePrinter {
                           padding: const pw.EdgeInsets.only(top: 2),
                           child: pw.Text('Visit: $reason', style: pw.TextStyle(font: regular, fontSize: 8)),
                         ),
+                      if (appointment['is_package_session'] == true ||
+                          (appointment['payment_status'] ?? '').toString().toUpperCase() == 'PACKAGE_INCLUDED' ||
+                          (appointment['package_name'] ?? '').toString().isNotEmpty) ...[
+                        pw.SizedBox(height: 4),
+                        pw.Container(
+                          width: double.infinity,
+                          padding: const pw.EdgeInsets.all(5),
+                          decoration: pw.BoxDecoration(
+                            color: PdfColors.grey100,
+                            borderRadius: pw.BorderRadius.circular(4),
+                            border: pw.Border.all(color: PdfColors.grey400, width: 0.8),
+                          ),
+                          child: pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              pw.Row(
+                                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                                children: [
+                                  pw.Text('THERAPY PACKAGE SESSION', style: pw.TextStyle(font: bold, fontSize: 8)),
+                                  pw.Text('COVERED (PRE-PAID)', style: pw.TextStyle(font: bold, fontSize: 8, color: PdfColors.green800)),
+                                ],
+                              ),
+                              pw.SizedBox(height: 2),
+                              pw.Text('Plan: ${appointment['package_name'] ?? 'Therapy Package'}', style: pw.TextStyle(font: bold, fontSize: 8)),
+                              pw.Text('Session: #${appointment['session_number'] ?? '1'} of ${appointment['total_package_sessions'] ?? '6'}', style: pw.TextStyle(font: regular, fontSize: 8)),
+                            ],
+                          ),
+                        ),
+                      ] else ...[
+                        pw.SizedBox(height: 3),
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text('Fee Status: ', style: pw.TextStyle(font: bold, fontSize: 8)),
+                            pw.Text(
+                              (appointment['payment_status'] ?? '').toString().toUpperCase() == 'PAID'
+                                  ? 'PAID'
+                                  : 'PAY LATER / DUE',
+                              style: pw.TextStyle(font: bold, fontSize: 8),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),

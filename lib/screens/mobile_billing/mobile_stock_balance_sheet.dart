@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../controllers/reports/stock_balance_controller.dart';
 import '../../core/currency/currency_service.dart';
@@ -87,6 +90,83 @@ class _MobileStockBalanceSheetState extends State<MobileStockBalanceSheet> {
   double get _totalStockValuation =>
       _ctrl.items.fold(0.0, (sum, i) => sum + (i.qty > 0 ? i.value : 0.0));
 
+  Future<Uint8List> _generateReorderPdf(List<StockItem> reorderItems) async {
+    final pdf = pw.Document();
+    final nowStr = DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.now());
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        build: (context) => [
+          pw.Header(
+            level: 0,
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('STOCK REORDER & SHORTFALL REPORT',
+                        style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800)),
+                    pw.SizedBox(height: 3),
+                    pw.Text('Generated on: $nowStr', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                  ],
+                ),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.amber100,
+                    borderRadius: pw.BorderRadius.circular(6),
+                    border: pw.Border.all(color: PdfColors.amber700),
+                  ),
+                  child: pw.Text('${reorderItems.length} ITEMS NEED REORDER',
+                      style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.amber900)),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 12),
+          pw.TableHelper.fromTextArray(
+            headers: ['#', 'Item Name', 'Brand / Code', 'Current Stock', 'Min Reorder', 'Shortfall', 'Unit', 'Status'],
+            data: List<List<dynamic>>.generate(reorderItems.length, (idx) {
+              final it = reorderItems[idx];
+              final statusStr = it.isOutOfStock ? 'OUT OF STOCK' : 'LOW STOCK';
+              return [
+                '${idx + 1}',
+                it.name,
+                [it.brand, it.code].where((s) => s.trim().isNotEmpty).join(' | '),
+                it.qty.toStringAsFixed(0),
+                it.reorder.toStringAsFixed(0),
+                it.shortfall > 0 ? it.shortfall.toStringAsFixed(0) : '-',
+                it.unit,
+                statusStr,
+              ];
+            }),
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.white),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
+            cellStyle: const pw.TextStyle(fontSize: 8.5),
+            cellAlignment: pw.Alignment.centerLeft,
+            cellPadding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          ),
+          pw.SizedBox(height: 16),
+          pw.Divider(thickness: 0.5),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text('Please review and process replenishment for the above inventory items.',
+                  style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+              pw.Text('Famalth Lynx ERP System',
+                  style: pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey600)),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    return pdf.save();
+  }
+
   void _shareReorderListWhatsApp() async {
     final reorderItems = _ctrl.items.where((i) => i.isNeedReorder).toList();
     if (reorderItems.isEmpty) {
@@ -99,46 +179,57 @@ class _MobileStockBalanceSheetState extends State<MobileStockBalanceSheet> {
       return;
     }
 
-    final buffer = StringBuffer();
-    buffer.writeln('*LIVE REORDER & SHORTFALL ALERT*');
-    buffer.writeln('Date: ${DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.now())}');
-    buffer.writeln('Total Items Requiring Restock: ${reorderItems.length}\n');
-
-    int idx = 1;
-    for (final it in reorderItems) {
-      buffer.writeln('$idx. *${it.name}*');
-      if (it.brand.isNotEmpty) buffer.writeln('   Brand: ${it.brand}');
-      if (it.code.isNotEmpty) buffer.writeln('   Code: ${it.code}');
-      buffer.writeln('   Current Stock: ${it.qty.toStringAsFixed(0)} ${it.unit}');
-      buffer.writeln('   Min Reorder Level: ${it.reorder.toStringAsFixed(0)} ${it.unit}');
-      if (it.shortfall > 0) {
-        buffer.writeln('   🚨 Required Shortfall: *${it.shortfall.toStringAsFixed(0)} ${it.unit}*');
-      } else if (it.isOutOfStock) {
-        buffer.writeln('   ❌ *OUT OF STOCK*');
-      }
-      buffer.writeln('');
-      idx++;
-    }
-
-    final encoded = Uri.encodeComponent(buffer.toString());
-    final url = Uri.parse('whatsapp://send?text=$encoded');
     try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url);
-      } else {
+      final pdfBytes = await _generateReorderPdf(reorderItems);
+      final filename = 'Stock_Reorder_List_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.pdf';
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: filename,
+        subject: 'Stock Reorder & Shortfall List (${reorderItems.length} Items)',
+      );
+    } catch (e) {
+      // Fallback text message via WhatsApp URL or clipboard
+      final buffer = StringBuffer();
+      buffer.writeln('*LIVE REORDER & SHORTFALL ALERT*');
+      buffer.writeln('Date: ${DateFormat('dd-MMM-yyyy hh:mm a').format(DateTime.now())}');
+      buffer.writeln('Total Items Requiring Restock: ${reorderItems.length}\n');
+
+      int idx = 1;
+      for (final it in reorderItems) {
+        buffer.writeln('$idx. *${it.name}*');
+        if (it.brand.isNotEmpty) buffer.writeln('   Brand: ${it.brand}');
+        if (it.code.isNotEmpty) buffer.writeln('   Code: ${it.code}');
+        buffer.writeln('   Current Stock: ${it.qty.toStringAsFixed(0)} ${it.unit}');
+        buffer.writeln('   Min Reorder Level: ${it.reorder.toStringAsFixed(0)} ${it.unit}');
+        if (it.shortfall > 0) {
+          buffer.writeln('   🚨 Required Shortfall: *${it.shortfall.toStringAsFixed(0)} ${it.unit}*');
+        } else if (it.isOutOfStock) {
+          buffer.writeln('   ❌ *OUT OF STOCK*');
+        }
+        buffer.writeln('');
+        idx++;
+      }
+
+      final encoded = Uri.encodeComponent(buffer.toString());
+      final url = Uri.parse('whatsapp://send?text=$encoded');
+      try {
+        if (await canLaunchUrl(url)) {
+          await launchUrl(url);
+        } else {
+          await Clipboard.setData(ClipboardData(text: buffer.toString()));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Reorder list copied to clipboard!')),
+            );
+          }
+        }
+      } catch (_) {
         await Clipboard.setData(ClipboardData(text: buffer.toString()));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Reorder list copied to clipboard!')),
           );
         }
-      }
-    } catch (_) {
-      await Clipboard.setData(ClipboardData(text: buffer.toString()));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Reorder list copied to clipboard!')),
-        );
       }
     }
   }
@@ -260,11 +351,11 @@ class _MobileStockBalanceSheetState extends State<MobileStockBalanceSheet> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   elevation: 0,
                 ),
-                icon: const Icon(Icons.share, size: 18),
+                icon: const Icon(Icons.picture_as_pdf, size: 18),
                 label: Text(
                   _needReorderCount > 0
-                      ? 'Share Reorder List on WhatsApp ($_needReorderCount Items)'
-                      : 'Share Stock Status on WhatsApp',
+                      ? 'Share Reorder PDF on WhatsApp ($_needReorderCount Items)'
+                      : 'Share Stock Status PDF on WhatsApp',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
                 onPressed: _shareReorderListWhatsApp,

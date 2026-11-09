@@ -15,6 +15,7 @@ import 'clinic_doctor_management_dialog.dart';
 import 'clinic_opd_report_pdf.dart';
 import '../modify/sales_reprint_modify_screen.dart';
 import '../../core/auth/token_storage.dart';
+import '../../core/printing/pos_invoice_printer.dart';
 import '../reports/cash_ledger_screen.dart';
 
 class ClinicDashboardScreen extends StatefulWidget {
@@ -40,6 +41,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   Map<String, dynamic> _analytics = {};
 
   String _userRole = '';
+  List<String> _userPermissions = [];
   String _loggedInDoctorName = '';
   int? _loggedInDoctorId;
   List<ClinicTab> _availableTabs = [
@@ -108,43 +110,64 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     _fetchOperatingStatus();
   }
 
-  List<ClinicTab> _computeAllowedTabs(String role) {
+  List<ClinicTab> _computeAllowedTabs(String role, [List<String>? permissions]) {
     final r = role.trim().toUpperCase();
-    if (r == 'ADMIN' ||
-        r == 'SUPERADMIN' ||
-        r == 'OWNER' ||
-        r == 'CLINIC_ADMIN' ||
-        r == 'MANAGER' ||
-        r == 'DOCTOR_ADMIN') {
-      return [
-        ClinicTab.reception,
-        ClinicTab.doctor,
-        ClinicTab.pharmacy,
-        ClinicTab.therapy,
-        ClinicTab.analytics,
-      ];
+    final p = (permissions ?? _userPermissions).map((e) => e.trim().toUpperCase()).toSet();
+    final isAdmin = r == 'ADMIN' || r == 'SUPERADMIN' || r == 'OWNER' || r == 'CLINIC_ADMIN' || r == 'DOCTOR_ADMIN';
+
+    // If explicit clinic permissions are granted to the user, strictly respect them
+    final hasSpecificClinicPerms = p.contains('CLINIC_MODULE') ||
+        p.contains('CLINIC_APPOINTMENTS') ||
+        p.contains('DOCTOR_CONSULTATION') ||
+        p.contains('PRESCRIPTIONS') ||
+        p.contains('CLINIC_PHARMACY') ||
+        p.contains('CLINIC_THERAPY') ||
+        p.contains('CLINIC_ANALYTICS');
+
+    final List<ClinicTab> allowed = [];
+
+    // 1. Reception Desk (OPD Queue)
+    if (p.contains('CLINIC_MODULE') ||
+        p.contains('CLINIC_APPOINTMENTS') ||
+        (!hasSpecificClinicPerms && (isAdmin || r.contains('RECEPTION') || r.contains('FRONTDESK')))) {
+      allowed.add(ClinicTab.reception);
     }
-    if (r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN')) {
-      return [ClinicTab.doctor];
+
+    // 2. Doctor Consultation
+    if (p.contains('CLINIC_MODULE') ||
+        p.contains('DOCTOR_CONSULTATION') ||
+        p.contains('PRESCRIPTIONS') ||
+        (!hasSpecificClinicPerms && (isAdmin || r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN')))) {
+      allowed.add(ClinicTab.doctor);
     }
-    if (r.contains('RECEPTION') || r.contains('FRONTDESK')) {
-      return [ClinicTab.reception];
+
+    // 3. Pharmacy & Dispensing
+    if (p.contains('CLINIC_MODULE') ||
+        p.contains('CLINIC_PHARMACY') ||
+        (!hasSpecificClinicPerms && (isAdmin || r.contains('PHARMAC')))) {
+      allowed.add(ClinicTab.pharmacy);
     }
-    if (r.contains('PHARMAC')) {
-      return [ClinicTab.pharmacy];
+
+    // 4. Therapy & Packages
+    if (p.contains('CLINIC_MODULE') ||
+        p.contains('CLINIC_THERAPY') ||
+        (!hasSpecificClinicPerms && (isAdmin || r.contains('THERAP')))) {
+      allowed.add(ClinicTab.therapy);
     }
-    if (r.contains('THERAP')) {
-      return [ClinicTab.therapy];
+
+    // 5. Store & Clinic Analytics
+    if (p.contains('CLINIC_MODULE') ||
+        p.contains('CLINIC_ANALYTICS') ||
+        (!hasSpecificClinicPerms && (isAdmin || r == 'MANAGER'))) {
+      allowed.add(ClinicTab.analytics);
     }
-    if (r.isEmpty) {
-      return [
-        ClinicTab.reception,
-        ClinicTab.doctor,
-        ClinicTab.pharmacy,
-        ClinicTab.therapy,
-        ClinicTab.analytics,
-      ];
-    }
+
+    if (allowed.isNotEmpty) return allowed;
+
+    // Default fallback based on role if no matching tab found
+    if (r.contains('DOCTOR')) return [ClinicTab.doctor];
+    if (r.contains('PHARMAC')) return [ClinicTab.pharmacy];
+    if (r.contains('THERAP')) return [ClinicTab.therapy];
     return [ClinicTab.reception];
   }
 
@@ -252,17 +275,19 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
   Future<void> _checkUserRole() async {
     try {
       final user = await TokenStorage.getUser();
+      final permissions = await TokenStorage.getPermissions();
       if (user != null && mounted) {
         final role = (user['role'] ?? '').toString().toUpperCase();
         final name = (user['name'] ?? user['full_name'] ?? user['username'] ?? '').toString();
         final id = user['id'] != null ? int.tryParse('${user['id']}') : null;
         setState(() {
           _userRole = role;
+          _userPermissions = permissions;
           _loggedInDoctorName = name;
           _loggedInDoctorId = id;
         });
 
-        final allowed = _computeAllowedTabs(role);
+        final allowed = _computeAllowedTabs(role, permissions);
         final bool tabsChanged = _availableTabs.length != allowed.length ||
             !_availableTabs.asMap().entries.every((e) => allowed[e.key] == e.value);
         if (tabsChanged) {
@@ -6334,6 +6359,10 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
   final _packageNameCtrl = TextEditingController(text: 'Therapy Care Plan');
   final _sessionNumCtrl = TextEditingController(text: '1');
   final _totalSessionsCtrl = TextEditingController(text: '6');
+  List<dynamic> _patientActivePackages = [];
+  bool _loadingPatientPackages = false;
+  dynamic _selectedPackage;
+  bool _manualPackageEntry = false;
 
   String _gender = 'MALE';
   String _doctorName = '';
@@ -6421,7 +6450,67 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
     } else {
       _doctorName = 'Consultant Physician';
     }
+    _phoneCtrl.addListener(_onPhoneChanged);
     _loadMasterPaymentMethods();
+  }
+
+  void _onPhoneChanged() {
+    if (_paymentOption == 'PACKAGE') {
+      _fetchPatientPackages();
+    }
+  }
+
+  Future<void> _fetchPatientPackages() async {
+    final phone = _phoneCtrl.text.trim();
+    if (phone.isEmpty) {
+      if (mounted) setState(() => _patientActivePackages = []);
+      return;
+    }
+    setState(() => _loadingPatientPackages = true);
+    try {
+      final res = await ApiClient.get(
+        ApiEndpoints.clinicSubscriptions,
+        queryParams: {'search': phone, 'status': 'ACTIVE'},
+      );
+      if (res != null && res['success'] == true && mounted) {
+        final list = (res['data'] as List? ?? []);
+        final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        final eligible = list.where((p) {
+          final status = (p['status'] ?? '').toString().toUpperCase();
+          final isActive = status == 'ACTIVE' || p['active_subscription'] == true;
+          final endDate = (p['end_date'] ?? '').toString().split('T').first;
+          final isNotExpired = endDate.isEmpty || endDate.compareTo(todayStr) >= 0;
+          final total = int.tryParse('${p['total_package_sessions'] ?? p['total_sessions']}') ?? 6;
+          final consumed = int.tryParse('${p['services_consumed']}') ?? 0;
+          final notConsumed = consumed < total;
+          return isActive && isNotExpired && notConsumed;
+        }).toList();
+
+        setState(() {
+          _patientActivePackages = eligible;
+          if (_patientActivePackages.isNotEmpty) {
+            _selectPackage(_patientActivePackages.first);
+            _manualPackageEntry = false;
+          } else {
+            _selectedPackage = null;
+          }
+        });
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loadingPatientPackages = false);
+    }
+  }
+
+  void _selectPackage(dynamic pkg) {
+    _selectedPackage = pkg;
+    final name = (pkg['item_name'] ?? pkg['package_name'] ?? 'Therapy Package').toString();
+    final total = int.tryParse('${pkg['total_package_sessions'] ?? pkg['total_sessions']}') ?? 6;
+    final consumed = int.tryParse('${pkg['services_consumed']}') ?? 0;
+    _packageNameCtrl.text = name;
+    _sessionNumCtrl.text = '${consumed + 1}';
+    _totalSessionsCtrl.text = '$total';
+    setState(() {});
   }
 
   Future<void> _loadMasterPaymentMethods() async {
@@ -6444,6 +6533,7 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
 
   @override
   void dispose() {
+    _phoneCtrl.removeListener(_onPhoneChanged);
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
     _ageCtrl.dispose();
@@ -6843,7 +6933,10 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                         ChoiceChip(
                           label: const Text('Therapy Package'),
                           selected: _paymentOption == 'PACKAGE',
-                          onSelected: (val) => setState(() => _paymentOption = 'PACKAGE'),
+                          onSelected: (val) {
+                            setState(() => _paymentOption = 'PACKAGE');
+                            _fetchPatientPackages();
+                          },
                         ),
                       ],
                     ),
@@ -6881,36 +6974,158 @@ class _NewAppointmentDialogState extends State<_NewAppointmentDialog> {
                     ],
 
                     if (_paymentOption == 'PACKAGE') ...[
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _packageNameCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Package / Care Plan Name',
-                          hintText: 'e.g. Physiotherapy 6-Sessions Care Plan',
-                          isDense: true,
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _sessionNumCtrl,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(labelText: 'Current Session #', isDense: true, border: OutlineInputBorder()),
-                            ),
+                      if (_loadingPatientPackages) ...[
+                        const SizedBox(height: 8),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                              SizedBox(width: 8),
+                              Text('Checking active patient packages...', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: _totalSessionsCtrl,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(labelText: 'Total Free / Covered', isDense: true, border: OutlineInputBorder()),
+                        ),
+                      ],
+                      if (_patientActivePackages.isNotEmpty && !_manualPackageEntry) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFAF5FF),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFD8B4FE)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Select Active Package:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6D28D9))),
+                                  InkWell(
+                                    onTap: () => setState(() => _manualPackageEntry = true),
+                                    child: const Text('Custom/Manual Entry', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED))),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              DropdownButtonFormField<dynamic>(
+                                value: _selectedPackage ?? _patientActivePackages.first,
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
+                                  fillColor: Colors.white,
+                                  filled: true,
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                ),
+                                items: _patientActivePackages.map((pkg) {
+                                  final name = (pkg['item_name'] ?? pkg['package_name'] ?? 'Therapy Package').toString();
+                                  final total = int.tryParse('${pkg['total_package_sessions'] ?? pkg['total_sessions']}') ?? 6;
+                                  final consumed = int.tryParse('${pkg['services_consumed']}') ?? 0;
+                                  final left = total - consumed;
+                                  final endDate = (pkg['end_date'] ?? '').toString().split('T').first;
+                                  return DropdownMenuItem<dynamic>(
+                                    value: pkg,
+                                    child: Text(
+                                      '$name • Session ${consumed + 1}/$total ($left left • Exp: $endDate)',
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                }).toList(),
+                                onChanged: (val) {
+                                  if (val != null) _selectPackage(val);
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Session #${_sessionNumCtrl.text} of ${_totalSessionsCtrl.text} (Pre-paid)',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16A34A)),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFECFDF5),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                                    ),
+                                    child: const Text('Package Covered', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ] else ...[
+                        if (_patientActivePackages.isEmpty && !_loadingPatientPackages && _phoneCtrl.text.trim().isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: const Color(0xFFFDE68A)),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.info_outline, size: 14, color: Color(0xFFD97706)),
+                                SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'No active unconsumed package found for this phone number. Enter manually below:',
+                                    style: TextStyle(fontSize: 10.5, color: Color(0xFF92400E)),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
-                      ),
+                        if (_manualPackageEntry && _patientActivePackages.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: InkWell(
+                              onTap: () => setState(() => _manualPackageEntry = false),
+                              child: const Text('← Back to Active Packages Dropdown', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED))),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _packageNameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Package / Care Plan Name',
+                            hintText: 'e.g. Physiotherapy 6-Sessions Care Plan',
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _sessionNumCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(labelText: 'Current Session #', isDense: true, border: OutlineInputBorder()),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: _totalSessionsCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(labelText: 'Total Free / Covered', isDense: true, border: OutlineInputBorder()),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ],
                 ),

@@ -539,6 +539,9 @@ class ModuleCapability {
       'CLINIC_APPOINTMENTS',
       'DOCTOR_CONSULTATION',
       'PRESCRIPTIONS',
+      'CLINIC_PHARMACY',
+      'CLINIC_THERAPY',
+      'CLINIC_ANALYTICS',
     };
     if (clinicPermissions.contains(key) && !hasClinic(module)) {
       return false;
@@ -579,6 +582,167 @@ class ModuleCapability {
     }
 
     return true;
+  }
+
+
+  /// Checks if a permission group category is allowed for the active business module
+  static bool isCategoryAllowed(String category, String? module) {
+    final cat = category.trim().toUpperCase();
+    final mods = parseModules(module);
+    if (mods.contains(all)) return true;
+
+    if (cat.contains('INVENTORY') || cat.contains('MODIFY DOCUMENTS')) {
+      return hasInventory(module);
+    }
+    if (cat.contains('HR &') || cat.contains('ATTENDANCE') || cat.contains('HRMS')) {
+      return hasHrms(module);
+    }
+    if (cat.contains('RESTAURANT') || cat.contains('DINING')) {
+      return hasRestaurant(module);
+    }
+    if (cat.contains('CLINIC') || cat.contains('HEALTHCARE')) {
+      return hasClinic(module);
+    }
+    if (cat.contains('RETAIL SALES') || cat.contains('MARKETING')) {
+      return hasBilling(module) || hasRetail(module) || hasRestaurant(module) || hasClinic(module);
+    }
+    return true;
+  }
+
+  /// Adapts category titles to match the active module terminology (Clinic, Restaurant, Retail)
+  static String adaptCategoryName(String category, String? module) {
+    final isCl = hasClinic(module) && !hasRetail(module);
+    final isRest = hasRestaurant(module) && !hasRetail(module);
+
+    if (category == 'Retail Sales & POS') {
+      if (isCl) return 'Pharmacy & Clinic Billing';
+      if (isRest) return 'Restaurant Sales & Billing POS';
+      return 'Retail Sales & POS';
+    }
+    if (category == 'Inventory & Stock') {
+      if (isCl) return 'Pharmacy Inventory & Stock';
+      if (isRest) return 'Kitchen Stock & Inventory';
+      return 'Inventory & Stock';
+    }
+    if (category == 'Accounts & Finance') {
+      if (isCl) return 'Clinic Finance & Cash Ledger';
+      if (isRest) return 'Restaurant Finance & Cash Ledger';
+      return 'Accounts & Finance';
+    }
+    if (category == 'Marketing & Campaigns') {
+      if (isCl) return 'Patient Outreach & Loyalty';
+      if (isRest) return 'Diner Engagement & Loyalty';
+      return 'Marketing & Campaigns';
+    }
+    if (category == 'Reports & Intelligence') {
+      if (isCl) return 'Clinic Reports & Analytics';
+      if (isRest) return 'Restaurant Reports & Analytics';
+      return 'Reports & Intelligence';
+    }
+    return category;
+  }
+
+  /// Adapts individual permission labels to match active business module terminology
+  static String adaptPermissionLabel(String key, String defaultLabel, String? module) {
+    final isCl = hasClinic(module) && !hasRetail(module);
+    final isRest = hasRestaurant(module) && !hasRetail(module);
+    final k = key.trim().toUpperCase();
+
+    if (k == 'ITEM_MASTER') {
+      if (isCl) return 'Medicines, Lab Tests & Services Master';
+      if (isRest) return 'Menu Items & Recipes Master';
+      return 'Item Master / Products';
+    }
+    if (k == 'PRODUCT_ASSEMBLY') {
+      if (isRest) return 'Recipe Management';
+      return 'Product Assembly / Bundles';
+    }
+    if (k == 'ENTERPRISE_POS') {
+      if (isCl) return 'Pharmacy & Clinic Billing Terminal';
+      if (isRest) return 'Restaurant POS Terminal';
+      return 'Enterprise POS Terminal';
+    }
+    if (k == 'RETAIL_SALES') {
+      if (isCl) return 'Pharmacy Counter Sales (POS)';
+      if (isRest) return 'Dine-in / Counter Sales (POS)';
+      return 'Retail Sales (POS Billing)';
+    }
+    if (k == 'REPRINT_SALES_BILL') {
+      if (isCl) return 'Reprint Pharmacy Bill / Token';
+      if (isRest) return 'Reprint Food Bill / KOT';
+      return 'Reprint Sales Bill';
+    }
+    if (k == 'MODIFY_SALES_BILL') {
+      if (isCl) return 'Modify Pharmacy Bill';
+      if (isRest) return 'Modify Restaurant Order / Bill';
+      return 'Modify Sales Bill';
+    }
+    if (k == 'MODIFY_SALES_PAYMENT') {
+      if (isCl) return 'Modify Consultation / Pharmacy Payment';
+      if (isRest) return 'Modify Table / Food Payment';
+      return 'Modify Sales Payment';
+    }
+    if (k == 'CUSTOMER_LIST') {
+      if (isCl) return 'Patient Directory & Profiles';
+      if (isRest) return 'Guest & Diner Directory';
+      return 'Customer Master & Directory';
+    }
+    if (k == 'ADD_CUSTOMER') {
+      if (isCl) return 'Add New Patient';
+      if (isRest) return 'Add New Guest / Diner';
+      return 'Add New Customer';
+    }
+    if (k == 'DRAFT_BILLS') {
+      if (isCl) return 'Draft Prescriptions & Saved Carts';
+      if (isRest) return 'Open KOTs & Table Tabs';
+      return 'Draft Bills & Saved Carts';
+    }
+    if (k == 'POS_SUBSCRIPTIONS') {
+      if (isCl) return 'Therapy & Service Subscriptions';
+      if (isRest) return 'Meal Plans & Subscriptions';
+      return 'Subscription Deliveries & Orders';
+    }
+    if (k == 'SCHEME_MANAGEMENT') {
+      if (isCl) return 'Health Schemes & Discount Plans';
+      if (isRest) return 'Food Combos & Happy Hour Schemes';
+      return 'Create & Manage POS Schemes';
+    }
+    if (k == 'CUSTOMER_APP') {
+      if (isCl) return 'Patient Self-Care App';
+      if (isRest) return 'Diner Digital Menu App';
+      return 'Customer App (Delivery)';
+    }
+    if (k == 'RETAIL_SALES_REPORT' || k == 'SALES_REPORT') {
+      if (isCl) return 'Pharmacy Sales Report';
+      if (isRest) return 'Restaurant Sales Report';
+      return 'Retail Sales Report';
+    }
+    if (k == 'CLOSING_REPORT') {
+      if (isCl) return 'Clinic Day-End Closing Report';
+      if (isRest) return 'Shift / Day-End Closing Report';
+      return 'Closing Report';
+    }
+    if (k == 'CREDIT_ANALYSIS') {
+      if (isCl) return 'Patient Credit & Dues Ledger';
+      if (isRest) return 'Diner Credit & Corporate Accounts';
+      return 'Credit Ledger & Customer Accounts';
+    }
+    if (k == 'LOYALTY_PROGRAM') {
+      if (isCl) return 'Patient Wellness & Loyalty Points';
+      if (isRest) return 'Diner Loyalty & Rewards Program';
+      return 'Loyalty Program Setup';
+    }
+    if (k == 'LOYALTY_REPORT') {
+      if (isCl) return 'Patient Loyalty Report';
+      if (isRest) return 'Diner Loyalty Report';
+      return 'Loyalty Report';
+    }
+    if (k == 'SUBSCRIPTION_REPORT') {
+      if (isCl) return 'Therapy Subscription Report';
+      return 'Subscription Report';
+    }
+
+    return defaultLabel;
   }
 
   /// Dynamically adapts labels for Restaurant/Inventory/Clinic modules
