@@ -28,8 +28,13 @@ $RECYCLE.BIN/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
-build/
+# Allow build/web to be committed (pre-built by GitHub Actions for Docker deploy)
+!build/
+!build/web/
+!build/web/**
+# Still ignore other build outputs
+build/*/
+!build/web
 
 # Node / Packaging dependencies
 node_modules/

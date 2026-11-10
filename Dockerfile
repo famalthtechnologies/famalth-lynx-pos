@@ -1,55 +1,12 @@
 # ==============================================================================
-# UNIVERSAL CLOUD DOCKERFILE - COMPATIBLE WITH RENDER, DIGITALOCEAN & DOCKER CLOUD
-# Multi-stage production container: Builds Flutter Web + Node.js Backend API
+# SLIM PRODUCTION DOCKERFILE - Node.js only (~200MB vs ~3GB)
+# Flutter Web is pre-built by GitHub Actions and committed to build/web
+# Compatible with Render, DigitalOcean & Docker Cloud
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# STAGE 1: Flutter Web Application Builder
-# Uses official Ubuntu base + Flutter SDK install (CirrusCI image discontinued)
-# ------------------------------------------------------------------------------
-FROM ubuntu:22.04 AS flutter-builder
-
-# Avoid interactive prompts during apt installs
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install Flutter SDK dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    git \
-    unzip \
-    xz-utils \
-    zip \
-    libglu1-mesa \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Flutter stable SDK
-ARG FLUTTER_VERSION=3.41.6
-RUN curl -fsSL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz \
-    | tar -xJ -C /opt && \
-    ln -s /opt/flutter/bin/flutter /usr/local/bin/flutter
-
-ENV PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:${PATH}"
-
-# Pre-cache Flutter web artifacts
-RUN flutter config --enable-web && flutter precache --web
-
-WORKDIR /app
-
-# Cache dependency layer for faster iterative builds
-COPY pubspec.yaml pubspec.lock ./
-RUN flutter pub get
-
-# Copy frontend source, web configurations, and static assets
-COPY lib/ ./lib/
-COPY web/ ./web/
-COPY assets/ ./assets/
-
-# Build optimized production Flutter Web release (auto-renderer: HTML for mobile, CanvasKit for desktop)
-RUN flutter build web --release --no-wasm-dry-run
-
-# ------------------------------------------------------------------------------
-# STAGE 2: Node.js 20 Alpine Full-Stack Server
+# Single Stage: Node.js 20 Alpine Full-Stack Server
+# Flutter web assets are already built by GitHub Actions CI
 # ------------------------------------------------------------------------------
 FROM node:20-alpine
 
@@ -65,8 +22,8 @@ RUN npm ci --only=production || npm install --omit=dev
 # Copy backend source code
 COPY backend/ .
 
-# Copy compiled Flutter Web SPA assets into backend static public folder
-COPY --from=flutter-builder /app/build/web ./public
+# Copy pre-built Flutter Web SPA assets (built by GitHub Actions, committed to repo)
+COPY build/web ./public
 
 # Expose container port (Default 3000, dynamically overridden by cloud hosts)
 EXPOSE 3000 8080 10000
