@@ -20,7 +20,7 @@ COPY web/ ./web/
 COPY assets/ ./assets/
 
 # Build optimized production Flutter Web release (auto-renderer: HTML for mobile, CanvasKit for desktop)
-RUN flutter build web --release --web-renderer auto
+RUN flutter build web --release --no-wasm-dry-run
 
 # ------------------------------------------------------------------------------
 # STAGE 2: Node.js 20 Alpine Full-Stack Server

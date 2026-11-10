@@ -17,7 +17,7 @@ fi
 if command -v flutter >/dev/null 2>&1; then
   echo "⚡ Flutter SDK detected in PATH."
   flutter pub get
-  flutter build web --release --web-renderer auto
+  flutter build web --release --no-wasm-dry-run
   echo "✅ Flutter Web built successfully!"
   exit 0
 fi
@@ -36,6 +36,6 @@ echo "📦 Fetching packages..."
 flutter pub get
 
 echo "🔨 Compiling Flutter Web..."
-flutter build web --release --web-renderer auto
+flutter build web --release --no-wasm-dry-run
 
 echo "✅ Vercel Flutter Web build completed successfully at build/web!"

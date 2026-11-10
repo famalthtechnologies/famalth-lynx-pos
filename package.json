@@ -4,8 +4,8 @@
   "private": true,
   "description": "FAMALTH LYNX - Retail POS, ERP, Web App & AI Gateway",
   "scripts": {
-    "build": "flutter build web --release --web-renderer auto",
-    "vercel-build": "bash scripts/vercel-build.sh || (flutter build web --release --web-renderer auto)",
+    "build": "flutter build web --release --no-wasm-dry-run",
+    "vercel-build": "bash scripts/vercel-build.sh || (flutter build web --release --no-wasm-dry-run)",
     "start": "node backend/server.js",
     "server": "cd backend && npm start",
     "docker:build": "docker build -t retail-sale-pos:latest .",
