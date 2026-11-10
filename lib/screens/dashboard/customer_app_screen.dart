@@ -23,6 +23,7 @@ import '../../models/inventory/sale_order_model.dart';
 import '../../models/inventory/sale_item_model.dart';
 import '../../models/inventory/billing_charge_model.dart';
 import '../../models/inventory/tax_breakdown_model.dart';
+import '../../widgets/app_setup_qr_dialog.dart';
 import '../../models/common/property_info_model.dart';
 import '../../controllers/settings/property_info_controller.dart';
 import '../../controllers/settings/notification_services.dart';
@@ -3962,6 +3963,24 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
               _setSubTabIndex(2);
             },
           ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.share_rounded, color: Color(0xFF0284C7)),
+            title: const Text('Share Store with Friends & Family'),
+            subtitle: const Text('Invite others to shop and order from this store', style: TextStyle(fontSize: 11)),
+            onTap: () {
+              Navigator.of(context).pop();
+              AppSetupQrDialog.show(
+                context,
+                serverUrl: AppConfig.baseUrl,
+                outletCode: AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '',
+                storeName: _currentUser?.propertyName.isNotEmpty == true
+                    ? _currentUser!.propertyName
+                    : 'Customer Shopping App',
+                mode: AppSetupQrMode.customer,
+              );
+            },
+          ),
           if (hasCustomer) ...[
             const Divider(),
             ListTile(
@@ -7882,6 +7901,22 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
               : 'Customer Shopping App',
         ),
         actions: [
+          // Share Store with Friends & Family
+          IconButton(
+            icon: const Icon(Icons.share_rounded),
+            tooltip: 'Share Store with Family & Friends to Purchase',
+            onPressed: () {
+              AppSetupQrDialog.show(
+                context,
+                serverUrl: AppConfig.baseUrl,
+                outletCode: AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '',
+                storeName: _currentUser?.propertyName.isNotEmpty == true
+                    ? _currentUser!.propertyName
+                    : 'Customer Shopping App',
+                mode: AppSetupQrMode.customer,
+              );
+            },
+          ),
           // Logged-in customer chip or Sign In button
           if (_loggedInCustomer != null)
             Padding(

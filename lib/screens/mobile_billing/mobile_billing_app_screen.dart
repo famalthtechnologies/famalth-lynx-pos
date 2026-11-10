@@ -7,7 +7,6 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../controllers/sales/sales_controller.dart';
 import '../../controllers/settings/property_info_controller.dart';
@@ -25,10 +24,9 @@ import '../../models/inventory/sale_customer_model.dart';
 import '../../models/inventory/sale_item_model.dart';
 import '../../models/inventory/sale_order_model.dart';
 import '../../models/inventory/sale_scheme_model.dart';
-import '../../models/inventory/tax_breakdown_model.dart';
+import '../../widgets/app_setup_qr_dialog.dart';
 import 'mobile_bill_modify_sheet.dart';
 import 'mobile_billing_auth_screen.dart';
-import 'mobile_billing_splash_screen.dart';
 import 'mobile_cash_ledger_sheet.dart';
 import 'mobile_customer_ledger_sheet.dart';
 import 'mobile_item_master_sheet.dart';
@@ -87,6 +85,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
   String _subsStatusFilter = 'ALL'; // 'ALL', 'ACTIVE', 'UPCOMING_RENEWAL', 'EXPIRED'
   final TextEditingController _subsSearchCtrl = TextEditingController();
   bool _loadingSubs = false;
+  bool _isAdmin = false;
 
   static const Color surfaceLight = Color(0xFFF8FAFC);
   static const Color borderSubtle = Color(0xFFE2E8F0);
@@ -96,12 +95,29 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
   @override
   void initState() {
     super.initState();
+    _checkAdminRole();
     _loadCatalogAndMetadata();
     _loadPulseAndOrders();
     _loadSubscriptions();
     _searchCtrl.addListener(_filterItems);
     _reprintSearchCtrl.addListener(_filterOrders);
     _subsSearchCtrl.addListener(_filterSubscriptions);
+  }
+
+  Future<void> _checkAdminRole() async {
+    try {
+      final role = (await TokenStorage.getRole() ?? '').toUpperCase().trim();
+      final user = await TokenStorage.getUser();
+      final userRole = (user?['role'] ?? role).toString().toUpperCase().trim();
+      if (mounted) {
+        setState(() {
+          _isAdmin = userRole == 'ADMIN' ||
+              userRole == 'SUPER_ADMIN' ||
+              userRole == 'OWNER' ||
+              userRole == 'ENTERPRISE_ADMIN';
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -1910,44 +1926,49 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
           ),
           const SizedBox(height: 10),
 
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            runAlignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              Expanded(
-                child: Text(
-                  'Period: $startDate to $endDate',
-                  style: const TextStyle(color: textMuted, fontSize: 11),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+              Text(
+                'Period: $startDate to $endDate',
+                style: const TextStyle(color: textMuted, fontSize: 11),
               ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF16A34A),
-                  side: const BorderSide(color: Color(0xFF16A34A)),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  minimumSize: const Size(0, 28),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                ),
-                icon: const Icon(Icons.picture_as_pdf, size: 13),
-                label: const Text('PDF', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                onPressed: () => _shareSubscriptionPdf(sub),
-              ),
-              const SizedBox(width: 6),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2563EB),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  minimumSize: const Size(0, 28),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                  elevation: 0,
-                ),
-                icon: const Icon(Icons.refresh, size: 13),
-                label: const Text('Renew', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                onPressed: () => _openRenewSubscriptionModal(sub),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF16A34A),
+                      side: const BorderSide(color: Color(0xFF16A34A)),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    ),
+                    icon: const Icon(Icons.picture_as_pdf, size: 13),
+                    label: const Text('Share PDF', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    onPressed: () => _shareSubscriptionPdf(sub),
+                  ),
+                  const SizedBox(width: 6),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.refresh, size: 13),
+                    label: const Text('Renew', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    onPressed: () => _openRenewSubscriptionModal(sub),
+                  ),
+                ],
               ),
             ],
           ),
@@ -2134,7 +2155,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
                       pw.Text('Overall Consumption Progress:', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                      pw.Text('$percent% Consumed  |  ${100 - percent}% Balance Left', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                      pw.Text('$percent% Consumed  -  ${100 - percent}% Balance Left', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
                     ],
                   ),
                 ),
@@ -3523,6 +3544,20 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
             bg: const Color(0xFFFFFBEB),
             onTap: _openStockBalanceModal,
           ),
+          if (_isAdmin) ...[
+            const SizedBox(height: 10),
+            _buildHubTile(
+              icon: Icons.qr_code_2_rounded,
+              title: 'Staff App Setup QR',
+              subtitle: 'Generate & print QR code for Waiter, Rider & companion apps auto-config',
+              badge: 'Admin Only',
+              color: const Color(0xFF0284C7),
+              bg: const Color(0xFFF0F9FF),
+              onTap: () {
+                AppSetupQrDialog.show(context);
+              },
+            ),
+          ],
           const SizedBox(height: 24),
 
           // Logout Button

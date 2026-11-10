@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -8,8 +10,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/auth/token_storage.dart';
+import '../../core/config/app_config.dart';
 import '../../core/currency/currency_service.dart';
 import '../../core/printing/pos_invoice_printer.dart';
+import '../../widgets/app_setup_qr_dialog.dart';
+import '../dashboard/server_config_screen.dart';
+import 'clinic_splash_screen.dart';
 
 class PublicAppointmentBookingScreen extends StatefulWidget {
   final dynamic initialOutletId;
@@ -563,7 +570,7 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
                                 color: PdfColors.teal800)),
                         pw.Text('Name: $patientName',
                             style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
-                        pw.Text('Phone: $patientPhone  |  Email: $patientEmail',
+                        pw.Text('Phone: $patientPhone  -  Email: $patientEmail',
                             style: const pw.TextStyle(fontSize: 10)),
                         pw.Text(
                             'Age: ${apt['patient_age'] ?? '-'}  |  Gender: ${apt['patient_gender'] ?? '-'}',
@@ -725,7 +732,7 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0.5,
-        titleSpacing: 16,
+        titleSpacing: 12,
         title: Row(
           children: [
             Container(
@@ -737,27 +744,41 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
               child: const Icon(Icons.local_hospital_rounded, color: primaryTeal, size: 22),
             ),
             const SizedBox(width: 10),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Doctor & Clinic Consultations',
-                  style: TextStyle(
-                    color: darkSlate,
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: -0.3,
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Doctor Consultations',
+                    style: TextStyle(
+                      color: darkSlate,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.3,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                Text(
-                  'Explore Verified Specialists & Book Appointments',
-                  style: TextStyle(color: Colors.grey, fontSize: 11),
-                ),
-              ],
+                  Text(
+                    'Explore Specialists & Appointments',
+                    style: TextStyle(color: Colors.grey, fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.tune, color: darkSlate, size: 20),
+            tooltip: 'Server Config & Setup QR',
+            onPressed: _showClinicSettingsSheet,
+          ),
+          const SizedBox(width: 4),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: Container(
@@ -768,10 +789,10 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
               indicatorWeight: 3,
               labelColor: primaryTeal,
               unselectedLabelColor: Colors.blueGrey,
-              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
               tabs: const [
-                Tab(icon: Icon(Icons.search_rounded, size: 18), text: 'Explore Doctors & Clinics'),
-                Tab(icon: Icon(Icons.history_edu_rounded, size: 18), text: 'My Past Consultations'),
+                Tab(icon: Icon(Icons.search_rounded, size: 18), text: 'Explore Doctors'),
+                Tab(icon: Icon(Icons.history_edu_rounded, size: 18), text: 'My Appointments'),
               ],
             ),
           ),
@@ -1545,6 +1566,404 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
           ),
         ),
       ),
+    );
+  }
+
+  void _showClinicSettingsSheet() {
+    final serverUrl = AppConfig.baseUrl.isNotEmpty ? AppConfig.baseUrl : 'Not Configured';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(sheetCtx).viewInsets.bottom + 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Server & Clinic Setup',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: darkSlate),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => Navigator.pop(sheetCtx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Server Status Card
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: primaryTeal.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.dns, size: 20, color: primaryTeal),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Connected Server', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                          Text(serverUrl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: darkSlate), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Action 1: Generate Setup QR (ADMIN ONLY)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.qr_code_2, color: Colors.amber, size: 22),
+                ),
+                title: const Row(
+                  children: [
+                    Text('Generate Clinic Setup QR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    SizedBox(width: 8),
+                    Chip(
+                      label: Text('Admin Only', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFFDC2626))),
+                      backgroundColor: Color(0xFFFEF2F2),
+                      side: BorderSide(color: Color(0xFFFECACA)),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: EdgeInsets.zero,
+                    ),
+                  ],
+                ),
+                subtitle: const Text('Generate QR standee for patients to scan & book appointments', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                trailing: const Icon(Icons.lock_outline, size: 18, color: Color(0xFF94A3B8)),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _handleGenerateSetupQr();
+                },
+              ),
+
+              const SizedBox(height: 10),
+
+              // Action 2: Reconfigure Server Connection
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.tune, color: Color(0xFF2563EB), size: 22),
+                ),
+                title: const Text('Reconfigure Server Connection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                subtitle: const Text('Scan new server QR or change server IP manually', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                trailing: const Icon(Icons.chevron_right, size: 20, color: Color(0xFF94A3B8)),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ServerConfigScreen(
+                        nextScreen: ClinicAppSplashScreen(),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleGenerateSetupQr() async {
+    bool isAdmin = false;
+    try {
+      final role = (await TokenStorage.getRole() ?? '').toUpperCase().trim();
+      final user = await TokenStorage.getUser();
+      final userRole = (user?['role'] ?? role).toString().toUpperCase().trim();
+      isAdmin = userRole == 'ADMIN' ||
+          userRole == 'SUPER_ADMIN' ||
+          userRole == 'OWNER' ||
+          userRole == 'ENTERPRISE_ADMIN';
+    } catch (_) {}
+
+    if (isAdmin) {
+      if (!mounted) return;
+      _openSetupQrDialog();
+      return;
+    }
+
+    if (!mounted) return;
+    _showAdminVerificationModal();
+  }
+
+  void _openSetupQrDialog() {
+    AppSetupQrDialog.show(
+      context,
+      serverUrl: AppConfig.baseUrl,
+      outletCode: widget.initialOutletId?.toString() ?? '1',
+      storeName: 'Medical Clinic & Appointments',
+      mode: AppSetupQrMode.customer,
+    );
+  }
+
+  void _showAdminVerificationModal() {
+    final pinOrPassCtrl = TextEditingController();
+    final userCtrl = TextEditingController();
+    bool isSubmitting = false;
+    String? errorText;
+    bool usePinMode = true;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFEF2F2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.shield_outlined, color: Color(0xFFDC2626), size: 22),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Admin Authorization', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                        Text('Required to generate store setup QR', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Store QR code generation is restricted to clinic administrators to prevent unauthorized reconfiguration.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Toggle between Admin PIN vs Admin Password
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Center(child: Text('Admin PIN', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                            selected: usePinMode,
+                            onSelected: (val) {
+                              setDState(() {
+                                usePinMode = true;
+                                errorText = null;
+                                pinOrPassCtrl.clear();
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Center(child: Text('Admin Login', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                            selected: !usePinMode,
+                            onSelected: (val) {
+                              setDState(() {
+                                usePinMode = false;
+                                errorText = null;
+                                pinOrPassCtrl.clear();
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    if (!usePinMode) ...[
+                      TextField(
+                        controller: userCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Admin Username / Email',
+                          prefixIcon: Icon(Icons.person, size: 18),
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
+                    TextField(
+                      controller: pinOrPassCtrl,
+                      obscureText: true,
+                      keyboardType: usePinMode ? TextInputType.number : TextInputType.text,
+                      decoration: InputDecoration(
+                        labelText: usePinMode ? 'Enter Admin 4-6 Digit PIN' : 'Admin Password',
+                        prefixIcon: Icon(usePinMode ? Icons.pin : Icons.lock_outline, size: 18),
+                        isDense: true,
+                        border: const OutlineInputBorder(),
+                        errorText: errorText,
+                      ),
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryTeal,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          final secret = pinOrPassCtrl.text.trim();
+                          if (secret.isEmpty) {
+                            setDState(() => errorText = 'Please enter PIN or password');
+                            return;
+                          }
+
+                          setDState(() {
+                            isSubmitting = true;
+                            errorText = null;
+                          });
+
+                          try {
+                            final baseUrl = AppConfig.baseUrl.isNotEmpty ? AppConfig.baseUrl : 'http://localhost:5000';
+                            bool verified = false;
+
+                            if (usePinMode) {
+                              final res = await http.post(
+                                Uri.parse('$baseUrl/api/auth/pin-login'),
+                                headers: {'Content-Type': 'application/json'},
+                                body: jsonEncode({'pin': secret}),
+                              ).timeout(const Duration(seconds: 8));
+
+                              if (res.statusCode == 200) {
+                                final data = jsonDecode(res.body);
+                                final userRole = (data['user']?['role'] ?? data['role'] ?? '').toString().toUpperCase().trim();
+                                if (userRole == 'ADMIN' || userRole == 'SUPER_ADMIN' || userRole == 'OWNER' || userRole == 'ENTERPRISE_ADMIN') {
+                                  verified = true;
+                                } else {
+                                  errorText = 'This PIN belongs to $userRole, not an Administrator.';
+                                }
+                              } else {
+                                errorText = 'Invalid Admin PIN';
+                              }
+                            } else {
+                              final username = userCtrl.text.trim();
+                              if (username.isEmpty) {
+                                setDState(() {
+                                  isSubmitting = false;
+                                  errorText = 'Please enter admin username';
+                                });
+                                return;
+                              }
+                              final res = await http.post(
+                                Uri.parse('$baseUrl/api/auth/login'),
+                                headers: {'Content-Type': 'application/json'},
+                                body: jsonEncode({'username': username, 'password': secret}),
+                              ).timeout(const Duration(seconds: 8));
+
+                              if (res.statusCode == 200) {
+                                final data = jsonDecode(res.body);
+                                final userRole = (data['user']?['role'] ?? data['role'] ?? '').toString().toUpperCase().trim();
+                                if (userRole == 'ADMIN' || userRole == 'SUPER_ADMIN' || userRole == 'OWNER' || userRole == 'ENTERPRISE_ADMIN') {
+                                  verified = true;
+                                } else {
+                                  errorText = 'Access denied: User does not have Administrator privileges.';
+                                }
+                              } else {
+                                errorText = 'Invalid username or password';
+                              }
+                            }
+
+                            if (verified) {
+                              Navigator.pop(dialogCtx);
+                              _openSetupQrDialog();
+                            } else {
+                              setDState(() => isSubmitting = false);
+                            }
+                          } catch (e) {
+                            setDState(() {
+                              isSubmitting = false;
+                              errorText = 'Connection error: Could not verify admin credentials.';
+                            });
+                          }
+                        },
+                  child: isSubmitting
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Authorize & Generate'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -2692,6 +3111,16 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
     } else {
       _fetchActiveSubscriptions();
     }
+    _phoneCtrl.addListener(_onPhoneChanged);
+  }
+
+  Timer? _phoneDebounce;
+
+  void _onPhoneChanged() {
+    _phoneDebounce?.cancel();
+    _phoneDebounce = Timer(const Duration(milliseconds: 350), () {
+      _fetchActiveSubscriptions();
+    });
   }
 
   void _autoSelectFirstActivePackage() {

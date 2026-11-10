@@ -46,6 +46,7 @@ import '../../core/auth/token_storage.dart';
 import '../dashboard/server_config_screen.dart';
 import '../dashboard/cloud_migration_screen.dart';
 import 'package:file_picker/file_picker.dart';
+import '../../widgets/app_setup_qr_dialog.dart';
 import '../../widgets/relationship_manager_card.dart';
 
 class CountryPreset {
@@ -1842,7 +1843,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                         _settingRow(
                           title: '1-Click Migrate Store to Cloud',
                           description: 'Seamlessly upload all local store products, customers, and invoices to your online cloud instance.',
-                          isLast: true,
+                          isLast: false,
                           control: FilledButton.icon(
                             style: FilledButton.styleFrom(
                               backgroundColor: const Color(0xFF0284C7),
@@ -1856,6 +1857,22 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                             },
                             icon: const Icon(Icons.rocket_launch_rounded, size: 18),
                             label: const Text('Start Migration Wizard'),
+                          ),
+                        ),
+                        _settingRow(
+                          title: 'Companion Apps Setup QR Standee',
+                          description: 'Generate & print QR standee so Waiter, Billing, Rider, and Retailer apps auto-configure without manual typing.',
+                          isLast: true,
+                          control: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF059669),
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () {
+                              AppSetupQrDialog.show(context);
+                            },
+                            icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                            label: const Text('Generate QR Standee'),
                           ),
                         ),
                       ],

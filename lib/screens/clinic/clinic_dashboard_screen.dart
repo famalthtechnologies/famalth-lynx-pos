@@ -24,12 +24,14 @@ class ClinicDashboardScreen extends StatefulWidget {
   final ClinicTab? initialTab;
   final String? userRole;
   final List<String>? userPermissions;
+  final bool autoOpenBooking;
   const ClinicDashboardScreen({
     super.key,
     this.initialIndex = 0,
     this.initialTab,
     this.userRole,
     this.userPermissions,
+    this.autoOpenBooking = false,
   });
 
   @override
@@ -44,7 +46,7 @@ enum ClinicTab {
   analytics,
 }
 
-class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with SingleTickerProviderStateMixin {
+class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with TickerProviderStateMixin {
   TabController? _tabCtrl;
   bool _isRoleLoaded = false;
   bool _isLoading = false;
@@ -127,6 +129,12 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     _fetchAnalytics();
     _fetchSubscriptions();
     _fetchOperatingStatus();
+
+    if (widget.autoOpenBooking) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openNewAppointmentDialog();
+      });
+    }
   }
 
   void _setupTabController(List<ClinicTab> tabs) {
@@ -152,65 +160,73 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
     final p = (permissions ?? _userPermissions).map((e) => e.trim().toUpperCase()).toSet();
     final isAdmin = r == 'ADMIN' || r == 'SUPERADMIN' || r == 'OWNER' || r == 'CLINIC_ADMIN' || r == 'DOCTOR_ADMIN';
 
-    // If role is DOCTOR, clinician, or physician without admin rights, show Doctor Consultation tab immediately
-    if (!isAdmin && (r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN'))) {
-      return [ClinicTab.doctor];
-    }
-
-    // If explicit clinic permissions are granted to the user, strictly respect them
-    final hasSpecificClinicPerms = p.contains('CLINIC_MODULE') ||
-        p.contains('CLINIC_APPOINTMENTS') ||
+    // If explicit clinic sub-permissions are assigned to the user, strictly respect them individually
+    final hasSpecificClinicSubPerms = p.contains('CLINIC_APPOINTMENTS') ||
         p.contains('DOCTOR_CONSULTATION') ||
         p.contains('PRESCRIPTIONS') ||
         p.contains('CLINIC_PHARMACY') ||
         p.contains('CLINIC_THERAPY') ||
         p.contains('CLINIC_ANALYTICS');
 
+    // If role is DOCTOR, clinician, or physician without admin rights and no custom sub-perms, show Doctor Consultation tab immediately
+    if (!isAdmin && !hasSpecificClinicSubPerms && (r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN'))) {
+      return [ClinicTab.doctor];
+    }
+
     final List<ClinicTab> allowed = [];
 
     // 1. Reception Desk (OPD Queue)
-    if (p.contains('CLINIC_MODULE') ||
-        p.contains('CLINIC_APPOINTMENTS') ||
-        (!hasSpecificClinicPerms && (isAdmin || r.contains('RECEPTION') || r.contains('FRONTDESK')))) {
+    if (p.contains('CLINIC_APPOINTMENTS') ||
+        (!hasSpecificClinicSubPerms && (p.contains('CLINIC_MODULE') || isAdmin || r.contains('RECEPTION') || r.contains('FRONTDESK')))) {
       allowed.add(ClinicTab.reception);
     }
 
     // 2. Doctor Consultation
-    if (p.contains('CLINIC_MODULE') ||
-        p.contains('DOCTOR_CONSULTATION') ||
+    if (p.contains('DOCTOR_CONSULTATION') ||
         p.contains('PRESCRIPTIONS') ||
-        (!hasSpecificClinicPerms && (isAdmin || r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN')))) {
+        (!hasSpecificClinicSubPerms && (p.contains('CLINIC_MODULE') || isAdmin || r.contains('DOCTOR') || r.contains('CLINICIAN') || r.contains('PHYSICIAN')))) {
       allowed.add(ClinicTab.doctor);
     }
 
     // 3. Pharmacy & Dispensing
-    if (p.contains('CLINIC_MODULE') ||
-        p.contains('CLINIC_PHARMACY') ||
-        (!hasSpecificClinicPerms && (isAdmin || r.contains('PHARMAC')))) {
+    if (p.contains('CLINIC_PHARMACY') ||
+        (!hasSpecificClinicSubPerms && (p.contains('CLINIC_MODULE') || isAdmin || r.contains('PHARMAC')))) {
       allowed.add(ClinicTab.pharmacy);
     }
 
     // 4. Therapy & Packages
-    if (p.contains('CLINIC_MODULE') ||
-        p.contains('CLINIC_THERAPY') ||
-        (!hasSpecificClinicPerms && (isAdmin || r.contains('THERAP')))) {
+    if (p.contains('CLINIC_THERAPY') ||
+        (!hasSpecificClinicSubPerms && (p.contains('CLINIC_MODULE') || isAdmin || r.contains('THERAP')))) {
       allowed.add(ClinicTab.therapy);
     }
 
     // 5. Store & Clinic Analytics
-    if (p.contains('CLINIC_MODULE') ||
-        p.contains('CLINIC_ANALYTICS') ||
-        (!hasSpecificClinicPerms && (isAdmin || r == 'MANAGER'))) {
+    if (p.contains('CLINIC_ANALYTICS') ||
+        (!hasSpecificClinicSubPerms && (p.contains('CLINIC_MODULE') || isAdmin || r == 'MANAGER')) ||
+        (isAdmin && !hasSpecificClinicSubPerms)) {
       allowed.add(ClinicTab.analytics);
     }
 
     if (allowed.isNotEmpty) return allowed;
 
-    // Default fallback based on role if no matching tab found
-    if (r.contains('DOCTOR')) return [ClinicTab.doctor];
-    if (r.contains('PHARMAC')) return [ClinicTab.pharmacy];
-    if (r.contains('THERAP')) return [ClinicTab.therapy];
-    return [ClinicTab.reception];
+    // Default fallback based on role if no matching tab found and no specific permissions restricted them
+    if (!hasSpecificClinicSubPerms) {
+      if (r.contains('DOCTOR')) return [ClinicTab.doctor];
+      if (r.contains('PHARMAC')) return [ClinicTab.pharmacy];
+      if (r.contains('THERAP')) return [ClinicTab.therapy];
+      if (p.contains('CLINIC_MODULE') || isAdmin) {
+        return [
+          ClinicTab.reception,
+          ClinicTab.doctor,
+          ClinicTab.pharmacy,
+          ClinicTab.therapy,
+          ClinicTab.analytics,
+        ];
+      }
+      return [ClinicTab.reception];
+    }
+
+    return [];
   }
 
   Future<void> _fetchOperatingStatus() async {
@@ -371,11 +387,13 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
               _tabCtrl = newCtrl;
             });
 
-            // Defer disposing old controller until after the current frame finishes rendering with the new controller
+            // Safely dispose old controller after all current frame rendering and gesture recognizers detach
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              try {
-                oldCtrl?.dispose();
-              } catch (_) {}
+              Future.delayed(const Duration(milliseconds: 200), () {
+                try {
+                  oldCtrl?.dispose();
+                } catch (_) {}
+              });
             });
           } else {
             setState(() {
@@ -1142,11 +1160,53 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
 
   @override
   Widget build(BuildContext context) {
-    if (!_isRoleLoaded || _tabCtrl == null) {
+    if (!_isRoleLoaded || _tabCtrl == null || _tabCtrl!.length != _availableTabs.length) {
       return const Scaffold(
         backgroundColor: Color(0xFFF1F5F9),
         body: Center(
           child: CircularProgressIndicator(color: Color(0xFF0284C7)),
+        ),
+      );
+    }
+
+    if (_availableTabs.isEmpty) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF1F5F9),
+        appBar: AppBar(
+          title: const Text('Clinic & Doctor Consultation'),
+          backgroundColor: Colors.white,
+          foregroundColor: const Color(0xFF0F172A),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_person_outlined, size: 64, color: Color(0xFF94A3B8)),
+                const SizedBox(height: 16),
+                const Text(
+                  'Access Restricted',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Your account does not have permission to access any Clinic desks.\nPlease contact your administrator to grant access.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Go Back'),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -1265,7 +1325,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
             padding: const EdgeInsets.symmetric(horizontal: 16),
             alignment: Alignment.centerLeft,
             child: TabBar(
-              key: ValueKey(_tabCtrl),
+              key: ValueKey('clinic_tabbar_${_availableTabs.map((t) => t.name).join("_")}'),
               controller: _tabCtrl!,
               isScrollable: true,
               labelColor: const Color(0xFF0284C7),
@@ -1280,7 +1340,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Sing
         ),
       ),
       body: TabBarView(
-        key: ValueKey(_tabCtrl),
+        key: ValueKey('clinic_tabbarview_${_availableTabs.map((t) => t.name).join("_")}'),
         controller: _tabCtrl!,
         children: _availableTabs.map((t) => _buildTabView(t)).toList(),
       ),

@@ -3785,7 +3785,7 @@ class _EmployeeDetailScreenState extends State<_EmployeeDetailScreen>
                       ],
                       if (propContact.isNotEmpty || propEmail.isNotEmpty) ...[
                         pw.SizedBox(height: 2),
-                        pw.Text('Contact: $propContact | Email: $propEmail', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, color: PdfColor.fromHex('#6B7280'))),
+                        pw.Text('Contact: $propContact - Email: $propEmail', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, color: PdfColor.fromHex('#6B7280'))),
                       ],
                       pw.SizedBox(height: 6),
                       pw.Text('PAYSLIP FOR THE MONTH OF', style: pw.TextStyle(fontSize: 10, color: PdfColor.fromHex('#6B7280'), fontWeight: pw.FontWeight.bold)),

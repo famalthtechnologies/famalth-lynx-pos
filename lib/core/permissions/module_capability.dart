@@ -168,6 +168,15 @@ class ModuleCapability {
         !mods.contains(inventory);
   }
 
+  /// Checks if the business outlet is configured strictly as Clinic & Healthcare (no Retail POS shop, no Restaurant dining).
+  static bool isClinicOnly([String? module]) {
+    final mods = parseModules(module);
+    if (mods.contains(all)) return false;
+    return mods.contains(clinic) &&
+        !mods.contains(retail) &&
+        !mods.contains(restaurant);
+  }
+
   /// Checks if the business outlet is configured strictly as Inventory only.
   static bool isInventoryOnly([String? module]) {
     final mods = parseModules(module);
@@ -728,6 +737,11 @@ class ModuleCapability {
       if (isRest) return 'Shift / Day-End Closing Report';
       return 'Closing Report';
     }
+    if (k == 'NIGHT_AUDIT') {
+      if (isCl) return 'Reception & Pharmacy Cash Handover (Day Audit)';
+      if (isRest) return 'Restaurant Night Audit (Day Closing)';
+      return 'Night Audit';
+    }
     if (k == 'CREDIT_ANALYSIS') {
       if (isCl) return 'Patient Credit & Dues Ledger';
       if (isRest) return 'Diner Credit & Corporate Accounts';
@@ -777,6 +791,9 @@ class ModuleCapability {
       }
     }
     if (hasClinic(module) && !hasRetail(module)) {
+      if (label.contains('Night Audit')) {
+        return 'Cash Handover & Day Closing (Audit)';
+      }
       if (label.contains('Retail Sales Report') || label.contains('Retail Sale Report') || label.contains('Sales Report')) {
         return 'Pharmacy Sale Report';
       }

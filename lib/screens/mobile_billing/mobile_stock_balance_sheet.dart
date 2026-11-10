@@ -135,7 +135,7 @@ class _MobileStockBalanceSheetState extends State<MobileStockBalanceSheet> {
               return [
                 '${idx + 1}',
                 it.name,
-                [it.brand, it.code].where((s) => s.trim().isNotEmpty).join(' | '),
+                [it.brand, it.code].where((s) => s.trim().isNotEmpty).join(' - '),
                 it.qty.toStringAsFixed(0),
                 it.reorder.toStringAsFixed(0),
                 it.shortfall > 0 ? it.shortfall.toStringAsFixed(0) : '-',

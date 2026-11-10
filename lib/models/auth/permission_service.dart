@@ -34,13 +34,31 @@ class PermissionService {
 
     final pUpper = permission.trim().toUpperCase();
 
-    // If user has Full Access Clinic permission, grant access to all clinic features
+    // Check if user has specific clinic sub-permissions defined in their permissions list
+    final hasSpecificClinicSubPerms = user!.permissions.any((p) {
+      final u = p.toUpperCase().trim();
+      return u == 'CLINIC_APPOINTMENTS' ||
+          u == 'DOCTOR_CONSULTATION' ||
+          u == 'PRESCRIPTIONS' ||
+          u == 'CLINIC_PHARMACY' ||
+          u == 'CLINIC_THERAPY' ||
+          u == 'CLINIC_ANALYTICS';
+    });
+
+    // If user has Full Access Clinic permission, grant access to clinic features only if no specific sub-permissions restrict them
     if (user!.permissions.contains('CLINIC_MODULE')) {
-      if (pUpper.startsWith('CLINIC_') ||
-          pUpper == 'PRESCRIPTIONS' ||
-          pUpper == 'DOCTOR_CONSULTATION' ||
-          (pUpper == 'POS_SALE' && ModuleCapability.hasClinic(currentModule))) {
-        return true;
+      if (!hasSpecificClinicSubPerms) {
+        if (pUpper.startsWith('CLINIC_') ||
+            pUpper == 'PRESCRIPTIONS' ||
+            pUpper == 'DOCTOR_CONSULTATION' ||
+            (pUpper == 'POS_SALE' && ModuleCapability.hasClinic(currentModule))) {
+          return true;
+        }
+      } else {
+        // If specific sub-permissions are assigned, base CLINIC_MODULE only grants entry to the clinic shell
+        if (pUpper == 'CLINIC_MODULE') {
+          return true;
+        }
       }
     }
 

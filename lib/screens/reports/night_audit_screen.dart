@@ -50,6 +50,10 @@ class _NightAuditScreenState extends State<NightAuditScreen>
     return ModuleCapability.hasRestaurant(_currentModule);
   }
 
+  bool get _isClinicModule {
+    return ModuleCapability.hasClinic(_currentModule) && !ModuleCapability.hasRetail(_currentModule);
+  }
+
   Future<void> _loadUserModule() async {
     try {
       final userMap = await TokenStorage.getUser();
@@ -65,7 +69,7 @@ class _NightAuditScreenState extends State<NightAuditScreen>
       await propCtrl.load();
       if (propCtrl.data != null && propCtrl.data!.outletModule.trim().isNotEmpty) {
         final pMod = propCtrl.data!.outletModule.trim();
-        if (pMod == 'INVENTORY' || pMod == 'RETAIL' || pMod == 'RESTAURANT' || pMod == 'ALL') {
+        if (pMod == 'INVENTORY' || pMod == 'RETAIL' || pMod == 'RESTAURANT' || pMod == 'CLINIC' || pMod == 'ALL') {
           mod = pMod;
         }
       }
@@ -179,9 +183,11 @@ class _NightAuditScreenState extends State<NightAuditScreen>
           const SizedBox(width: 16),
 
           // Header Title
-          const Text(
-            'Night Audit (End of Day)',
-            style: TextStyle(
+          Text(
+            _isClinicModule
+                ? 'Reception & Pharmacy Cash Handover (Day Closing)'
+                : 'Night Audit (End of Day)',
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
               color: posTextDark,
@@ -202,14 +208,14 @@ class _NightAuditScreenState extends State<NightAuditScreen>
               children: [
                 _buildPillTab(
                   index: 0,
-                  icon: Icons.nightlight_round,
-                  label: 'Run Audit',
+                  icon: _isClinicModule ? Icons.payments_rounded : Icons.nightlight_round,
+                  label: _isClinicModule ? 'Cash Handover' : 'Run Audit',
                 ),
                 const SizedBox(width: 4),
                 _buildPillTab(
                   index: 1,
                   icon: Icons.history,
-                  label: 'Audit History',
+                  label: _isClinicModule ? 'Handover History' : 'Audit History',
                 ),
               ],
             ),
@@ -302,9 +308,11 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          '⚠️ NIGHT AUDIT OVERDUE',
-                          style: TextStyle(
+                        Text(
+                          _isClinicModule
+                              ? '⚠️ CLINIC CASH HANDOVER OVERDUE'
+                              : '⚠️ NIGHT AUDIT OVERDUE',
+                          style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
                             color: Color(0xFF92400E),
@@ -312,7 +320,9 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Yesterday\'s business day was not closed because the system was offline at 2:00 AM. Please verify cash and execute audit now to advance to $targetNextDate.',
+                          _isClinicModule
+                              ? 'Yesterday\'s business day was not closed. Please verify cash collections from reception & medicine counter, and execute handover to advance to $targetNextDate.'
+                              : 'Yesterday\'s business day was not closed because the system was offline at 2:00 AM. Please verify cash and execute audit now to advance to $targetNextDate.',
                           style: const TextStyle(
                             fontSize: 13,
                             color: Color(0xFF78350F),
@@ -342,9 +352,11 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          '🔒 NIGHT AUDIT RESTRICTED',
-                          style: TextStyle(
+                        Text(
+                          _isClinicModule
+                              ? '🔒 CLINIC CASH HANDOVER RESTRICTED'
+                              : '🔒 NIGHT AUDIT RESTRICTED',
+                          style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
                             color: Color(0xFF1E40AF),
@@ -352,7 +364,9 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Current business date ($businessDate) is up to date with today\'s calendar date ($todayDate). Night Audit cannot advance into future dates.',
+                          _isClinicModule
+                              ? 'Current business date ($businessDate) is up to date with today\'s calendar date ($todayDate). Day closing and cash handover will be available at end of business day.'
+                              : 'Current business date ($businessDate) is up to date with today\'s calendar date ($todayDate). Night Audit cannot advance into future dates.',
                           style: const TextStyle(
                             fontSize: 13,
                             color: Color(0xFF1E3A8A),
@@ -436,9 +450,11 @@ class _NightAuditScreenState extends State<NightAuditScreen>
           const SizedBox(height: 22),
 
           // Pre-Audit Validation Checklist
-          const Text(
-            'Pre-Audit Validation Checklist',
-            style: TextStyle(
+          Text(
+            _isClinicModule
+                ? 'Pre-Closing Verification Checklist'
+                : 'Pre-Audit Validation Checklist',
+            style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.bold,
               color: posTextDark,
@@ -463,7 +479,9 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                   const Divider(height: 1, color: Color(0xFFE2E8F0)),
                 ],
                 _buildChecklistItem(
-                  title: 'Unclosed Cashier Shifts',
+                  title: _isClinicModule
+                      ? 'Unclosed Reception & Pharmacy Staff Shifts'
+                      : 'Unclosed Cashier Shifts',
                   count: validation?['unclosedShiftCount'] ?? 0,
                   unclosedCashiers: validation?['unclosedCashiers'] as List?,
                   icon: Icons.badge,
@@ -471,7 +489,9 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                 ),
                 const Divider(height: 1, color: Color(0xFFE2E8F0)),
                 _buildChecklistItem(
-                  title: 'Draft Invoices / Bills',
+                  title: _isClinicModule
+                      ? 'Draft Prescriptions & Invoices'
+                      : 'Draft Invoices / Bills',
                   count: validation?['draftBillCount'] ?? 0,
                   icon: Icons.drafts,
                 ),
@@ -491,13 +511,15 @@ class _NightAuditScreenState extends State<NightAuditScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(
+                  Row(
                     children: [
-                      Icon(Icons.warning_amber_rounded, color: Color(0xFFB45309), size: 22),
-                      SizedBox(width: 8),
+                      const Icon(Icons.warning_amber_rounded, color: Color(0xFFB45309), size: 22),
+                      const SizedBox(width: 8),
                       Text(
-                        'Audit Warnings Detected',
-                        style: TextStyle(
+                        _isClinicModule
+                            ? 'Cash Handover & Audit Warnings'
+                            : 'Audit Warnings Detected',
+                        style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Color(0xFFB45309),
                         ),
@@ -614,7 +636,7 @@ class _NightAuditScreenState extends State<NightAuditScreen>
             controller: _notesController,
             onChanged: (val) => controller.auditNotes = val,
             decoration: InputDecoration(
-              labelText: 'Night Audit Remarks / Notes',
+              labelText: _isClinicModule ? 'Reception & Pharmacy Cash Handover Remarks / Notes' : 'Night Audit Remarks / Notes',
               hintText: 'Add operational notes for this day close...',
               filled: true,
               fillColor: const Color(0xFFF8FAFC),
@@ -663,10 +685,12 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                       : (hasWarnings ? Icons.warning_amber_rounded : Icons.check_circle_outline)),
               label: Text(
                 controller.isExecuting
-                    ? 'Executing Night Audit...'
+                    ? (_isClinicModule ? 'Executing Cash Handover & Closing...' : 'Executing Night Audit...')
                     : (isRestricted
-                        ? 'Night Audit Restricted (Up to Date)'
-                        : (hasWarnings ? 'Force Run Night Audit' : 'Execute Night Audit & Close Day')),
+                        ? (_isClinicModule ? 'Cash Handover Restricted (Up to Date)' : 'Night Audit Restricted (Up to Date)')
+                        : (hasWarnings
+                            ? (_isClinicModule ? 'Force Run Cash Handover & Closing' : 'Force Run Night Audit')
+                            : (_isClinicModule ? 'Complete Cash Handover & Close Day' : 'Execute Night Audit & Close Day'))),
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
@@ -788,11 +812,14 @@ class _NightAuditScreenState extends State<NightAuditScreen>
 
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Row(
+              title: Row(
                 children: [
-                  Icon(Icons.point_of_sale_outlined, color: posOrange),
-                  SizedBox(width: 10),
-                  Text('Close Shift / Cashier Handover', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Icon(Icons.point_of_sale_outlined, color: posOrange),
+                  const SizedBox(width: 10),
+                  Text(
+                    _isClinicModule ? 'Reception / Pharmacy Cash Handover' : 'Close Shift / Cashier Handover',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                 ],
               ),
               content: SizedBox(
@@ -803,15 +830,19 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Submit physical cash handover for business date: $businessDate',
+                        _isClinicModule
+                            ? 'Submit physical cash collected by medicine dispensing or reception desk for business date: $businessDate'
+                            : 'Submit physical cash handover for business date: $businessDate',
                         style: const TextStyle(fontSize: 13, color: posTextMuted),
                       ),
                       const SizedBox(height: 12),
 
                       if (unclosedCashiers.isNotEmpty) ...[
-                        const Text(
-                          'Select Cashier to Close Shift:',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: posTextDark),
+                        Text(
+                          _isClinicModule
+                              ? 'Select Reception / Pharmacy Staff to Handover Cash:'
+                              : 'Select Cashier to Close Shift:',
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: posTextDark),
                         ),
                         const SizedBox(height: 6),
                         Container(
@@ -1049,8 +1080,11 @@ class _NightAuditScreenState extends State<NightAuditScreen>
     final history = controller.historyList;
 
     if (history.isEmpty) {
-      return const Center(
-        child: Text('No previous Night Audit runs found.', style: TextStyle(color: posTextMuted)),
+      return Center(
+        child: Text(
+          _isClinicModule ? 'No previous Cash Handover records found.' : 'No previous Night Audit runs found.',
+          style: const TextStyle(color: posTextMuted),
+        ),
       );
     }
 
@@ -1159,11 +1193,18 @@ class _NightAuditScreenState extends State<NightAuditScreen>
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Confirm Night Audit', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(
+          _isClinicModule ? 'Confirm Cash Handover & Day Closing' : 'Confirm Night Audit',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         content: Text(
           hasWarnings
-              ? 'There are open warnings in the checklist. Are you sure you want to FORCE RUN the Night Audit and close the day?'
-              : 'Are you sure you want to run the Night Audit? This will close the current business date and advance the system date to the next day.',
+              ? (_isClinicModule
+                  ? 'There are open warnings in the checklist. Are you sure you want to FORCE RUN Cash Handover & Day Closing?'
+                  : 'There are open warnings in the checklist. Are you sure you want to FORCE RUN the Night Audit and close the day?')
+              : (_isClinicModule
+                  ? 'Are you sure you want to perform Clinic Cash Handover and Day Closing? This will close the current business date and advance to the next day.'
+                  : 'Are you sure you want to run the Night Audit? This will close the current business date and advance the system date to the next day.'),
         ),
         actions: [
           TextButton(
@@ -1184,8 +1225,8 @@ class _NightAuditScreenState extends State<NightAuditScreen>
                   SnackBar(
                     content: Text(
                       success
-                          ? '✅ Night Audit completed successfully!'
-                          : '❌ Night Audit failed: ${controller.lastRunResult?['message'] ?? 'Error'}',
+                          ? (_isClinicModule ? '✅ Cash Handover & Day Closing completed successfully!' : '✅ Night Audit completed successfully!')
+                          : (_isClinicModule ? '❌ Cash Handover failed: ${controller.lastRunResult?['message'] ?? 'Error'}' : '❌ Night Audit failed: ${controller.lastRunResult?['message'] ?? 'Error'}'),
                     ),
                     backgroundColor: success ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
                   ),

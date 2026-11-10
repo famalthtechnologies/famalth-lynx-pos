@@ -7,8 +7,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/auth/token_storage.dart';
 import '../../core/config/app_config.dart';
 import '../../core/currency/currency_service.dart';
+import '../../widgets/app_setup_qr_dialog.dart';
+import '../dashboard/server_config_screen.dart';
+import 'dining_splash_screen.dart';
 
 class TableDiningScreen extends StatefulWidget {
   final String? outletId;
@@ -3423,9 +3427,10 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     final floorName = _tableData?['floor_name'] ?? '';
     final areaName = _tableData?['area_name'] ?? '';
     final customerName = _customerProfile?['customer_name'] ?? _customerProfile?['name'] ?? 'Guest';
+    final isNarrow = MediaQuery.of(context).size.width < 520;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
@@ -3433,43 +3438,80 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Brand & Outlet Name
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          if (isNarrow) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        resName,
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: darkBg),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        _restaurantData?['address'] ?? 'Dine-in Experience',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                _buildSettingsQrButton(),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(child: _buildTableSelectorDropdown(displayTableName)),
+                const SizedBox(width: 8),
+                _buildSeatSelectorPill(),
+              ],
+            ),
+          ] else ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Brand & Outlet Name
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        resName,
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: darkBg),
+                      ),
+                      Text(
+                        _restaurantData?['address'] ?? 'Dine-in Experience',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Interactive Table, Seat Selector & Settings Button
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Text(
-                      resName,
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: darkBg),
-                    ),
-                    Text(
-                      _restaurantData?['address'] ?? 'Dine-in Experience',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    _buildTableSelectorDropdown(displayTableName),
+                    _buildSeatSelectorPill(),
+                    _buildSettingsQrButton(),
                   ],
                 ),
-              ),
+              ],
+            ),
+          ],
 
-              // Interactive Table & Seat Selector
-              Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                alignment: WrapAlignment.end,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  _buildTableSelectorDropdown(displayTableName),
-                  _buildSeatSelectorPill(),
-                ],
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           const Divider(height: 1, color: Color(0xFFF1F5F9)),
           const SizedBox(height: 8),
 
@@ -3515,6 +3557,434 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSettingsQrButton() {
+    return Tooltip(
+      message: 'Server Config & Setup QR',
+      child: InkWell(
+        onTap: _showDiningSettingsSheet,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFCBD5E1)),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.qr_code_scanner, size: 15, color: Color(0xFF0F172A)),
+              SizedBox(width: 4),
+              Icon(Icons.tune, size: 13, color: Color(0xFF64748B)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDiningSettingsSheet() {
+    final serverUrl = AppConfig.baseUrl.isNotEmpty ? AppConfig.baseUrl : 'Not Configured';
+    final resName = _restaurantData?['property_name'] ?? 'Grand Restaurant';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(sheetCtx).viewInsets.bottom + 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Server & Dining Setup',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: darkBg),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => Navigator.pop(sheetCtx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Server Status Card
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF16A34A).withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.dns, size: 20, color: Color(0xFF16A34A)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Connected Server', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                          Text(serverUrl, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: darkBg), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          Text('Outlet: $resName', style: const TextStyle(fontSize: 10.5, color: Color(0xFF0284C7))),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Action 1: Generate Store & Table Setup QR (ADMIN ONLY)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.qr_code_2, color: Colors.amber, size: 22),
+                ),
+                title: const Row(
+                  children: [
+                    Text('Generate Server Setup QR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    SizedBox(width: 8),
+                    Chip(
+                      label: Text('Admin Only', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFFDC2626))),
+                      backgroundColor: Color(0xFFFEF2F2),
+                      side: BorderSide(color: Color(0xFFFECACA)),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: EdgeInsets.zero,
+                    ),
+                  ],
+                ),
+                subtitle: const Text('Generate & print QR standees for customers to connect & dine', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                trailing: const Icon(Icons.lock_outline, size: 18, color: Color(0xFF94A3B8)),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _handleGenerateSetupQr();
+                },
+              ),
+
+              const SizedBox(height: 10),
+
+              // Action 2: Reconfigure Server Connection
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.tune, color: Color(0xFF2563EB), size: 22),
+                ),
+                title: const Text('Reconfigure Server Connection', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                subtitle: const Text('Scan new server QR or change server IP manually', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                trailing: const Icon(Icons.chevron_right, size: 20, color: Color(0xFF94A3B8)),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ServerConfigScreen(
+                        nextScreen: DiningAppSplashScreen(),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleGenerateSetupQr() async {
+    // 1. Check if current authenticated user session is already admin/owner
+    bool isAdmin = false;
+    try {
+      final role = (await TokenStorage.getRole() ?? '').toUpperCase().trim();
+      final user = await TokenStorage.getUser();
+      final userRole = (user?['role'] ?? role).toString().toUpperCase().trim();
+      isAdmin = userRole == 'ADMIN' ||
+          userRole == 'SUPER_ADMIN' ||
+          userRole == 'OWNER' ||
+          userRole == 'ENTERPRISE_ADMIN';
+    } catch (_) {}
+
+    if (isAdmin) {
+      if (!mounted) return;
+      _openSetupQrDialog();
+      return;
+    }
+
+    // 2. Not admin: prompt for Admin Credentials / PIN verification
+    if (!mounted) return;
+    _showAdminVerificationModal();
+  }
+
+  void _openSetupQrDialog() {
+    AppSetupQrDialog.show(
+      context,
+      serverUrl: AppConfig.baseUrl,
+      outletCode: widget.outletId ?? '1',
+      storeName: _restaurantData?['property_name'] ?? 'Dining Outlet',
+      mode: AppSetupQrMode.customer,
+    );
+  }
+
+  void _showAdminVerificationModal() {
+    final pinOrPassCtrl = TextEditingController();
+    final userCtrl = TextEditingController();
+    bool isSubmitting = false;
+    String? errorText;
+    bool usePinMode = true;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFEF2F2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.shield_outlined, color: Color(0xFFDC2626), size: 22),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Admin Authorization', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                        Text('Required to generate store setup QR', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Store QR code generation is restricted to store administrators to prevent unauthorized reconfiguration.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Toggle between Admin PIN vs Admin Password
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Center(child: Text('Admin PIN', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                            selected: usePinMode,
+                            onSelected: (val) {
+                              setDState(() {
+                                usePinMode = true;
+                                errorText = null;
+                                pinOrPassCtrl.clear();
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Center(child: Text('Admin Login', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
+                            selected: !usePinMode,
+                            onSelected: (val) {
+                              setDState(() {
+                                usePinMode = false;
+                                errorText = null;
+                                pinOrPassCtrl.clear();
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    if (!usePinMode) ...[
+                      TextField(
+                        controller: userCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Admin Username / Email',
+                          prefixIcon: Icon(Icons.person, size: 18),
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
+                    TextField(
+                      controller: pinOrPassCtrl,
+                      obscureText: true,
+                      keyboardType: usePinMode ? TextInputType.number : TextInputType.text,
+                      decoration: InputDecoration(
+                        labelText: usePinMode ? 'Enter Admin 4-6 Digit PIN' : 'Admin Password',
+                        prefixIcon: Icon(usePinMode ? Icons.pin : Icons.lock_outline, size: 18),
+                        isDense: true,
+                        border: const OutlineInputBorder(),
+                        errorText: errorText,
+                      ),
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          final secret = pinOrPassCtrl.text.trim();
+                          if (secret.isEmpty) {
+                            setDState(() => errorText = 'Please enter PIN or password');
+                            return;
+                          }
+
+                          setDState(() {
+                            isSubmitting = true;
+                            errorText = null;
+                          });
+
+                          try {
+                            final baseUrl = AppConfig.baseUrl.isNotEmpty ? AppConfig.baseUrl : 'http://localhost:5000';
+                            bool verified = false;
+
+                            if (usePinMode) {
+                              final res = await http.post(
+                                Uri.parse('$baseUrl/api/auth/pin-login'),
+                                headers: {'Content-Type': 'application/json'},
+                                body: jsonEncode({'pin': secret}),
+                              ).timeout(const Duration(seconds: 8));
+
+                              if (res.statusCode == 200) {
+                                final data = jsonDecode(res.body);
+                                final userRole = (data['user']?['role'] ?? data['role'] ?? '').toString().toUpperCase().trim();
+                                if (userRole == 'ADMIN' || userRole == 'SUPER_ADMIN' || userRole == 'OWNER' || userRole == 'ENTERPRISE_ADMIN') {
+                                  verified = true;
+                                } else {
+                                  errorText = 'This PIN belongs to $userRole, not an Administrator.';
+                                }
+                              } else {
+                                errorText = 'Invalid Admin PIN';
+                              }
+                            } else {
+                              final username = userCtrl.text.trim();
+                              if (username.isEmpty) {
+                                setDState(() {
+                                  isSubmitting = false;
+                                  errorText = 'Please enter admin username';
+                                });
+                                return;
+                              }
+                              final res = await http.post(
+                                Uri.parse('$baseUrl/api/auth/login'),
+                                headers: {'Content-Type': 'application/json'},
+                                body: jsonEncode({'username': username, 'password': secret}),
+                              ).timeout(const Duration(seconds: 8));
+
+                              if (res.statusCode == 200) {
+                                final data = jsonDecode(res.body);
+                                final userRole = (data['user']?['role'] ?? data['role'] ?? '').toString().toUpperCase().trim();
+                                if (userRole == 'ADMIN' || userRole == 'SUPER_ADMIN' || userRole == 'OWNER' || userRole == 'ENTERPRISE_ADMIN') {
+                                  verified = true;
+                                } else {
+                                  errorText = 'Access denied: User does not have Administrator privileges.';
+                                }
+                              } else {
+                                errorText = 'Invalid username or password';
+                              }
+                            }
+
+                            if (verified) {
+                              Navigator.pop(dialogCtx);
+                              _openSetupQrDialog();
+                            } else {
+                              setDState(() => isSubmitting = false);
+                            }
+                          } catch (e) {
+                            setDState(() {
+                              isSubmitting = false;
+                              errorText = 'Connection error: Could not verify admin credentials.';
+                            });
+                          }
+                        },
+                  child: isSubmitting
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Authorize & Generate'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -4133,42 +4603,63 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
   }
 
   Widget _buildSearchAndFilters() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(
-        children: [
-          // Search Box
-          Expanded(
-            child: TextField(
-              controller: _searchCtrl,
-              decoration: InputDecoration(
-                hintText: 'Search dishes, drinks...',
-                hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-                prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF64748B)),
-                filled: true,
-                fillColor: Colors.white,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                ),
-              ),
-              style: const TextStyle(fontSize: 12),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 420;
+        final searchField = TextField(
+          controller: _searchCtrl,
+          decoration: InputDecoration(
+            hintText: 'Search dishes, drinks...',
+            hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+            prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF64748B)),
+            filled: true,
+            fillColor: Colors.white,
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
             ),
           ),
-          const SizedBox(width: 8),
+          style: const TextStyle(fontSize: 12),
+        );
 
-          // Dietary Filter Chips
-          _dietaryFilterChip('Veg', 'VEG', pureVegGreen, Icons.eco),
-          const SizedBox(width: 6),
-          _dietaryFilterChip('Non-Veg', 'NON_VEG', nonVegRed, Icons.egg_alt_outlined),
-        ],
-      ),
+        if (isNarrow) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Column(
+              children: [
+                searchField,
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    _dietaryFilterChip('Veg', 'VEG', pureVegGreen, Icons.eco),
+                    const SizedBox(width: 8),
+                    _dietaryFilterChip('Non-Veg', 'NON_VEG', nonVegRed, Icons.egg_alt_outlined),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          child: Row(
+            children: [
+              Expanded(child: searchField),
+              const SizedBox(width: 8),
+              _dietaryFilterChip('Veg', 'VEG', pureVegGreen, Icons.eco),
+              const SizedBox(width: 6),
+              _dietaryFilterChip('Non-Veg', 'NON_VEG', nonVegRed, Icons.egg_alt_outlined),
+            ],
+          ),
+        );
+      },
     );
   }
 

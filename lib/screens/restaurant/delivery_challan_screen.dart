@@ -2326,7 +2326,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Sing
                           style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
                         ),
                         pw.Text('Date: $dateStr', style: const pw.TextStyle(fontSize: 9)),
-                        pw.Text('Status: $status | Delivery: $deliveryStatus', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey700)),
+                        pw.Text('Status: $status - Delivery: $deliveryStatus', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey700)),
                       ],
                     ),
                   ),

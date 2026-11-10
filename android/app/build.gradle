@@ -47,7 +47,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
-        resValue "string", "app_name", "Famalth Lynx"
+        resValue "string", "app_name", "POS ERP"
     }
 
     flavorDimensions = ["default"]
@@ -56,32 +56,42 @@ android {
         customer {
             dimension "default"
             applicationId "com.retailpos.customer"
-            resValue "string", "app_name", "Famalth Lynx Customer"
+            resValue "string", "app_name", "Customer"
         }
         rider {
             dimension "default"
             applicationId "com.retailpos.rider"
-            resValue "string", "app_name", "Famalth Lynx Rider"
+            resValue "string", "app_name", "Rider"
         }
         supplier {
             dimension "default"
             applicationId "com.retailpos.supplier"
-            resValue "string", "app_name", "Famalth Lynx Supplier"
+            resValue "string", "app_name", "Supplier"
         }
         billing {
             dimension "default"
             applicationId "com.retailpos.billing"
-            resValue "string", "app_name", "Famalth Lynx Mobile Billing"
+            resValue "string", "app_name", "Billing"
         }
         pos {
             dimension "default"
             applicationId "com.example.retailpos"
-            resValue "string", "app_name", "Famalth Lynx"
+            resValue "string", "app_name", "POS ERP"
         }
         waiter {
             dimension "default"
             applicationId "com.retailpos.waiter"
-            resValue "string", "app_name", "Famalth Lynx Waiter"
+            resValue "string", "app_name", "Waiter"
+        }
+        dining {
+            dimension "default"
+            applicationId "com.retailpos.dining"
+            resValue "string", "app_name", "Dining"
+        }
+        clinic {
+            dimension "default"
+            applicationId "com.retailpos.clinic"
+            resValue "string", "app_name", "Clinic"
         }
     }
 
