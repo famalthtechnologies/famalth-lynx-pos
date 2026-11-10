@@ -20,6 +20,7 @@ import '../../core/config/date_time_service.dart';
 import '../../core/utils/timezone_utils.dart';
 import '../../core/utils/country_tax_helper.dart';
 import '../../controllers/settings/system_settings_controller.dart';
+import '../../core/settings/local_preferences.dart';
 import 'package:provider/provider.dart';
 
 class RiderConsoleScreen extends StatefulWidget {
@@ -29,7 +30,7 @@ class RiderConsoleScreen extends StatefulWidget {
   State<RiderConsoleScreen> createState() => _RiderConsoleScreenState();
 }
 
-class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
+class _RiderConsoleScreenState extends State<RiderConsoleScreen> with WidgetsBindingObserver {
   UserProfile? _currentUser;
   bool _isLoading = false;
 
@@ -58,11 +59,23 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadUserAndData();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _fetchRiderTasks(isBackground: true);
+      _startRiderNotificationTimer();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _notificationTimer?.cancel();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _notificationTimer?.cancel();
     _loginPhoneCtrl.dispose();
     _loginPasswordCtrl.dispose();
@@ -76,7 +89,19 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
     setState(() => _isLoading = true);
     _currentUser = await UserProfiledata.load();
     setState(() => _isLoading = false);
-    // Load system settings to get bill_format (only if we have an admin/user token)
+
+    // Initialize currency from local preferences or fallback to INR
+    try {
+      final cachedSymbol = await LocalPreferences.getBaseCurrencySymbol();
+      final cachedCode = await LocalPreferences.getBaseCurrencyCode();
+      if (cachedSymbol != null && cachedSymbol.isNotEmpty) {
+        CurrencyService.setCurrency(cachedSymbol, cachedCode);
+      } else {
+        CurrencyService.setCurrency('₹', 'INR');
+      }
+    } catch (_) {}
+
+    // Load system settings to get bill_format and currency (only if we have an admin/user token)
     final token = await TokenStorage.read();
     if (token != null) {
       try {
@@ -85,6 +110,12 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           setState(() {
             _billFormat = sysRes['data']['bill_format']?.toString() ?? 'A4';
           });
+          if (sysRes['data']['base_currency_symbol'] != null) {
+            CurrencyService.setCurrency(
+              sysRes['data']['base_currency_symbol'].toString(),
+              sysRes['data']['base_currency_code']?.toString(),
+            );
+          }
         }
       } catch (e) {
         debugPrint('Error loading system settings: $e');
@@ -112,10 +143,15 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
 
   void _startRiderNotificationTimer() {
     _notificationTimer?.cancel();
-    Future<void> fetchRiderNotifs() async {
+    Future<void> syncRiderRealtime() async {
       if (!mounted) return;
       final riderId = _loggedInRider?['id'];
       if (riderId == null) return;
+
+      // 1. Instantly refresh assigned orders in the background
+      await _fetchRiderTasks(isBackground: true);
+
+      // 2. Fetch new notifications
       try {
         final outletCode = _currentUser?.outletCode ?? (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
         final res = await ApiClient.get('/api/delivery/rider/notifications?rider_id=$riderId&outlet_id=$outletCode');
@@ -126,8 +162,8 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
             _shownNotificationIds.add(id);
             await NotificationService.show(
               id,
-              n['title']?.toString() ?? 'Notification',
-              n['message']?.toString() ?? '',
+              n['title']?.toString() ?? 'New Order Assigned',
+              n['message']?.toString() ?? 'You have a new delivery task.',
               uniqueKey: 'rider_notif_$id',
             );
           }
@@ -135,9 +171,10 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       } catch (_) {}
     }
 
-    fetchRiderNotifs();
-    _notificationTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
-      await fetchRiderNotifs();
+    syncRiderRealtime();
+    // Poll every 5 seconds for instant real-time order delivery updates
+    _notificationTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      await syncRiderRealtime();
     });
   }
 
@@ -273,33 +310,39 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
   }
 
   // Fetch tasks assigned to the selected rider
-  Future<void> _fetchRiderTasks() async {
+  Future<void> _fetchRiderTasks({bool isBackground = false}) async {
     if (_selectedRiderId == null) return;
-    setState(() => _isLoading = true);
+    if (!isBackground) {
+      setState(() => _isLoading = true);
+    }
     try {
       final outletCode = _currentUser?.outletCode ?? (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
       final res = await ApiClient.get('/api/delivery/retailer/orders?outlet_id=$outletCode');
       if (res['success'] == true) {
         final allOrders = res['data'] as List;
-        setState(() {
-          _assignedOrders = allOrders.where((order) {
-            final partnerId = order['assigned_partner_id']?.toString();
-            final selectedId = _selectedRiderId?.toString();
-            return partnerId != null && partnerId == selectedId &&
-                (order['status'] == 'ASSIGNED' || order['status'] == 'OUT_FOR_DELIVERY');
-          }).toList();
-          _riderHistoryOrders = allOrders.where((order) {
-            final partnerId = order['assigned_partner_id']?.toString();
-            final selectedId = _selectedRiderId?.toString();
-            return partnerId != null && partnerId == selectedId &&
-                order['status'] == 'DELIVERED';
-          }).toList();
-        });
+        if (mounted) {
+          setState(() {
+            _assignedOrders = allOrders.where((order) {
+              final partnerId = order['assigned_partner_id']?.toString();
+              final selectedId = _selectedRiderId?.toString();
+              return partnerId != null && partnerId == selectedId &&
+                  (order['status'] == 'ASSIGNED' || order['status'] == 'OUT_FOR_DELIVERY');
+            }).toList();
+            _riderHistoryOrders = allOrders.where((order) {
+              final partnerId = order['assigned_partner_id']?.toString();
+              final selectedId = _selectedRiderId?.toString();
+              return partnerId != null && partnerId == selectedId &&
+                  order['status'] == 'DELIVERED';
+            }).toList();
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error fetching rider tasks: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (!isBackground && mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -555,33 +598,80 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Confirm Delivery Payment'),
-          content: const Text('How did the customer pay for this delivery?'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.payment, color: Color(0xFF16A34A), size: 22),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text('Collect Payment', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'How did the customer settle this CoD payment?',
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _updateDeliveryStatus(orderId, 'DELIVERED', paymentMode: 'CASH');
+                },
+                icon: const Icon(Icons.money, size: 18),
+                label: const Text('Paid Cash'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF16A34A),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _updateDeliveryStatus(orderId, 'DELIVERED', paymentMode: 'UPI');
+                },
+                icon: const Icon(Icons.qr_code, size: 18, color: Color(0xFF0F766E)),
+                label: const Text('Paid via UPI / QR', style: TextStyle(color: Color(0xFF0F766E), fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  side: const BorderSide(color: Color(0xFF0F766E)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _updateDeliveryStatus(orderId, 'DELIVERED', paymentMode: 'CARD');
+                },
+                icon: const Icon(Icons.credit_card, size: 18, color: Colors.blue),
+                label: const Text('Paid via Card POS', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  side: BorderSide(color: Colors.blue.shade300),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            OutlinedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _updateDeliveryStatus(orderId, 'DELIVERED', paymentMode: 'CARD');
-              },
-              child: const Text('Paid via Card'),
-            ),
-            OutlinedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _updateDeliveryStatus(orderId, 'DELIVERED', paymentMode: 'UPI');
-              },
-              child: const Text('Paid via UPI'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _updateDeliveryStatus(orderId, 'DELIVERED', paymentMode: 'CASH');
-              },
-              child: const Text('Paid Cash'),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
             ),
           ],
         );
@@ -971,119 +1061,151 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
             }),
             const Divider(height: 24),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                IconButton.filledTonal(
+                OutlinedButton.icon(
                   onPressed: () => _printReceiptNative(order, true),
-                  icon: const Icon(Icons.print_outlined),
-                  tooltip: 'Print Invoice',
+                  icon: const Icon(Icons.print_outlined, size: 16),
+                  label: const Text('Print', style: TextStyle(fontSize: 12)),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    minimumSize: const Size(0, 34),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    if (isReturn) ...[
-                      if (returnStatus == 'RETURN_ACCEPTED') ...[
-                        FilledButton.icon(
-                          onPressed: () => _handoverReturn(order['id'], status: 'RETURN_PICKED_UP_FROM_STORE'),
-                          icon: const Icon(Icons.storefront_outlined),
-                          label: Text(order['return_type'] == 'EXCHANGE'
-                              ? 'Confirm Pickup from Store'
-                              : 'Confirm Out for Collection'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.orange.shade700,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        )
-                      ] else if (returnStatus == 'RETURN_PICKED_UP_FROM_STORE') ...[
-                        FilledButton.icon(
-                          onPressed: () async {
-                            final bool? confirm = await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text('Confirm Doorstep Handover'),
-                                content: Text(order['return_type'] == 'EXCHANGE'
-                                    ? 'Is the customer\'s returned item in good condition? Hand over the new replacement item only if the old one is returned in acceptable condition.'
-                                    : 'Confirm collection of the returned item.'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  FilledButton(
-                                    onPressed: () => Navigator.pop(ctx, true),
-                                    child: const Text('Confirm Complete'),
-                                  ),
-                                ],
-                              ),
-                            );
-                            if (confirm == true) {
-                              _handoverReturn(order['id'], status: 'RETURN_COLLECTED');
-                            }
-                          },
-                          icon: const Icon(Icons.front_hand_outlined),
-                          label: Text(order['return_type'] == 'EXCHANGE'
-                              ? 'Confirm Doorstep Exchange'
-                              : 'Confirm Doorstep Collection'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.blue.shade700,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        )
-                      ] else if (returnStatus == 'RETURN_COLLECTED') ...[
-                        FilledButton.icon(
-                          onPressed: () => _handoverReturn(order['id'], status: 'RETURN_HANDED_OVER'),
-                          icon: const Icon(Icons.handshake_outlined),
-                          label: const Text('Confirm Handover to Store'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.green.shade700,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        )
-                      ] else ...[
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          child: Text(
-                            'Awaiting Supplier Final Settle',
-                            style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey),
-                          ),
-                        )
-                      ]
-                    ] else ...[
-                      if (status == 'ASSIGNED') ...[
-                        FilledButton.icon(
-                          onPressed: () => _updateDeliveryStatus(order['id'], 'OUT_FOR_DELIVERY'),
-                          icon: const Icon(Icons.directions_bike),
-                          label: const Text('Confirm Pickup (On the way)'),
-                          style: FilledButton.styleFrom(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        )
-                      ] else if (status == 'OUT_FOR_DELIVERY') ...[
-                        FilledButton.icon(
-                          onPressed: () {
-                            final isCredit = order['payment_mode'] == 'CREDIT';
-                            if (isCod && !isCredit) {
-                              _showDeliveryPaymentModeDialog(order['id']);
-                            } else {
-                              _updateDeliveryStatus(order['id'], 'DELIVERED');
-                            }
-                          },
-                          icon: const Icon(Icons.done_all),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          label: Text(isCredit
-                              ? 'Confirm Delivery (CREDIT)'
-                              : (isCod ? 'Collect Payment & Mark Delivered' : 'Confirm Delivery')),
-                        )
-                      ]
-                    ]
-                  ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      reverse: true,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isReturn) ...[
+                            if (returnStatus == 'RETURN_ACCEPTED') ...[
+                              FilledButton.icon(
+                                onPressed: () => _handoverReturn(order['id'], status: 'RETURN_PICKED_UP_FROM_STORE'),
+                                icon: const Icon(Icons.storefront_outlined, size: 16),
+                                label: Text(
+                                  order['return_type'] == 'EXCHANGE' ? 'Pickup from Store' : 'Out for Collection',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.orange.shade700,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  minimumSize: const Size(0, 34),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              )
+                            ] else if (returnStatus == 'RETURN_PICKED_UP_FROM_STORE') ...[
+                              FilledButton.icon(
+                                onPressed: () async {
+                                  final bool? confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Confirm Doorstep Handover'),
+                                      content: Text(order['return_type'] == 'EXCHANGE'
+                                          ? 'Is the customer\'s returned item in good condition? Hand over the new replacement item only if the old one is returned in acceptable condition.'
+                                          : 'Confirm collection of the returned item.'),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        FilledButton(
+                                          onPressed: () => Navigator.pop(ctx, true),
+                                          child: const Text('Confirm Complete'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirm == true) {
+                                    _handoverReturn(order['id'], status: 'RETURN_COLLECTED');
+                                  }
+                                },
+                                icon: const Icon(Icons.front_hand_outlined, size: 16),
+                                label: Text(
+                                  order['return_type'] == 'EXCHANGE' ? 'Confirm Exchange' : 'Confirm Collection',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.blue.shade700,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  minimumSize: const Size(0, 34),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              )
+                            ] else if (returnStatus == 'RETURN_COLLECTED') ...[
+                              FilledButton.icon(
+                                onPressed: () => _handoverReturn(order['id'], status: 'RETURN_HANDED_OVER'),
+                                icon: const Icon(Icons.handshake_outlined, size: 16),
+                                label: const Text('Handover to Store', style: TextStyle(fontSize: 12)),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.green.shade700,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  minimumSize: const Size(0, 34),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              )
+                            ] else ...[
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                child: Text('Awaiting Final Settle', style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey, fontSize: 12)),
+                              )
+                            ]
+                          ] else ...[
+                            if (status == 'ASSIGNED') ...[
+                              FilledButton.icon(
+                                onPressed: () => _updateDeliveryStatus(order['id'], 'OUT_FOR_DELIVERY'),
+                                icon: const Icon(Icons.directions_bike, size: 16),
+                                label: const Text('Pickup Order', style: TextStyle(fontSize: 12)),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  minimumSize: const Size(0, 34),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              )
+                            ] else if (status == 'OUT_FOR_DELIVERY') ...[
+                              FilledButton.icon(
+                                onPressed: () {
+                                  final isCredit = order['payment_mode'] == 'CREDIT';
+                                  if (isCod && !isCredit) {
+                                    _showDeliveryPaymentModeDialog(order['id']);
+                                  } else {
+                                    _updateDeliveryStatus(order['id'], 'DELIVERED');
+                                  }
+                                },
+                                icon: const Icon(Icons.done_all, size: 16),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF16A34A),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  minimumSize: const Size(0, 34),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                label: Text(
+                                  isCredit
+                                      ? 'Mark Delivered (Credit)'
+                                      : (isCod ? 'Collect Payment' : 'Mark Delivered'),
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                ),
+                              )
+                            ]
+                          ]
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ],
             )
@@ -1187,15 +1309,33 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: _assignedOrders.isEmpty
-                ? const Center(child: Text('No active deliveries assigned to you.', style: TextStyle(color: Colors.grey)))
-                : RefreshIndicator(
-                    onRefresh: _fetchRiderTasks,
-                    child: ListView.builder(
+            child: RefreshIndicator(
+              onRefresh: () => _fetchRiderTasks(),
+              child: _assignedOrders.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(height: 120),
+                        Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.delivery_dining_outlined, size: 48, color: Colors.grey),
+                              SizedBox(height: 8),
+                              Text('No active deliveries assigned to you.', style: TextStyle(color: Colors.grey)),
+                              SizedBox(height: 4),
+                              Text('Pull down to refresh or wait for automatic sync.', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       itemCount: _assignedOrders.length,
                       itemBuilder: (context, index) => _buildActiveOrderCard(_assignedOrders[index], theme),
                     ),
-                  ),
+            ),
           ),
         ],
       ),
@@ -1549,6 +1689,14 @@ class _RiderConsoleScreenState extends State<RiderConsoleScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Rider Delivery Portal'),
+        actions: [
+          if (_loggedInRider != null)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh Deliveries',
+              onPressed: () => _fetchRiderTasks(),
+            ),
+        ],
       ),
       drawer: _loggedInRider != null ? _buildDeliveryDrawer(context) : null,
       body: _isLoading && _assignedOrders.isEmpty && _riderHistoryOrders.isEmpty

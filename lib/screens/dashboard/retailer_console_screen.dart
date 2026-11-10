@@ -27,6 +27,9 @@ import '../../core/utils/timezone_utils.dart';
 import '../../core/utils/country_tax_helper.dart';
 import '../../controllers/settings/system_settings_controller.dart';
 import 'package:provider/provider.dart';
+import '../auth/login_screen.dart';
+import '../auth/supplier_otp_login_screen.dart';
+import '../../core/auth/token_storage.dart';
 
 
 class RetailerConsoleScreen extends StatefulWidget {
@@ -409,36 +412,42 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Secure Refund',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey.shade600,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Secure Refund',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey.shade600,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'GATEWAY REFUND',
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: theme.colorScheme.primary,
-                                letterSpacing: 1.1,
+                              const SizedBox(height: 2),
+                              Text(
+                                'GATEWAY REFUND',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.primary,
+                                  letterSpacing: 0.8,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
+                        const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: theme.colorScheme.primary.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.lock_outline, size: 14, color: theme.colorScheme.primary),
+                              Icon(Icons.lock_outline, size: 13, color: theme.colorScheme.primary),
                               const SizedBox(width: 4),
                               Text(
                                 'SECURE',
@@ -493,7 +502,13 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                         Expanded(
                           child: OutlinedButton(
                             onPressed: () => Navigator.pop(dialogCtx, false),
-                            child: const Text('Cancel'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              minimumSize: const Size(0, 34),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: const Text('Cancel', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -509,7 +524,15 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                               }
                               Navigator.pop(dialogCtx, true);
                             },
-                            child: const Text('Process Refund'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: theme.colorScheme.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              minimumSize: const Size(0, 34),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: const Text('Process Refund', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                           ),
                         ),
                       ],
@@ -2528,6 +2551,7 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                   const SizedBox(height: 12),
                   DropdownButtonFormField<dynamic>(
                     value: selectedRiderVal,
+                    isExpanded: true,
                     hint: const Text('Select a Rider'),
                     items: _retailerRiders.map((dynamic rider) {
                       final status = (rider['status'] ?? 'OFFLINE').toString().toUpperCase();
@@ -2538,7 +2562,6 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                       return DropdownMenuItem<dynamic>(
                         value: rider['id'],
                         child: Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
                               width: 8,
@@ -2549,7 +2572,13 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Text('${rider['name']} (${rider['phone']}) - $status', style: const TextStyle(fontSize: 13)),
+                            Expanded(
+                              child: Text(
+                                '${rider['name']} (${rider['phone']}) - $status',
+                                style: const TextStyle(fontSize: 13),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ],
                         ),
                       );
@@ -2613,15 +2642,17 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                   const SizedBox(height: 12),
                   DropdownButtonFormField<dynamic>(
                     value: selectedRiderVal,
+                    isExpanded: true,
                     items: [
                       const DropdownMenuItem<dynamic>(
                         value: 'NONE',
                         child: Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.person_off_outlined, size: 16, color: Colors.grey),
                             SizedBox(width: 8),
-                            Text('Unassign / None', style: TextStyle(fontSize: 13)),
+                            Expanded(
+                              child: Text('Unassign / None', style: TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
+                            ),
                           ],
                         ),
                       ),
@@ -2634,7 +2665,6 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                         return DropdownMenuItem<dynamic>(
                           value: rider['id'],
                           child: Row(
-                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
                                 width: 8,
@@ -2645,7 +2675,13 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              Text('${rider['name']} (${rider['phone']}) - $status', style: const TextStyle(fontSize: 13)),
+                              Expanded(
+                                child: Text(
+                                  '${rider['name']} (${rider['phone']}) - $status',
+                                  style: const TextStyle(fontSize: 13),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
                             ],
                           ),
                         );
@@ -3830,51 +3866,78 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                                   children: [
                                     OutlinedButton.icon(
                                       onPressed: () => _cancelOrder(order),
-                                      icon: const Icon(Icons.cancel, size: 16),
-                                      label: const Text('Cancel'),
+                                      icon: const Icon(Icons.cancel, size: 14),
+                                      label: const Text('Cancel', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                       style: OutlinedButton.styleFrom(
                                         foregroundColor: Colors.red.shade700,
                                         side: BorderSide(color: Colors.red.shade300),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        minimumSize: const Size(0, 32),
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                       ),
                                     ),
                                     OutlinedButton.icon(
                                       onPressed: () => _showReceiptDialog(order),
-                                      icon: const Icon(Icons.receipt_long, size: 16),
-                                      label: const Text('Receipt / Reprint'),
+                                      icon: const Icon(Icons.receipt_long, size: 14),
+                                      label: const Text('Receipt / Reprint', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                       style: OutlinedButton.styleFrom(
                                         foregroundColor: Colors.teal.shade700,
                                         side: BorderSide(color: Colors.teal.shade300),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        minimumSize: const Size(0, 32),
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                       ),
                                     ),
                                     OutlinedButton.icon(
                                       onPressed: () => _editOrderInPOS(order),
-                                      icon: const Icon(Icons.edit, size: 16),
-                                      label: const Text('Edit Invoice'),
+                                      icon: const Icon(Icons.edit, size: 14),
+                                      label: const Text('Edit Invoice', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                       style: OutlinedButton.styleFrom(
                                         foregroundColor: Colors.blue.shade700,
                                         side: BorderSide(color: Colors.blue.shade300),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        minimumSize: const Size(0, 32),
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                       ),
                                     ),
                                     if (status == 'PENDING')
                                       FilledButton.icon(
                                         onPressed: () => _showAssignRiderDialog(order['id']),
-                                        icon: const Icon(Icons.check, size: 16),
-                                        label: const Text('Accept & Assign'),
+                                        icon: const Icon(Icons.check, size: 14),
+                                        label: const Text('Accept & Assign', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                        style: FilledButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                          minimumSize: const Size(0, 32),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
                                       ),
                                     if (status == 'ACCEPTED' || status == 'ASSIGNED')
                                       OutlinedButton.icon(
                                         onPressed: () => _showReassignRiderDialog(order['id'], order['assigned_partner_id']),
-                                        icon: const Icon(Icons.person_outline, size: 16),
-                                        label: const Text('Reassign Rider'),
+                                        icon: const Icon(Icons.person_outline, size: 14),
+                                        label: const Text('Reassign Rider', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                         style: OutlinedButton.styleFrom(
                                           foregroundColor: Colors.orange.shade800,
                                           side: BorderSide(color: Colors.orange.shade300),
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          minimumSize: const Size(0, 32),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                         ),
                                       ),
                                     if (status == 'ACCEPTED')
                                       TextButton(
                                         onPressed: _fetchRetailerData,
-                                        child: const Text('Retry Auto-Assign'),
+                                        style: TextButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          minimumSize: const Size(0, 32),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        ),
+                                        child: const Text('Retry Auto-Assign', style: TextStyle(fontSize: 12)),
                                       ),
                                   ],
                                 ),
@@ -4477,91 +4540,137 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                                       if (order['return_status'] == 'PENDING') ...[
                                         OutlinedButton.icon(
                                           onPressed: () => _handleReturnRequest(order['id'], 'REJECT'),
-                                          icon: const Icon(Icons.close, size: 16),
-                                          label: const Text('Reject Return'),
+                                          icon: const Icon(Icons.close, size: 14),
+                                          label: const Text('Reject Return', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                           style: OutlinedButton.styleFrom(
                                             foregroundColor: Colors.red.shade700,
                                             side: BorderSide(color: Colors.red.shade300),
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            minimumSize: const Size(0, 32),
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                           ),
                                         ),
                                         FilledButton.icon(
                                           onPressed: () => _handleReturnRequest(order['id'], 'ACCEPT'),
-                                          icon: const Icon(Icons.check, size: 16),
-                                          label: Text(order['return_type'] == 'REFUND' ? 'Accept & Refund' : 'Accept & Exchange'),
+                                          icon: const Icon(Icons.check, size: 14),
+                                          label: Text(
+                                            order['return_type'] == 'REFUND' ? 'Accept & Refund' : 'Accept & Exchange',
+                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                          ),
                                           style: FilledButton.styleFrom(
                                             backgroundColor: Colors.green.shade700,
                                             foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                            minimumSize: const Size(0, 32),
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                           ),
                                         ),
                                       ] else if (order['return_status'] == 'RETURN_HANDED_OVER' || order['return_status'] == 'RETURN_ACCEPTED') ...[
                                         OutlinedButton.icon(
                                           onPressed: () => _showReceiptDialog(order),
-                                          icon: const Icon(Icons.receipt_long, size: 16),
-                                          label: const Text('Receipt'),
+                                          icon: const Icon(Icons.receipt_long, size: 14),
+                                          label: const Text('Receipt', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                           style: OutlinedButton.styleFrom(
                                             foregroundColor: Colors.teal.shade700,
                                             side: BorderSide(color: Colors.teal.shade300),
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            minimumSize: const Size(0, 32),
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                           ),
                                         ),
                                         FilledButton.icon(
                                           onPressed: () => _handleFinalReceiveReturn(order['id']),
-                                          icon: const Icon(Icons.check_circle_outline, size: 16),
-                                          label: const Text('Final Receive'),
+                                          icon: const Icon(Icons.check_circle_outline, size: 14),
+                                          label: const Text('Final Receive', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                           style: FilledButton.styleFrom(
                                             backgroundColor: Colors.blue.shade700,
                                             foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                            minimumSize: const Size(0, 32),
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                           ),
                                         ),
                                       ] else ...[
                                         if (status != 'DELIVERED' && status != 'CANCELLED')
                                           OutlinedButton.icon(
                                             onPressed: () => _cancelOrder(order),
-                                            icon: const Icon(Icons.cancel, size: 16),
-                                            label: const Text('Cancel'),
+                                            icon: const Icon(Icons.cancel, size: 14),
+                                            label: const Text('Cancel', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                             style: OutlinedButton.styleFrom(
                                               foregroundColor: Colors.red.shade700,
                                               side: BorderSide(color: Colors.red.shade300),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                              minimumSize: const Size(0, 32),
+                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                             ),
                                           ),
                                         OutlinedButton.icon(
                                           onPressed: () => _showReceiptDialog(order),
-                                          icon: const Icon(Icons.receipt_long, size: 16),
-                                          label: const Text('Receipt / Reprint'),
+                                          icon: const Icon(Icons.receipt_long, size: 14),
+                                          label: const Text('Receipt / Reprint', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                           style: OutlinedButton.styleFrom(
                                             foregroundColor: Colors.teal.shade700,
                                             side: BorderSide(color: Colors.teal.shade300),
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            minimumSize: const Size(0, 32),
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                           ),
                                         ),
                                         if (status != 'DELIVERED' && status != 'CANCELLED')
                                           OutlinedButton.icon(
                                             onPressed: () => _editOrderInPOS(order),
-                                            icon: const Icon(Icons.edit, size: 16),
-                                            label: const Text('Edit Invoice'),
+                                            icon: const Icon(Icons.edit, size: 14),
+                                            label: const Text('Edit Invoice', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                             style: OutlinedButton.styleFrom(
                                               foregroundColor: Colors.blue.shade700,
                                               side: BorderSide(color: Colors.blue.shade300),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                              minimumSize: const Size(0, 32),
+                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                             ),
                                           ),
                                         if (status == 'PENDING')
                                           FilledButton.icon(
                                             onPressed: () => _showAssignRiderDialog(order['id']),
-                                            icon: const Icon(Icons.check, size: 16),
-                                            label: const Text('Accept & Assign'),
+                                            icon: const Icon(Icons.check, size: 14),
+                                            label: const Text('Accept & Assign', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                            style: FilledButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                              minimumSize: const Size(0, 32),
+                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                            ),
                                           ),
                                         if (status == 'ACCEPTED' || status == 'ASSIGNED')
                                           OutlinedButton.icon(
                                             onPressed: () => _showReassignRiderDialog(order['id'], order['assigned_partner_id']),
-                                            icon: const Icon(Icons.person_outline, size: 16),
-                                            label: const Text('Reassign Rider'),
+                                            icon: const Icon(Icons.person_outline, size: 14),
+                                            label: const Text('Reassign Rider', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                                             style: OutlinedButton.styleFrom(
                                               foregroundColor: Colors.orange.shade800,
                                               side: BorderSide(color: Colors.orange.shade300),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                              minimumSize: const Size(0, 32),
+                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                             ),
                                           ),
                                         if (status == 'ACCEPTED')
                                           TextButton(
                                             onPressed: _fetchRetailerData,
-                                            child: const Text('Retry Auto-Assign'),
+                                            style: TextButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                              minimumSize: const Size(0, 32),
+                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            ),
+                                            child: const Text('Retry Auto-Assign', style: TextStyle(fontSize: 12)),
                                           ),
                                       ],
                                     ],
@@ -4612,90 +4721,142 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                       if (status == 'OFFLINE') riderColor = Colors.grey;
 
                       final unpaidCommission = _getRiderUnpaidCommission(rider['id']);
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(
-                          backgroundColor: riderColor.withOpacity(0.15),
-                          child: Icon(Icons.delivery_dining, color: riderColor),
+                      return Card(
+                        elevation: 1,
+                        margin: const EdgeInsets.only(bottom: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey.shade200),
                         ),
-                        title: Text(rider['name'] ?? 'Rider'),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('Phone: ${rider['phone']}'),
-                            Text(
-                              'Unpaid Comm: ${CurrencyService.symbol}${unpaidCommission.toStringAsFixed(2)}',
-                              style: TextStyle(
-                                fontWeight: unpaidCommission > 0 ? FontWeight.bold : FontWeight.normal,
-                                color: unpaidCommission > 0 ? Colors.red.shade700 : Colors.grey.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (unpaidCommission > 0)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 8.0),
-                                child: TextButton(
-                                  onPressed: () => _showPayCommissionDialog(rider['id']),
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: Colors.red.shade700,
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                    minimumSize: Size.zero,
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 20,
+                                    backgroundColor: riderColor.withOpacity(0.15),
+                                    child: Icon(Icons.delivery_dining, color: riderColor, size: 22),
                                   ),
-                                  child: const Text('Pay Comm'),
-                                ),
-                              ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: riderColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                status,
-                                style: TextStyle(color: riderColor, fontWeight: FontWeight.bold, fontSize: 11),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              icon: const Icon(Icons.vpn_key_outlined, color: Colors.blue),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              onPressed: () => _showResetRiderPasswordDialog(rider),
-                              tooltip: "Reset Password",
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              icon: Icon(Icons.delete_outline, color: unpaidCommission > 0 ? Colors.grey : Colors.red),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              onPressed: () {
-                                if (unpaidCommission > 0) {
-                                  showDialog(
-                                    context: context,
-                                    builder: (ctx) => AlertDialog(
-                                      title: const Text('Cannot Delete Rider'),
-                                      content: const Text('This rider has unpaid pending commission. Please clear all pending commissions before deleting this rider.'),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.pop(ctx),
-                                          child: const Text('OK'),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                rider['name'] ?? 'Rider',
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: riderColor.withOpacity(0.12),
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: riderColor.withOpacity(0.3)),
+                                              ),
+                                              child: Text(
+                                                status,
+                                                style: TextStyle(color: riderColor, fontWeight: FontWeight.bold, fontSize: 11),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Phone: ${rider['phone'] ?? 'N/A'}',
+                                          style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              'Unpaid Comm: ',
+                                              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                                            ),
+                                            Text(
+                                              '${CurrencyService.symbol}${unpaidCommission.toStringAsFixed(2)}',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: unpaidCommission > 0 ? FontWeight.bold : FontWeight.normal,
+                                                color: unpaidCommission > 0 ? Colors.red.shade700 : Colors.grey.shade700,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
-                                  );
-                                } else {
-                                  _showDeleteRiderConfirm(rider);
-                                }
-                              },
-                              tooltip: "Delete Rider",
-                            ),
-                          ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              const Divider(height: 1),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  if (unpaidCommission > 0)
+                                    OutlinedButton.icon(
+                                      onPressed: () => _showPayCommissionDialog(rider['id']),
+                                      icon: const Icon(Icons.payment, size: 15, color: Colors.red),
+                                      label: const Text('Pay Comm', style: TextStyle(fontSize: 12, color: Colors.red)),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        minimumSize: Size.zero,
+                                        side: BorderSide(color: Colors.red.shade200),
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                    ),
+                                  const Spacer(),
+                                  OutlinedButton.icon(
+                                    onPressed: () => _showResetRiderPasswordDialog(rider),
+                                    icon: const Icon(Icons.vpn_key_outlined, size: 15, color: Colors.blue),
+                                    label: const Text('Reset PIN', style: TextStyle(fontSize: 12, color: Colors.blue)),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      minimumSize: Size.zero,
+                                      side: BorderSide(color: Colors.blue.shade200),
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    icon: Icon(Icons.delete_outline, color: unpaidCommission > 0 ? Colors.grey : Colors.red, size: 20),
+                                    padding: const EdgeInsets.all(4),
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () {
+                                      if (unpaidCommission > 0) {
+                                        showDialog(
+                                          context: context,
+                                          builder: (ctx) => AlertDialog(
+                                            title: const Text('Cannot Delete Rider'),
+                                            content: const Text('This rider has unpaid pending commission. Please clear all pending commissions before deleting this rider.'),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(ctx),
+                                                child: const Text('OK'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      } else {
+                                        _showDeleteRiderConfirm(rider);
+                                      }
+                                    },
+                                    tooltip: "Delete Rider",
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -5024,27 +5185,34 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Text('Return / Refund Requests',
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.bold)),
-                  if (pendingCount > 0) ...[
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.orange,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text('$pendingCount Pending',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12)),
+              Expanded(
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    Text(
+                      'Return / Refund Requests',
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                     ),
+                    if (pendingCount > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.orange,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '$pendingCount Pending',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
                   ],
-                ],
+                ),
               ),
               IconButton(
                   icon: const Icon(Icons.refresh),
@@ -5207,73 +5375,103 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                               ],
                               if (isPending) ...[
                                 const SizedBox(height: 10),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    OutlinedButton.icon(
-                                      onPressed: () =>
-                                          _handleReturnRequest(order['id'], 'REJECT'),
-                                      icon: const Icon(Icons.close, size: 16),
-                                      label: const Text('Reject'),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: Colors.red.shade700,
-                                        side: BorderSide(color: Colors.red.shade300),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Wrap(
+                                    alignment: WrapAlignment.end,
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      OutlinedButton.icon(
+                                        onPressed: () =>
+                                            _handleReturnRequest(order['id'], 'REJECT'),
+                                        icon: const Icon(Icons.close, size: 14),
+                                        label: const Text('Reject', style: TextStyle(fontSize: 12)),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.red.shade700,
+                                          side: BorderSide(color: Colors.red.shade300),
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          minimumSize: const Size(0, 32),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    FilledButton.icon(
-                                      onPressed: () =>
-                                          _handleReturnRequest(order['id'], 'ACCEPT'),
-                                      icon: const Icon(Icons.check, size: 16),
-                                      label: Text(returnType == 'REFUND'
-                                          ? 'Accept & Refund'
-                                          : returnType == 'EXCHANGE'
-                                              ? 'Accept & Exchange'
-                                              : 'Accept & Redeliver'),
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: Colors.green.shade700,
-                                        foregroundColor: Colors.white,
+                                      FilledButton.icon(
+                                        onPressed: () =>
+                                            _handleReturnRequest(order['id'], 'ACCEPT'),
+                                        icon: const Icon(Icons.check, size: 14),
+                                        label: Text(
+                                          returnType == 'REFUND'
+                                              ? 'Accept & Refund'
+                                              : returnType == 'EXCHANGE'
+                                                  ? 'Accept & Exchange'
+                                                  : 'Accept & Redeliver',
+                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                        ),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: Colors.green.shade700,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          minimumSize: const Size(0, 32),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ],
                               if (returnStatus == 'RETURN_HANDED_OVER' || returnStatus == 'RETURN_ACCEPTED') ...[
                                 const SizedBox(height: 10),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    OutlinedButton.icon(
-                                      onPressed: () => _showReassignRiderDialog(order['id'], order['assigned_partner_id']),
-                                      icon: const Icon(Icons.person_outline, size: 16),
-                                      label: const Text('Reassign Rider'),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: Colors.orange.shade800,
-                                        side: BorderSide(color: Colors.orange.shade300),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Wrap(
+                                    alignment: WrapAlignment.end,
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      OutlinedButton.icon(
+                                        onPressed: () => _showReassignRiderDialog(order['id'], order['assigned_partner_id']),
+                                        icon: const Icon(Icons.person_outline, size: 14),
+                                        label: const Text('Reassign Rider', style: TextStyle(fontSize: 12)),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.orange.shade800,
+                                          side: BorderSide(color: Colors.orange.shade300),
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          minimumSize: const Size(0, 32),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    OutlinedButton.icon(
-                                      onPressed: () => _showReceiptDialog(order),
-                                      icon: const Icon(Icons.receipt_long, size: 16),
-                                      label: const Text('Receipt'),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: Colors.teal.shade700,
-                                        side: BorderSide(color: Colors.teal.shade300),
+                                      OutlinedButton.icon(
+                                        onPressed: () => _showReceiptDialog(order),
+                                        icon: const Icon(Icons.receipt_long, size: 14),
+                                        label: const Text('Receipt', style: TextStyle(fontSize: 12)),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.teal.shade700,
+                                          side: BorderSide(color: Colors.teal.shade300),
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          minimumSize: const Size(0, 32),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    FilledButton.icon(
-                                      onPressed: () =>
-                                          _handleFinalReceiveReturn(order['id']),
-                                      icon: const Icon(Icons.check_circle_outline, size: 16),
-                                      label: const Text('Final Receive'),
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: Colors.blue.shade700,
-                                        foregroundColor: Colors.white,
+                                      FilledButton.icon(
+                                        onPressed: () =>
+                                            _handleFinalReceiveReturn(order['id']),
+                                        icon: const Icon(Icons.check_circle_outline, size: 14),
+                                        label: const Text('Final Receive', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: Colors.blue.shade700,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          minimumSize: const Size(0, 32),
+                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ],
                             ],
@@ -6576,20 +6774,16 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                           child: FilledButton.icon(
                             onPressed: _saveSettings,
                             style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(48),
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              minimumSize: const Size.fromHeight(42),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
-                            icon: const Icon(Icons.save_outlined, size: 20),
-                            label: const FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                'Save All Settings',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  letterSpacing: 0.3,
-                                ),
+                            icon: const Icon(Icons.save_outlined, size: 18),
+                            label: const Text(
+                              'Save All Settings',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
                               ),
                             ),
                           ),
@@ -6937,8 +7131,9 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                                                   label: const Text('View Details', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue)),
                                                   style: OutlinedButton.styleFrom(
                                                     side: BorderSide(color: Colors.blue.shade300, width: 1.2),
-                                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                                    minimumSize: Size.zero,
+                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                    minimumSize: const Size(0, 32),
+                                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                                   ),
                                                 ),
@@ -6976,8 +7171,9 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                                                   label: const Text('Reprint Receipt', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
                                                   style: FilledButton.styleFrom(
                                                     backgroundColor: Colors.blue.shade700,
-                                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                                    minimumSize: Size.zero,
+                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                    minimumSize: const Size(0, 32),
+                                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                                   ),
                                                 ),
@@ -6997,25 +7193,29 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                                             ? (hasPendingCreditNotes
                                                 ? FilledButton.icon(
                                                     onPressed: () => _handleCreditNoteRefund(txn),
-                                                    icon: const Icon(Icons.receipt_long, size: 16),
-                                                    label: const Text('Refund via Credit Note', style: TextStyle(fontWeight: FontWeight.bold)),
+                                                    icon: const Icon(Icons.receipt_long, size: 14),
+                                                    label: const Text('Refund via Credit Note', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                                     style: FilledButton.styleFrom(
                                                       backgroundColor: Colors.orange.shade800,
                                                       foregroundColor: Colors.white,
+                                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                      minimumSize: const Size(0, 34),
+                                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                                                     ),
                                                   )
                                                 : const SizedBox.shrink())
                                             : FilledButton.icon(
                                                 onPressed: () => _handleGatewayRefund(txn['id'], netAmt),
-                                                icon: const Icon(Icons.security, size: 16),
-                                                label: const Text('Refund Online via Gateway', style: TextStyle(fontWeight: FontWeight.bold)),
+                                                icon: const Icon(Icons.security, size: 14),
+                                                label: const Text('Refund Online via Gateway', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                                                 style: FilledButton.styleFrom(
                                                   backgroundColor: Colors.indigo.shade700,
                                                   foregroundColor: Colors.white,
+                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                  minimumSize: const Size(0, 34),
+                                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                                                 ),
                                               ),
                                       ),
@@ -7170,9 +7370,57 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
               },
             ),
           ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Logout', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            onTap: () {
+              Navigator.of(context).pop();
+              _confirmLogout(context);
+            },
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmLogout(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Logout'),
+        content: const Text('Are you sure you want to log out of Retailer Console?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      await TokenStorage.clear();
+      if (AppConfig.isSupplierApp) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const SupplierOtpLoginScreen()),
+          (route) => false,
+        );
+      } else {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+    }
   }
 
   @override
@@ -7280,6 +7528,18 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
               ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () => _fetchRetailerData(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () => _confirmLogout(context),
+          ),
+        ],
       ),
       drawer: _buildDeliveryDrawer(context),
       body: _isLoading && _retailerOrders.isEmpty && _retailerRiders.isEmpty

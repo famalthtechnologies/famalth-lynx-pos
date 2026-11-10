@@ -1750,7 +1750,7 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
 
               const SizedBox(height: 16),
 
-              // Action 1: Generate Setup QR (ADMIN ONLY)
+              // Action 1: Generate Setup QR
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 shape: RoundedRectangleBorder(
@@ -1765,25 +1765,12 @@ class _PublicAppointmentBookingScreenState extends State<PublicAppointmentBookin
                   ),
                   child: const Icon(Icons.qr_code_2, color: Colors.amber, size: 22),
                 ),
-                title: const Row(
-                  children: [
-                    Text('Generate Clinic Setup QR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    SizedBox(width: 8),
-                    Chip(
-                      label: Text('Admin Only', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFFDC2626))),
-                      backgroundColor: Color(0xFFFEF2F2),
-                      side: BorderSide(color: Color(0xFFFECACA)),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: EdgeInsets.zero,
-                    ),
-                  ],
-                ),
+                title: const Text('Generate Clinic Setup QR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 subtitle: const Text('Generate QR standee for patients to scan & book appointments', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                trailing: const Icon(Icons.lock_outline, size: 18, color: Color(0xFF94A3B8)),
+                trailing: const Icon(Icons.chevron_right, size: 20, color: Color(0xFF94A3B8)),
                 onTap: () {
                   Navigator.pop(sheetCtx);
-                  _handleGenerateSetupQr();
+                  _openSetupQrDialog();
                 },
               ),
 

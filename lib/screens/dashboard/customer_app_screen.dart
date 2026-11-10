@@ -287,27 +287,18 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
         _custNameCtrl.text = customerData['name'] ?? '';
         _custPhoneCtrl.text = customerData['phone'] ?? '';
         _custAddressCtrl.text = customerData['address'] ?? '';
+        if (customerData['gstin'] != null && customerData['gstin'].toString().trim().isNotEmpty) {
+          _custGstinCtrl.text = customerData['gstin'].toString().trim();
+          _gstin = customerData['gstin'].toString().trim();
+        }
       }
     } catch (e) {
       debugPrint('Error loading saved customer: $e');
     }
 
-    PropertyInfo? onboardedProperty = widget.buyerPropertyInfo;
-    if (onboardedProperty == null) {
-      try {
-        final propCtrl = PropertyInfoController();
-        await propCtrl.load();
-        if (propCtrl.data != null &&
-            (propCtrl.data!.propertyName.isNotEmpty ||
-                propCtrl.data!.legalName.isNotEmpty ||
-                propCtrl.data!.mobile.isNotEmpty)) {
-          onboardedProperty = propCtrl.data;
-        }
-      } catch (_) {}
-    }
-
-    if (onboardedProperty != null) {
-      final b = onboardedProperty;
+    // Only in B2B Wholesale mode with explicit buyerPropertyInfo passed should we use buyerPropertyInfo
+    if (widget.isB2BMode && widget.buyerPropertyInfo != null && _loggedInCustomer == null) {
+      final b = widget.buyerPropertyInfo!;
       final buyerName = b.propertyName.isNotEmpty ? b.propertyName : b.legalName;
       final buyerPhone = b.mobile.isNotEmpty ? b.mobile : '9999999999';
       final buyerAddress = '${b.address}, ${b.city}'.trim();
@@ -321,7 +312,6 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
         _gstin = buyerGstin;
       }
 
-      // Auto-create / set onboarded profile so no login screen is ever shown
       _loggedInCustomer = {
         'name': buyerName,
         'phone': buyerPhone,
@@ -335,20 +325,17 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('delivery_logged_in_customer', jsonEncode(_loggedInCustomer));
       } catch (_) {}
-    } else if (_currentUser != null && _loggedInCustomer == null) {
-      final buyerName = _currentUser!.name.isNotEmpty ? _currentUser!.name : _currentUser!.username;
-      final buyerPhone = _custPhoneCtrl.text.isNotEmpty ? _custPhoneCtrl.text : '9999999999';
-      _custNameCtrl.text = buyerName;
-      _custPhoneCtrl.text = buyerPhone;
-      _loggedInCustomer = {
-        'name': buyerName,
-        'phone': buyerPhone,
-        'address': '',
-        'is_b2b_buyer': true,
-      };
+    } else if (!widget.isB2BMode && _loggedInCustomer != null && _loggedInCustomer!['is_b2b_buyer'] == true && widget.buyerPropertyInfo == null) {
+      // Clear previously auto-assigned store owner info in customer mode
+      _loggedInCustomer = null;
+      _custNameCtrl.clear();
+      _custPhoneCtrl.clear();
+      _custAddressCtrl.clear();
+      _custGstinCtrl.clear();
+      _gstin = '';
       try {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('delivery_logged_in_customer', jsonEncode(_loggedInCustomer));
+        await prefs.remove('delivery_logged_in_customer');
       } catch (_) {}
     }
 
@@ -709,6 +696,10 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
           _custNameCtrl.text = _loggedInCustomer!['name'] ?? '';
           _custPhoneCtrl.text = _loggedInCustomer!['phone'] ?? '';
           _custAddressCtrl.text = _loggedInCustomer!['address'] ?? '';
+          if (_loggedInCustomer!['gstin'] != null && _loggedInCustomer!['gstin'].toString().trim().isNotEmpty) {
+            _custGstinCtrl.text = _loggedInCustomer!['gstin'].toString().trim();
+            _gstin = _loggedInCustomer!['gstin'].toString().trim();
+          }
           _showRegisterForm = false;
           if (_cart.isNotEmpty) {
             _customerSubTabIndex = 1;
@@ -760,6 +751,10 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
           _custNameCtrl.text = _loggedInCustomer!['name'] ?? '';
           _custPhoneCtrl.text = _loggedInCustomer!['phone'] ?? '';
           _custAddressCtrl.text = _loggedInCustomer!['address'] ?? '';
+          if (_loggedInCustomer!['gstin'] != null && _loggedInCustomer!['gstin'].toString().trim().isNotEmpty) {
+            _custGstinCtrl.text = _loggedInCustomer!['gstin'].toString().trim();
+            _gstin = _loggedInCustomer!['gstin'].toString().trim();
+          }
           if (_cart.isNotEmpty) {
             _customerSubTabIndex = 1;
           }
@@ -1353,79 +1348,91 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
         final theme = Theme.of(ctx);
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
           title: Row(
             children: [
               Icon(Icons.payment, color: theme.colorScheme.primary),
               const SizedBox(width: 8),
-              const Text('Select Payment Method'),
+              const Expanded(
+                child: Text(
+                  'Select Payment Method',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Please choose how you would like to pay for your delivery order:',
-                style: TextStyle(fontSize: 13, color: Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.amber.shade50,
-                  child: Icon(Icons.delivery_dining, color: Colors.amber.shade800),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Please choose how you would like to pay for your delivery order:',
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
                 ),
-                title: const Text('Cash on Delivery (CoD)', style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('Pay with cash or delivery card machine when delivered'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  setState(() {
-                    _paymentMode = 'UNPAID';
-                    _chosenPaymentMethod = 'CASH';
-                  });
-                  _placeOrder();
-                },
-              ),
-              if (_merchantUpiId.isNotEmpty) ...[
-                const Divider(),
+                const SizedBox(height: 16),
                 ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                   leading: CircleAvatar(
-                    backgroundColor: Colors.blue.shade50,
-                    child: Icon(Icons.qr_code_scanner, color: Colors.blue.shade800),
+                    backgroundColor: Colors.amber.shade50,
+                    child: Icon(Icons.delivery_dining, color: Colors.amber.shade800),
                   ),
-                  title: const Text('Direct Store UPI (0% Fee)', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('Pay directly to $_merchantUpiId (Scan Soundbox / QR)'),
+                  title: const Text('Cash on Delivery (CoD)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Pay with cash or delivery card machine when delivered'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
                     Navigator.pop(ctx);
                     setState(() {
-                      _paymentMode = 'PAID';
-                      _chosenPaymentMethod = 'UPI';
+                      _paymentMode = 'UNPAID';
+                      _chosenPaymentMethod = 'CASH';
                     });
                     _placeOrder();
                   },
                 ),
-              ],
-              if (_enablePaymentGateway) ...[
-                const Divider(),
-                ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.green.shade50,
-                    child: Icon(Icons.payment_outlined, color: Colors.green.shade800),
+                if (_merchantUpiId.isNotEmpty) ...[
+                  const Divider(),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.blue.shade50,
+                      child: Icon(Icons.qr_code_scanner, color: Colors.blue.shade800),
+                    ),
+                    title: const Text('Direct Store UPI (0% Fee)', style: TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('Pay directly to $_merchantUpiId (Scan Soundbox / QR)'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() {
+                        _paymentMode = 'PAID';
+                        _chosenPaymentMethod = 'UPI';
+                      });
+                      _placeOrder();
+                    },
                   ),
-                  title: const Text('Pay Online via Gateway', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: const Text('Credit/Debit Card, NetBanking, Wallets'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    setState(() {
-                      _paymentMode = 'PAID';
-                      _chosenPaymentMethod = 'CARD';
-                    });
-                    _placeOrder();
-                  },
-                ),
+                ],
+                if (_enablePaymentGateway) ...[
+                  const Divider(),
+                  ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.green.shade50,
+                      child: Icon(Icons.payment_outlined, color: Colors.green.shade800),
+                    ),
+                    title: const Text('Pay Online via Gateway', style: TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: const Text('Credit/Debit Card, NetBanking, Wallets'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() {
+                        _paymentMode = 'PAID';
+                        _chosenPaymentMethod = 'CARD';
+                      });
+                      _placeOrder();
+                    },
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         );
       },
@@ -3598,17 +3605,23 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
                             child: const Icon(Icons.person),
                           ),
                           const SizedBox(width: 12),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Assigned Rider: $riderName',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold),
-                              ),
-                              Text('Phone: $riderPhone'),
-                            ],
-                          )
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Assigned Rider: $riderName',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  'Phone: $riderPhone',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -3616,24 +3629,28 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
                   if (status == 'DELIVERED') ...[
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
-                        color: Colors.green.shade100,
+                        color: Colors.green.shade50,
                         borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.green.shade200),
                       ),
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.check_circle,
-                              color: Colors.green, size: 28),
+                              color: Colors.green, size: 24),
                           SizedBox(width: 8),
-                          Text(
-                            'Your order was delivered successfully!',
-                            style: TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16),
-                          )
+                          Expanded(
+                            child: Text(
+                              'Your order was delivered successfully!',
+                              style: TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -4076,86 +4093,90 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    Text(
-                      widget.isB2BMode ? 'Vendor Wholesale Catalog' : 'Retailer Shop Products',
-                      style: theme.textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    if (_isB2BWholesaleMode)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade100,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.blue.shade300),
+          if (widget.isB2BMode || _isB2BWholesaleMode)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      if (widget.isB2BMode)
+                        Text(
+                          'Vendor Wholesale Catalog',
+                          style: theme.textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.verified, size: 14, color: Colors.blue.shade800),
-                            const SizedBox(width: 4),
-                            Text(
-                              'B2B Wholesale Rates Active',
-                              style: TextStyle(
-                                color: Colors.blue.shade900,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 11,
+                      if (_isB2BWholesaleMode)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade100,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.blue.shade300),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.verified, size: 14, color: Colors.blue.shade800),
+                              const SizedBox(width: 4),
+                              Text(
+                                'B2B Wholesale Rates Active',
+                                style: TextStyle(
+                                  color: Colors.blue.shade900,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                tooltip: 'Refresh Shop',
-                onPressed: () {
-                  setState(() {
-                    _currentPage = 1;
-                  });
-                  _fetchCatalog();
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _custGstinCtrl,
-            decoration: InputDecoration(
-              labelText: 'GSTIN (Optional - Enter for B2B rates & bulk orders)',
-              prefixIcon: const Icon(Icons.business_outlined),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Refresh Shop',
+                  onPressed: () {
+                    setState(() {
+                      _currentPage = 1;
+                    });
+                    _fetchCatalog();
+                  },
+                ),
+              ],
             ),
-            onChanged: (val) {
-              setState(() {
-                _gstin = val.trim();
-                if (_gstin.isEmpty) {
-                  _cart.forEach((key, value) {
-                    if (value['qty'] > 5.0) {
-                      value['qty'] = 5.0;
-                    }
-                  });
-                }
-                _currentPage = 1;
-              });
-              _fetchCatalog();
-            },
-          ),
+          if ((_loggedInCustomer?['gstin']?.toString().trim().isNotEmpty ?? false) || widget.isB2BMode) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _custGstinCtrl,
+              decoration: InputDecoration(
+                labelText: 'GSTIN (B2B Rates Active)',
+                prefixIcon: const Icon(Icons.business_outlined),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
+              onChanged: (val) {
+                setState(() {
+                  _gstin = val.trim();
+                  if (_gstin.isEmpty) {
+                    _cart.forEach((key, value) {
+                      if (value['qty'] > 5.0) {
+                        value['qty'] = 5.0;
+                      }
+                    });
+                  }
+                  _currentPage = 1;
+                });
+                _fetchCatalog();
+              },
+            ),
+          ],
           const SizedBox(height: 12),
           // Modern Search Bar
           TextField(
@@ -4829,28 +4850,30 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
                 prefixIcon: Icon(Icons.map_outlined),
               ),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _custGstinCtrl,
-              decoration: const InputDecoration(
-                labelText: 'GSTIN (Optional for B2B)',
-                prefixIcon: Icon(Icons.business_outlined),
+            if ((_loggedInCustomer?['gstin']?.toString().trim().isNotEmpty ?? false) || widget.isB2BMode) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: _custGstinCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'GSTIN (Optional for B2B)',
+                  prefixIcon: Icon(Icons.business_outlined),
+                ),
+                onChanged: (val) {
+                  setState(() {
+                    _gstin = val.trim();
+                    if (_gstin.isEmpty) {
+                      _cart.forEach((key, value) {
+                        if (value['qty'] > 5.0) {
+                          value['qty'] = 5.0;
+                        }
+                      });
+                    }
+                    _currentPage = 1;
+                  });
+                  _fetchCatalog();
+                },
               ),
-              onChanged: (val) {
-                setState(() {
-                  _gstin = val.trim();
-                  if (_gstin.isEmpty) {
-                    _cart.forEach((key, value) {
-                      if (value['qty'] > 5.0) {
-                        value['qty'] = 5.0;
-                      }
-                    });
-                  }
-                  _currentPage = 1;
-                });
-                _fetchCatalog();
-              },
-            ),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,

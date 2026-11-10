@@ -22,6 +22,18 @@ class HomeRouteHelper {
     final outletCode = (user?.outletCode ?? '').trim();
     final outletIdentifier = outletCode.isNotEmpty ? outletCode : (user?.outletId ?? 1).toString();
 
+    final preference = await LocalPreferences.getDefaultStartupScreen();
+    final userRole = (user?.role ?? '').toString().toUpperCase();
+
+    // 0. Supplier / Retailer Console (Always takes precedence for Supplier App & Supplier Users)
+    if (AppConfig.isSupplierApp ||
+        userRole == 'SUPPLIER' ||
+        preference == 'RETAILER_CONSOLE' ||
+        preference == 'SUPPLIER' ||
+        preference == 'SUPPLIER_CONSOLE') {
+      return const RetailerConsoleScreen();
+    }
+
     final isDone = await LocalPreferences.isOnboardingCompleted(outletIdentifier);
     if (!isDone) {
       final onboardingCtrl = OutletOnboardingController();
@@ -33,18 +45,7 @@ class HomeRouteHelper {
       }
     }
 
-    final preference = await LocalPreferences.getDefaultStartupScreen();
     final businessType = (user?.outletType ?? '').toString().toUpperCase();
-    final userRole = (user?.role ?? '').toString().toUpperCase();
-
-    // 0. Supplier / Retailer Console
-    if (AppConfig.isSupplierApp ||
-        userRole == 'SUPPLIER' ||
-        preference == 'RETAILER_CONSOLE' ||
-        preference == 'SUPPLIER' ||
-        preference == 'SUPPLIER_CONSOLE') {
-      return const RetailerConsoleScreen();
-    }
 
     // 1. Restaurant Captain / Waiter Floor Console
     if (preference == 'RESTAURANT_CONSOLE' ||

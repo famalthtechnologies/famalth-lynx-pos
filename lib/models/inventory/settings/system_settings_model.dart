@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import '../billing_charge_model.dart';
 
 class SystemSettings {
@@ -94,8 +94,8 @@ class SystemSettings {
     this.kotPrintMode = 'DIRECT',
     this.enableKotPrint = true,
     Map<String, dynamic>? devicePrinterMappings,
-    this.baseCurrencyCode = 'USD',
-    this.baseCurrencySymbol = '\$',
+    this.baseCurrencyCode = 'INR',
+    this.baseCurrencySymbol = '₹',
     this.currencySymbolPosition = 'BEFORE',
     this.currencyDecimals = 2,
     List<Map<String, dynamic>>? paymentModes,
@@ -186,8 +186,8 @@ class SystemSettings {
       subDeliveryChargeGstPercent: double.tryParse(json['sub_delivery_charge_gst_percent']?.toString() ?? json['subDeliveryChargeGstPercent']?.toString() ?? '0.0') ?? 0.0,
       subDeliveryFreeAbove: double.tryParse(json['sub_delivery_free_above']?.toString() ?? json['subDeliveryFreeAbove']?.toString() ?? '0.0') ?? 0.0,
       enableSalespersonTagging: _parseBool(json['enable_salesperson_tagging'] ?? json['enableSalespersonTagging'], false),
-      baseCurrencyCode: (json['base_currency_code'] ?? json['baseCurrencyCode'] ?? 'USD').toString(),
-      baseCurrencySymbol: (json['base_currency_symbol'] ?? json['baseCurrencySymbol'] ?? '\$').toString(),
+      baseCurrencyCode: (json['base_currency_code'] ?? json['baseCurrencyCode'] ?? 'INR').toString(),
+      baseCurrencySymbol: (json['base_currency_symbol'] ?? json['baseCurrencySymbol'] ?? '₹').toString(),
       currencySymbolPosition: (json['currency_symbol_position'] ?? json['currencySymbolPosition'] ?? 'BEFORE').toString(),
       currencyDecimals: int.tryParse(json['currency_decimals']?.toString() ?? json['currencyDecimals']?.toString() ?? '2') ?? 2,
       paymentModes: () {

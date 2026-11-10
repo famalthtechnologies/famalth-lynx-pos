@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'controllers/community/community_controller.dart';
 import 'controllers/security/recovery_controller.dart';
 import 'controllers/security/user_controller.dart';
 import 'controllers/settings/notification_services.dart';
@@ -28,6 +29,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => UserController()),
         ChangeNotifierProvider(create: (_) => RecoveryController()),
         ChangeNotifierProvider(create: (_) => BOMController()),
+        ChangeNotifierProvider(create: (_) => CommunityController()),
       ],
       child: const MyApp(homeWidget: RiderAppSplashScreen()),
     ),
