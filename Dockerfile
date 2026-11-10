@@ -1,13 +1,9 @@
 # ==============================================================================
 # SLIM PRODUCTION DOCKERFILE - Node.js only (~200MB vs ~3GB)
-# Flutter Web is pre-built by GitHub Actions and committed to build/web
+# Flutter Web is pre-built by GitHub Actions → committed to backend/public/
 # Compatible with Render, DigitalOcean & Docker Cloud
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# Single Stage: Node.js 20 Alpine Full-Stack Server
-# Flutter web assets are already built by GitHub Actions CI
-# ------------------------------------------------------------------------------
 FROM node:20-alpine
 
 WORKDIR /app
@@ -19,11 +15,8 @@ RUN apk add --no-cache postgresql-client tzdata wget
 COPY backend/package*.json ./
 RUN npm ci --only=production || npm install --omit=dev
 
-# Copy backend source code
+# Copy backend source (includes backend/public/ with pre-built Flutter web)
 COPY backend/ .
-
-# Copy pre-built Flutter Web SPA assets (built by GitHub Actions, committed to repo)
-COPY build/web ./public
 
 # Expose container port (Default 3000, dynamically overridden by cloud hosts)
 EXPOSE 3000 8080 10000

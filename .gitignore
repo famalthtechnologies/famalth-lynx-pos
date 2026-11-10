@@ -28,13 +28,8 @@ $RECYCLE.BIN/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-# Allow build/web to be committed (pre-built by GitHub Actions for Docker deploy)
-!build/
-!build/web/
-!build/web/**
-# Still ignore other build outputs
-build/*/
-!build/web
+# build/ is fully ignored — Flutter builds happen in GitHub Actions only
+build/
 
 # Node / Packaging dependencies
 node_modules/
@@ -102,13 +97,11 @@ installer/Output/
 installer/*.exe
 backend/*.exe
 
-# Compiled Web UI Heavy Artifacts (Built on demand in CI/Docker)
+# Compiled Web UI Heavy Artifacts — managed by GitHub Actions CI
+# backend/public/ is committed by CI after flutter build web
+# These specific heavy files are still excluded from manual commits
 backend/public/canvaskit/
-backend/public/main.dart.js
-backend/public/*.wasm
 backend/public/*.symbols
-backend/public/.last_build_id
-backend/public/flutter_service_worker.js
 
 # Symbolication related
 app.*.symbols

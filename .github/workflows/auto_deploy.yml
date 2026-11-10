@@ -35,15 +35,22 @@ jobs:
       - name: 🔨 Build Flutter Web (production release)
         run: flutter build web --release --no-wasm-dry-run
 
-      - name: 💾 Upload build/web as artifact
+      - name: 📂 Copy build output → backend/public (single location)
+        run: |
+          rm -rf backend/public
+          cp -r build/web backend/public
+          echo "✅ Flutter web copied to backend/public"
+          echo "📦 Size: $(du -sh backend/public | cut -f1)"
+
+      - name: 💾 Upload backend/public as artifact
         uses: actions/upload-artifact@v4
         with:
           name: flutter-web-build
-          path: build/web
+          path: backend/public
           retention-days: 7
 
   # ============================================================================
-  # JOB 2: Commit build/web back to repo so Render picks it up via slim Dockerfile
+  # JOB 2: Commit backend/public back to repo → Render auto-deploys slim Docker
   # ============================================================================
   deploy-to-render:
     name: 🟣 Commit Web Build & Trigger Render Deploy
@@ -62,23 +69,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: flutter-web-build
-          path: build/web
+          path: backend/public
 
-      - name: 📝 Commit build/web to repository
+      - name: 📝 Commit backend/public to repository
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Allow build/ folder to be committed (override .gitignore)
-          git add -f build/web
+          # Force-add backend/public (overrides .gitignore exceptions)
+          git add -f backend/public
 
           # Only commit if there are actual changes
           if git diff --staged --quiet; then
             echo "✅ No changes in Flutter web build — skipping commit."
           else
-            git commit -m "ci: update Flutter web build [skip flutter-build]"
+            git commit -m "ci: update Flutter web build [skip ci]"
             git push
-            echo "✅ Flutter web build committed and pushed."
+            echo "✅ Flutter web build committed to backend/public"
           fi
 
       - name: 📡 Trigger Render Deploy Hook
@@ -114,7 +121,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: flutter-web-build
-          path: build/web
+          path: backend/public
 
       - name: 🚀 Deploy to Vercel
         if: ${{ env.VERCEL_TOKEN != '' }}
@@ -123,7 +130,7 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          npx vercel --prod --token "$VERCEL_TOKEN" --yes --cwd build/web
+          npx vercel --prod --token "$VERCEL_TOKEN" --yes --cwd backend/public
           echo "✅ Vercel deployment completed!"
 
       - name: ℹ️ Vercel Notice
