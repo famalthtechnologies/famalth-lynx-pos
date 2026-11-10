@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Flutter stable SDK
-ARG FLUTTER_VERSION=3.27.4
+ARG FLUTTER_VERSION=3.41.6
 RUN curl -fsSL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz \
     | tar -xJ -C /opt && \
     ln -s /opt/flutter/bin/flutter /usr/local/bin/flutter
