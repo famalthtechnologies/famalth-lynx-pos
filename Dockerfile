@@ -5,8 +5,34 @@
 
 # ------------------------------------------------------------------------------
 # STAGE 1: Flutter Web Application Builder
+# Uses official Ubuntu base + Flutter SDK install (CirrusCI image discontinued)
 # ------------------------------------------------------------------------------
-FROM ghcr.io/cirrusci/flutter:stable AS flutter-builder
+FROM ubuntu:22.04 AS flutter-builder
+
+# Avoid interactive prompts during apt installs
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Flutter SDK dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    unzip \
+    xz-utils \
+    zip \
+    libglu1-mesa \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Flutter stable SDK
+ARG FLUTTER_VERSION=3.27.4
+RUN curl -fsSL https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz \
+    | tar -xJ -C /opt && \
+    ln -s /opt/flutter/bin/flutter /usr/local/bin/flutter
+
+ENV PATH="/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:${PATH}"
+
+# Pre-cache Flutter web artifacts
+RUN flutter config --enable-web && flutter precache --web
 
 WORKDIR /app
 
