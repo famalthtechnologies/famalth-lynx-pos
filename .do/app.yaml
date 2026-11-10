@@ -1,0 +1,43 @@
+name: retail-sale-pos
+region: blr
+services:
+  - name: web
+    dockerfile_path: Dockerfile
+    source_dir: /
+    github:
+      branch: main
+      deploy_on_push: true
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /
+    health_check:
+      http_path: /api/system/server-time
+      initial_delay_seconds: 25
+      period_seconds: 30
+      timeout_seconds: 5
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: TZ
+        value: Asia/Kolkata
+      - key: DEFAULT_TIMEZONE
+        value: Asia/Kolkata
+      - key: DB_SSL
+        value: "true"
+      - key: DATABASE_URL
+        value: ${db.DATABASE_URL}
+      - key: JWT_SECRET
+        type: SECRET
+
+databases:
+  - engine: PG
+    name: db
+    num_nodes: 1
+    size: db-s-dev-database
+    version: "16"

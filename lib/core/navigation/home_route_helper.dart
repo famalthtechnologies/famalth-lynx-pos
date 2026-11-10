@@ -1,3 +1,4 @@
+import '../config/app_config.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -35,6 +36,15 @@ class HomeRouteHelper {
     final preference = await LocalPreferences.getDefaultStartupScreen();
     final businessType = (user?.outletType ?? '').toString().toUpperCase();
     final userRole = (user?.role ?? '').toString().toUpperCase();
+
+    // 0. Supplier / Retailer Console
+    if (AppConfig.isSupplierApp ||
+        userRole == 'SUPPLIER' ||
+        preference == 'RETAILER_CONSOLE' ||
+        preference == 'SUPPLIER' ||
+        preference == 'SUPPLIER_CONSOLE') {
+      return const RetailerConsoleScreen();
+    }
 
     // 1. Restaurant Captain / Waiter Floor Console
     if (preference == 'RESTAURANT_CONSOLE' ||

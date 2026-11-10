@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
@@ -13,6 +14,9 @@ class DeveloperEcosystemScreen extends StatefulWidget {
 class _DeveloperEcosystemScreenState extends State<DeveloperEcosystemScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _isLoading = true;
+  bool _mcpEnabled = true;
+  Map<String, dynamic> _mcpConfig = {};
+  List<dynamic> _mcpTools = [];
 
   Map<String, dynamic> _info = {};
   List<Map<String, dynamic>> _webhooks = [];
@@ -36,7 +40,7 @@ class _DeveloperEcosystemScreenState extends State<DeveloperEcosystemScreen> wit
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadData();
   }
 
@@ -55,6 +59,7 @@ class _DeveloperEcosystemScreenState extends State<DeveloperEcosystemScreen> wit
       final infoRes = await ApiClient.get(ApiEndpoints.developerInfo);
       final whRes = await ApiClient.get(ApiEndpoints.developerWebhooks);
       final keyRes = await ApiClient.get(ApiEndpoints.developerApiKeys);
+      final mcpRes = await ApiClient.get(ApiEndpoints.developerMcpConfig);
 
       if (mounted) {
         setState(() {
@@ -63,6 +68,12 @@ class _DeveloperEcosystemScreenState extends State<DeveloperEcosystemScreen> wit
           }
           if (whRes != null && whRes['success'] == true && whRes['data'] is List) {
             _webhooks = (whRes['data'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          }
+          if (mcpRes != null && mcpRes['success'] == true && mcpRes['data'] != null) {
+            _mcpConfig = Map<String, dynamic>.from(mcpRes['data'] as Map);
+            if (_mcpConfig['tools'] is List) {
+              _mcpTools = _mcpConfig['tools'] as List;
+            }
           }
           if (keyRes != null && keyRes['success'] == true && keyRes['data'] is List) {
             _apiKeys = (keyRes['data'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -490,6 +501,7 @@ class _DeveloperEcosystemScreenState extends State<DeveloperEcosystemScreen> wit
           tabs: const [
             Tab(icon: Icon(Icons.key_rounded, size: 18), text: "API Keys & OAuth 2.0"),
             Tab(icon: Icon(Icons.webhook_rounded, size: 18), text: "Webhooks Engine"),
+            Tab(icon: Icon(Icons.psychology_rounded, size: 18), text: "MCP & AI (ChatGPT/Gemini)"),
             Tab(icon: Icon(Icons.integration_instructions_rounded, size: 18), text: "API Docs & Playground"),
           ],
         ),
@@ -501,6 +513,7 @@ class _DeveloperEcosystemScreenState extends State<DeveloperEcosystemScreen> wit
               children: [
                 _buildApiKeysTab(isDark, cardBg, borderColor, textColor, subtitleColor),
                 _buildWebhooksTab(isDark, cardBg, borderColor, textColor, subtitleColor),
+                _buildMcpAiTab(isDark, cardBg, borderColor, textColor, subtitleColor),
                 _buildHardwareDocsTab(isDark, cardBg, borderColor, textColor, subtitleColor),
               ],
             ),
@@ -1421,4 +1434,1235 @@ class _DeveloperEcosystemScreenState extends State<DeveloperEcosystemScreen> wit
       ),
     );
   }
+
+  // =========================================================================
+  // MODEL CONTEXT PROTOCOL (MCP) & AI AGENT GATEWAY (ChatGPT, Gemini, Claude)
+  // =========================================================================
+
+  Widget _buildMcpAiTab(bool isDark, Color cardBg, Color borderColor, Color textColor, Color subtitleColor) {
+    final baseUrl = ApiClient.baseUrl;
+    final mcpEndpoint = '$baseUrl/api/v1/developer/mcp';
+    final sseEndpoint = '$baseUrl/api/v1/developer/mcp/sse';
+    final chatGptSchemaUrl = '$baseUrl/api/v1/developer/mcp/chatgpt-openapi.json';
+    final geminiSpecUrl = '$baseUrl/api/v1/developer/mcp/gemini-tools.json';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Banner Card
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isDark
+                    ? [const Color(0xFF1E1B4B), const Color(0xFF311042)]
+                    : [const Color(0xFFEEF2FF), const Color(0xFFFAF5FF)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF818CF8).withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6366F1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.psychology_rounded, color: Colors.white, size: 28),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                "Model Context Protocol (MCP) & AI Gateway",
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF10B981)),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      "MCP SERVER ONLINE",
+                                      style: TextStyle(color: Color(0xFF10B981), fontSize: 10, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            "Allow any AI Model (ChatGPT, Google Gemini, Claude Desktop, Cursor, or Autonomous LLMs) to connect directly to your store for deep sales data analysis and conversational order billing.",
+                            style: TextStyle(color: subtitleColor, fontSize: 13, height: 1.4),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Enable Switch
+                    Column(
+                      children: [
+                        Switch(
+                          value: _mcpEnabled,
+                          activeThumbColor: const Color(0xFF6366F1),
+                          onChanged: (val) {
+                            setState(() {
+                              _mcpEnabled = val;
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(val ? "MCP & AI Gateway Enabled" : "MCP & AI Gateway Disabled"),
+                                backgroundColor: val ? const Color(0xFF10B981) : Colors.orange,
+                              ),
+                            );
+                          },
+                        ),
+                        Text(
+                          _mcpEnabled ? "ENABLED" : "PAUSED",
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: _mcpEnabled ? const Color(0xFF10B981) : Colors.orange,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 16),
+                // Server Quick Info bar
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _buildPill(Icons.dns_rounded, "Endpoint: $mcpEndpoint", () => _copyToClipboard(mcpEndpoint, "MCP Endpoint URL")),
+                    _buildPill(Icons.stream_rounded, "SSE Stream: $sseEndpoint", () => _copyToClipboard(sseEndpoint, "SSE Endpoint URL")),
+                    _buildPill(Icons.handyman_rounded, "Tools: ${_mcpTools.isNotEmpty ? _mcpTools.length : 6} Active AI Tools", null),
+                    _buildPill(Icons.lock_outline_rounded, "Auth: X-API-Key / Bearer Token", null),
+                    _buildPill(Icons.shield_rounded, "Scope: Linked Cluster Only", null),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Strict Multi-Tenant Security & Outlet Scope Banner
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF064E3B).withValues(alpha: 0.3) : const Color(0xFFECFDF5),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.shield_rounded, color: Color(0xFF10B981), size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            "Strict Outlet Scope: ",
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                          Text(
+                            "${_mcpConfig['activeOutlet']?['primaryName'] ?? 'Assigned Outlet'} (#${_mcpConfig['activeOutlet']?['primaryId'] ?? 1})",
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF059669)),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              "LINKED CLUSTER: ${((_mcpConfig['activeOutlet']?['allowedOutletIds'] as List?) ?? [1]).map((id) => '#$id').join(', ')}",
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857), fontFamily: 'monospace'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "Multi-tenant isolation ensures any connected model (ChatGPT, Gemini, Claude, Cursor) can ONLY access data and issue bills for this particular outlet and its linked branches. Cross-tenant or 'ALL' outlets access is cryptographically blocked at the engine level.",
+                        style: TextStyle(fontSize: 11, color: isDark ? const Color(0xFFA7F3D0) : const Color(0xFF065F46), height: 1.35),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // PLATFORM INTEGRATIONS (ChatGPT, Gemini, Claude Desktop, Cursor)
+          _buildSectionHeader(Icons.hub_rounded, "1. Connect Your AI Assistant (Select Platform)", textColor),
+          const SizedBox(height: 12),
+
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth > 900;
+              final cards = [
+                _buildPlatformCard(
+                  title: "OpenAI ChatGPT (Custom GPT)",
+                  icon: Icons.chat_rounded,
+                  accentColor: const Color(0xFF10A37F),
+                  badgeText: "CUSTOM GPT ACTION",
+                  description: "Import OpenAPI 3.0 schema directly in ChatGPT Custom GPT Builder. Allows ChatGPT to answer revenue queries and draft/issue POS bills.",
+                  primaryActionText: "Copy Schema URL",
+                  onPrimaryAction: () => _copyToClipboard(chatGptSchemaUrl, "ChatGPT Action Schema URL"),
+                  secondaryActionText: "Setup Guide & JSON",
+                  onSecondaryAction: _showChatGptSchemaDialog,
+                  isDark: isDark,
+                  cardBg: cardBg,
+                  borderColor: borderColor,
+                  textColor: textColor,
+                  subtitleColor: subtitleColor,
+                ),
+                _buildPlatformCard(
+                  title: "Google Gemini (1.5 / 2.0)",
+                  icon: Icons.auto_awesome_rounded,
+                  accentColor: const Color(0xFF2563EB),
+                  badgeText: "FUNCTION CALLING",
+                  description: "Provide Gemini models with tool declarations for autonomous function calling via Python, Node.js, or Google AI Studio.",
+                  primaryActionText: "Copy Tools JSON",
+                  onPrimaryAction: () => _copyToClipboard(geminiSpecUrl, "Gemini Tools Spec URL"),
+                  secondaryActionText: "View Code Snippets",
+                  onSecondaryAction: _showGeminiToolsDialog,
+                  isDark: isDark,
+                  cardBg: cardBg,
+                  borderColor: borderColor,
+                  textColor: textColor,
+                  subtitleColor: subtitleColor,
+                ),
+                _buildPlatformCard(
+                  title: "Claude Desktop & Cursor",
+                  icon: Icons.terminal_rounded,
+                  accentColor: const Color(0xFFD97706),
+                  badgeText: "NATIVE MCP STDIO",
+                  description: "Connect Claude Desktop or Cursor IDE using the built-in MCP server. Just add the configuration block to your config file.",
+                  primaryActionText: "Copy Config JSON",
+                  onPrimaryAction: () {
+                    final cfg = '{\n  "mcpServers": {\n    "famalth-lynx": {\n      "command": "node",\n      "args": ["backend/mcp/server.js"],\n      "env": {\n        "LYNX_API_URL": "$baseUrl",\n        "LYNX_API_KEY": "${_apiKeys.isNotEmpty ? _apiKeys.first['apiKey'] : 'YOUR_API_KEY'}"\n      }\n    }\n  }\n}';
+                    _copyToClipboard(cfg, "Claude Desktop / Cursor Config");
+                  },
+                  secondaryActionText: "View Instructions",
+                  onSecondaryAction: _showClaudeConfigDialog,
+                  isDark: isDark,
+                  cardBg: cardBg,
+                  borderColor: borderColor,
+                  textColor: textColor,
+                  subtitleColor: subtitleColor,
+                ),
+                _buildPlatformCard(
+                  title: "Remote MCP Clients (SSE)",
+                  icon: Icons.cloud_sync_rounded,
+                  accentColor: const Color(0xFF8B5CF6),
+                  badgeText: "REMOTE SSE PROTOCOL",
+                  description: "Stream JSON-RPC 2.0 events over Server-Sent Events (SSE) for remote AI agents, webhooks, and cloud IDE plugins.",
+                  primaryActionText: "Copy SSE URL",
+                  onPrimaryAction: () => _copyToClipboard(sseEndpoint, "MCP SSE Endpoint URL"),
+                  secondaryActionText: "Copy JSON-RPC URL",
+                  onSecondaryAction: () => _copyToClipboard(mcpEndpoint, "MCP HTTP Endpoint URL"),
+                  isDark: isDark,
+                  cardBg: cardBg,
+                  borderColor: borderColor,
+                  textColor: textColor,
+                  subtitleColor: subtitleColor,
+                ),
+              ];
+
+              if (isWide) {
+                return GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 2.1,
+                  children: cards,
+                );
+              } else {
+                return Column(
+                  children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 12), child: c)).toList(),
+                );
+              }
+            },
+          ),
+          const SizedBox(height: 24),
+
+          // SECTION 2: AI / MCP TOOLS CATALOG & LIVE RUNNER
+          _buildSectionHeader(Icons.architecture_rounded, "2. Store AI Tools Catalog & Interactive Live Tester", textColor),
+          const SizedBox(height: 6),
+          Text(
+            "Every tool below is automatically exposed to connected AI models. Click '⚡ Test Tool' to simulate live execution and inspect formatted outputs.",
+            style: TextStyle(color: subtitleColor, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+
+          // Tools list
+          ..._getBuiltInToolsList().map((tool) => _buildToolListItem(
+            tool: tool,
+            isDark: isDark,
+            cardBg: cardBg,
+            borderColor: borderColor,
+            textColor: textColor,
+            subtitleColor: subtitleColor,
+          )),
+
+          const SizedBox(height: 24),
+
+          // SECTION 3: Sample AI Prompts Cheatsheet
+          _buildSectionHeader(Icons.lightbulb_rounded, "3. Example Prompts to Try with ChatGPT & Gemini", textColor),
+          const SizedBox(height: 12),
+          _buildPromptsCheatsheet(isDark, cardBg, borderColor, textColor, subtitleColor),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPill(IconData icon, String label, VoidCallback? onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: const Color(0xFF6366F1)),
+            const SizedBox(width: 6),
+            Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+            if (onTap != null) ...[
+              const SizedBox(width: 4),
+              const Icon(Icons.copy_rounded, size: 11, color: Colors.grey),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlatformCard({
+    required String title,
+    required IconData icon,
+    required Color accentColor,
+    required String badgeText,
+    required String description,
+    required String primaryActionText,
+    required VoidCallback onPrimaryAction,
+    required String secondaryActionText,
+    required VoidCallback onSecondaryAction,
+    required bool isDark,
+    required Color cardBg,
+    required Color borderColor,
+    required Color textColor,
+    required Color subtitleColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+        boxShadow: isDark ? [] : [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: accentColor, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 14)),
+                    const SizedBox(height: 2),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(badgeText, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: accentColor)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: Text(
+              description,
+              style: TextStyle(color: subtitleColor, fontSize: 11, height: 1.3),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accentColor,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: const Icon(Icons.copy_rounded, size: 12, color: Colors.white),
+                label: Text(primaryActionText, style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
+                onPressed: onPrimaryAction,
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: accentColor.withValues(alpha: 0.5)),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: onSecondaryAction,
+                child: Text(secondaryActionText, style: TextStyle(fontSize: 11, color: accentColor, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToolListItem({
+    required Map<String, dynamic> tool,
+    required bool isDark,
+    required Color cardBg,
+    required Color borderColor,
+    required Color textColor,
+    required Color subtitleColor,
+  }) {
+    final String name = tool['name'] ?? '';
+    final String desc = tool['description'] ?? '';
+    final String category = tool['category'] ?? 'UTILITY';
+    final Color catColor = tool['catColor'] ?? const Color(0xFF6366F1);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor),
+      ),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        childrenPadding: const EdgeInsets.all(14),
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: catColor.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(tool['icon'] ?? Icons.handyman_rounded, color: catColor, size: 18),
+        ),
+        title: Row(
+          children: [
+            Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'monospace')),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: catColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(category, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: catColor)),
+            ),
+          ],
+        ),
+        subtitle: Text(desc, style: TextStyle(fontSize: 11, color: subtitleColor), maxLines: 2, overflow: TextOverflow.ellipsis),
+        trailing: ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: catColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          icon: const Icon(Icons.flash_on_rounded, size: 13, color: Colors.white),
+          label: const Text("Test Tool", style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
+          onPressed: () => _showTestToolDialog(tool),
+        ),
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Description:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: textColor)),
+              const SizedBox(height: 4),
+              Text(desc, style: TextStyle(fontSize: 12, color: subtitleColor)),
+              const SizedBox(height: 10),
+              Text("Parameters Schema:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: textColor)),
+              const SizedBox(height: 6),
+              _buildCodeSnippet(const JsonEncoder.withIndent('  ').convert(tool['parameters'] ?? {}), isDark),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPromptsCheatsheet(bool isDark, Color cardBg, Color borderColor, Color textColor, Color subtitleColor) {
+    final prompts = [
+      {
+        "role": "📊 Sales Intelligence",
+        "prompt": "How much revenue did our store make today? Give me total orders, average bill amount, and payment mode breakdown.",
+        "tool": "analyze_sales"
+      },
+      {
+        "role": "🧾 Order & Bill Generation",
+        "prompt": "Create a bill for walk-in customer Rahul (9876543210): 2 units of Cappuccino and 1 Croissant paid by Cash.",
+        "tool": "create_order_bill"
+      },
+      {
+        "role": "📦 Inventory Audit",
+        "prompt": "Which products are running low on stock (less than 10 units)? Show me the top items that need reordering.",
+        "tool": "get_inventory_status"
+      },
+      {
+        "role": "🔍 Catalog & Price Inquiry",
+        "prompt": "Search our store catalog for 'Milk'. Check how many units we have in stock and what the current selling rate is.",
+        "tool": "search_products"
+      },
+      {
+        "role": "📈 Weekly Performance",
+        "prompt": "Give me a sales analysis for this week. Compare UPI payments vs Cash and tell me our top 3 best-selling items.",
+        "tool": "analyze_sales"
+      },
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        children: prompts.map((p) => ListTile(
+          dense: true,
+          leading: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF6366F1).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Icon(Icons.chat_bubble_outline_rounded, size: 16, color: Color(0xFF6366F1)),
+          ),
+          title: Row(
+            children: [
+              Text(p['role']!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text("invokes ${p['tool']}", style: const TextStyle(fontSize: 9, fontFamily: 'monospace')),
+              ),
+            ],
+          ),
+          subtitle: SelectableText(
+            '"${p['prompt']}"',
+            style: TextStyle(fontSize: 11, color: subtitleColor, fontStyle: FontStyle.italic),
+          ),
+          trailing: IconButton(
+            icon: const Icon(Icons.copy_rounded, size: 14),
+            tooltip: "Copy Prompt",
+            onPressed: () => _copyToClipboard(p['prompt']!, "Sample Prompt"),
+          ),
+        )).toList(),
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _getBuiltInToolsList() {
+    return [
+      {
+        "name": "analyze_sales",
+        "category": "DATA ANALYSIS",
+        "catColor": const Color(0xFF10B981),
+        "icon": Icons.analytics_rounded,
+        "description": "Analyzes store sales revenue, order volumes, average order value, payment method breakdowns, peak selling hours, and top-performing products across timeframes (today, yesterday, this_week, this_month, custom).",
+        "parameters": {
+          "timeframe": "string (today | yesterday | this_week | this_month | custom)",
+          "groupBy": "string (day | payment_mode | hourly | top_items)",
+          "startDate": "string (YYYY-MM-DD)",
+          "endDate": "string (YYYY-MM-DD)"
+        }
+      },
+      {
+        "name": "create_order_bill",
+        "category": "ORDER & BILLING",
+        "catColor": const Color(0xFFEF4444),
+        "icon": Icons.receipt_long_rounded,
+        "description": "Creates and issues a live sales order / billing invoice in the POS system. Looks up catalog items, calculates item totals and discounts, records the transaction in sales_headers & sales_items, updates inventory stock, and returns the official bill number and formatted receipt text.",
+        "parameters": {
+          "customerName": "string (e.g. John Doe)",
+          "customerPhone": "string (mobile number)",
+          "paymentMode": "string (CASH | UPI | CARD | CREDIT)",
+          "items": "array of { name, quantity, unitPrice, itemCode }",
+          "discountAmount": "number (overall bill discount)",
+          "notes": "string (AI or cashier note)"
+        }
+      },
+      {
+        "name": "get_inventory_status",
+        "category": "INVENTORY HEALTH",
+        "catColor": const Color(0xFFF59E0B),
+        "icon": Icons.inventory_2_rounded,
+        "description": "Queries store inventory to check stock balances, identifies low-stock items requiring reorder, out-of-stock items, and calculates total inventory valuation.",
+        "parameters": {
+          "filter": "string (all | low_stock | out_of_stock)",
+          "threshold": "number (low stock alert quantity, default 10)",
+          "search": "string (filter by product name/SKU)",
+          "limit": "number (default 50)"
+        }
+      },
+      {
+        "name": "search_products",
+        "category": "CATALOG SEARCH",
+        "catColor": const Color(0xFF3B82F6),
+        "icon": Icons.search_rounded,
+        "description": "Searches product catalog by name, barcode, SKU or category to verify pricing, unit of measure, and live stock levels before billing or answering customer queries.",
+        "parameters": {
+          "query": "string (required, keyword or barcode)",
+          "limit": "number (default 20)"
+        }
+      },
+      {
+        "name": "get_order_details",
+        "category": "RECEIPT LOOKUP",
+        "catColor": const Color(0xFF8B5CF6),
+        "icon": Icons.description_rounded,
+        "description": "Retrieves complete invoice details for a specific order by bill number or order ID, including itemized lines, discounts, taxes, and customer details.",
+        "parameters": {
+          "billNumber": "string (e.g. BILL_1234)",
+          "orderId": "number (internal order ID)"
+        }
+      },
+      {
+        "name": "get_customer_insights",
+        "category": "CRM & LOYALTY",
+        "catColor": const Color(0xFFEC4899),
+        "icon": Icons.person_search_rounded,
+        "description": "Fetches customer relationship metrics including total orders, lifetime expenditure, average order value, recent visits, and outstanding credit balance.",
+        "parameters": {
+          "phone": "string (customer phone)",
+          "name": "string (customer name)"
+        }
+      }
+    ];
+  }
+
+  Future<void> _showTestToolDialog(Map<String, dynamic> tool) async {
+    final toolName = tool['name'] as String;
+    bool isRunning = false;
+    dynamic toolOutput;
+    String? errorMessage;
+
+    // Controllers
+    final timeframeCtrl = TextEditingController(text: 'today');
+    final custNameCtrl = TextEditingController(text: 'Rahul Sharma');
+    final custPhoneCtrl = TextEditingController(text: '9876543210');
+    final paymentModeCtrl = TextEditingController(text: 'CASH');
+    final itemNameCtrl = TextEditingController(text: 'Mineral Water 1L');
+    final itemQtyCtrl = TextEditingController(text: '2');
+    final itemPriceCtrl = TextEditingController(text: '20.00');
+    final searchCtrl = TextEditingController(text: 'Milk');
+    final filterCtrl = TextEditingController(text: 'low_stock');
+    final billNoCtrl = TextEditingController(text: 'AI-BILL-');
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: (tool['catColor'] as Color? ?? const Color(0xFF6366F1)).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(tool['icon'] ?? Icons.handyman_rounded, color: tool['catColor'] ?? const Color(0xFF6366F1), size: 20),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Test Tool: $toolName", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text(tool['category'] ?? 'AI TOOL', style: TextStyle(fontSize: 10, color: tool['catColor'] ?? Colors.grey, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 580,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(tool['description'] ?? '', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.25)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.lock_outline_rounded, size: 14, color: Color(0xFF10B981)),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              "Tenant Security: Operation strictly scoped to Outlet #${_mcpConfig['activeOutlet']?['primaryId'] ?? 1} and linked cluster.",
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF047857), fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Divider(height: 1),
+                    const SizedBox(height: 14),
+
+                    // DYNAMIC FORM FIELDS PER TOOL
+                    if (toolName == 'analyze_sales') ...[
+                      const Text("Select Timeframe:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 6),
+                      DropdownButtonFormField<String>(
+                        initialValue: timeframeCtrl.text,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                        items: ['today', 'yesterday', 'this_week', 'this_month', 'last_month'].map((t) => DropdownMenuItem(
+                          value: t,
+                          child: Text(t.toUpperCase()),
+                        )).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDialogState(() => timeframeCtrl.text = val);
+                          }
+                        },
+                      ),
+                    ] else if (toolName == 'create_order_bill') ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: custNameCtrl,
+                              decoration: const InputDecoration(labelText: "Customer Name", border: OutlineInputBorder()),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: custPhoneCtrl,
+                              decoration: const InputDecoration(labelText: "Customer Phone", border: OutlineInputBorder()),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: paymentModeCtrl.text,
+                        decoration: const InputDecoration(labelText: "Payment Mode", border: OutlineInputBorder()),
+                        items: ['CASH', 'UPI', 'CARD', 'CREDIT'].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
+                        onChanged: (val) {
+                          if (val != null) setDialogState(() => paymentModeCtrl.text = val);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      const Text("Line Items:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: TextField(
+                              controller: itemNameCtrl,
+                              decoration: const InputDecoration(labelText: "Item Name", border: OutlineInputBorder()),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            flex: 1,
+                            child: TextField(
+                              controller: itemQtyCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: "Qty", border: OutlineInputBorder()),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: itemPriceCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: "Price (₹)", border: OutlineInputBorder()),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else if (toolName == 'get_inventory_status') ...[
+                      DropdownButtonFormField<String>(
+                        initialValue: filterCtrl.text,
+                        decoration: const InputDecoration(labelText: "Inventory Filter", border: OutlineInputBorder()),
+                        items: const [
+                          DropdownMenuItem(value: 'all', child: Text('ALL ITEMS')),
+                          DropdownMenuItem(value: 'low_stock', child: Text('LOW STOCK (<= 10 units)')),
+                          DropdownMenuItem(value: 'out_of_stock', child: Text('OUT OF STOCK (0 units)')),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) setDialogState(() => filterCtrl.text = val);
+                        },
+                      ),
+                    ] else if (toolName == 'search_products') ...[
+                      TextField(
+                        controller: searchCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "Product Search Query",
+                          hintText: "Enter item name, SKU, or barcode",
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ] else if (toolName == 'get_order_details') ...[
+                      TextField(
+                        controller: billNoCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "Sale Bill / Invoice Number",
+                          hintText: "e.g. AI-BILL-123456",
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ] else if (toolName == 'get_customer_insights') ...[
+                      TextField(
+                        controller: custPhoneCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "Customer Mobile Number",
+                          hintText: "e.g. 9876543210",
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+
+                    const SizedBox(height: 16),
+
+                    // EXECUTE BUTTON
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6366F1),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: isRunning
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Icon(Icons.flash_on_rounded, color: Colors.white),
+                        label: Text(
+                          isRunning ? "Executing via AI Gateway..." : "⚡ Execute Tool with POS Engine",
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: isRunning ? null : () async {
+                          setDialogState(() {
+                            isRunning = true;
+                            errorMessage = null;
+                            toolOutput = null;
+                          });
+
+                          try {
+                            Map<String, dynamic> args = {};
+                            if (toolName == 'analyze_sales') {
+                              args = {'timeframe': timeframeCtrl.text};
+                            } else if (toolName == 'create_order_bill') {
+                              args = {
+                                'customerName': custNameCtrl.text.trim(),
+                                'customerPhone': custPhoneCtrl.text.trim(),
+                                'paymentMode': paymentModeCtrl.text,
+                                'items': [
+                                  {
+                                    'name': itemNameCtrl.text.trim(),
+                                    'quantity': double.tryParse(itemQtyCtrl.text) ?? 1,
+                                    'unitPrice': double.tryParse(itemPriceCtrl.text) ?? 0,
+                                  }
+                                ]
+                              };
+                            } else if (toolName == 'get_inventory_status') {
+                              args = {'filter': filterCtrl.text, 'threshold': 10};
+                            } else if (toolName == 'search_products') {
+                              args = {'query': searchCtrl.text.trim()};
+                            } else if (toolName == 'get_order_details') {
+                              args = {'billNumber': billNoCtrl.text.trim()};
+                            } else if (toolName == 'get_customer_insights') {
+                              args = {'phone': custPhoneCtrl.text.trim()};
+                            }
+
+                            final res = await ApiClient.post(
+                              ApiEndpoints.developerMcpExecute,
+                              {'tool': toolName, 'arguments': args},
+                            );
+
+                            setDialogState(() {
+                              isRunning = false;
+                              if (res != null && res['success'] == true) {
+                                toolOutput = res['result'];
+                              } else {
+                                errorMessage = res?['message'] ?? 'Failed to execute tool';
+                              }
+                            });
+                          } catch (e) {
+                            setDialogState(() {
+                              isRunning = false;
+                              errorMessage = e.toString();
+                            });
+                          }
+                        },
+                      ),
+                    ),
+
+                    if (errorMessage != null) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error_outline_rounded, color: Colors.red, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 11))),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    if (toolOutput != null) ...[
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("AI Response & Result:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                            icon: const Icon(Icons.copy_rounded, size: 12),
+                            label: const Text("Copy Response", style: TextStyle(fontSize: 11)),
+                            onPressed: () {
+                              final textToCopy = toolOutput is Map && toolOutput['formattedReceipt'] != null
+                                  ? toolOutput['formattedReceipt']
+                                  : (toolOutput is Map && toolOutput['narrative'] != null
+                                      ? toolOutput['narrative']
+                                      : const JsonEncoder.withIndent('  ').convert(toolOutput));
+                              _copyToClipboard(textToCopy, "Tool Output");
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      // If formatted receipt or narrative exists, render in pretty terminal
+                      if (toolOutput is Map && toolOutput['formattedReceipt'] != null) ...[
+                        _buildCodeSnippet(toolOutput['formattedReceipt'] as String, isDark),
+                        const SizedBox(height: 8),
+                      ] else if (toolOutput is Map && toolOutput['narrative'] != null) ...[
+                        _buildCodeSnippet(toolOutput['narrative'] as String, isDark),
+                        const SizedBox(height: 8),
+                      ],
+                      _buildCodeSnippet(const JsonEncoder.withIndent('  ').convert(toolOutput), isDark),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                child: const Text("Close"),
+                onPressed: () => Navigator.of(ctx).pop(),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showChatGptSchemaDialog() async {
+    final baseUrl = ApiClient.baseUrl;
+    final schemaUrl = '$baseUrl/api/v1/developer/mcp/chatgpt-openapi.json';
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.chat_rounded, color: Color(0xFF10A37F)),
+            SizedBox(width: 8),
+            Text("Connect to OpenAI ChatGPT (Custom GPT)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SizedBox(
+          width: 580,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Follow these 4 simple steps to add your POS to ChatGPT:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                const Text("1. Open ChatGPT > Explore GPTs > Create a GPT (GPT Builder).", style: TextStyle(fontSize: 12)),
+                const Text("2. In the 'Configure' tab, scroll down and click 'Create new action'.", style: TextStyle(fontSize: 12)),
+                const Text("3. Under 'Schema', click 'Import from URL' and paste the URL below:", style: TextStyle(fontSize: 12)),
+                const SizedBox(height: 6),
+                _buildCodeSnippet(schemaUrl, Theme.of(context).brightness == Brightness.dark),
+                const SizedBox(height: 10),
+                const Text("4. Set Authentication to 'API Key' (Auth Type: Custom, Header Name: 'X-API-Key') and paste an active key from your API Keys tab.", style: TextStyle(fontSize: 12)),
+                const SizedBox(height: 16),
+                const Text("Your Custom GPT can now directly check revenue, answer inventory queries, and create sales bills via conversation!", style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10A37F)),
+            icon: const Icon(Icons.copy_rounded, size: 14, color: Colors.white),
+            label: const Text("Copy Schema URL", style: TextStyle(color: Colors.white)),
+            onPressed: () {
+              _copyToClipboard(schemaUrl, "ChatGPT Action Schema URL");
+              Navigator.of(ctx).pop();
+            },
+          ),
+          TextButton(
+            child: const Text("Close"),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showGeminiToolsDialog() async {
+    final baseUrl = ApiClient.baseUrl;
+    final geminiSpecUrl = '$baseUrl/api/v1/developer/mcp/gemini-tools.json';
+
+    final pythonCode = '''import requests
+from google import genai
+
+# 1. Fetch live POS function declarations from your Lynx store
+tools_spec = requests.get('$baseUrl/api/v1/developer/mcp/gemini-tools.json').json()
+
+# 2. Initialize Gemini 2.0 client
+client = genai.Client()
+response = client.models.generate_content(
+    model='gemini-2.0-flash',
+    contents='How much did we sell today and what were the top items?',
+    config={'tools': tools_spec['tools']}
+)
+
+# 3. If Gemini requests a tool call, forward it to Lynx AI Gateway
+if response.function_calls:
+    for call in response.function_calls:
+        res = requests.post(
+            '$baseUrl/api/v1/developer/mcp/tools/execute',
+            headers={'X-API-Key': 'YOUR_API_KEY'},
+            json={'tool': call.name, 'arguments': dict(call.args)}
+        )
+        print("Lynx Result:", res.json())
+''';
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.auto_awesome_rounded, color: Color(0xFF2563EB)),
+            SizedBox(width: 8),
+            Text("Google Gemini Function Calling Integration", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SizedBox(
+          width: 620,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Gemini Tools Declaration Specification URL:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                _buildCodeSnippet(geminiSpecUrl, Theme.of(context).brightness == Brightness.dark),
+                const SizedBox(height: 14),
+                const Text("Sample Python Code with Gemini 2.0 SDK:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                _buildCodeSnippet(pythonCode, Theme.of(context).brightness == Brightness.dark),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+            icon: const Icon(Icons.copy_rounded, size: 14, color: Colors.white),
+            label: const Text("Copy Python Code", style: TextStyle(color: Colors.white)),
+            onPressed: () {
+              _copyToClipboard(pythonCode, "Gemini Python Code");
+              Navigator.of(ctx).pop();
+            },
+          ),
+          TextButton(
+            child: const Text("Close"),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showClaudeConfigDialog() async {
+    final baseUrl = ApiClient.baseUrl;
+    final activeKey = _apiKeys.isNotEmpty ? _apiKeys.first['apiKey'] : 'YOUR_API_KEY_HERE';
+
+    final claudeConfig = '''{
+  "mcpServers": {
+    "famalth-lynx": {
+      "command": "node",
+      "args": ["backend/mcp/server.js"],
+      "env": {
+        "LYNX_API_URL": "$baseUrl",
+        "LYNX_API_KEY": "$activeKey"
+      }
+    }
+  }
+}''';
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.terminal_rounded, color: Color(0xFFD97706)),
+            SizedBox(width: 8),
+            Text("Claude Desktop & Cursor MCP Setup", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SizedBox(
+          width: 580,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("1. Open Claude Desktop or Cursor MCP settings file:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                const Text("• Claude Desktop: %APPDATA%\\Claude\\claude_desktop_config.json\n• Cursor: .cursor/mcp.json", style: TextStyle(fontSize: 11, fontFamily: 'monospace')),
+                const SizedBox(height: 12),
+                const Text("2. Paste this configuration snippet:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                _buildCodeSnippet(claudeConfig, Theme.of(context).brightness == Brightness.dark),
+                const SizedBox(height: 12),
+                const Text("3. Restart Claude Desktop or Cursor. The  hammer icon will display 'famalth-lynx' with all 6 tools ready!", style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD97706)),
+            icon: const Icon(Icons.copy_rounded, size: 14, color: Colors.white),
+            label: const Text("Copy Config JSON", style: TextStyle(color: Colors.white)),
+            onPressed: () {
+              _copyToClipboard(claudeConfig, "Claude Desktop / Cursor Config");
+              Navigator.of(ctx).pop();
+            },
+          ),
+          TextButton(
+            child: const Text("Close"),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
 }

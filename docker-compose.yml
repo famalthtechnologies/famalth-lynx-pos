@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL 16 Database Service
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: retailsale-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: POSINVRETAIL
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      TZ: Asia/Kolkata
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d POSINVRETAIL"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # RetailSale POS Full-Stack Web + API Server
+  # ----------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: retailsale-web-app
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      TZ: Asia/Kolkata
+      DEFAULT_TIMEZONE: Asia/Kolkata
+      DATABASE_URL: postgres://postgres:postgrespassword@postgres:5432/POSINVRETAIL
+      DB_SSL: "false"
+      JWT_SECRET: lynx_pos_production_secure_jwt_secret_2026
+    volumes:
+      - app_backups:/app/backups
+      - app_storage:/app/storage
+
+volumes:
+  pgdata:
+  app_backups:
+  app_storage:

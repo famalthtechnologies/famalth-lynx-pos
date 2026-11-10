@@ -1,0 +1,176 @@
+name: Auto Build & Deploy (Render, Vercel & DigitalOcean)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # JOB 1: Build Flutter Web Client
+  # ============================================================================
+  build-web:
+    name: 🚀 Build Flutter Web Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@v4
+
+      - name: 🎯 Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: 📦 Install Flutter Dependencies
+        run: flutter pub get
+
+      - name: 🔨 Compile Production Web App
+        run: flutter build web --release --web-renderer auto
+
+      - name: 💾 Upload Web Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-web-build
+          path: build/web
+          retention-days: 7
+
+  # ============================================================================
+  # JOB 2: Auto-Deploy to Render
+  # ============================================================================
+  deploy-render:
+    name: 🟣 Deploy to Render (Docker Service)
+    needs: build-web
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@v4
+
+      - name: 📡 Trigger Render Deploy Hook
+        if: env.RENDER_HOOK != ''
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          echo "🚀 Triggering Render auto-deploy..."
+          curl -s -f -X POST "$RENDER_HOOK"
+          echo "✅ Render deployment successfully triggered!"
+
+      - name: ℹ️ Render Status Notice
+        if: env.RENDER_HOOK == ''
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          echo "ℹ️ Note: If Render is directly connected to this GitHub repo with 'render.yaml', Render triggers the Docker build automatically on push."
+          echo "👉 To trigger via webhook from this Action, add 'RENDER_DEPLOY_HOOK_URL' to your GitHub Secrets."
+
+  # ============================================================================
+  # JOB 3: Auto-Deploy to Vercel (Fast Global Edge CDN)
+  # ============================================================================
+  deploy-vercel:
+    name: ▲ Deploy to Vercel (Edge CDN)
+    needs: build-web
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@v4
+
+      - name: 📥 Download Web Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: flutter-web-build
+          path: build/web
+
+      - name: 🚀 Deploy to Vercel
+        if: env.VERCEL_TOKEN != ''
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel --prod --token "$VERCEL_TOKEN" --yes --cwd build/web
+          echo "✅ Vercel production deployment completed!"
+
+      - name: ℹ️ Vercel Status Notice
+        if: env.VERCEL_TOKEN == ''
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          echo "ℹ️ Vercel deployment skipped: 'VERCEL_TOKEN' secret is not configured in GitHub Repository Secrets."
+
+  # ============================================================================
+  # JOB 4: Auto-Deploy to DigitalOcean (App Platform or Docker Registry)
+  # ============================================================================
+  deploy-digitalocean:
+    name: 🌊 Deploy to DigitalOcean (App Platform)
+    needs: build-web
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@v4
+
+      - name: 🌊 Trigger DigitalOcean App Platform Deploy
+        if: env.DO_TOKEN != '' && env.DO_APP_ID != ''
+        env:
+          DO_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          DO_APP_ID: ${{ secrets.DIGITALOCEAN_APP_ID }}
+        run: |
+          curl -s -f -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $DO_TOKEN" \
+            "https://api.digitalocean.com/v2/apps/$DO_APP_ID/deployments"
+          echo "✅ DigitalOcean App Platform deployment initiated!"
+
+      - name: ℹ️ DigitalOcean Notice
+        if: env.DO_TOKEN == '' || env.DO_APP_ID == ''
+        env:
+          DO_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          DO_APP_ID: ${{ secrets.DIGITALOCEAN_APP_ID }}
+        run: |
+          echo "ℹ️ Note: If your DigitalOcean App Platform is connected directly to your GitHub repository, it auto-builds Dockerfile.web on push."
+          echo "👉 To trigger programmatically via Action, set 'DIGITALOCEAN_ACCESS_TOKEN' and 'DIGITALOCEAN_APP_ID' in GitHub Secrets."
+
+  # ============================================================================
+  # JOB 5: Build & Push Docker Image to Docker Hub (Optional)
+  # ============================================================================
+  docker-build-push:
+    name: 🐳 Build & Push Docker Container Image
+    needs: build-web
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Check out repository
+        uses: actions/checkout@v4
+
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔑 Log in to Docker Hub
+        if: env.DOCKER_USER != '' && env.DOCKER_PASS != ''
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_PASS: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🚀 Build and Push Docker Image
+        if: env.DOCKER_USER != '' && env.DOCKER_PASS != ''
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_PASS: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.web
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/retail-sale-pos:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/retail-sale-pos:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

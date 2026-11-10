@@ -95,6 +95,9 @@ class MyApp extends StatelessWidget {
       if (name.contains('MobileBilling')) {
         AppConfig.isMobileBilling = true;
       }
+      if (name.contains('Supplier')) {
+        AppConfig.isSupplierApp = true;
+      }
     }
     final themeCtrl = context.watch<ThemeController>();
     final uiPrefs = context.watch<UiPreferencesController>();

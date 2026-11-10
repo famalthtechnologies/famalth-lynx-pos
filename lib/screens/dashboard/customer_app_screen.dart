@@ -4079,40 +4079,43 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Text(
-                    widget.isB2BMode ? 'Vendor Wholesale Catalog' : 'Retailer Shop Products',
-                    style: theme.textTheme.headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  if (_isB2BWholesaleMode) ...[
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade100,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.blue.shade300),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.verified, size: 14, color: Colors.blue.shade800),
-                          const SizedBox(width: 4),
-                          Text(
-                            'B2B Wholesale Rates Active',
-                            style: TextStyle(
-                              color: Colors.blue.shade900,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
+              Expanded(
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    Text(
+                      widget.isB2BMode ? 'Vendor Wholesale Catalog' : 'Retailer Shop Products',
+                      style: theme.textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
                     ),
+                    if (_isB2BWholesaleMode)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade100,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.blue.shade300),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.verified, size: 14, color: Colors.blue.shade800),
+                            const SizedBox(width: 4),
+                            Text(
+                              'B2B Wholesale Rates Active',
+                              style: TextStyle(
+                                color: Colors.blue.shade900,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
-                ],
+                ),
               ),
               IconButton(
                 icon: const Icon(Icons.refresh),
@@ -4935,21 +4938,31 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              height: 48,
               child: FilledButton.icon(
                 onPressed: _placeOrder,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
                 icon: Icon(
                   (_loggedInCustomer == null && !isB2bOrPosUser)
                       ? Icons.how_to_reg
                       : Icons.check_circle_outline,
                   size: 20,
                 ),
-                label: Text(
-                  (_loggedInCustomer == null && !isB2bOrPosUser)
-                      ? 'Register / Sign In to Place Order'
-                      : 'Place Delivery Order',
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold),
+                label: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    (_loggedInCustomer == null && !isB2bOrPosUser)
+                        ? 'Register / Sign In to Place Order'
+                        : 'Place Delivery Order',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
                 ),
               ),
             )

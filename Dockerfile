@@ -1,29 +1,60 @@
-# Use official Node.js 20 Alpine lightweight base image
-FROM node:20-alpine
+# ==============================================================================
+# UNIVERSAL CLOUD DOCKERFILE - COMPATIBLE WITH RENDER, DIGITALOCEAN & DOCKER CLOUD
+# Multi-stage production container: Builds Flutter Web + Node.js Backend API
+# ==============================================================================
 
-# Set working directory inside container
+# ------------------------------------------------------------------------------
+# STAGE 1: Flutter Web Application Builder
+# ------------------------------------------------------------------------------
+FROM ghcr.io/cirrusci/flutter:stable AS flutter-builder
+
 WORKDIR /app
 
-# Install postgresql-client for pg_dump support and tzdata for accurate timezone support
-RUN apk add --no-cache postgresql-client tzdata
+# Cache dependency layer for faster iterative builds
+COPY pubspec.yaml pubspec.lock ./
+RUN flutter pub get
 
-# Copy package definition files from backend directory
+# Copy frontend source, web configurations, and static assets
+COPY lib/ ./lib/
+COPY web/ ./web/
+COPY assets/ ./assets/
+
+# Build optimized production Flutter Web release (auto-renderer: HTML for mobile, CanvasKit for desktop)
+RUN flutter build web --release --web-renderer auto
+
+# ------------------------------------------------------------------------------
+# STAGE 2: Node.js 20 Alpine Full-Stack Server
+# ------------------------------------------------------------------------------
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install postgresql-client for pg_dump/backups and tzdata for accurate timezone support
+RUN apk add --no-cache postgresql-client tzdata wget
+
+# Copy package definitions and install production dependencies
 COPY backend/package*.json ./
-
-# Install production dependencies
 RUN npm ci --only=production || npm install --omit=dev
 
-# Copy backend source code into container
+# Copy backend source code
 COPY backend/ .
 
-# Expose backend port
-EXPOSE 3000
+# Copy compiled Flutter Web SPA assets into backend static public folder
+COPY --from=flutter-builder /app/build/web ./public
 
-# Set environment variables
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV TZ=Asia/Kolkata
-ENV DEFAULT_TIMEZONE=Asia/Kolkata
+# Expose container port (Default 3000, dynamically overridden by cloud hosts)
+EXPOSE 3000 8080 10000
 
-# Start application
+# Set standard cloud production environment variables
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOST=0.0.0.0 \
+    TZ=Asia/Kolkata \
+    DEFAULT_TIMEZONE=Asia/Kolkata
+
+# Built-in health check for zero-downtime rolling deploys on Render & DigitalOcean
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:${PORT:-3000}/api/system/server-time || exit 1
+
+# Start full-stack server
 CMD ["node", "server.js"]

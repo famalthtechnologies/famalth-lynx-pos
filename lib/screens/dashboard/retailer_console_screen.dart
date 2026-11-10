@@ -6571,15 +6571,26 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                         ),
 
                         // Save Button
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: SizedBox(
-                            width: 250,
-                            height: 44,
-                            child: FilledButton.icon(
-                              onPressed: _saveSettings,
-                              icon: const Icon(Icons.save_outlined),
-                              label: const Text('Save All Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: _saveSettings,
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.save_outlined, size: 20),
+                            label: const FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                'Save All Settings',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
                             ),
                           ),
                         ),

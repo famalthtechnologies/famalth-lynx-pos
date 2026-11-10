@@ -2,8 +2,8 @@ import 'package:intl/intl.dart';
 import '../../models/inventory/settings/system_settings_model.dart';
 
 class CurrencyService {
-  static String _symbol = '\$';
-  static String _code = 'USD';
+  static String _symbol = '₹';
+  static String _code = 'INR';
   static String _position = 'BEFORE'; // 'BEFORE' or 'AFTER'
   static int _decimals = 2;
 
@@ -11,6 +11,21 @@ class CurrencyService {
   static String get code => _code;
   static String get position => _position;
   static int get decimals => _decimals;
+
+  static void setCurrency(String? symbol, [String? code, String? position, int? decimals]) {
+    if (symbol != null && symbol.trim().isNotEmpty) {
+      _symbol = symbol.trim();
+    }
+    if (code != null && code.trim().isNotEmpty) {
+      _code = code.trim().toUpperCase();
+    }
+    if (position != null && position.trim().isNotEmpty) {
+      _position = position.trim();
+    }
+    if (decimals != null) {
+      _decimals = decimals;
+    }
+  }
 
   static bool get _hasSpacing {
     final sym = _symbol.trim();
@@ -22,8 +37,8 @@ class CurrencyService {
   }
 
   static void updateFromSettings(SystemSettings settings) {
-    _symbol = settings.baseCurrencySymbol.isNotEmpty ? settings.baseCurrencySymbol : '\$';
-    _code = settings.baseCurrencyCode.isNotEmpty ? settings.baseCurrencyCode : 'USD';
+    _symbol = settings.baseCurrencySymbol.isNotEmpty ? settings.baseCurrencySymbol : '₹';
+    _code = settings.baseCurrencyCode.isNotEmpty ? settings.baseCurrencyCode : 'INR';
     _position = settings.currencySymbolPosition;
     _decimals = settings.currencyDecimals;
   }

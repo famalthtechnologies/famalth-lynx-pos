@@ -1,3 +1,5 @@
+import '../../core/settings/local_preferences.dart';
+import '../dashboard/retailer_console_screen.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
@@ -129,7 +131,8 @@ class _SupplierOtpLoginScreenState extends State<SupplierOtpLoginScreen> {
         );
 
         // Resolve home dashboard and navigate
-        final nextWidget = await HomeRouteHelper.resolve();
+        await LocalPreferences.setDefaultStartupScreen('RETAILER_CONSOLE');
+        final nextWidget = const RetailerConsoleScreen();
         if (!mounted) return;
         Navigator.pushReplacement(
           context,

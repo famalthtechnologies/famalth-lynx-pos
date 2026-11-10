@@ -1,13 +1,17 @@
 services:
   - type: web
-    name: retail-sale-backend
+    name: retail-sale-app
     env: docker
-    dockerfilePath: ./Dockerfile.web
+    dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: free
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /api/system/server-time
     envVars:
       - key: PORT
         value: 3000
+      - key: HOST
+        value: 0.0.0.0
       - key: NODE_ENV
         value: production
       - key: TZ
@@ -57,6 +61,6 @@ services:
 
 databases:
   - name: retail-sale-db
-    plan: free
+    plan: starter
     databaseName: retailsale_db
     user: retailsale_user

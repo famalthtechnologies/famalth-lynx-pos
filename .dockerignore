@@ -1,21 +1,40 @@
+# Git and IDE
 .git
 .gitignore
 .vscode
+.idea
+
+# Flutter build artifacts and caches
 .dart_tool
-android
-ios
-lib
-web
-linux
-macos
-windows
-installer
-build
-node_modules
+build/
+
+# Native mobile and desktop platform sources (not needed for Web Docker build)
+android/
+ios/
+linux/
+macos/
+windows/
+installer/
+
+# Local Node.js dependencies and logs
+node_modules/
+npm-debug.log
+yarn-error.log
 *.log
-backend/node_modules
-backend/backups
-backend/_filtered
-backend/encrypt.exe
-backend/server.exe
-backend/scratch
+
+# Backend specific ignored artifacts
+backend/node_modules/
+backend/dist/
+backend/backups/
+backend/storage/
+backend/scratch/
+backend/_legacy_js_backup/
+backend/_filtered/
+backend/*.exe
+backend/*.enc
+backend/*.sql
+
+# Local test outputs and large files
+*.pdf
+scratch/
+test/

@@ -1717,29 +1717,34 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
             child: const Icon(Icons.table_restaurant, color: Colors.orange, size: 24),
           ),
           const SizedBox(width: 12),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Book a Table from Home',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+          Expanded(
+            child: const Padding(
+              padding: EdgeInsets.only(right: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Book a Table from Home',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
                   ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'Reserve your dining table online & skip the waiting line',
-                  style: TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 11,
+                  SizedBox(height: 2),
+                  Text(
+                    'Reserve your dining table online & skip the waiting line',
+                    style: TextStyle(
+                      color: Color(0xFF94A3B8),
+                      fontSize: 11,
+                      height: 1.25,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
+          const SizedBox(width: 4),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.orange,
@@ -1777,204 +1782,381 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
             final dateStr = DateFormat('dd MMM yyyy').format(resvDate);
             final timeStr = resvTime.format(ctx);
 
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-              contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
-              title: Row(
-                children: [
-                  const Icon(Icons.table_restaurant, color: Colors.orange),
-                  const SizedBox(width: 8),
-                  const Text('Reserve Table from Home', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(dialogCtx),
-                  ),
-                ],
-              ),
-              content: SizedBox(
-                width: 440,
-                child: SingleChildScrollView(
+            return Dialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      TextField(
-                        controller: nameCtrl,
-                        decoration: const InputDecoration(labelText: 'Customer Full Name *', isDense: true),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: phoneCtrl,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(labelText: 'Mobile Phone *', isDense: true),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: emailCtrl,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(labelText: 'Email Address (Optional)', isDense: true),
-                      ),
-                      const SizedBox(height: 14),
+                      // Header: Icon + Title + Close Button (Wrapped in Expanded, 0px overflow!)
                       Row(
                         children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              icon: const Icon(Icons.calendar_today, size: 14),
-                              label: Text(dateStr),
-                              onPressed: () async {
-                                final picked = await showDatePicker(
-                                  context: ctx,
-                                  initialDate: resvDate,
-                                  firstDate: DateTime.now(),
-                                  lastDate: DateTime.now().add(const Duration(days: 60)),
-                                );
-                                if (picked != null) setDState(() => resvDate = picked);
-                              },
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF7ED),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.table_restaurant_rounded, color: primaryOrange, size: 22),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Reserve Table from Home',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: darkBg),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  'Book ahead & skip the waiting line',
+                                  style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              icon: const Icon(Icons.access_time, size: 14),
-                              label: Text(timeStr),
-                              onPressed: () async {
-                                final picked = await showTimePicker(
-                                  context: ctx,
-                                  initialTime: resvTime,
-                                );
-                                if (picked != null) setDState(() => resvTime = picked);
-                              },
-                            ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 20, color: Color(0xFF64748B)),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            onPressed: () => Navigator.pop(dialogCtx),
                           ),
                         ],
                       ),
                       const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          const Text('Number of Guests: ', style: TextStyle(fontWeight: FontWeight.w600)),
-                          IconButton(
-                            icon: const Icon(Icons.remove_circle_outline),
-                            onPressed: guests > 1 ? () => setDState(() => guests--) : null,
+                      const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                      const SizedBox(height: 14),
+
+                      // Form Body (Responsive scrolling)
+                      Flexible(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              TextField(
+                                controller: nameCtrl,
+                                decoration: InputDecoration(
+                                  labelText: 'Customer Full Name *',
+                                  prefixIcon: const Icon(Icons.person_outline_rounded, size: 20),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                  filled: true,
+                                  fillColor: const Color(0xFFF8FAFC),
+                                  isDense: true,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: phoneCtrl,
+                                keyboardType: TextInputType.phone,
+                                decoration: InputDecoration(
+                                  labelText: 'Mobile Phone *',
+                                  prefixIcon: const Icon(Icons.phone_outlined, size: 20),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                  filled: true,
+                                  fillColor: const Color(0xFFF8FAFC),
+                                  isDense: true,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: emailCtrl,
+                                keyboardType: TextInputType.emailAddress,
+                                decoration: InputDecoration(
+                                  labelText: 'Email Address (Optional)',
+                                  prefixIcon: const Icon(Icons.email_outlined, size: 20),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                  filled: true,
+                                  fillColor: const Color(0xFFF8FAFC),
+                                  isDense: true,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+
+                              // Date & Time Selectors (Modern Cards)
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: () async {
+                                        final picked = await showDatePicker(
+                                          context: ctx,
+                                          initialDate: resvDate,
+                                          firstDate: DateTime.now(),
+                                          lastDate: DateTime.now().add(const Duration(days: 60)),
+                                        );
+                                        if (picked != null) setDState(() => resvDate = picked);
+                                      },
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF8FAFC),
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.calendar_today_rounded, size: 15, color: primaryOrange),
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                dateStr,
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: () async {
+                                        final picked = await showTimePicker(
+                                          context: ctx,
+                                          initialTime: resvTime,
+                                        );
+                                        if (picked != null) setDState(() => resvTime = picked);
+                                      },
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF8FAFC),
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.access_time_rounded, size: 15, color: primaryOrange),
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                timeStr,
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+
+                              // Guest Count Stepper
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Expanded(
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.groups_rounded, size: 18, color: Color(0xFF475569)),
+                                          SizedBox(width: 6),
+                                          Flexible(
+                                            child: Text(
+                                              'Number of Guests:',
+                                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: darkBg),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.remove_circle_outline, color: primaryOrange, size: 20),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                                          onPressed: guests > 1 ? () => setDState(() => guests--) : null,
+                                        ),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                                          child: Text(
+                                            '$guests Guests',
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: darkBg),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.add_circle_outline, color: primaryOrange, size: 20),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                                          onPressed: guests < 20 ? () => setDState(() => guests++) : null,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+
+                              TextField(
+                                controller: remarksCtrl,
+                                maxLines: 2,
+                                decoration: InputDecoration(
+                                  labelText: 'Special Notes / Seating Requests',
+                                  hintText: 'e.g. Window seat, Birthday, Quiet corner',
+                                  prefixIcon: const Icon(Icons.note_alt_outlined, size: 20),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                  filled: true,
+                                  fillColor: const Color(0xFFF8FAFC),
+                                  isDense: true,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text('$guests', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_outline),
-                            onPressed: guests < 20 ? () => setDState(() => guests++) : null,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: remarksCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Special Notes / Requests',
-                          hintText: 'e.g. Window seat, Birthday, Anniversary',
-                          isDense: true,
                         ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Action Buttons (Full width Confirm Button)
+                      Row(
+                        children: [
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            onPressed: () => Navigator.pop(dialogCtx),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primaryOrange,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              onPressed: submitting
+                                  ? null
+                                  : () async {
+                                      if (nameCtrl.text.trim().isEmpty || phoneCtrl.text.trim().isEmpty) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Name and phone are required')),
+                                        );
+                                        return;
+                                      }
+
+                                      setDState(() => submitting = true);
+                                      try {
+                                        final formattedDate = DateFormat('yyyy-MM-dd').format(resvDate);
+                                        final formattedTime = '${resvTime.hour.toString().padLeft(2, '0')}:${resvTime.minute.toString().padLeft(2, '0')}';
+                                        final res = await ApiClient.post(
+                                          '/api/public/dining/book-table',
+                                          {
+                                            'customer_name': nameCtrl.text.trim(),
+                                            'customer_phone': phoneCtrl.text.trim(),
+                                            'customer_email': emailCtrl.text.trim(),
+                                            'reservation_date': formattedDate,
+                                            'reservation_time': '$formattedDate $formattedTime',
+                                            'guest_count': guests,
+                                            'remarks': remarksCtrl.text.trim(),
+                                            'outlet_id': widget.outletId,
+                                          },
+                                        );
+
+                                        if (res != null && res['success'] == true) {
+                                          final updatedProfile = {
+                                            if (_customerProfile != null) ..._customerProfile!,
+                                            'customer_name': nameCtrl.text.trim(),
+                                            'customer_phone': phoneCtrl.text.trim(),
+                                            'customer_email': emailCtrl.text.trim(),
+                                            'name': nameCtrl.text.trim(),
+                                            'phone': phoneCtrl.text.trim(),
+                                            'email': emailCtrl.text.trim(),
+                                          };
+                                          final prefs = await SharedPreferences.getInstance();
+                                          final targetOutlet = (widget.outletId ?? '1').toString().trim();
+                                          final jsonStr = jsonEncode(updatedProfile);
+                                          await prefs.setString('dining_customer_profile_$targetOutlet', jsonStr);
+                                          await prefs.setString('dining_customer_profile', jsonStr);
+                                          setState(() {
+                                            _customerProfile = updatedProfile;
+                                            _isLoggedIn = true;
+                                          });
+
+                                          Navigator.pop(dialogCtx);
+                                          if (context.mounted) {
+                                            showDialog(
+                                              context: context,
+                                              builder: (sCtx) => AlertDialog(
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                                title: const Row(
+                                                  children: [
+                                                    Icon(Icons.check_circle, color: Colors.green),
+                                                    SizedBox(width: 8),
+                                                    Expanded(child: Text('Table Reservation Requested!')),
+                                                  ],
+                                                ),
+                                                content: Text(
+                                                  'Thank you ${nameCtrl.text.trim()}! Your table reservation request for $guests guest(s) on $dateStr at $timeStr has been received. The restaurant will confirm your table shortly.',
+                                                ),
+                                                actions: [
+                                                  ElevatedButton(
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: primaryOrange,
+                                                      foregroundColor: Colors.white,
+                                                    ),
+                                                    onPressed: () => Navigator.pop(sCtx),
+                                                    child: const Text('OK'),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }
+                                        } else {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text(res?['message'] ?? 'Could not book table')),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Reservation error: $e')),
+                                        );
+                                      } finally {
+                                        if (ctx.mounted) setDState(() => submitting = false);
+                                      }
+                                    },
+                              child: submitting
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                  : const Text('Confirm Reservation', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ),
-              actions: [
-                OutlinedButton(
-                  onPressed: () => Navigator.pop(dialogCtx),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
-                  onPressed: submitting
-                      ? null
-                      : () async {
-                          if (nameCtrl.text.trim().isEmpty || phoneCtrl.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Name and phone are required')),
-                            );
-                            return;
-                          }
-
-                          setDState(() => submitting = true);
-                          try {
-                            final formattedDate = DateFormat('yyyy-MM-dd').format(resvDate);
-                            final formattedTime = '${resvTime.hour.toString().padLeft(2, '0')}:${resvTime.minute.toString().padLeft(2, '0')}';
-                            final res = await ApiClient.post(
-                              '/api/public/dining/book-table',
-                              {
-                                'customer_name': nameCtrl.text.trim(),
-                                'customer_phone': phoneCtrl.text.trim(),
-                                'customer_email': emailCtrl.text.trim(),
-                                'reservation_date': formattedDate,
-                                'reservation_time': '$formattedDate $formattedTime',
-                                'guest_count': guests,
-                                'remarks': remarksCtrl.text.trim(),
-                                'outlet_id': widget.outletId,
-                              },
-                            );
-
-                            if (res != null && res['success'] == true) {
-                              // Auto-update and persist customer profile with entered booking details
-                              final updatedProfile = {
-                                if (_customerProfile != null) ..._customerProfile!,
-                                'customer_name': nameCtrl.text.trim(),
-                                'customer_phone': phoneCtrl.text.trim(),
-                                'customer_email': emailCtrl.text.trim(),
-                                'name': nameCtrl.text.trim(),
-                                'phone': phoneCtrl.text.trim(),
-                                'email': emailCtrl.text.trim(),
-                              };
-                              final prefs = await SharedPreferences.getInstance();
-                              final targetOutlet = (widget.outletId ?? '1').toString().trim();
-                              final jsonStr = jsonEncode(updatedProfile);
-                              await prefs.setString('dining_customer_profile_$targetOutlet', jsonStr);
-                              await prefs.setString('dining_customer_profile', jsonStr);
-                              setState(() {
-                                _customerProfile = updatedProfile;
-                                _isLoggedIn = true;
-                              });
-
-                              Navigator.pop(dialogCtx);
-                              if (context.mounted) {
-                                showDialog(
-                                  context: context,
-                                  builder: (sCtx) => AlertDialog(
-                                    title: const Row(
-                                      children: [
-                                        Icon(Icons.check_circle, color: Colors.green),
-                                        SizedBox(width: 8),
-                                        Text('Table Reservation Requested!'),
-                                      ],
-                                    ),
-                                    content: Text(
-                                      'Thank you ${nameCtrl.text.trim()}! Your table reservation request for $guests guest(s) on $dateStr at $timeStr has been received. The restaurant will confirm your table shortly.',
-                                    ),
-                                    actions: [
-                                      ElevatedButton(
-                                        onPressed: () => Navigator.pop(sCtx),
-                                        child: const Text('OK'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(res?['message'] ?? 'Could not book table')),
-                              );
-                            }
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Reservation error: $e')),
-                            );
-                          } finally {
-                            setDState(() => submitting = false);
-                          }
-                        },
-                  child: submitting
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Confirm Reservation'),
-                ),
-              ],
             );
           },
         );
@@ -1982,7 +2164,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     );
   }
 
-  // --- MAIN NAVIGATION TAB SELECTOR ---
+    // --- MAIN NAVIGATION TAB SELECTOR ---
 
   Widget _buildMainTabSelector() {
     final int ordersCount = _activeOrders.length;
@@ -2001,7 +2183,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
               onTap: () => setState(() => _currentMainTab = 0),
               borderRadius: BorderRadius.circular(9),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 9),
+                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
                 decoration: BoxDecoration(
                   color: _currentMainTab == 0 ? Colors.white : Colors.transparent,
                   borderRadius: BorderRadius.circular(9),
@@ -2020,16 +2202,20 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                   children: [
                     Icon(
                       Icons.restaurant_menu,
-                      size: 16,
+                      size: 15,
                       color: _currentMainTab == 0 ? primaryOrange : const Color(0xFF64748B),
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Food Menu',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: _currentMainTab == 0 ? primaryOrange : const Color(0xFF64748B),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        'Food Menu',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12.5,
+                          color: _currentMainTab == 0 ? primaryOrange : const Color(0xFF64748B),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -2037,13 +2223,13 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
               ),
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           Expanded(
             child: InkWell(
               onTap: () => setState(() => _currentMainTab = 1),
               borderRadius: BorderRadius.circular(9),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 9),
+                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
                 decoration: BoxDecoration(
                   color: _currentMainTab == 1 ? Colors.white : Colors.transparent,
                   borderRadius: BorderRadius.circular(9),
@@ -2062,22 +2248,26 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                   children: [
                     Icon(
                       Icons.receipt_long,
-                      size: 16,
+                      size: 15,
                       color: _currentMainTab == 1 ? primaryOrange : const Color(0xFF64748B),
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Order History & Status',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: _currentMainTab == 1 ? primaryOrange : const Color(0xFF64748B),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        'Orders & Status',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12.5,
+                          color: _currentMainTab == 1 ? primaryOrange : const Color(0xFF64748B),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     if (ordersCount > 0) ...[
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 4),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                         decoration: BoxDecoration(
                           color: _currentMainTab == 1 ? primaryOrange : const Color(0xFF0F172A),
                           borderRadius: BorderRadius.circular(10),
@@ -3429,6 +3619,10 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     final customerName = _customerProfile?['customer_name'] ?? _customerProfile?['name'] ?? 'Guest';
     final isNarrow = MediaQuery.of(context).size.width < 520;
 
+    String cleanAddress = (_restaurantData?['address'] ?? '').toString().trim();
+    if (cleanAddress.startsWith(',')) cleanAddress = cleanAddress.substring(1).trim();
+    if (cleanAddress.isEmpty) cleanAddress = 'Dine-in Experience';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: const BoxDecoration(
@@ -3452,7 +3646,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
-                        _restaurantData?['address'] ?? 'Dine-in Experience',
+                        cleanAddress,
                         style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -3515,7 +3709,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           const Divider(height: 1, color: Color(0xFFF1F5F9)),
           const SizedBox(height: 8),
 
-          // User Greeting & Floor Info
+                    // User Greeting & Floor Info (Streamlined, zero cramped text)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -3523,35 +3717,57 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                 child: Row(
                   children: [
                     const Icon(Icons.person_pin, size: 16, color: Color(0xFF0284C7)),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 5),
                     Flexible(
                       child: Text(
-                        _isLoggedIn
-                            ? ('Hello, $customerName • ' + (_currentSeat != null ? 'Seat $_currentSeat' : 'Table Mode'))
-                            : ('Guest • ' + (_currentSeat != null ? 'Seat $_currentSeat' : 'Table Mode') + ' (Sign in to order)'),
+                        _isLoggedIn ? 'Hello, $customerName' : 'Guest (Sign in to order)',
                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: darkBg),
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  if (floorName.isNotEmpty || areaName.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Text(
-                      '• ${[floorName, areaName].where((s) => s.isNotEmpty).join(", ")}',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                    ),
+                    if (floorName.isNotEmpty || areaName.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text('•', style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          [floorName, areaName].where((s) => s.isNotEmpty).join(", "),
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            if (_isLoggedIn)
+              const SizedBox(width: 8),
+              if (_isLoggedIn)
                 InkWell(
                   onTap: _confirmAndLogoutCustomer,
-                  child: const Text('Change User', style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.bold)),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                    ),
+                    child: const Text('Change User', style: TextStyle(fontSize: 10.5, color: Color(0xFF2563EB), fontWeight: FontWeight.bold)),
+                  ),
                 )
               else
                 InkWell(
                   onTap: () => _showAuthModal(context),
-                  child: const Text('Sign In', style: TextStyle(fontSize: 11, color: primaryOrange, fontWeight: FontWeight.bold)),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF7ED),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFFED7AA)),
+                    ),
+                    child: const Text('Sign In', style: TextStyle(fontSize: 10.5, color: primaryOrange, fontWeight: FontWeight.bold)),
+                  ),
                 ),
             ],
           ),
@@ -3666,7 +3882,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
 
               const SizedBox(height: 16),
 
-              // Action 1: Generate Store & Table Setup QR (ADMIN ONLY)
+              // Action 1: Generate Store & Table Setup QR
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 shape: RoundedRectangleBorder(
@@ -3681,25 +3897,12 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                   ),
                   child: const Icon(Icons.qr_code_2, color: Colors.amber, size: 22),
                 ),
-                title: const Row(
-                  children: [
-                    Text('Generate Server Setup QR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    SizedBox(width: 8),
-                    Chip(
-                      label: Text('Admin Only', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFFDC2626))),
-                      backgroundColor: Color(0xFFFEF2F2),
-                      side: BorderSide(color: Color(0xFFFECACA)),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: EdgeInsets.zero,
-                    ),
-                  ],
-                ),
+                title: const Text('Generate Server Setup QR', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
                 subtitle: const Text('Generate & print QR standees for customers to connect & dine', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                trailing: const Icon(Icons.lock_outline, size: 18, color: Color(0xFF94A3B8)),
+                trailing: const Icon(Icons.chevron_right, size: 20, color: Color(0xFF94A3B8)),
                 onTap: () {
                   Navigator.pop(sheetCtx);
-                  _handleGenerateSetupQr();
+                  _openSetupQrDialog();
                 },
               ),
 
@@ -3742,253 +3945,26 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     );
   }
 
-  Future<void> _handleGenerateSetupQr() async {
-    // 1. Check if current authenticated user session is already admin/owner
-    bool isAdmin = false;
-    try {
-      final role = (await TokenStorage.getRole() ?? '').toUpperCase().trim();
-      final user = await TokenStorage.getUser();
-      final userRole = (user?['role'] ?? role).toString().toUpperCase().trim();
-      isAdmin = userRole == 'ADMIN' ||
-          userRole == 'SUPER_ADMIN' ||
-          userRole == 'OWNER' ||
-          userRole == 'ENTERPRISE_ADMIN';
-    } catch (_) {}
-
-    if (isAdmin) {
-      if (!mounted) return;
-      _openSetupQrDialog();
-      return;
+  void _openSetupQrDialog() {
+    String? resolvedOutlet = (widget.outletId != null && int.tryParse(widget.outletId!) == null) ? widget.outletId : null;
+    if (resolvedOutlet == null || resolvedOutlet.isEmpty) {
+      if (AppConfig.outlets.isNotEmpty) {
+        resolvedOutlet = AppConfig.outlets.firstWhere((o) => int.tryParse(o) == null, orElse: () => '');
+      }
+    }
+    if (resolvedOutlet == null || resolvedOutlet.isEmpty) {
+      resolvedOutlet = 'OUTLET202604212159';
     }
 
-    // 2. Not admin: prompt for Admin Credentials / PIN verification
-    if (!mounted) return;
-    _showAdminVerificationModal();
-  }
-
-  void _openSetupQrDialog() {
     AppSetupQrDialog.show(
       context,
       serverUrl: AppConfig.baseUrl,
-      outletCode: widget.outletId ?? '1',
+      outletCode: resolvedOutlet,
       storeName: _restaurantData?['property_name'] ?? 'Dining Outlet',
       mode: AppSetupQrMode.customer,
     );
   }
 
-  void _showAdminVerificationModal() {
-    final pinOrPassCtrl = TextEditingController();
-    final userCtrl = TextEditingController();
-    bool isSubmitting = false;
-    String? errorText;
-    bool usePinMode = true;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogCtx) {
-        return StatefulBuilder(
-          builder: (ctx, setDState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFEF2F2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.shield_outlined, color: Color(0xFFDC2626), size: 22),
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Admin Authorization', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                        Text('Required to generate store setup QR', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              content: SizedBox(
-                width: 360,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Store QR code generation is restricted to store administrators to prevent unauthorized reconfiguration.',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF475569)),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Toggle between Admin PIN vs Admin Password
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ChoiceChip(
-                            label: const Center(child: Text('Admin PIN', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
-                            selected: usePinMode,
-                            onSelected: (val) {
-                              setDState(() {
-                                usePinMode = true;
-                                errorText = null;
-                                pinOrPassCtrl.clear();
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ChoiceChip(
-                            label: const Center(child: Text('Admin Login', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold))),
-                            selected: !usePinMode,
-                            onSelected: (val) {
-                              setDState(() {
-                                usePinMode = false;
-                                errorText = null;
-                                pinOrPassCtrl.clear();
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    if (!usePinMode) ...[
-                      TextField(
-                        controller: userCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Admin Username / Email',
-                          prefixIcon: Icon(Icons.person, size: 18),
-                          isDense: true,
-                          border: OutlineInputBorder(),
-                        ),
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-
-                    TextField(
-                      controller: pinOrPassCtrl,
-                      obscureText: true,
-                      keyboardType: usePinMode ? TextInputType.number : TextInputType.text,
-                      decoration: InputDecoration(
-                        labelText: usePinMode ? 'Enter Admin 4-6 Digit PIN' : 'Admin Password',
-                        prefixIcon: Icon(usePinMode ? Icons.pin : Icons.lock_outline, size: 18),
-                        isDense: true,
-                        border: const OutlineInputBorder(),
-                        errorText: errorText,
-                      ),
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting ? null : () => Navigator.pop(dialogCtx),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          final secret = pinOrPassCtrl.text.trim();
-                          if (secret.isEmpty) {
-                            setDState(() => errorText = 'Please enter PIN or password');
-                            return;
-                          }
-
-                          setDState(() {
-                            isSubmitting = true;
-                            errorText = null;
-                          });
-
-                          try {
-                            final baseUrl = AppConfig.baseUrl.isNotEmpty ? AppConfig.baseUrl : 'http://localhost:5000';
-                            bool verified = false;
-
-                            if (usePinMode) {
-                              final res = await http.post(
-                                Uri.parse('$baseUrl/api/auth/pin-login'),
-                                headers: {'Content-Type': 'application/json'},
-                                body: jsonEncode({'pin': secret}),
-                              ).timeout(const Duration(seconds: 8));
-
-                              if (res.statusCode == 200) {
-                                final data = jsonDecode(res.body);
-                                final userRole = (data['user']?['role'] ?? data['role'] ?? '').toString().toUpperCase().trim();
-                                if (userRole == 'ADMIN' || userRole == 'SUPER_ADMIN' || userRole == 'OWNER' || userRole == 'ENTERPRISE_ADMIN') {
-                                  verified = true;
-                                } else {
-                                  errorText = 'This PIN belongs to $userRole, not an Administrator.';
-                                }
-                              } else {
-                                errorText = 'Invalid Admin PIN';
-                              }
-                            } else {
-                              final username = userCtrl.text.trim();
-                              if (username.isEmpty) {
-                                setDState(() {
-                                  isSubmitting = false;
-                                  errorText = 'Please enter admin username';
-                                });
-                                return;
-                              }
-                              final res = await http.post(
-                                Uri.parse('$baseUrl/api/auth/login'),
-                                headers: {'Content-Type': 'application/json'},
-                                body: jsonEncode({'username': username, 'password': secret}),
-                              ).timeout(const Duration(seconds: 8));
-
-                              if (res.statusCode == 200) {
-                                final data = jsonDecode(res.body);
-                                final userRole = (data['user']?['role'] ?? data['role'] ?? '').toString().toUpperCase().trim();
-                                if (userRole == 'ADMIN' || userRole == 'SUPER_ADMIN' || userRole == 'OWNER' || userRole == 'ENTERPRISE_ADMIN') {
-                                  verified = true;
-                                } else {
-                                  errorText = 'Access denied: User does not have Administrator privileges.';
-                                }
-                              } else {
-                                errorText = 'Invalid username or password';
-                              }
-                            }
-
-                            if (verified) {
-                              Navigator.pop(dialogCtx);
-                              _openSetupQrDialog();
-                            } else {
-                              setDState(() => isSubmitting = false);
-                            }
-                          } catch (e) {
-                            setDState(() {
-                              isSubmitting = false;
-                              errorText = 'Connection error: Could not verify admin credentials.';
-                            });
-                          }
-                        },
-                  child: isSubmitting
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Authorize & Generate'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  
   Widget _buildSeatSelectorPill() {
     final bool hasSeat = _currentSeat != null && _currentSeat!.isNotEmpty;
     final String label = hasSeat ? 'Seat $_currentSeat' : 'Table Mode';
@@ -4214,9 +4190,13 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           children: [
             const Icon(Icons.table_restaurant, color: primaryOrange, size: 14),
             const SizedBox(width: 5),
-            Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: darkBg),
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: darkBg),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             const SizedBox(width: 2),
             const Icon(Icons.arrow_drop_down, color: primaryOrange, size: 18),
@@ -4422,41 +4402,33 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           final buttons = [
             _colorfulActionBtn(
               label: 'Call Server',
-              subLabel: 'Steward',
               icon: Icons.room_service_rounded,
               accentColor: const Color(0xFF4F46E5), // Indigo
-              bgGradientStart: const Color(0xFFEEF2FF),
-              bgGradientEnd: const Color(0xFFE0E7FF),
+              bgColor: const Color(0xFFEEF2FF),
               borderColor: const Color(0xFFC7D2FE),
               onTap: () => _callWaiter('CALL_WAITER'),
             ),
             _colorfulActionBtn(
               label: 'Water',
-              subLabel: 'Refill Glass',
               icon: Icons.water_drop_rounded,
               accentColor: const Color(0xFF0284C7), // Sky/Cyan
-              bgGradientStart: const Color(0xFFF0F9FF),
-              bgGradientEnd: const Color(0xFFE0F2FE),
+              bgColor: const Color(0xFFF0F9FF),
               borderColor: const Color(0xFFBAE6FD),
               onTap: () => _callWaiter('WATER'),
             ),
             _colorfulActionBtn(
               label: 'Request Bill',
-              subLabel: 'Get Invoice',
               icon: Icons.receipt_long_rounded,
               accentColor: const Color(0xFFD97706), // Amber
-              bgGradientStart: const Color(0xFFFFFBEB),
-              bgGradientEnd: const Color(0xFFFEF3C7),
+              bgColor: const Color(0xFFFFFBEB),
               borderColor: const Color(0xFFFDE68A),
               onTap: () => _callWaiter('BILL'),
             ),
             _colorfulActionBtn(
               label: _activeOrders.isEmpty ? 'Order History' : 'Orders (${_activeOrders.length})',
-              subLabel: _activeOrders.isEmpty ? 'Past orders' : 'Active KOTs',
               icon: Icons.fastfood_rounded,
               accentColor: const Color(0xFF059669), // Emerald
-              bgGradientStart: const Color(0xFFECFDF5),
-              bgGradientEnd: const Color(0xFFD1FAE5),
+              bgColor: const Color(0xFFECFDF5),
               borderColor: const Color(0xFFA7F3D0),
               badgeCount: _activeOrders.length,
               onTap: () => setState(() => _currentMainTab = 1),
@@ -4491,110 +4463,62 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
 
   Widget _colorfulActionBtn({
     required String label,
-    required String subLabel,
     required IconData icon,
     required Color accentColor,
-    required Color bgGradientStart,
-    required Color bgGradientEnd,
+    required Color bgColor,
     required Color borderColor,
     int badgeCount = 0,
     required VoidCallback onTap,
   }) {
     return Material(
       color: Colors.transparent,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        splashColor: accentColor.withValues(alpha: 0.2),
-        highlightColor: accentColor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        splashColor: accentColor.withValues(alpha: 0.15),
         child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [bgGradientStart, bgGradientEnd],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(12),
+            color: bgColor,
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(color: borderColor, width: 1.2),
             boxShadow: [
               BoxShadow(
-                color: accentColor.withValues(alpha: 0.12),
+                color: accentColor.withValues(alpha: 0.08),
                 blurRadius: 4,
-                offset: const Offset(0, 2),
+                offset: const Offset(0, 1),
               ),
             ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: accentColor.withValues(alpha: 0.2),
-                      blurRadius: 3,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
-                ),
-                child: Icon(icon, size: 16, color: accentColor),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            label,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF0F172A),
-                              letterSpacing: -0.2,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (badgeCount > 0) ...[
-                          const SizedBox(width: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: accentColor,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '$badgeCount',
-                              style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    Text(
-                      subLabel,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: accentColor.withValues(alpha: 0.9),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+              Icon(icon, size: 16, color: accentColor),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: accentColor,
+                  letterSpacing: -0.1,
                 ),
               ),
+              if (badgeCount > 0) ...[
+                const SizedBox(width: 5),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: accentColor,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$badgeCount',
+                    style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -4701,21 +4625,37 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           final cat = idx == 0 ? 'ALL' : _categories[idx - 1];
           final isSelected = _selectedCategory == cat;
 
-          return ChoiceChip(
-            selected: isSelected,
-            selectedColor: primaryOrange,
-            backgroundColor: Colors.white,
-            side: BorderSide(color: isSelected ? primaryOrange : const Color(0xFFE2E8F0)),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            label: Text(
-              idx == 0 ? 'All Categories' : cat,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: isSelected ? Colors.white : const Color(0xFF334155),
+          return InkWell(
+            onTap: () => setState(() => _selectedCategory = cat),
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFF2563EB) : Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: isSelected ? const Color(0xFF2563EB) : const Color(0xFFE2E8F0)),
+                boxShadow: isSelected
+                    ? [BoxShadow(color: const Color(0xFF2563EB).withValues(alpha: 0.2), blurRadius: 4, offset: const Offset(0, 1))]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isSelected) ...[
+                    const Icon(Icons.check, size: 14, color: Colors.white),
+                    const SizedBox(width: 4),
+                  ],
+                  Text(
+                    idx == 0 ? 'All' : cat,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                      color: isSelected ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
               ),
             ),
-            onSelected: (_) => setState(() => _selectedCategory = cat),
           );
         },
       ),
@@ -4868,9 +4808,9 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                 Text(
                   '$currency${price.toStringAsFixed(2)}',
                   style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 13,
-                    color: isOutOfStock ? const Color(0xFF94A3B8) : darkBg,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: isOutOfStock ? const Color(0xFF94A3B8) : const Color(0xFF059669),
                   ),
                 ),
 
@@ -4912,15 +4852,14 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
               ] else if (qty == 0) ...[
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: primaryOrange,
-                    elevation: 1,
-                    side: const BorderSide(color: Color(0xFFE2E8F0)),
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
                   ),
                   onPressed: () => _addItemToCart(item),
-                  child: const Text('ADD +', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  child: const Text('Add', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 ),
                 if (hasModifiers) ...[
                   const SizedBox(height: 3),
@@ -4937,8 +4876,9 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                 ],
               ] else ...[
                 Container(
+                  height: 32,
                   decoration: BoxDecoration(
-                    color: primaryOrange,
+                    color: const Color(0xFF2563EB),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
@@ -4951,9 +4891,12 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                         constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                         onPressed: () => _removeItemFromCart(item),
                       ),
-                      Text(
-                        '$qty',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Text(
+                          '$qty',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
                       ),
                       IconButton(
                         icon: const Icon(Icons.add, size: 14, color: Colors.white),
@@ -4965,28 +4908,19 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                     ],
                   ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 4),
                 InkWell(
                   onTap: () => _showModifiersDialog(itemId),
-                  borderRadius: BorderRadius.circular(4),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF7ED),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: const Color(0xFFFFD8A8)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.tune, size: 10, color: primaryOrange),
-                        const SizedBox(width: 3),
-                        Text(
-                          hasModifiers ? 'Customise' : 'Notes',
-                          style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: primaryOrange),
-                        ),
-                      ],
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.tune, size: 10, color: primaryOrange),
+                      const SizedBox(width: 2),
+                      Text(
+                        hasModifiers ? 'Customise' : 'Notes',
+                        style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: primaryOrange),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -5147,17 +5081,19 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                                       ),
                                     ),
                                     Container(
+                                      height: 30,
                                       decoration: BoxDecoration(
-                                        border: Border.all(color: primaryOrange),
+                                        color: const Color(0xFFFFF1F2),
                                         borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: primaryOrange, width: 1.1),
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           IconButton(
-                                            icon: const Icon(Icons.remove, size: 12, color: primaryOrange),
+                                            icon: const Icon(Icons.remove, size: 13, color: primaryOrange),
                                             padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                                            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                                             onPressed: () {
                                               _removeItemFromCart(item);
                                               setSheetState(() {});
@@ -5165,11 +5101,17 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                                               if (_cart.isEmpty) Navigator.pop(context);
                                             },
                                           ),
-                                          Text('$qty', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                                            child: Text(
+                                              '$qty',
+                                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: primaryOrange),
+                                            ),
+                                          ),
                                           IconButton(
-                                            icon: const Icon(Icons.add, size: 12, color: primaryOrange),
+                                            icon: const Icon(Icons.add, size: 13, color: primaryOrange),
                                             padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                                            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                                             onPressed: () {
                                               _addItemToCart(item);
                                               setSheetState(() {});
@@ -5229,25 +5171,16 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
                                         onTap: () {
                                           _showModifiersDialog(itemId, parentSetSheetState: setSheetState);
                                         },
-                                        borderRadius: BorderRadius.circular(4),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFFFF7ED),
-                                            border: Border.all(color: const Color(0xFFFFD8A8)),
-                                            borderRadius: BorderRadius.circular(5),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              const Icon(Icons.tune, size: 12, color: primaryOrange),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                modDetails.isEmpty && note.isEmpty ? '+ Customise / Add-ons' : 'Edit Add-ons',
-                                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: primaryOrange),
-                                              ),
-                                            ],
-                                          ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.edit_note_rounded, size: 14, color: primaryOrange),
+                                            const SizedBox(width: 2),
+                                            Text(
+                                              modDetails.isEmpty && note.isEmpty ? 'Customise' : 'Edit Add-ons',
+                                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: primaryOrange),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
@@ -5530,11 +5463,14 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           children: [
             const Icon(Icons.receipt, color: primaryOrange),
             const SizedBox(width: 8),
-            Text(
-              isBillGenerated
-                  ? '${_restaurantData?['property_name'] ?? 'Restaurant'} Bill'
-                  : '${_restaurantData?['property_name'] ?? 'Restaurant'} Order Summary',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            Expanded(
+              child: Text(
+                isBillGenerated
+                    ? '${_restaurantData?['property_name'] ?? 'Restaurant'} Bill'
+                    : '${_restaurantData?['property_name'] ?? 'Restaurant'} Order Summary',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                softWrap: true,
+              ),
             ),
           ],
         ),

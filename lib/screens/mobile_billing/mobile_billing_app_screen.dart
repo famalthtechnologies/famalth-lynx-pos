@@ -85,7 +85,6 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
   String _subsStatusFilter = 'ALL'; // 'ALL', 'ACTIVE', 'UPCOMING_RENEWAL', 'EXPIRED'
   final TextEditingController _subsSearchCtrl = TextEditingController();
   bool _loadingSubs = false;
-  bool _isAdmin = false;
 
   static const Color surfaceLight = Color(0xFFF8FAFC);
   static const Color borderSubtle = Color(0xFFE2E8F0);
@@ -107,16 +106,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
   Future<void> _checkAdminRole() async {
     try {
       final role = (await TokenStorage.getRole() ?? '').toUpperCase().trim();
-      final user = await TokenStorage.getUser();
-      final userRole = (user?['role'] ?? role).toString().toUpperCase().trim();
-      if (mounted) {
-        setState(() {
-          _isAdmin = userRole == 'ADMIN' ||
-              userRole == 'SUPER_ADMIN' ||
-              userRole == 'OWNER' ||
-              userRole == 'ENTERPRISE_ADMIN';
-        });
-      }
+
     } catch (_) {}
   }
 
@@ -3544,20 +3534,18 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
             bg: const Color(0xFFFFFBEB),
             onTap: _openStockBalanceModal,
           ),
-          if (_isAdmin) ...[
-            const SizedBox(height: 10),
-            _buildHubTile(
-              icon: Icons.qr_code_2_rounded,
-              title: 'Staff App Setup QR',
-              subtitle: 'Generate & print QR code for Waiter, Rider & companion apps auto-config',
-              badge: 'Admin Only',
-              color: const Color(0xFF0284C7),
-              bg: const Color(0xFFF0F9FF),
-              onTap: () {
-                AppSetupQrDialog.show(context);
-              },
-            ),
-          ],
+          const SizedBox(height: 10),
+          _buildHubTile(
+            icon: Icons.qr_code_2_rounded,
+            title: 'Staff App Setup QR',
+            subtitle: 'Generate & print QR code for Waiter, Rider & companion apps auto-config',
+            badge: 'Setup QR',
+            color: const Color(0xFF0284C7),
+            bg: const Color(0xFFF0F9FF),
+            onTap: () {
+              AppSetupQrDialog.show(context);
+            },
+          ),
           const SizedBox(height: 24),
 
           // Logout Button

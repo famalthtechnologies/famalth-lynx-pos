@@ -1868,8 +1868,11 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                               backgroundColor: const Color(0xFF059669),
                               foregroundColor: Colors.white,
                             ),
-                            onPressed: () {
-                              AppSetupQrDialog.show(context);
+                            onPressed: () async {
+                              final lanUrl = await AppConfig.getLanServerUrl();
+                              if (context.mounted) {
+                                AppSetupQrDialog.show(context, serverUrl: lanUrl);
+                              }
                             },
                             icon: const Icon(Icons.qr_code_2_rounded, size: 18),
                             label: const Text('Generate QR Standee'),

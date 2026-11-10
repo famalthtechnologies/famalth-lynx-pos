@@ -1,3 +1,4 @@
+import '../dashboard/retailer_console_screen.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -41,7 +42,7 @@ class _SupplierAppSplashScreenState extends State<SupplierAppSplashScreen> {
 
       if (!kIsWeb && Platform.isWindows) {
         // Bypass login on Windows for testing!
-        final nextWidget = await HomeRouteHelper.resolve();
+        final nextWidget = const RetailerConsoleScreen();
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
@@ -56,11 +57,10 @@ class _SupplierAppSplashScreenState extends State<SupplierAppSplashScreen> {
       if (!mounted) return;
 
       if (isTokenValid) {
-        final nextWidget = await HomeRouteHelper.resolve();
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => nextWidget),
+          MaterialPageRoute(builder: (context) => const RetailerConsoleScreen()),
         );
       } else {
         Navigator.pushReplacement(

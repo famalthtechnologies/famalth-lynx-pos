@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
@@ -188,6 +190,8 @@ class _AppSetupQrDialogState extends State<AppSetupQrDialog> {
   late String _resolvedOutlet;
   late String _resolvedStoreName;
   bool _isPrinting = false;
+  bool _isLanDetected = false;
+  List<Map<String, String>> _availableLanIps = [];
 
   bool get _isCustomer => widget.mode == AppSetupQrMode.customer;
 
@@ -197,25 +201,98 @@ class _AppSetupQrDialogState extends State<AppSetupQrDialog> {
     _resolvedUrl = (widget.serverUrl != null && widget.serverUrl!.isNotEmpty)
         ? widget.serverUrl!
         : AppConfig.baseUrl;
-    _resolvedOutlet =
-        (widget.outletCode != null && widget.outletCode!.isNotEmpty)
-            ? widget.outletCode!
-            : (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+    String initialOutlet = (widget.outletCode != null && widget.outletCode!.isNotEmpty)
+        ? widget.outletCode!
+        : '';
+    if (initialOutlet.isEmpty || initialOutlet == '1' || int.tryParse(initialOutlet) != null) {
+      if (AppConfig.outlets.isNotEmpty) {
+        final found = AppConfig.outlets.firstWhere((o) => int.tryParse(o) == null, orElse: () => '');
+        if (found.isNotEmpty) initialOutlet = found;
+      }
+    }
+    _resolvedOutlet = initialOutlet.isNotEmpty ? initialOutlet : (AppConfig.outlets.isNotEmpty ? AppConfig.outlets.first : '');
+    if (_resolvedOutlet.isEmpty || _resolvedOutlet == '1' || int.tryParse(_resolvedOutlet) != null) {
+      _resolvedOutlet = 'OUTLET202604212159';
+    }
     _resolvedStoreName =
         (widget.storeName != null && widget.storeName!.isNotEmpty)
             ? widget.storeName!
             : (_isCustomer ? 'Store Shopping' : 'Store Setup');
 
     _loadOutletIfEmpty();
+    _resolveSystemLanIp();
+  }
+
+  Future<void> _resolveSystemLanIp() async {
+    final lanUrl = await AppConfig.getLanServerUrl(customUrl: _resolvedUrl);
+    if (lanUrl != _resolvedUrl && mounted) {
+      setState(() {
+        _resolvedUrl = lanUrl;
+        _isLanDetected = true;
+      });
+    }
+
+    try {
+      if (!kIsWeb) {
+        final interfaces = await NetworkInterface.list(
+          type: InternetAddressType.IPv4,
+          includeLoopback: false,
+        );
+        final list = <Map<String, String>>[];
+        for (final iface in interfaces) {
+          for (final addr in iface.addresses) {
+            final ip = addr.address;
+            if (!addr.isLoopback && !ip.startsWith('169.254.') && !ip.startsWith('127.')) {
+              list.add({'iface': iface.name, 'ip': ip});
+            }
+          }
+        }
+        if (list.isNotEmpty && mounted) {
+          setState(() {
+            _availableLanIps = list;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _changeLanIp(String newIp) {
+    try {
+      final uri = Uri.parse(_resolvedUrl);
+      final newUri = uri.replace(host: newIp);
+      setState(() {
+        _resolvedUrl = newUri.toString();
+        _isLanDetected = true;
+      });
+    } catch (_) {}
+  }
+
+  bool _isLanIp(String url) {
+    try {
+      final host = Uri.parse(url).host;
+      return host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.');
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _loadOutletIfEmpty() async {
-    if (_resolvedOutlet.isEmpty) {
+    if (_resolvedOutlet.isEmpty || _resolvedOutlet == '1' || int.tryParse(_resolvedOutlet) != null) {
       final code = await TokenStorage.getOutletCode();
-      if (code != null && code.isNotEmpty && mounted) {
+      if (code != null && code.isNotEmpty && int.tryParse(code) == null && mounted) {
         setState(() {
           _resolvedOutlet = code;
         });
+        return;
+      }
+      if (AppConfig.outlets.isNotEmpty) {
+        final found = AppConfig.outlets.firstWhere((o) => int.tryParse(o) == null, orElse: () => '');
+        if (found.isNotEmpty && mounted) {
+          setState(() {
+            _resolvedOutlet = found;
+          });
+          return;
+        }
       }
     }
   }
@@ -540,15 +617,73 @@ class _AppSetupQrDialogState extends State<AppSetupQrDialog> {
                             _resolvedUrl,
                             style: const TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                               color: Color(0xFF1E293B),
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        if (_isLanDetected || _isLanIp(_resolvedUrl)) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFECFDF5),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: const Color(0xFFA7F3D0)),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.wifi, size: 10, color: Color(0xFF059669)),
+                                SizedBox(width: 3),
+                                Text(
+                                  'System LAN IP',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF059669),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
+                    if (_availableLanIps.length > 1) ...[
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: PopupMenuButton<String>(
+                          tooltip: 'Switch Network IP',
+                          padding: EdgeInsets.zero,
+                          onSelected: _changeLanIp,
+                          itemBuilder: (ctx) => _availableLanIps.map((item) {
+                            return PopupMenuItem<String>(
+                              value: item['ip'],
+                              child: Text('${item['iface']}: ${item['ip']}'),
+                            );
+                          }).toList(),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.swap_horiz, size: 14, color: Color(0xFF2563EB)),
+                              SizedBox(width: 4),
+                              Text(
+                                'Switch Network Interface',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF2563EB),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     if (_resolvedOutlet.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Row(

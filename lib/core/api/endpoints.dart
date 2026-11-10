@@ -234,6 +234,9 @@ class ApiEndpoints {
   static const String developerInfo = '/api/v1/developer/ecosystem/info';
   static const String developerWebhooks = '/api/v1/developer/webhooks';
   static const String developerApiKeys = '/api/v1/developer/apikeys';
+  static const String developerMcpConfig = '/api/v1/developer/mcp/config';
+  static const String developerMcpTools = '/api/v1/developer/mcp/tools';
+  static const String developerMcpExecute = '/api/v1/developer/mcp/tools/execute';
   static const String pluginsInstalled = '/api/v1/plugins/installed';
   static const String pluginsMarketplace = '/api/v1/plugins/marketplace';
   static const String pluginsCommunitySearch = '/api/v1/plugins/community/search';

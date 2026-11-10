@@ -10,6 +10,7 @@ class AppConfig {
   static String baseUrl = 'http://127.0.0.1:3000';
   static List<String> outlets = [];
   static bool isMobileBilling = false;
+  static bool isSupplierApp = false;
   static late String _configPath;
 
   static Future<void> init() async {
@@ -158,4 +159,73 @@ class AppConfig {
 
   /// True if connected to an online cloud hosted server (e.g. VPS, DigitalOcean, Cloud domain)
   static bool get isCloudServer => !isLocalServer && !isClientPc;
+
+  /// Resolves the system's actual Wi-Fi / Ethernet LAN IP when connected to a local server (localhost / 127.0.0.1)
+  /// so that mobile companion devices (Waiter, Billing, Rider, Customer, Dining, Clinic) can connect over Wi-Fi.
+  static Future<String> getLanServerUrl({String? customUrl}) async {
+    final target = (customUrl != null && customUrl.trim().isNotEmpty) ? customUrl.trim() : baseUrl;
+    try {
+      final uri = Uri.parse(target);
+      final host = uri.host.toLowerCase();
+      final isLocal = host == 'localhost' ||
+          host == '127.0.0.1' ||
+          host == '0.0.0.0' ||
+          host == '::1' ||
+          host.startsWith('127.');
+      if (!isLocal) {
+        return target;
+      }
+
+      String? lanIp;
+
+      // 1. On native platforms (Windows, Android, iOS, macOS, Linux)
+      if (!kIsWeb) {
+        try {
+          final interfaces = await NetworkInterface.list(
+            type: InternetAddressType.IPv4,
+            includeLoopback: false,
+          );
+
+          for (final iface in interfaces) {
+            for (final addr in iface.addresses) {
+              final ip = addr.address;
+              if (!addr.isLoopback && !ip.startsWith('169.254.') && !ip.startsWith('127.')) {
+                if (ip.startsWith('192.168.') || ip.startsWith('10.')) {
+                  lanIp = ip;
+                  break;
+                } else if (lanIp == null) {
+                  lanIp = ip;
+                }
+              }
+            }
+            if (lanIp != null && (lanIp.startsWith('192.168.') || lanIp.startsWith('10.'))) {
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. Query backend network-info endpoint if needed
+      if (lanIp == null) {
+        try {
+          final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+          final request = await client.getUrl(Uri.parse('$target/api/system/server-time/network-info'));
+          final response = await request.close();
+          if (response.statusCode == 200) {
+            final body = await response.transform(utf8.decoder).join();
+            final data = jsonDecode(body);
+            final primary = data['primaryIp']?.toString();
+            if (primary != null && primary.isNotEmpty && primary != '127.0.0.1') {
+              lanIp = primary;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (lanIp != null && lanIp.isNotEmpty) {
+        return uri.replace(host: lanIp).toString();
+      }
+    } catch (_) {}
+    return target;
+  }
 }

@@ -1814,6 +1814,10 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
         for (const s of settingsList) {
             settingsByOutlet.set(s.outlet_id, s);
         }
+        const allOutlets = await (req as any).propertyDb.models.outlets.findAll({ bypassOutletFilter: true }).catch(() => []);
+        const outletMap = new Map<number, any>();
+        for (const o of allOutlets) { outletMap.set(o.id, o); }
+
 
         // Group doctors by clinic outlet to support multi-doctor clinics
         const doctorsByOutlet = new Map<number, any[]>();
@@ -1853,6 +1857,9 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                     consultation_fee: Number(docItem.consultation_fee || 0),
                     phone: docItem.phone_no || docItem.mobile || '',
                     whatsapp: docItem.whatsapp_no || '',
+                    currency: st?.base_currency_symbol || '₹',
+                    currency_symbol: st?.base_currency_symbol || '₹',
+                    currency_code: st?.base_currency_code || 'INR',
                     available_days: days,
                     start_time: itemOpts.start_time || '09:00 AM',
                     end_time: itemOpts.end_time || '06:00 PM',
@@ -1876,6 +1883,9 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                 registration_no: d.registration_no || '',
                 experience_years: d.experience_years || 8,
                 consultation_fee: Number(d.consultation_fee || 0),
+                currency: st?.base_currency_symbol || '₹',
+                currency_symbol: st?.base_currency_symbol || '₹',
+                currency_code: st?.base_currency_code || 'INR',
                 is_verified_badge: true,
                 rating: 0, rating_count: 0,
                 doctor_bio: 'Specialist in ' + (d.speciality || 'general clinical medicine') + ' with dedicated patient care.',
@@ -1886,6 +1896,7 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                 whatsapp: (opts.show_whatsapp !== false) ? (d.whatsapp_no || clinic.mobile || '') : '',
                 email: (opts.show_email !== false) ? (d.email || d.contact_email || '') : '',
                 outlet_id: d.outlet_id,
+                outlet_code: (outletMap.get(d.outlet_id)?.outlet_code || clinic.outlet_code || 'OUTLET202604212159'),
                 available_days: activeDays,
                 start_time: opts.start_time || '09:00 AM',
                 end_time: opts.end_time || '06:00 PM',
@@ -1927,7 +1938,7 @@ export const getPublicDoctors = async (req: Request, res: Response) => {
                     experience_years: 10,
                     consultation_fee: 600,
                     is_verified_badge: true,
-                    rating: 4.8,
+                    rating: 0, rating_count: 0,
                     doctor_bio: 'Expert Dermatologist and cosmetologist.',
                     clinic_name: c.property_name || 'Skin & Wellness Clinic',
                     city: docCity,

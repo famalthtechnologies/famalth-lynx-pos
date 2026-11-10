@@ -1,0 +1,26 @@
+{
+  "name": "retail-sale-pos",
+  "version": "2.0.0",
+  "private": true,
+  "description": "FAMALTH LYNX - Retail POS, ERP, Web App & AI Gateway",
+  "scripts": {
+    "build": "flutter build web --release --web-renderer auto",
+    "vercel-build": "bash scripts/vercel-build.sh || (flutter build web --release --web-renderer auto)",
+    "start": "node backend/server.js",
+    "server": "cd backend && npm start",
+    "docker:build": "docker build -t retail-sale-pos:latest .",
+    "docker:run": "docker run -p 3000:3000 -e PORT=3000 retail-sale-pos:latest",
+    "compose:up": "docker compose up --build",
+    "compose:down": "docker compose down"
+  },
+  "keywords": [
+    "pos",
+    "retail",
+    "flutter",
+    "erp",
+    "mcp",
+    "ai-billing"
+  ],
+  "author": "Famalth Business Solutions",
+  "license": "ISC"
+}
