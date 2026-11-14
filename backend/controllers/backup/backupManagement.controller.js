@@ -319,18 +319,17 @@ class BackupManagementController {
             const isMasterAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
             const isCloud = isCloudEnvironment();
             const scope = (String(req.body?.scope || 'OUTLET').toUpperCase() === 'ALL') ? 'ALL' : 'OUTLET';
-            const isLanClient = !isLoopback && !isCloud && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
-            if (scope === 'ALL' && isLanClient && !isMasterAdmin) {
+            if (isCloud && scope === 'ALL') {
                 return res.status(403).json({
                     success: false,
-                    message: 'Full system database backups cannot be initiated from a Client PC. Please perform backups on the Main Server PC or export your Particular Outlet backup.',
+                    message: 'When hosted on cloud, only your own outlet backup (.fambak) is allowed. Multi-outlet system backups are disabled on cloud instances.',
                 });
             }
-            // Full enterprise database backup (ALL) is restricted strictly to the Local Server PC
-            if (scope === 'ALL' && !isLoopback && !isCloud && !isMasterAdmin) {
+            const isLanClient = !isLoopback && !isCloud && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
+            if (scope === 'ALL' && !isLoopback && !isMasterAdmin) {
                 return res.status(403).json({
                     success: false,
-                    message: 'All Outlets (Enterprise DB) backups can only be created directly on the Local Server PC. Cloud servers and remote terminals are restricted to their own outlet backup.',
+                    message: 'All Outlets (Enterprise DB) backups can only be created directly on the Local Server PC. Cloud servers and client terminals are restricted to their own outlet backup.',
                 });
             }
             const outletId = Number(req.body?.outletId || req.outlet_id || req.user?.outlet_id || 1);
@@ -439,15 +438,21 @@ class BackupManagementController {
             const isLocalServerSuperAdmin = isMasterAdmin && isLoopback;
             const isCloud = isCloudEnvironment();
             const requestedScope = String(req.body?.scope || '').toUpperCase();
-            const isLanClient = !isLoopback && !isCloud && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
-            if (requestedScope === 'ALL' && isLanClient && !isMasterAdmin) {
+            if (isCloud && requestedScope === 'ALL') {
                 return res.status(403).json({
                     success: false,
-                    message: 'Full system database restoration cannot be performed from a Client PC. Please restore on the Main Server PC.',
+                    message: 'When hosted on cloud, only your own outlet restoration (.fambak) is allowed. Full system restoration across all outlets is disabled on cloud instances.',
+                });
+            }
+            const isLanClient = !isLoopback && !isCloud && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
+            if (requestedScope === 'ALL' && !isLoopback && !isMasterAdmin) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Complete enterprise database restoration can only be performed directly on the Local Server PC.',
                 });
             }
             const userOutletCode = String(req.outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
-            if (requestedScope === 'ALL' && !isLoopback && !isCloud && !isMasterAdmin) {
+            if (requestedScope === 'ALL' && !isLoopback && !isMasterAdmin) {
                 return res.status(403).json({
                     success: false,
                     message: 'Complete enterprise database restoration can only be performed directly on the Local Server PC.',

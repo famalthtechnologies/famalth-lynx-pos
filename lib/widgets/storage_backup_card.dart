@@ -14,7 +14,6 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../core/config/app_config.dart';
-import 'app_setup_qr_dialog.dart';
 
 class StorageBackupCard extends StatefulWidget {
   final bool compact;
@@ -290,55 +289,20 @@ class _StorageBackupCardState extends State<StorageBackupCard> {
                   ),
                 ],
               ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  InkWell(
-                    onTap: () async {
-                      final targetUrl = (kIsWeb || AppConfig.isCloudServer)
-                          ? AppConfig.baseUrl
-                          : await AppConfig.getLanServerUrl();
-                      if (context.mounted) {
-                        AppSetupQrDialog.show(context, serverUrl: targetUrl);
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(4),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.qr_code_2_rounded, size: 14, color: Color(0xFF059669)),
-                          SizedBox(width: 3),
-                          Text(
-                            'Staff QR',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF059669),
-                            ),
-                          ),
-                        ],
-                      ),
+              InkWell(
+                onTap: _openManageBackupsDialog,
+                borderRadius: BorderRadius.circular(4),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Text(
+                    'Manage backups',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFEF4444), // Accent action link
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: _openManageBackupsDialog,
-                    borderRadius: BorderRadius.circular(4),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      child: Text(
-                        'Manage backups',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFFEF4444), // Accent action link
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ],
           ),
@@ -1495,18 +1459,6 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Companion Apps Setup QR Standee',
-                    icon: const Icon(Icons.qr_code_2_rounded, color: Color(0xFF059669)),
-                    onPressed: () async {
-                      final targetUrl = (kIsWeb || AppConfig.isCloudServer)
-                          ? AppConfig.baseUrl
-                          : await AppConfig.getLanServerUrl();
-                      if (context.mounted) {
-                        AppSetupQrDialog.show(context, serverUrl: targetUrl);
-                      }
-                    },
-                  ),
-                  IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -1860,22 +1812,24 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                         const SizedBox(width: 6),
                         const Text('Backup Scope Selector:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5)),
                         const Spacer(),
-                        InkWell(
-                          onTap: () => setState(() => _saveToGoogleDrive = !_saveToGoogleDrive),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Checkbox(
-                                value: _saveToGoogleDrive,
-                                onChanged: (v) => setState(() => _saveToGoogleDrive = v ?? true),
-                                activeColor: const Color(0xFF0284C7),
-                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              const Text('Famalth Lynx Cloud Sync', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
-                            ],
+                        if (AppConfig.isLocalServer) ...[
+                          InkWell(
+                            onTap: () => setState(() => _saveToGoogleDrive = !_saveToGoogleDrive),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Checkbox(
+                                  value: _saveToGoogleDrive,
+                                  onChanged: (v) => setState(() => _saveToGoogleDrive = v ?? true),
+                                  activeColor: const Color(0xFF0284C7),
+                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                const Text('Famalth Lynx Cloud Sync', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
+                          const SizedBox(width: 12),
+                        ],
                         InkWell(
                           onTap: () => setState(() => _emailDownloadLinkToOperator = !_emailDownloadLinkToOperator),
                           child: Row(
@@ -1935,7 +1889,7 @@ class _ManageBackupsDialogState extends State<_ManageBackupsDialog> {
                             ),
                           ),
                         ),
-                        if (_isEnterpriseConsole) ...[
+                        if (_isEnterpriseConsole && AppConfig.isLocalServer) ...[
                           const SizedBox(width: 10),
                           Expanded(
                             child: InkWell(
