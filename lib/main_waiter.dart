@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'controllers/settings/property_info_controller.dart';
+import 'controllers/sales/sales_controller.dart';
 import 'controllers/security/recovery_controller.dart';
 import 'controllers/security/user_controller.dart';
 import 'controllers/settings/notification_services.dart';
@@ -30,6 +32,8 @@ void main() async {
         ChangeNotifierProvider(create: (_) => AppBrandingController()..loadLocal()),
         ChangeNotifierProvider(create: (_) => UserController()),
         ChangeNotifierProvider(create: (_) => RecoveryController()),
+        ChangeNotifierProvider(create: (_) => PropertyInfoController()..load()),
+        ChangeNotifierProvider(create: (_) => SalesController()),
         ChangeNotifierProvider(create: (_) => BOMController()),
         ChangeNotifierProvider(create: (_) => RestaurantController()),
       ],

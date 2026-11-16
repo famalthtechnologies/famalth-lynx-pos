@@ -1197,11 +1197,13 @@ const acceptAndPayAppointment = async (req, res) => {
                         const priorBalance = Number(existingSale.balance_due || 0);
                         const newAmountPaid = Number(existingSale.amount_paid || 0) + finalCollected;
                         const newBal = Math.max(0, Number(existingSale.net_amount || 0) - newAmountPaid);
+                        const posPayRef = 'POSPAY:' + JSON.stringify([{ method: payment_mode || 'CASH', amount: newAmountPaid }]);
                         await existingSale.update({
                             customer_id: customerId || existingSale.customer_id,
                             amount_paid: newAmountPaid,
                             balance_due: newBal,
                             payment_mode: newBal === 0 ? (payment_mode || 'CASH') : existingSale.payment_mode,
+                            payment_reference: posPayRef,
                             status: 'COMPLETED'
                         });
                         if (req.propertyDb.models.customer_repayments) {
@@ -1218,6 +1220,7 @@ const acceptAndPayAppointment = async (req, res) => {
                     }
                     else {
                         // Create completed sales_headers record so it shows in customer ledger & statements
+                        const posPayRef = 'POSPAY:' + JSON.stringify([{ method: payment_mode || 'CASH', amount: finalCollected }]);
                         await req.propertyDb.models.sales_headers.create({
                             outlet_id,
                             sale_no: `APPT-${appointment.id}`,
@@ -1230,6 +1233,7 @@ const acceptAndPayAppointment = async (req, res) => {
                             amount_paid: finalCollected,
                             balance_due: 0,
                             payment_mode: payment_mode || 'CASH',
+                            payment_reference: posPayRef,
                             order_type: 'CLINIC_APPOINTMENT',
                             status: 'COMPLETED',
                             is_latest: true,
@@ -3033,10 +3037,11 @@ const getPatientCreditStatus = async (req, res) => {
             return res.json({ success: true, total_credit_due: 0, total_billed: 0, total_paid: 0, unpaid_bills: [] });
         }
         const whereMatch = [];
-        if (phone)
-            whereMatch.push({ customer_phone: phone });
-        if (name)
-            whereMatch.push({ customer_name: { [sequelize_1.Op.iLike]: `%${name}%` } });
+        if (phone && phone.trim()) {
+            whereMatch.push({ customer_phone: phone.trim() });
+        } else if (name && name.trim()) {
+            whereMatch.push({ customer_name: { [sequelize_1.Op.iLike]: `%${name.trim()}%` } });
+        }
         const whereCondition = {
             outlet_id,
             [sequelize_1.Op.or]: whereMatch,
@@ -3095,10 +3100,11 @@ const settlePatientCredit = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Settlement amount must be greater than 0.' });
         }
         const whereMatch = [];
-        if (phone && phone.trim())
+        if (phone && phone.trim()) {
             whereMatch.push({ customer_phone: phone.trim() });
-        if (name && name.trim())
+        } else if (name && name.trim()) {
             whereMatch.push({ customer_name: { [sequelize_1.Op.iLike]: `%${name.trim()}%` } });
+        }
         let targetSale = null;
         if (appointment_id) {
             targetSale = await req.propertyDb.models.sales_headers.findOne({

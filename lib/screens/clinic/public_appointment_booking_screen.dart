@@ -2806,7 +2806,7 @@ class _PatientRegistrationBottomSheetState extends State<_PatientRegistrationBot
                             keyboardType: TextInputType.phone,
                             decoration: InputDecoration(
                               labelText: 'Mobile Phone *',
-                              hintText: 'e.g. 6395059482',
+                              hintText: 'e.g. 9876543210',
                               prefixIcon: const Icon(Icons.phone_android_rounded),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                               isDense: true,
@@ -3167,7 +3167,11 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
     final phone = _phoneCtrl.text.trim();
     if (phone.isEmpty) return;
     try {
-      final res = await ApiClient.get('/api/public/clinic/patient-subscriptions', queryParams: {'phone': phone});
+      final res = await ApiClient.get(
+        ApiEndpoints.publicPatientSubscriptions,
+        queryParams: {'phone': phone},
+        silent: true,
+      );
       if (res != null && res['data'] is List && mounted) {
         setState(() {
           _activePackages = (res['data'] as List).where((p) {

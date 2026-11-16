@@ -30,3 +30,29 @@ Future<bool> downloadTextFile({
     return false;
   }
 }
+
+Future<String?> downloadBinaryFile({
+  required String filename,
+  required List<int> bytes,
+}) async {
+  try {
+    final blob = html.Blob([bytes], 'application/octet-stream');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', filename)
+      ..setAttribute('target', '_blank')
+      ..style.display = 'none';
+
+    html.document.body?.children.add(anchor);
+    anchor.click();
+    html.document.body?.children.remove(anchor);
+
+    Future.delayed(const Duration(seconds: 5), () {
+      html.Url.revokeObjectUrl(url);
+    });
+
+    return filename;
+  } catch (e) {
+    return null;
+  }
+}

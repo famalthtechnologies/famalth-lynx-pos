@@ -231,7 +231,52 @@ class _RiderAuthScreenState extends State<RiderAuthScreen>
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
+
+                // Server Connection Banner (Tap to configure or scan store QR)
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ServerConfigScreen(nextScreen: RiderAuthScreen())),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.teal.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.qr_code_scanner_rounded, color: primaryColor, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Server: ${AppConfig.baseUrl}",
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.teal.shade900),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                "Tap here to scan Store Setup QR or switch server",
+                                style: TextStyle(fontSize: 11, color: Colors.teal.shade700),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.tune_rounded, color: primaryColor, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 Card(
                   elevation: 4,
                   shadowColor: Colors.black.withOpacity(0.05),

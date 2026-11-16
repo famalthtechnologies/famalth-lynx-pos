@@ -49,6 +49,37 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
   bool get _canReprint =>
       PermissionService.can('REPRINT_REQUEST') || PermissionService.can('MODIFY_REQUEST');
   bool get _canModify => PermissionService.can('MODIFY_REQUEST');
+  bool get _selectedRequestIsIssued =>
+      selectedRequestData != null && _isIssuedRequest(selectedRequestData!);
+  bool get _canEditSelected =>
+      _canModify &&
+      selectedRequestData != null &&
+      !_selectedRequestIsIssued &&
+      !_isCancelledRequest(selectedRequestData!);
+
+  bool _isIssuedRequest(Map request) {
+    final status = (request['status'] ?? '').toString().toUpperCase().trim();
+    return status == 'ISSUED' || status == 'PARTIAL' || status == 'CLOSED';
+  }
+
+  bool _isPendingRequest(Map request) {
+    final approval = (request['approval_status'] ?? '').toString().toUpperCase().trim();
+    final status = (request['status'] ?? '').toString().toUpperCase().trim();
+    return approval == 'PENDING' || approval == 'UNAPPROVED' ||
+        (approval.isEmpty && (status == 'PENDING' || status == 'AUTO' || status == 'OPEN'));
+  }
+
+  bool _isApprovedRequest(Map request) {
+    final approval = (request['approval_status'] ?? '').toString().toUpperCase().trim();
+    final status = (request['status'] ?? '').toString().toUpperCase().trim();
+    return approval == 'APPROVED' || status == 'APPROVED' || status == 'COMPLETED';
+  }
+
+  bool _isCancelledRequest(Map request) {
+    final status = (request['status'] ?? '').toString().toUpperCase().trim();
+    final approval = (request['approval_status'] ?? '').toString().toUpperCase().trim();
+    return status == 'CANCELLED' || status == 'REJECTED' || approval == 'REJECTED';
+  }
 
   @override
   void initState() {
@@ -158,13 +189,16 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
   List<Map<String, dynamic>> get _filteredRequests {
     final query = _searchCtrl.text.trim().toLowerCase();
     return ctrl.requests.cast<Map<String, dynamic>>().where((r) {
-      final status = (r['status'] ?? 'PENDING').toString().toUpperCase().trim();
+      final status = (r['status'] ?? '').toString().toUpperCase().trim();
       final dept = (r['department'] ?? '').toString().toLowerCase().trim();
       final reqNo = (r['request_no'] ?? r['id'] ?? '').toString().toLowerCase().trim();
+      final issued = _isIssuedRequest(r);
+      final cancelled = _isCancelledRequest(r);
 
-      if (_statusFilter == 'PENDING' && status != 'PENDING' && status != 'AUTO') return false;
-      if (_statusFilter == 'APPROVED' && status != 'APPROVED' && status != 'COMPLETED') return false;
-      if (_statusFilter == 'CANCELLED' && status != 'CANCELLED' && status != 'REJECTED') return false;
+      if (_statusFilter == 'PENDING' && (issued || cancelled || !_isPendingRequest(r))) return false;
+      if (_statusFilter == 'APPROVED' && (issued || cancelled || !_isApprovedRequest(r))) return false;
+      if (_statusFilter == 'ISSUED' && !issued) return false;
+      if (_statusFilter == 'CANCELLED' && !_isCancelledRequest(r)) return false;
 
       if (_selectedDeptFilter != 'ALL' && !dept.contains(_selectedDeptFilter.toLowerCase())) {
         return false;
@@ -212,6 +246,10 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
       _msg("At least one item is required in the request");
       return;
     }
+    if (_selectedRequestIsIssued) {
+      _msg('Issued requests cannot be modified');
+      return;
+    }
 
     try {
       await ctrl.modifyRequest(
@@ -229,6 +267,10 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
   Future<void> _cancelRequest() async {
     if (selectedRequestId == null) {
       _msg("Please select a request first");
+      return;
+    }
+    if (_selectedRequestIsIssued) {
+      _msg('Issued requests cannot be cancelled');
       return;
     }
 
@@ -382,7 +424,7 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
                 return pw.TableRow(
                   children: [
                     _pdfCell("${i + 1}", alignment: pw.Alignment.center),
-                    _pdfCell(r.name),
+                    _pdfCell(r.brand.trim().isEmpty ? r.name : '${r.name} (${r.brand.trim()})'),
                     _pdfCell(r.unit, alignment: pw.Alignment.center),
                     _pdfCell(r.qty.toString(), alignment: pw.Alignment.centerRight),
                     _pdfCell(CurrencyService.format(r.rate), alignment: pw.Alignment.centerRight),
@@ -478,12 +520,11 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
 
   Widget _buildTabButton(String key, String label, {int? badgeCount}) {
     final bool isSelected = _statusFilter == key;
-    return Expanded(
-      child: InkWell(
+    return InkWell(
         onTap: () => setState(() => _statusFilter = key),
         borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFF0B5CAD) : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
@@ -520,7 +561,6 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
             ],
           ),
         ),
-      ),
     );
   }
 
@@ -586,13 +626,12 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
   Widget build(BuildContext context) {
     final filtered = _filteredRequests;
     final int pendingCount = ctrl.requests.where((r) {
-      final s = (r['status'] ?? 'PENDING').toString().toUpperCase().trim();
-      return s == 'PENDING' || s == 'AUTO';
+      return !_isIssuedRequest(r) && !_isCancelledRequest(r) && _isPendingRequest(r);
     }).length;
     final int approvedCount = ctrl.requests.where((r) {
-      final s = (r['status'] ?? '').toString().toUpperCase().trim();
-      return s == 'APPROVED' || s == 'COMPLETED';
+      return !_isIssuedRequest(r) && !_isCancelledRequest(r) && _isApprovedRequest(r);
     }).length;
+    final int issuedCount = ctrl.requests.where((r) => _isIssuedRequest(r)).length;
 
     double grandTotalAll = 0.0;
     int totalItemsAll = 0;
@@ -636,13 +675,18 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.grey.shade300),
               ),
-              child: Row(
-                children: [
-                  _buildTabButton('ALL', 'All Requests (${ctrl.requests.length})'),
-                  _buildTabButton('PENDING', 'Pending / Open', badgeCount: pendingCount),
-                  _buildTabButton('APPROVED', 'Approved ($approvedCount)'),
-                  _buildTabButton('CANCELLED', 'Cancelled'),
-                ],
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildTabButton('ALL', 'All Requests (${ctrl.requests.length})'),
+                    _buildTabButton('PENDING', 'Pending / Unapproved', badgeCount: pendingCount),
+                    _buildTabButton('APPROVED', 'Approved ($approvedCount)'),
+                    _buildTabButton('ISSUED', 'Issued ($issuedCount)', badgeCount: issuedCount),
+                    _buildTabButton('CANCELLED', 'Cancelled'),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -1034,6 +1078,8 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
 
     final reqNo = (selectedRequestData?['request_no'] ?? selectedRequestId).toString();
     final status = (selectedRequestData?['status'] ?? 'PENDING').toString().toUpperCase();
+    final approvalStatus =
+        (selectedRequestData?['approval_status'] ?? '').toString().toUpperCase();
 
     return Container(
       decoration: BoxDecoration(
@@ -1068,10 +1114,31 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
                             visualDensity: VisualDensity.compact,
                             backgroundColor: status == 'APPROVED' ? Colors.green.shade100 : Colors.orange.shade100,
                           ),
+                          if (approvalStatus.isNotEmpty)
+                            Chip(
+                              label: Text(approvalStatus,
+                                  style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold)),
+                              padding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                              backgroundColor: approvalStatus == 'APPROVED'
+                                  ? Colors.green.shade100
+                                  : Colors.orange.shade100,
+                            ),
                         ],
                       ),
                       const SizedBox(height: 4),
                       Text('Department: ${selectedDepartment?.locationName ?? selectedRequestData?['department'] ?? 'General'}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                      if (approvalStatus == 'APPROVED' && !_selectedRequestIsIssued)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Approved requests remain editable until issued.',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.green.shade700),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -1090,7 +1157,7 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
           ),
 
           // Department selector when editing
-          if (_canModify)
+          if (_canEditSelected)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
@@ -1122,6 +1189,24 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
                       ),
                     ),
                   ),
+                ],
+              ),
+            ),
+
+          if (_selectedRequestIsIssued)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.blueGrey.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.blueGrey.shade200),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.lock_outline, size: 16, color: Colors.blueGrey),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('This request has been issued and is read-only.')),
                 ],
               ),
             ),
@@ -1177,7 +1262,7 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
                               ),
                               Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 4),
-                                child: _canModify
+                                child: _canEditSelected
                                     ? SizedBox(
                                         height: 32,
                                         child: TextFormField(
@@ -1200,7 +1285,7 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
                               ),
                               Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 4),
-                                child: _canModify
+                                child: _canEditSelected
                                     ? SizedBox(
                                         height: 32,
                                         child: TextFormField(
@@ -1227,7 +1312,7 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
                               ),
                               Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 4),
-                                child: _canModify
+                                child: _canEditSelected
                                     ? IconButton(
                                         icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
                                         onPressed: () {
@@ -1269,7 +1354,7 @@ class _RequestModifyScreenState extends State<RequestModifyScreen> {
                   ],
                 ),
                 const Spacer(),
-                if (_canModify) ...[
+                if (_canEditSelected) ...[
                   OutlinedButton.icon(
                     onPressed: _cancelRequest,
                     icon: const Icon(Icons.cancel_outlined, size: 16),

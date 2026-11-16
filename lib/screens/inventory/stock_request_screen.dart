@@ -50,7 +50,6 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
   final _qty = TextEditingController();
   final _rate = TextEditingController();
   final _code = TextEditingController(text: 'ITM-001');
-  final _tax = TextEditingController();
 
   int? _editIndex;
   final List<RequestItem> _items = [];
@@ -67,12 +66,14 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
   final FocusNode _brandFocus = FocusNode();
   final FocusNode _qtyFocus = FocusNode();
   final FocusNode _rateFocus = FocusNode();
-  final FocusNode _taxFocus = FocusNode();
   final FocusNode _addBtnFocus = FocusNode();
   final FocusNode _saveBtnFocus = FocusNode();
 
   // ================= TOTAL =================
   double get totalAmount => _items.fold(0, (s, e) => s + e.amount);
+
+  String _displayItemName(String name, String brand) =>
+      brand.trim().isEmpty ? name : '$name (${brand.trim()})';
 
   @override
   void initState() {
@@ -123,6 +124,7 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
     final r = RequestItem(
         code: _selectedItem!.itemCode,
         name: _selectedItem!.itemName,
+        brand: _selectedItem!.brand,
         unit: _selectedItem!.unit,
         qty: qty,
         rate: rate,
@@ -233,14 +235,14 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
       await ctrl.createRequest(payload);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Request Saved Successfully')),
+        const SnackBar(content: Text('Material Requisition Saved Successfully')),
       );
 
       final shouldPrint = await showDialog<bool>(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text("Print Request"),
-          content: const Text("Do you want to print this Request?"),
+          title: const Text("Print Material Requisition"),
+          content: const Text("Do you want to print this Material Requisition?"),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -282,7 +284,6 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
     _brandFocus.dispose();
     _qtyFocus.dispose();
     _rateFocus.dispose();
-    _taxFocus.dispose();
     _addBtnFocus.dispose();
     _saveBtnFocus.dispose();
     _tableFocusNode.dispose();
@@ -334,7 +335,6 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
       _code.clear();
       _qty.clear();
       _rate.clear();
-      _tax.clear();
       _unit.clear();
       _editIndex = null;
     });
@@ -350,7 +350,6 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
       _code.clear();
       _qty.clear();
       _rate.clear();
-      _tax.clear();
       _unit.clear();
       _editIndex = null;
       _items.clear();
@@ -369,7 +368,7 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF4F6FA),
         appBar: AppBar(
-          title: const Text('Request Item'),
+          title: const Text('Material Requisition'),
           centerTitle: true,
         ),
         body: FocusTraversalGroup(
@@ -396,7 +395,7 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
   // ================= HEADER =================
   Widget _headerCard() {
     return _card(
-      title: 'Request Information',
+      title: 'Material Requisition Details',
       child: Wrap(
         spacing: 16,
         runSpacing: 16,
@@ -571,10 +570,6 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
           _number(_rate, 'Rate',
               focusNode: _rateFocus,
               prevNode: _qtyFocus,
-              onSubmit: () => _taxFocus.requestFocus()),
-          _number(_tax, 'Tax %',
-              focusNode: _taxFocus,
-              prevNode: _rateFocus,
               onSubmit: () => _addBtnFocus.requestFocus()),
           SizedBox(
             width: 260,
@@ -707,7 +702,7 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
                           i.isEven ? Colors.grey.shade50 : Colors.white),
                       cells: [
                         DataCell(Text('${i + 1}')),
-                        DataCell(Text(r.name)),
+                        DataCell(Text(_displayItemName(r.name, r.brand))),
                         DataCell(Text(r.unit)),
                         DataCell(Text(r.qty.toString())),
                         DataCell(Text(r.rate.toStringAsFixed(2))),
@@ -972,7 +967,7 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
               padding: const pw.EdgeInsets.all(8),
               decoration: pw.BoxDecoration(border: pw.Border.all()),
               child: pw.Text(
-                "MATERIAL REQUEST",
+                "MATERIAL REQUISITION",
                 style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
               ),
             ),
@@ -1044,7 +1039,7 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
                 return pw.TableRow(
                   children: [
                     _cell("${i + 1}", alignment: pw.Alignment.center),
-                    _cell(r.name),
+                    _cell(_displayItemName(r.name, r.brand)),
                     _cell(r.unit, alignment: pw.Alignment.center),
                     _cell(r.qty.toString(), alignment: pw.Alignment.centerRight),
                     _cell(CurrencyService.format(r.rate), alignment: pw.Alignment.centerRight),
@@ -1105,7 +1100,7 @@ class _StockRequestScreenState extends State<StockRequestScreen> {
         ],
       ),
     );
-    await Printing.layoutPdf(name: _requestNo.text.isNotEmpty ? 'Request_${_requestNo.text}' : 'Stock_Request', onLayout: (format) async => pdf.save());
+    await Printing.layoutPdf(name: _requestNo.text.isNotEmpty ? 'Material_Requisition_${_requestNo.text}' : 'Material_Requisition', onLayout: (format) async => pdf.save());
   }
 
   pw.Widget _cell(String text, {bool bold = false, pw.Alignment alignment = pw.Alignment.centerLeft}) {

@@ -55,8 +55,27 @@ const createIssue = async (req, res) => {
                 });
             }
         }
+        let effectiveIssueNo = String(header.issue_no || '').trim();
+        // On actual insert, ALWAYS mint official sequential Indent/Issue number atomically from DB
+        try {
+            const numberingHelper = require('./numberingSettingsV2.controller');
+            const resolved = await numberingHelper.allocateNextNumber({
+                db: req.propertyDb,
+                module: 'INDENT',
+                date: header.issue_date || new Date(),
+                outlet_id,
+                transaction: t
+            });
+            if (resolved && resolved.number) {
+                effectiveIssueNo = resolved.number;
+            }
+        }
+        catch (seqErr) {
+            console.warn('[INDENT SEQ] Auto-resolve numbering warning:', seqErr?.message || seqErr);
+        }
+
         const issue = await req.propertyDb.models.issue_headers.create({
-            issue_no: header.issue_no,
+            issue_no: effectiveIssueNo,
             issue_date: header.issue_date,
             department: header.department,
             indent_no: header.indent_no,
@@ -85,7 +104,7 @@ const createIssue = async (req, res) => {
                 item_code: row.item_code,
                 txn_date: header.issue_date,
                 txn_type: 'ISSUE',
-                ref_no: header.issue_no,
+                ref_no: effectiveIssueNo,
                 qty_out: row.qty,
                 transaction: t
             });
@@ -152,6 +171,7 @@ const modifyIssue = async (req, res) => {
             await item.update({
                 qty: row.qty,
                 rate: row.rate,
+                tax: row.tax,
                 amount: row.qty * row.rate
             }, { transaction: t });
             /// LEDGER ADJUSTMENT

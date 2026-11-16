@@ -7,6 +7,8 @@ import '../../core/printing/device_printer_routing.dart';
 import '../../core/printing/pos_invoice_printer.dart';
 import '../../core/settings/local_preferences.dart';
 import '../inventory/salescreen.dart';
+import '../mobile_billing/mobile_billing_app_screen.dart';
+import '../../models/auth/permission_service.dart';
 import 'kot_builder_screen.dart';
 import '../../controllers/settings/system_settings_controller.dart';
 import '../../controllers/security/user_controller.dart';
@@ -225,11 +227,22 @@ class _RunningOrdersScreenState extends State<RunningOrdersScreen> with SingleTi
     }
 
     final role = ((await TokenStorage.getRole()) ?? '').toUpperCase().trim();
-    final permissions = await TokenStorage.getPermissions();
-    final bool isWaiter = role == 'WAITER' || role == 'STEWARD' || role == 'SERVER';
-    final bool canCashierBill = !isWaiter && (permissions.contains('RETAIL_SALES') || role == 'ADMIN' || role == 'MANAGER' || role == 'CASHIER' || role == 'SUPERADMIN') && (MediaQuery.of(context).size.width >= 900);
+    final permissions = (await TokenStorage.getPermissions()).map((p) => p.toUpperCase().trim()).toList();
+    final bool hasBillingRight = role == 'ADMIN' ||
+        role == 'SUPERADMIN' ||
+        role == 'OWNER' ||
+        role == 'MANAGER' ||
+        role == 'CASHIER' ||
+        permissions.contains('RETAIL_SALES') ||
+        permissions.contains('POS_SALE') ||
+        permissions.contains('BILLING') ||
+        permissions.contains('CREATE_SALE') ||
+        permissions.contains('SALES') ||
+        permissions.contains('ALL') ||
+        PermissionService.can('RETAIL_SALES') ||
+        PermissionService.can('POS_SALE');
 
-    if (!canCashierBill) {
+    if (!hasBillingRight) {
       final ctrl = context.read<RestaurantController>();
       await ctrl.updateTableStatus(widget.tableId, 'Billed');
       if (mounted) {
@@ -281,18 +294,35 @@ class _RunningOrdersScreenState extends State<RunningOrdersScreen> with SingleTi
       }
     }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SaleScreen(
-          preloadedTableId: widget.tableId,
-          preloadedItems: grouped.values.toList(),
-          preloadedKotIds: kotIds,
-          preloadedCustomerName: custName,
-          preloadedCustomerPhone: custPhone,
+    final isDesktop = MediaQuery.of(context).size.width >= 900;
+    if (isDesktop) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SaleScreen(
+            preloadedTableId: widget.tableId,
+            preloadedItems: grouped.values.toList(),
+            preloadedKotIds: kotIds,
+            preloadedCustomerName: custName,
+            preloadedCustomerPhone: custPhone,
+          ),
         ),
-      ),
-    ).then((_) => _fetchTableKots());
+      ).then((_) => _fetchTableKots());
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => MobileBillingAppScreen(
+            preloadedTableId: widget.tableId,
+            preloadedTableName: widget.tableName,
+            preloadedItems: grouped.values.toList(),
+            preloadedKotIds: kotIds,
+            preloadedCustomerName: custName,
+            preloadedCustomerPhone: custPhone,
+          ),
+        ),
+      ).then((_) => _fetchTableKots());
+    }
   }
 
   void _showBillingOptions() {

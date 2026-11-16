@@ -1667,7 +1667,7 @@ class _GoodsReceivingScreenState extends State<GoodsReceivingScreen> {
                 return pw.TableRow(
                   children: [
                     _cell("${i + 1}", alignment: pw.Alignment.center),
-                    _cell(r.name),
+                    _cell('${r.name}${r.brand.trim().isNotEmpty ? ' (${r.brand.trim()})' : ''}'),
                     _cell(r.unit, alignment: pw.Alignment.center),
                     _cell(r.qty.toString(), alignment: pw.Alignment.centerRight),
                     _cell(CurrencyService.format(r.rate), alignment: pw.Alignment.centerRight),

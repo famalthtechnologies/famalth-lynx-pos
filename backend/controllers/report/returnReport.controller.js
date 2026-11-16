@@ -30,7 +30,12 @@ exports.getReturnReport = async (req, res) => {
                         {
                             model: req.propertyDb.models.item_master,
                             as: 'item_master',
-                            attributes: ['item_name']
+                            attributes: ['item_name', 'brand']
+                        },
+                        {
+                            model: req.propertyDb.models.issue_items,
+                            as: 'issue_item',
+                            attributes: ['tax']
                         }
                     ]
                 },
@@ -47,14 +52,21 @@ exports.getReturnReport = async (req, res) => {
             let totalQty = 0;
             let totalAmount = 0;
             const items = (h.return_items || []).map((i) => {
-                const amount = i.qty * i.rate;
+                const amount = Number(i.amount ?? Number(i.qty) * Number(i.rate));
+                const tax = Number(i.tax || i.issue_item?.tax || 0);
+                const taxAmount = !Number(i.tax_amount) ? amount * tax / 100 : Number(i.tax_amount);
+                const lineTotalAmount = i.total_after_tax == null ? amount + taxAmount : Number(i.total_after_tax);
                 totalQty += Number(i.qty);
-                totalAmount += amount;
+                totalAmount += lineTotalAmount;
                 return {
                     item_name: i.item_master?.item_name || '',
+                    brand: i.item_master?.brand || '',
                     qty: i.qty,
                     rate: i.rate,
-                    amount
+                    amount,
+                    tax,
+                    tax_amount: taxAmount,
+                    total_amount: lineTotalAmount
                 };
             });
             return {

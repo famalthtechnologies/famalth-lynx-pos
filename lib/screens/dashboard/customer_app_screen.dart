@@ -33,6 +33,7 @@ import '../../controllers/settings/system_settings_controller.dart';
 import '../../core/currency/currency_service.dart';
 import '../../core/utils/country_tax_helper.dart';
 import '../../core/settings/local_preferences.dart';
+import 'server_config_screen.dart';
 import 'package:collection/collection.dart';
 import '../../models/inventory/purchase_order_model.dart';
 import '../../models/inventory/purchase_item_model.dart';
@@ -155,6 +156,7 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
   final TextEditingController _custGstinCtrl = TextEditingController();
   String _gstin = '';
   String _billFormat = 'A4'; // loaded from system settings
+  bool _allowNegativeStock = false;
 
   @override
   void initState() {
@@ -606,6 +608,7 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
       final res = await ApiClient.get('/api/delivery/catalog?$query');
       if (res['success'] == true) {
         setState(() {
+          _allowNegativeStock = res['allow_negative_stock'] == true;
           _catalogItems = res['data'] ?? [];
           _categories = List<String>.from(res['categories'] ?? []);
           if (res['pagination'] != null) {
@@ -3998,6 +4001,22 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
               );
             },
           ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.dns_rounded, color: Color(0xFFD97706)),
+            title: const Text('Store Connection / Change Server'),
+            subtitle: Text('Connected to: ${AppConfig.baseUrl}', style: const TextStyle(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+            onTap: () {
+              Navigator.of(context).pop();
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ServerConfigScreen(nextScreen: CustomerAppScreen()),
+                ),
+              );
+            },
+          ),
           if (hasCustomer) ...[
             const Divider(),
             ListTile(
@@ -4296,17 +4315,18 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
                             final int? templateId = item['product_template_id'];
                             final bool hasVariants = templateId != null;
 
+                            final bool itemAllowNeg = _allowNegativeStock || item['allow_negative_stock'] == true || (context.read<SystemSettingsController?>()?.settings?.allowNegativeStock ?? false);
                             final bool isStockable = item['stockable'] == true;
                             final double currentStock = double.tryParse(
                                     item['current_stock']?.toString() ?? '0') ??
                                 0.0;
                             final bool isOutOfStock =
-                                isStockable && currentStock <= 0;
+                                isStockable && currentStock <= 0 && !itemAllowNeg;
 
                             bool isTemplateOutOfStock = false;
                             if (hasVariants) {
                               final siblings = _catalogItems.where((e) => e['product_template_id'] == templateId).toList();
-                              isTemplateOutOfStock = siblings.every((sib) {
+                              isTemplateOutOfStock = !itemAllowNeg && siblings.every((sib) {
                                 final bool sibStockable = sib['stockable'] == true;
                                 final double sibStock = double.tryParse(sib['current_stock']?.toString() ?? '0') ?? 0.0;
                                 return sibStockable && sibStock <= 0;
@@ -4515,7 +4535,7 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
                                                   child: Text(
                                                     isDisplayOutOfStock
                                                         ? 'Out of Stock'
-                                                        : (hasVariants ? 'Options' : '${currentStock.toInt()} left'),
+                                                        : (hasVariants ? 'Options' : (currentStock <= 0 ? 'In Stock' : '${currentStock.toInt()} left')),
                                                     style: TextStyle(
                                                       color: isDisplayOutOfStock
                                                           ? Colors.red.shade700
@@ -4582,7 +4602,7 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
                                                     : () {
                                                         final currentQty = cartQty;
                                                         if ((_gstin.isEmpty && currentQty >= 5) ||
-                                                            (isStockable && currentQty >= currentStock)) {
+                                                            (!itemAllowNeg && isStockable && currentQty >= currentStock)) {
                                                           ScaffoldMessenger.of(context).showSnackBar(
                                                             const SnackBar(
                                                               content: Text('Maximum allowed quantity reached'),
@@ -8141,7 +8161,8 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
             final double currentStock = double.tryParse(
                     matchingItem?['current_stock']?.toString() ?? '0') ??
                 0.0;
-            final bool isOutOfStock = isStockable && currentStock <= 0;
+            final bool itemAllowNeg = _allowNegativeStock || matchingItem?['allow_negative_stock'] == true || (context.read<SystemSettingsController?>()?.settings?.allowNegativeStock ?? false);
+            final bool isOutOfStock = isStockable && currentStock <= 0 && !itemAllowNeg;
 
             final int? matchingItemId = matchingItem?['id'];
             final double cartQty = (matchingItemId != null && _cart.containsKey(matchingItemId))
@@ -8203,7 +8224,7 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                isOutOfStock ? 'Out of Stock' : 'In Stock (${currentStock.toInt()} left)',
+                                isOutOfStock ? 'Out of Stock' : (currentStock <= 0 ? 'In Stock' : 'In Stock (${currentStock.toInt()} left)'),
                                 style: TextStyle(
                                   color: isOutOfStock ? Colors.red : Colors.green,
                                   fontWeight: FontWeight.bold,
@@ -8268,12 +8289,12 @@ class _CustomerAppScreenState extends State<CustomerAppScreen> {
                       IconButton(
                         icon: Icon(
                           Icons.add_circle,
-                          color: ((_gstin.isEmpty && cartQty >= 5) || (isStockable && cartQty >= currentStock))
+                          color: ((_gstin.isEmpty && cartQty >= 5) || (!itemAllowNeg && isStockable && cartQty >= currentStock))
                               ? Colors.grey
                               : Theme.of(context).colorScheme.primary,
                           size: 24,
                         ),
-                        onPressed: ((_gstin.isEmpty && cartQty >= 5) || (isStockable && cartQty >= currentStock))
+                        onPressed: ((_gstin.isEmpty && cartQty >= 5) || (!itemAllowNeg && isStockable && cartQty >= currentStock))
                             ? null
                             : () {
                                 setDialogState(() {

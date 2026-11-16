@@ -33,6 +33,7 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
 
   final _fromCtrl = TextEditingController();
   final _toCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
 
   String? selectedSupplier;
   String? selectedItem;
@@ -49,16 +50,38 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
     _toCtrl.text = DateFormat('dd-MMM-yyyy').format(toDate);
   }
 
+  @override
+  void dispose() {
+    _fromCtrl.dispose();
+    _toCtrl.dispose();
+    _searchCtrl.dispose();
+    ctrl.dispose();
+    super.dispose();
+  }
+
   void _onGenerate() async {
+    if (fromDate.isAfter(toDate)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('From date must be before or equal to To date.'),
+        ),
+      );
+      return;
+    }
     ctrl.fromDate = fromDate;
     ctrl.toDate = toDate;
     ctrl.search = search;
 
-    selectedSupplier = null;
-    selectedItem = null;
-
-    await ctrl.load();
     setState(() {});
+    await ctrl.load();
+    if (!mounted) return;
+    if (selectedSupplier != null && !ctrl.suppliers.contains(selectedSupplier)) {
+      selectedSupplier = null;
+    }
+    if (selectedItem != null && !ctrl.items.contains(selectedItem)) {
+      selectedItem = null;
+    }
+    _applyLocalFilter();
   }
 
   void _applyLocalFilter() {
@@ -76,18 +99,19 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
       backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
         title: const Text('Receiving Report'),
-        centerTitle: true,
+        centerTitle: false,
         actions: [
-          ElevatedButton.icon(
-            icon: const Icon(Icons.file_download),
-            label: const Text("Excel"),
+          IconButton(
+            tooltip: 'Export to Excel',
+            icon: const Icon(Icons.table_view_outlined),
             onPressed: exportToExcel,
           ),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.picture_as_pdf),
-            label: const Text("PDF"),
+          IconButton(
+            tooltip: 'Export to PDF',
+            icon: const Icon(Icons.picture_as_pdf_outlined),
             onPressed: exportToPdf,
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: Padding(
@@ -106,7 +130,7 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
   // ================= FILTER CARD =================
   Widget _filterCard() {
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: EdgeInsets.zero,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -123,7 +147,7 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "Filter Options",
+            "Report filters",
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -145,6 +169,7 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
               SizedBox(
                 width: 280,
                 child: TextField(
+                  controller: _searchCtrl,
                   decoration: InputDecoration(
                     labelText: 'Search Item / Supplier',
                     prefixIcon: const Icon(Icons.search),
@@ -232,6 +257,30 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
                   onPressed: _onGenerate,
                 ),
               ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(48, 48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () {
+                  setState(() {
+                    fromDate =
+                        DateTime.now().subtract(const Duration(days: 30));
+                    toDate = DateTime.now();
+                    _fromCtrl.text = DateFormat('dd-MMM-yyyy').format(fromDate);
+                    _toCtrl.text = DateFormat('dd-MMM-yyyy').format(toDate);
+                    selectedSupplier = null;
+                    selectedItem = null;
+                    search = '';
+                    _searchCtrl.clear();
+                  });
+                  _onGenerate();
+                },
+                icon: const Icon(Icons.restart_alt),
+                label: const Text('Reset'),
+              ),
             ],
           ),
         ],
@@ -271,11 +320,36 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
 
   // ================= REPORT BODY =================
   Widget _reportBody() {
+    if (ctrl.loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     if (ctrl.filteredData.isEmpty) {
-      return const Center(
-        child: Text(
-          'Select date and click Generate',
-          style: TextStyle(color: Colors.grey),
+      return Center(
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE3E7EF)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.inventory_2_outlined,
+                  size: 42, color: Colors.blueGrey.shade300),
+              const SizedBox(height: 12),
+              const Text(
+                'No receiving records found',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Adjust the date range or filters and generate the report.',
+                style: TextStyle(color: Colors.blueGrey.shade600),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -292,7 +366,6 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             children: ctrl.groupFilteredByInvoice.entries.map((entry) {
-              final invNo = entry.key;
               final items = entry.value;
               final header = items.first;
 
@@ -319,104 +392,79 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 🔷 HEADER
                       Wrap(
                         spacing: 10,
-                        runSpacing: 10,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          _headerChip(
-                            "Receiving No: ${header.grnNo}",
-                            Colors.deepOrange,
+                          Text(
+                            header.grnNo,
+                            style: const TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.w800),
                           ),
                           _headerChip(
-                            "Supplier Invoice: ${header.supplierBill.isEmpty ? '--' : header.supplierBill}",
-                            Colors.blueGrey,
+                            DateFormat('dd MMM yyyy').format(header.date),
+                            const Color(0xFF315D9B),
                           ),
                           _headerChip(
-                            "Date: ${DateFormat('dd-MMM-yyyy').format(header.date)}",
-                            Colors.indigo,
-                          ),
-                          _headerChip(header.supplier, Colors.teal),
-                          _headerChip(
-                            "State: ${header.supplierState}",
-                            Colors.brown,
-                          ),
-                          _headerChip(
-                            "Paid: ${CurrencyService.format(header.paidAmount)}",
-                            Colors.green,
-                          ),
-                          _headerChip(
-                            "Outstanding: ${CurrencyService.format(header.outstandingAmount)}",
+                            header.billStatus.isEmpty
+                                ? 'STATUS UNKNOWN'
+                                : header.billStatus.toUpperCase(),
                             header.billStatus.toUpperCase() == 'PAID'
                                 ? Colors.green
-                                : Colors.red,
+                                : Colors.orange,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(header.supplier,
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 18,
+                        runSpacing: 6,
+                        children: [
+                          Text(
+                            'Supplier invoice: ${header.supplierBill.isEmpty ? '--' : header.supplierBill}',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.blueGrey.shade600),
+                          ),
+                          Text(
+                            '${CountryTaxHelper.taxIdLabel(country)}: ${header.supplierGstin.isEmpty ? '--' : header.supplierGstin}',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.blueGrey.shade600),
+                          ),
+                          Text(
+                            'State: ${header.supplierState.isEmpty ? '--' : header.supplierState}',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.blueGrey.shade600),
+                          ),
+                          Text(
+                            'Paid: ${CurrencyService.format(header.paidAmount)}',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.green.shade700),
+                          ),
+                          Text(
+                            'Outstanding: ${CurrencyService.format(header.outstandingAmount)}',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.deepOrange.shade700),
                           ),
                           if (invoiceRoundOff.abs() > 0.001)
-                            _headerChip(
-                              "Round Off: ${invoiceRoundOff >= 0 ? '+' : ''}${CurrencyService.format(invoiceRoundOff)}",
-                              Colors.purple,
+                            Text(
+                              'Round off: ${invoiceRoundOff >= 0 ? '+' : ''}${CurrencyService.format(invoiceRoundOff)}',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.deepPurple.shade600),
                             ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.blueGrey.shade50,
-                              borderRadius: BorderRadius.circular(30),
-                            ),
-                            child: Text(
-                              "Receiving No: ${header.grnNo} | Supplier Invoice: ${header.supplierBill.isEmpty ? '--' : header.supplierBill}",
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                header.supplier,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                "Receiving No: ${header.grnNo}  Supplier Invoice: ${header.supplierBill.isEmpty ? '--' : header.supplierBill}  ${CountryTaxHelper.taxIdLabel(country)}: ${header.supplierGstin}",
-                                style: const TextStyle(
-                                    fontSize: 12, color: Colors.grey),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                "State: ${header.supplierState}  ${header.billStatus}  Paid: ${CurrencyService.format(header.paidAmount)}  Outstanding: ${CurrencyService.format(header.outstandingAmount)}",
-                                style: const TextStyle(
-                                    fontSize: 12, color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                          const Spacer(),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              const Text(
-                                "Total",
-                                style:
-                                    TextStyle(fontSize: 12, color: Colors.grey),
-                              ),
-                              Text(
-                                CurrencyService.format(invoiceTotal),
-                                style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      const SizedBox(height: 14),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text('Invoice total  ${CurrencyService.format(invoiceTotal)}',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
                       ),
 
                       const SizedBox(height: 16),
@@ -427,6 +475,12 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: DataTable(
+                          horizontalMargin: 16,
+                          columnSpacing: 28,
+                          headingRowHeight: 46,
+                          dataRowMinHeight: 44,
+                          dataRowMaxHeight: 52,
+                          dividerThickness: 0.6,
                           headingRowColor:
                               WidgetStateProperty.all(Colors.grey.shade100),
                           headingTextStyle: const TextStyle(
@@ -496,69 +550,66 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
     );
   }
 
-  // ================= SUMMARY =================
-  // Widget _summaryCard() {
-  //   return Container(
-  //     margin: const EdgeInsets.symmetric(horizontal: 16),
-  //     padding: const EdgeInsets.all(18),
-  //     decoration: BoxDecoration(
-  //       color: Colors.white,
-  //       borderRadius: BorderRadius.circular(18),
-  //       boxShadow: [
-  //         BoxShadow(
-  //           color: Colors.black.withOpacity(.05),
-  //           blurRadius: 16,
-  //           offset: const Offset(0, 6),
-  //         ),
-  //       ],
-  //     ),
-  //     child: Wrap(
-  //       spacing: 20,
-  //       runSpacing: 16,
-  //       alignment: WrapAlignment.center,
-  //       children: [
-  //         _modernStatTile(
-  //           title: "Total Records",
-  //           value: ctrl.originalData.length.toString(),
-  //           color: Colors.blue,
-  //         ),
-  //         _modernStatTile(
-  //           title: "Selected Records",
-  //           value: ctrl.filteredData.length.toString(),
-  //           color: Colors.orange,
-  //         ),
-  //         _modernStatTile(
-  //           title: "Total Net",
-  //           value: "₹${ctrl.totalNet.toStringAsFixed(2)}",
-  //           color: Colors.green,
-  //           isAmount: true,
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
-
   Widget _summaryCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _chip('Total Records', ctrl.originalData.length.toDouble(),
-                Colors.blue),
-            const SizedBox(width: 16),
-            _chip('Selected Records', ctrl.filteredData.length.toDouble(),
-                Colors.orange),
-            if (ctrl.totalRoundOff.abs() > 0.001) ...[
-              const SizedBox(width: 16),
-              _chip('Total Round Off', ctrl.totalRoundOff, Colors.purple),
-            ],
-            const SizedBox(width: 16),
-            _chip('Total Net', ctrl.totalInvoiceNet, Colors.green),
-          ],
+    final invoices = ctrl.groupFilteredByInvoice.length;
+    final quantity = ctrl.filteredData.fold<double>(0, (sum, e) => sum + e.qty);
+    final tax = ctrl.filteredData.fold<double>(0, (sum, e) => sum + e.taxAmount);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE3E7EF)),
+      ),
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          _summaryMetric(
+            'Receiving documents', '$invoices', Icons.receipt_long_outlined,
+            const Color(0xFF315D9B),
+          ),
+          _summaryMetric(
+            'Item lines', '${ctrl.filteredData.length}', Icons.list_alt_outlined,
+            const Color(0xFF7A4FB2),
+          ),
+          _summaryMetric(
+            'Received quantity', _fmtNumber(quantity),
+            Icons.inventory_2_outlined, const Color(0xFF17836B),
+          ),
+          _summaryMetric(
+            'Tax collected', CurrencyService.format(tax), Icons.percent_outlined,
+            const Color(0xFFB56A16),
+          ),
+          _summaryMetric(
+            'Net received', CurrencyService.format(ctrl.totalInvoiceNet),
+            Icons.account_balance_wallet_outlined, const Color(0xFF247A49),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryMetric(String title, String value, IconData icon, Color color) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 180),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(.06),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(.16)),
         ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade600)),
+            const SizedBox(height: 3),
+            Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+          ]),
+        ]),
       ),
     );
   }
@@ -624,32 +675,6 @@ class _StockInReportScreenState extends State<StockInReportScreen> {
           style: const TextStyle(fontWeight: FontWeight.w600),
         )),
       ],
-    );
-  }
-
-  Widget _dateField(
-      String label, TextEditingController ctrl, VoidCallback onTap) {
-    return SizedBox(
-      width: 180,
-      child: TextField(
-        controller: ctrl,
-        readOnly: true,
-        decoration: InputDecoration(
-          labelText: label,
-          suffixIcon: const Icon(Icons.calendar_today),
-        ),
-        onTap: onTap,
-      ),
-    );
-  }
-
-  Widget _chip(String label, double value, Color color) {
-    return Chip(
-      backgroundColor: color.withOpacity(.15),
-      label: Text(
-        '$label : ${CurrencyService.format(value)}',
-        style: TextStyle(color: color, fontWeight: FontWeight.bold),
-      ),
     );
   }
 

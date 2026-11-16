@@ -1262,11 +1262,16 @@ class _StockIssueScreenState extends State<StockIssueScreen> {
               ),
               ...List.generate(_items.length, (i) {
                 final r = _items[i];
+                final matchingItems = itemCtrl.list
+                    .where((item) => item.id == r.itemId);
+                final brand = matchingItems.isEmpty
+                    ? ''
+                    : matchingItems.first.brand.trim();
                 final gstAmount = (r.qty * r.rate) * (r.tax / 100);
                 return pw.TableRow(
                   children: [
                     _cell("${i + 1}", alignment: pw.Alignment.center),
-                    _cell(r.itemName),
+                    _cell('${r.itemName}${brand.isNotEmpty ? ' ($brand)' : ''}'),
                     _cell(r.unit, alignment: pw.Alignment.center),
                     _cell(r.qty.toString(), alignment: pw.Alignment.centerRight),
                     _cell(CurrencyService.format(r.rate), alignment: pw.Alignment.centerRight),

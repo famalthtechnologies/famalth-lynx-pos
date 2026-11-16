@@ -1,6 +1,7 @@
 class RequestItem {
   String code;
   String name;
+  String brand;
   String unit;
   double qty;
   double rate;
@@ -11,6 +12,7 @@ class RequestItem {
   RequestItem({
     required this.code,
     required this.name,
+    this.brand = '',
     required this.unit,
     required this.qty,
     required this.rate,

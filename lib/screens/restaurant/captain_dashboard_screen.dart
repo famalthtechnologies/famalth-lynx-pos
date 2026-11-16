@@ -6,6 +6,8 @@ import '../../controllers/restaurant/restaurant_controller.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
 import '../inventory/salescreen.dart';
+import '../mobile_billing/mobile_billing_app_screen.dart';
+import '../../models/auth/permission_service.dart';
 import 'kot_builder_screen.dart';
 import 'running_orders_screen.dart';
 import 'package:printing/printing.dart';
@@ -3608,11 +3610,22 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
     }
 
     final role = ((await TokenStorage.getRole()) ?? '').toUpperCase().trim();
-    final permissions = await TokenStorage.getPermissions();
-    final bool isWaiter = role == 'WAITER' || role == 'STEWARD' || role == 'SERVER';
-    final bool canCashierBill = !isWaiter && (permissions.contains('RETAIL_SALES') || role == 'ADMIN' || role == 'MANAGER' || role == 'CASHIER' || role == 'SUPERADMIN') && (MediaQuery.of(context).size.width >= 900);
+    final permissions = (await TokenStorage.getPermissions()).map((p) => p.toUpperCase().trim()).toList();
+    final bool hasBillingRight = role == 'ADMIN' ||
+        role == 'SUPERADMIN' ||
+        role == 'OWNER' ||
+        role == 'MANAGER' ||
+        role == 'CASHIER' ||
+        permissions.contains('RETAIL_SALES') ||
+        permissions.contains('POS_SALE') ||
+        permissions.contains('BILLING') ||
+        permissions.contains('CREATE_SALE') ||
+        permissions.contains('SALES') ||
+        permissions.contains('ALL') ||
+        PermissionService.can('RETAIL_SALES') ||
+        PermissionService.can('POS_SALE');
 
-    if (!canCashierBill) {
+    if (!hasBillingRight) {
       final String currentStatus = ctrl.tables.firstWhere((t) => t['id'] == tableId, orElse: () => {})['status']?.toString().toLowerCase() ?? '';
       ctrl.updateTableStatus(tableId, 'Billed');
       _refreshData();
@@ -3630,20 +3643,41 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
       return;
     }
 
+    final tableObj = ctrl.tables.firstWhere((t) => t['id'] == tableId, orElse: () => {});
+    final String tableName = (tableObj['table_name'] ?? tableObj['name'] ?? 'Table #$tableId').toString();
+
     if (mounted) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => SaleScreen(
-            preloadedTableId: tableId,
-            preloadedItems: consolidatedItems,
-            preloadedKotIds: kotIds,
+      final isDesktop = MediaQuery.of(context).size.width >= 900;
+      if (isDesktop) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SaleScreen(
+              preloadedTableId: tableId,
+              preloadedItems: consolidatedItems,
+              preloadedKotIds: kotIds,
+            ),
           ),
-        ),
-      ).then((_) {
-        ctrl.loadTables();
-        _refreshData();
-      });
+        ).then((_) {
+          ctrl.loadTables();
+          _refreshData();
+        });
+      } else {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => MobileBillingAppScreen(
+              preloadedTableId: tableId,
+              preloadedTableName: tableName,
+              preloadedItems: consolidatedItems,
+              preloadedKotIds: kotIds,
+            ),
+          ),
+        ).then((_) {
+          ctrl.loadTables();
+          _refreshData();
+        });
+      }
     }
   }
 
@@ -4417,13 +4451,25 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
     }
 
     final role = ((await TokenStorage.getRole()) ?? '').toUpperCase().trim();
-    final permissions = await TokenStorage.getPermissions();
-    final bool isWaiter = role == 'WAITER' || role == 'STEWARD' || role == 'SERVER';
-    final bool canCashierBill = !isWaiter && (permissions.contains('RETAIL_SALES') || role == 'ADMIN' || role == 'MANAGER' || role == 'CASHIER' || role == 'SUPERADMIN') && (MediaQuery.of(context).size.width >= 900);
+    final permissions = (await TokenStorage.getPermissions()).map((p) => p.toUpperCase().trim()).toList();
+    final bool hasBillingRight = role == 'ADMIN' ||
+        role == 'SUPERADMIN' ||
+        role == 'OWNER' ||
+        role == 'MANAGER' ||
+        role == 'CASHIER' ||
+        permissions.contains('RETAIL_SALES') ||
+        permissions.contains('POS_SALE') ||
+        permissions.contains('BILLING') ||
+        permissions.contains('CREATE_SALE') ||
+        permissions.contains('SALES') ||
+        permissions.contains('ALL') ||
+        PermissionService.can('RETAIL_SALES') ||
+        PermissionService.can('POS_SALE');
 
-    if (!canCashierBill) {
-      final int kotId = int.tryParse((kot['id'] ?? 0).toString()) ?? 0;
-      final String kotNo = (kot['kot_number'] ?? kot['kot_no'] ?? '#KOT-$kotId').toString();
+    final int kotId = int.tryParse((kot['id'] ?? 0).toString()) ?? 0;
+    final String kotNo = (kot['kot_number'] ?? kot['kot_no'] ?? '#KOT-$kotId').toString();
+
+    if (!hasBillingRight) {
       if (kotId > 0) {
         try {
           await ApiClient.put('/api/restaurant/kots/$kotId/status', {'status': 'Billing'});
@@ -4445,18 +4491,35 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
     }
 
     if (mounted) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => SaleScreen(
-            preloadedTableId: null,
-            preloadedItems: consolidatedItems,
-            preloadedKotIds: [kot['id']],
+      final isDesktop = MediaQuery.of(context).size.width >= 900;
+      if (isDesktop) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SaleScreen(
+              preloadedTableId: null,
+              preloadedItems: consolidatedItems,
+              preloadedKotIds: [kot['id']],
+            ),
           ),
-        ),
-      ).then((_) {
-        _fetchActiveKots();
-      });
+        ).then((_) {
+          _fetchActiveKots();
+        });
+      } else {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => MobileBillingAppScreen(
+              preloadedTableId: null,
+              preloadedTableName: 'Takeaway $kotNo',
+              preloadedItems: consolidatedItems,
+              preloadedKotIds: [kot['id']],
+            ),
+          ),
+        ).then((_) {
+          _fetchActiveKots();
+        });
+      }
     }
   }
 

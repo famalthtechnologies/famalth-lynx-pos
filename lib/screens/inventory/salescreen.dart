@@ -11132,7 +11132,7 @@ class _SaleScreenState extends State<SaleScreen> {
                         child: Stack(
                           children: [
                             // Stock Badge (Top Left)
-                            if (hasInv && isOutOfStock)
+                            if (hasInv && isOutOfStock && !allowNegativeStock)
                               Positioned(
                                 top: 8,
                                 left: 8,

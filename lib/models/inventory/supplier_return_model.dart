@@ -3,18 +3,22 @@ class SupplierReturnSourceItem {
   final int itemId;
   final String itemCode;
   final String itemName;
+  final String brand;
   final String unit;
   final double qty;
   final double rate;
+  final double tax;
 
   SupplierReturnSourceItem({
     required this.receiptItemId,
     required this.itemId,
     required this.itemCode,
     required this.itemName,
+    this.brand = '',
     required this.unit,
     required this.qty,
     required this.rate,
+    this.tax = 0,
   });
 
   factory SupplierReturnSourceItem.fromJson(Map<String, dynamic> json) {
@@ -23,13 +27,17 @@ class SupplierReturnSourceItem {
       itemId: json['item_id'] ?? 0,
       itemCode: (json['item_code'] ?? '').toString(),
       itemName: (json['item_name'] ?? '').toString(),
+      brand: (json['brand'] ?? '').toString(),
       unit: (json['unit'] ?? '').toString(),
       qty: double.tryParse((json['qty'] ?? 0).toString()) ?? 0,
       rate: double.tryParse((json['rate'] ?? 0).toString()) ?? 0,
+      tax: double.tryParse((json['tax'] ?? json['tax_percent'] ?? 0).toString()) ?? 0,
     );
   }
 
   double get amount => qty * rate;
+  double get taxAmount => amount * tax / 100;
+  double get totalAmount => amount + taxAmount;
 }
 
 class SupplierReturnEntryItem {
@@ -37,21 +45,27 @@ class SupplierReturnEntryItem {
   final int itemId;
   final String itemCode;
   final String itemName;
+  final String brand;
   final String unit;
   double qty;
   double rate;
+  double tax;
 
   SupplierReturnEntryItem({
     required this.receiptItemId,
     required this.itemId,
     required this.itemCode,
     required this.itemName,
+    this.brand = '',
     required this.unit,
     required this.qty,
     required this.rate,
+    this.tax = 0,
   });
 
   double get amount => qty * rate;
+  double get taxAmount => amount * tax / 100;
+  double get totalAmount => amount + taxAmount;
 
   Map<String, dynamic> toJson() {
     return {
@@ -60,6 +74,7 @@ class SupplierReturnEntryItem {
       'item_code': itemCode,
       'qty': qty,
       'rate': rate,
+      'tax': tax,
     };
   }
 }

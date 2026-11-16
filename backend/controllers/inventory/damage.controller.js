@@ -32,11 +32,30 @@ const createDamage = async (req, res) => {
     const t = await req.propertyDb.transaction();
     try {
         const { header, items } = req.body;
+        const outlet_id = req.user.outlet_id;
+        let effectiveDamageNo = String(header.damage_no || '').trim();
+        // On actual insert, ALWAYS mint official sequential Damage number atomically from DB
+        try {
+            const numberingHelper = require('./numberingSettingsV2.controller');
+            const resolved = await numberingHelper.allocateNextNumber({
+                db: req.propertyDb,
+                module: 'DAMAGE',
+                date: header.damage_date || new Date(),
+                outlet_id,
+                transaction: t
+            });
+            if (resolved && resolved.number) {
+                effectiveDamageNo = resolved.number;
+            }
+        }
+        catch (seqErr) {
+            console.warn('[DAMAGE SEQ] Auto-resolve numbering warning:', seqErr?.message || seqErr);
+        }
         let total = 0;
         const damage = await req.propertyDb.models.damage_headers.create({
-            damage_no: header.damage_no,
+            damage_no: effectiveDamageNo,
             damage_date: header.damage_date,
-            outlet_id: req.user.outlet_id,
+            outlet_id: outlet_id,
             created_by: req.user.id,
             status: 'OPEN',
             approval_status: header.approval_status || 'PENDING'

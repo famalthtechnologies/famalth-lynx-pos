@@ -9,6 +9,19 @@ const path_1 = __importDefault(require("path"));
 const rootDir = process.pkg ? path_1.default.dirname(process.execPath) : process.cwd();
 const LICENSE_PATH = path_1.default.join(rootDir, 'license.key');
 function loadLicense() {
+    const isCloudMode = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.DB_HOST);
+    if (isCloudMode) {
+        if (process.env.LICENSE_KEY_JSON) {
+            try {
+                return JSON.parse(process.env.LICENSE_KEY_JSON);
+            } catch (e) {}
+        }
+        return {
+            allowed_mode: 'ONLINE',
+            valid_till: '2099-12-31',
+            modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS']
+        };
+    }
     if (!fs_1.default.existsSync(LICENSE_PATH)) {
         throw new Error('LICENSE_FILE_MISSING');
     }
@@ -30,6 +43,15 @@ function isExpired(validTill) {
 function license(requiredModule) {
     return (req, res, next) => {
         try {
+            const isCloudMode = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.DB_HOST);
+            if (isCloudMode) {
+                req.license = {
+                    allowed_mode: 'ONLINE',
+                    valid_till: '2099-12-31',
+                    modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS']
+                };
+                return next();
+            }
             const licenseData = loadLicense();
             if (isExpired(licenseData.valid_till)) {
                 return res.status(403).json({

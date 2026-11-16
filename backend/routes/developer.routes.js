@@ -21,8 +21,16 @@ router.delete('/api-keys/:id', developerController.deleteApiKey);
 router.get('/apikeys', developerController.getApiKeys);
 router.post('/apikeys', developerController.generateApiKey);
 router.delete('/apikeys/:id', developerController.deleteApiKey);
-// OAuth 2.0 RFC 6749 Client Credentials Token Endpoint
+// OAuth 2.0 RFC 6749 Authorization Code & Client Credentials Endpoints
+router.get('/oauth/authorize', developerController.authorizeOAuth);
+router.post('/oauth/authorize', developerController.authorizeOAuth);
 router.post('/oauth/token', developerController.issueOAuthToken);
+
+// RFC 8414 Authorization Server Metadata (OpenAI ChatGPT & MCP Discovery)
+router.get('/.well-known/oauth-authorization-server', developerController.getOAuthMetadata);
+router.get('/.well-known/openid-configuration', developerController.getOAuthMetadata);
+router.get('/mcp/.well-known/oauth-authorization-server', developerController.getOAuthMetadata);
+
 // =========================================================================
 // Model Context Protocol (MCP) & AI Gateway Routes (ChatGPT, Gemini, Claude)
 // =========================================================================
@@ -36,6 +44,14 @@ router.get('/mcp/gemini-tools.json', mcpController.getGeminiSpec);
 router.post('/mcp', mcpController.handleJsonRpc); // JSON-RPC 2.0 over HTTP
 router.get('/mcp/sse', mcpController.handleSse); // Remote MCP Server-Sent Events stream
 router.post('/mcp/messages', mcpController.handleMessages); // MCP SSE Messages endpoint
+
+// Fallback & Alias for user endpoints like /mcp/chat
+router.all('/mcp/chat', (req, res) => {
+    if (req.method === 'GET') {
+        return mcpController.handleSse(req, res);
+    }
+    return mcpController.handleJsonRpc(req, res);
+});
 // Direct Tool Execution & ChatGPT Action Endpoints
 router.post('/mcp/tools/execute', mcpController.executeToolDirect);
 router.post('/mcp/tools/analyze-sales', mcpController.toolAnalyzeSales);

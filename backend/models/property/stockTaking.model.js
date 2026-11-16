@@ -27,6 +27,7 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.STRING(200),
             allowNull: false
         },
+        brand: DataTypes.STRING(150),
         unit: {
             type: DataTypes.STRING(30),
             defaultValue: 'PCS'
@@ -65,6 +66,11 @@ module.exports = (sequelize, DataTypes) => {
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
+    if (sequelize && typeof sequelize.query === 'function') {
+        sequelize.query(`
+            ALTER TABLE stock_taking ADD COLUMN IF NOT EXISTS brand VARCHAR(150);
+        `).catch(() => { });
+    }
     return StockTaking;
 };
 exports.default = module.exports;

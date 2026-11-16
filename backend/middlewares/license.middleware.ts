@@ -12,6 +12,13 @@ interface LicenseData {
 }
 
 function loadLicense(): LicenseData {
+  const isCloudMode = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.DB_HOST);
+  if (isCloudMode) {
+    if (process.env.LICENSE_KEY_JSON) {
+      try { return JSON.parse(process.env.LICENSE_KEY_JSON); } catch (e) {}
+    }
+    return { allowed_mode: 'ONLINE', valid_till: '2099-12-31', modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS'] };
+  }
   if (!fs.existsSync(LICENSE_PATH)) {
     throw new Error('LICENSE_FILE_MISSING');
   }
@@ -37,6 +44,11 @@ function isExpired(validTill: string | Date): boolean {
 export function license(requiredModule?: string) {
   return (req: Request, res: Response, next: NextFunction): any => {
     try {
+      const isCloudMode = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.DB_HOST);
+      if (isCloudMode) {
+        (req as any).license = { allowed_mode: 'ONLINE', valid_till: '2099-12-31', modules: ['INVENTORY', 'REPORTS', 'ADMIN', 'PURCHASE', 'SUPPLIER', 'ACCOUNTING', 'ANALYTICS', 'DELIVERY', 'FINANCE', 'NOTIFICATIONS'] };
+        return next();
+      }
       const licenseData = loadLicense();
 
       if (isExpired(licenseData.valid_till)) {

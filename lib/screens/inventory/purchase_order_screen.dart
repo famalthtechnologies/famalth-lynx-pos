@@ -536,7 +536,7 @@ class _PurchaseOrderScreenState extends State<PurchaseOrderScreen> {
 
       await poCtrl.create(po);
 
-      final actionChoice = await showDialog<String>(
+      await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -544,37 +544,22 @@ class _PurchaseOrderScreenState extends State<PurchaseOrderScreen> {
             children: [
               Icon(Icons.check_circle_outline, color: Colors.teal),
               SizedBox(width: 8),
-              Text("Purchase Order Saved"),
+              Text("Purchase Order Submitted"),
             ],
           ),
-          content: const Text("Would you like to print this Purchase Order or email it to the Vendor?"),
+          content: const Text(
+            "This Purchase Order is pending approval. You can print it after it is approved.",
+          ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, "CLOSE"),
-              child: const Text("Close"),
-            ),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.print, size: 16),
-              label: const Text("Print PO"),
-              onPressed: () => Navigator.pop(context, "PRINT"),
-            ),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF7A1A), foregroundColor: Colors.white),
-              icon: const Icon(Icons.email_outlined, size: 16),
-              label: const Text("Email Vendor"),
-              onPressed: () => Navigator.pop(context, "EMAIL"),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("OK"),
             ),
           ],
         ),
       );
 
-      if (actionChoice == "PRINT") {
-        await _printPurchaseOrder();
-      } else if (actionChoice == "EMAIL") {
-        await _emailPurchaseOrderToVendor();
-      }
-
-      _showMessage("Purchase Order Saved Successfully");
+      _showMessage("Purchase Order submitted for approval");
       _finalclearItem();
       _itemCodeFocus.requestFocus(); // Focus back to start for new PO
     } finally {

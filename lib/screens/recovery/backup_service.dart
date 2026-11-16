@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
@@ -8,6 +9,7 @@ import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
 import '../../core/config/app_config.dart';
 import '../../core/auth/token_storage.dart';
+import '../../core/utils/file_download_helper.dart';
 import 'package:http/http.dart' as http;
 
 class BackupService {
@@ -95,15 +97,12 @@ class BackupService {
     }
 
     final bytes = base64Decode(base64Payload);
-    final downloads = await getDownloadsDirectory();
-    final targetDir = downloads ?? await getApplicationDocumentsDirectory();
     final safeName = fileName.toLowerCase().endsWith('.enc')
         ? fileName
         : '${p.basenameWithoutExtension(fileName)}.enc';
-    final filePath = p.join(targetDir.path, safeName);
-    final file = File(filePath);
-    await file.writeAsBytes(bytes, flush: true);
-    return file.path;
+
+    final saved = await saveOrDownloadBinaryFile(filename: safeName, bytes: bytes);
+    return saved ?? safeName;
   }
 
   static Future<String> createAndSaveLocalFambakBackup({
@@ -118,14 +117,17 @@ class BackupService {
     final filename = (result['filename'] ?? 'backup.fambak').toString();
     final downloadUrl = (result['downloadUrl'] ?? '').toString();
 
-    final downloads = await getDownloadsDirectory();
-    final targetDir = downloads ?? await getApplicationDocumentsDirectory();
-    final targetPath = p.join(targetDir.path, filename);
-
-    final localServerFile = File(p.join(Directory.current.path, 'backups', filename));
-    if (await localServerFile.exists()) {
-      await localServerFile.copy(targetPath);
-      return targetPath;
+    if (!kIsWeb) {
+      try {
+        final localServerFile = File(p.join(Directory.current.path, 'backups', filename));
+        if (await localServerFile.exists()) {
+          final downloads = await getDownloadsDirectory();
+          final targetDir = downloads ?? await getApplicationDocumentsDirectory();
+          final targetPath = p.join(targetDir.path, filename);
+          await localServerFile.copy(targetPath);
+          return targetPath;
+        }
+      } catch (_) {}
     }
 
     if (downloadUrl.isNotEmpty) {
@@ -140,13 +142,12 @@ class BackupService {
       }
       final response = await http.get(uri, headers: headers);
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
-        final file = File(targetPath);
-        await file.writeAsBytes(response.bodyBytes, flush: true);
-        return file.path;
+        final saved = await saveOrDownloadBinaryFile(filename: filename, bytes: response.bodyBytes);
+        return saved ?? filename;
       }
     }
 
-    return targetPath;
+    return filename;
   }
 
   static Future<Map<String, dynamic>> restoreFromLocalEnc({

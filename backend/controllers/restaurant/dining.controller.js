@@ -213,6 +213,7 @@ const getTableDiningInfo = async (req, res) => {
                 stock: availableStock,
                 opening_balance: availableStock,
                 stockable: isStockable,
+                allow_negative_stock: allowNegativeStock,
                 is_out_of_stock: isOutOfStock,
                 tax_percent: effectiveTaxPercent,
                 tax_group_name: tg ? tg.group_name : (effectiveTaxPercent > 0 ? `GST ${effectiveTaxPercent}%` : 'Tax Free'),
@@ -559,8 +560,10 @@ const getTableDiningInfo = async (req, res) => {
                     wifi_password: propInfo?.wifi_password || '',
                     enable_payment_gateway: enablePaymentGateway,
                     payment_gateway_provider: paymentGatewayProvider,
-                    merchant_upi_id: merchantUpiId
+                    merchant_upi_id: merchantUpiId,
+                    allow_negative_stock: allowNegativeStock
                 },
+                allow_negative_stock: allowNegativeStock,
                 table: {
                     id: table.id,
                     table_name: table.table_name,

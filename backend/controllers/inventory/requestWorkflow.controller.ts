@@ -115,13 +115,15 @@ export const cancelRequest = async (req: Request, res: Response) => {
         });
 
         if (!header) {
+            await t.rollback();
             return res.status(404).json({ success: false });
         }
 
-        if (['CLOSED', 'CANCELLED'].includes(String(header.status || '').toUpperCase())) {
+        if (['PARTIAL', 'CLOSED', 'ISSUED', 'CANCELLED'].includes(String(header.status || '').toUpperCase())) {
+            await t.rollback();
             return res.status(400).json({
                 success: false,
-                message: 'Only open or partial requests can be cancelled'
+                message: 'Issued requests cannot be cancelled'
             });
         }
 
@@ -218,35 +220,45 @@ export const modifyRequest = async (req: Request, res: Response) => {
         const { id } = req.params;
         const { department, items = [] } = req.body;
         const outlet_id = (req as any).user.outlet_id;
-        const normalizedItems = items.map((item: any) => ({
-            ...item,
-            line_status: normalizeLineStatus(item.line_status)
-        }));
 
         const header = await (req as any).propertyDb.models.request_headers.findOne({
             where: { id, outlet_id }
         });
 
         if (!header) {
+            await t.rollback();
             return res.status(404).json({ success: false });
         }
 
-        if (header.status === 'CLOSED') {
+        if (['PARTIAL', 'CLOSED', 'ISSUED'].includes(String(header.status || '').toUpperCase())) {
+            await t.rollback();
             return res.status(400).json({
                 success: false,
-                message: 'Request closed'
+                message: 'Issued requests cannot be modified'
             });
         }
-
-        await header.update({
-            department,
-            status: deriveHeaderStatus(normalizedItems)
-        }, { transaction: t });
 
         const existingItems = await (req as any).propertyDb.models.request_items.findAll({
             where: { request_id: id },
             transaction: t
         });
+        const existingById = new Map(existingItems.map((item: any) => [String(item.id), item]));
+        const normalizedItems = items.map((item: any) => {
+            const existingItem = item.id ? existingById.get(String(item.id)) : null;
+            return {
+                ...item,
+                // Approval does not change issue state. Preserve it from the database
+                // so editing an approved, unissued request cannot accidentally close it.
+                line_status: existingItem
+                    ? normalizeLineStatus(existingItem.line_status)
+                    : normalizeLineStatus(item.line_status || 'OPEN')
+            };
+        });
+
+        await header.update({
+            department,
+            status: deriveHeaderStatus(normalizedItems)
+        }, { transaction: t });
 
         const existingIds = existingItems.map((i: any) => i.id);
         const incomingIds = normalizedItems.map((i: any) => i.id).filter((i: any) => i);

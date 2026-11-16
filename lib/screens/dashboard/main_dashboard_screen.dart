@@ -13,7 +13,7 @@ import '../../controllers/inventory/stock_transfer_controller.dart';
 import 'dart:io';
 import 'package:retailpos/models/security/app_user_model.dart';
 import 'package:retailpos/screens/dashboard/system_update_screen.dart';
-import 'package:retailpos/screens/reports/return_report_screen.dart';
+import 'package:retailpos/screens/reports/return_report_screen.dart';import 'package:retailpos/screens/reports/supplier_return_report_screen.dart';
 import 'package:retailpos/screens/reports/cashier_handover_report_screen.dart';
 import 'package:retailpos/screens/settings/settings_screen.dart';
 import 'package:retailpos/widgets/brand_logo_widget.dart';
@@ -4669,6 +4669,14 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Stock Dispatch',
         'permission': 'STOCK_OUT',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockIssueScreen())),
+      },
+      {
+        'category': 'Operations',
+        'icon': Icons.request_page_outlined,
+        'label': 'Material Requisition / Request Item',
+        'permission': 'ITEM_REQUEST',
+        'keywords': ['material requisition', 'request item', 'stock request', 'department request', 'inventory request'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const StockRequestScreen())),
       },
       {
         'category': 'Operations',
@@ -5385,7 +5393,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'label': 'Return Report',
         'permission': 'RETURN_REPORT',
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReturnReportScreen())),
-      },
+      },      {        'category': 'Reports',        'icon': Icons.assignment_return_outlined,        'label': 'Supplier Return Report',        'permission': 'SUPPLIER_RETURN',        'keywords': ['supplier return report', 'vendor return report', 'purchase return report'],        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SupplierReturnReportScreen())),      },
       {
         'category': 'Reports',
         'icon': Icons.outbond_rounded,

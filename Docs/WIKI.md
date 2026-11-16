@@ -115,6 +115,8 @@ Step-by-step illustrated workflows written for store operators, cashiers, restau
 - 🛠️ **[System Maintenance Mode & Emergency Lockout](./User-Guide-Maintenance-Mode-And-Lockout.md)**: Non-dismissible lockout modal, advance maintenance notices & auto-resumption.
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./User-Guide-Delivery-Challan-And-Transport-Logistics.md)**: Issuing goods in transit challans, fleet vehicle/driver management, trip loading manifest & POS conversion.
 - 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./User-Guide-Tiered-Storage-And-Backup-Architecture.md)**: Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing & .fambak/.posbak archives.
+- 📱 **[Mobile Billing Suite & Universal Companion Apps](./User-Guide-Mobile-Billing-And-Companion-Apps.md)**: Handheld POS terminal, bottom sheets, waiter/rider companion apps & QR scan-to-connect.
+- 🌐 **[Model Context Protocol (MCP) & AI Gateway User Guide](./User-Guide-Model-Context-Protocol-And-AI-Gateway.md)**: Connecting ChatGPT, Claude Desktop, Google Gemini, and Cursor AI to query sales, inventory, and draft bills.
 - ❓ **[Complete Store Operations FAQ](./User-Guide-FAQ.md)**: Universal troubleshooting manual.
 
 ---
@@ -186,6 +188,7 @@ sequenceDiagram
 - 🛠️ **[System Maintenance & Lockout Middleware Engine](./Developer-Guide-Maintenance-Mode-And-Lockout.md)**: Maintenance middleware, atomic JSON state storage, role-based bypass rules & Flutter interceptor.
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Architecture](./Developer-Guide-Delivery-Challan-And-Transport-Logistics.md)**: Logistics schema, trip assignment manifest, doorstep OTP verification & POS sales conversion pipeline.
 - 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Developer-Guide-Tiered-Storage-And-Backup-Architecture.md)**: Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing, .fambak archive internals & quota services.
+- 🌐 **[Model Context Protocol (MCP) & AI Gateway Architecture](./Developer-Guide-Model-Context-Protocol-And-AI-Gateway.md)**: SSE & JSON-RPC transports, dynamic ChatGPT OpenAPI 3.0 spec, Gemini function calling, and RFC 6749/7636 OAuth 2.0 PKCE server.
 - 🍽️ **[QR Table Dining & Multi-Seat Architecture](./Developer-Guide-QR-Table-Ordering.md)**: Split-bill session engine, seat-level tagging, combined vs per-seat totals, and standalone dining app (`main_dining.dart`).
 - 🚀 **[1-Click Relational Store Migration Architecture](./One-Click-Cloud-Migration-Guide.md)**: In-memory relational ID translation engine and sequence re-alignment.
 - 🛍️ **[B2B Wholesale Marketplace & Community Chat Architecture](./B2B-Marketplace-And-Community-Guide.md)**: WebSocket chat protocols, vendor discovery, and direct PO translation.
@@ -211,4 +214,4 @@ sequenceDiagram
 
 ---
 
-*Wiki Maintained by Famalth Technologies Engineering Team. Last Updated: October 2026.*
+*Wiki Maintained by Famalth Technologies Engineering Team. Last Updated: November 2026.*

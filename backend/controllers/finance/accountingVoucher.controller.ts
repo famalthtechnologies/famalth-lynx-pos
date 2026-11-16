@@ -42,11 +42,27 @@ exports.createVoucher = async (req, res) => {
 
         let autoNo;
         try {
-            autoNo = await getNextNumber(req.propertyDb, outlet_id, voucher_type);
+            autoNo = await getNextNumber(req.propertyDb, outlet_id, voucher_type, t);
         } catch (_) {
-            const prefixMap = { CONTRA: 'CN', PAYMENT: 'PV', RECEIPT: 'RV', JOURNAL: 'JV', SALES: 'SV', PURCHASE: 'PV' };
+            const prefixMap = { CONTRA: 'CNT', PAYMENT: 'PAY', RECEIPT: 'RCT', JOURNAL: 'JRN', SALES: 'SV', PURCHASE: 'PV' };
             const count = await req.propertyDb.models.accounting_vouchers.count({ where: { outlet_id, voucher_type }, transaction: t });
             autoNo = `${prefixMap[voucher_type] || 'VC'}-${String(count + 1).padStart(4, '0')}`;
+        }
+
+        // Collision safety check: ensure autoNo is 100% unique
+        let voucherExists = await req.propertyDb.models.accounting_vouchers.findOne({
+            where: { outlet_id, voucher_no: autoNo },
+            attributes: ['id'],
+            transaction: t
+        });
+        while (voucherExists) {
+            const extra = Math.floor(100 + Math.random() * 900);
+            autoNo = `${autoNo}-${extra}`;
+            voucherExists = await req.propertyDb.models.accounting_vouchers.findOne({
+                where: { outlet_id, voucher_no: autoNo },
+                attributes: ['id'],
+                transaction: t
+            });
         }
 
         const vDate = voucher_date || new Date().toISOString().split('T')[0];

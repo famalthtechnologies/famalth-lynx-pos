@@ -7,6 +7,9 @@ const ctrl = require('../controllers/inventory/purchaseOrder.controller');
 router.use(auth, license('PURCHASE'));
 
 router.post('/', ctrl.createPurchaseOrder);
+router.get('/approvals', ctrl.getPurchaseOrderApprovals);
+router.put('/:id/approve', ctrl.approvePurchaseOrder);
+router.put('/:id/reject', ctrl.rejectPurchaseOrder);
 router.get('/', ctrl.listPurchaseOrders);
 router.get('/by-date', ctrl.getPoByDate);
 router.get('/:id/print', ctrl.getPurchaseOrderForPrint);

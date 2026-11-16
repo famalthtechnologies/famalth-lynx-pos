@@ -6,7 +6,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
-import '../../models/reports/finance_models.dart';
 
 class MobileCustomerLedgerSheet extends StatefulWidget {
   const MobileCustomerLedgerSheet({super.key});
@@ -884,8 +883,8 @@ class _CustomerStatementSheetState extends State<_CustomerStatementSheet> {
         rawList = (d['transactions'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)).toList();
       }
 
-      if (rawList.isEmpty && name.isNotEmpty) {
-        // Try with only name
+      if (rawList.isEmpty && name.isNotEmpty && phone.isEmpty) {
+        // Try with only name if phone is not provided (avoids combining distinct customers sharing same name)
         res = await ApiClient.get(
           '${ApiEndpoints.financeCustomerLedger}?customer_name=${Uri.encodeComponent(name)}',
         );

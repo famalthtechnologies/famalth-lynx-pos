@@ -8,3 +8,10 @@ Future<bool> saveOrDownloadTextFile({
   required String content,
 }) =>
     downloadTextFile(filename: filename, content: content);
+
+/// Universally downloads / saves binary data (.fambak, .enc, .zip, .pdf) across Web, Android, iOS, Windows, macOS, Linux
+Future<String?> saveOrDownloadBinaryFile({
+  required String filename,
+  required List<int> bytes,
+}) =>
+    downloadBinaryFile(filename: filename, bytes: bytes);

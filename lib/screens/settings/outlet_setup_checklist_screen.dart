@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../../controllers/settings/outlet_onboarding_controller.dart';
 import '../auth/user_management_screen.dart';
 import '../dashboard/main_dashboard_screen.dart';
+import '../clinic/clinic_doctor_management_dialog.dart';
+import '../hrms/employee_screen.dart';
+import '../hrms/hrms_masters_screen.dart';
 import '../inventory/item_master_screen.dart';
 import '../inventory/supplier_master_screen.dart';
 import '../restaurant/restaurant_setup_screen.dart';
@@ -32,6 +35,7 @@ class _OutletSetupChecklistScreenState extends State<OutletSetupChecklistScreen>
 
   void _navigateToStep(String key) async {
     Widget? destination;
+    var openDoctorSetup = false;
     switch (key) {
       case 'PROPERTY':
         destination = const OutletDetailModificationScreen();
@@ -57,16 +61,33 @@ class _OutletSetupChecklistScreenState extends State<OutletSetupChecklistScreen>
       case 'RESTAURANT':
         destination = const RestaurantSetupScreen();
         break;
+      case 'CLINIC_DOCTORS':
+        openDoctorSetup = true;
+        break;
+      case 'HRMS_MASTERS':
+        destination = const HrmsMastersScreen();
+        break;
+      case 'HRMS_EMPLOYEES':
+        destination = const EmployeeScreen();
+        break;
       case 'USERS':
         destination = const UserManagementScreen();
         break;
     }
 
-    if (destination != null) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => destination!),
-      );
+    if (destination != null || openDoctorSetup) {
+      if (openDoctorSetup) {
+        await showDialog<void>(
+          context: context,
+          builder: (_) => const ClinicDoctorManagementDialog(),
+        );
+      } else {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => destination!),
+        );
+      }
+      if (!mounted) return;
       // Auto-refresh step status upon returning
       await _controller.refreshStatus();
       if (_controller.is100PercentComplete && mounted) {

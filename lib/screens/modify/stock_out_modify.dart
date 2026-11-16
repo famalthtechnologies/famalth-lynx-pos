@@ -195,6 +195,13 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
     return t;
   }
 
+  double get totalGst => items.fold(0.0, (sum, item) {
+        final qty = double.tryParse(item['qty']?.toString() ?? '0') ?? 0;
+        final rate = double.tryParse(item['rate']?.toString() ?? '0') ?? 0;
+        final tax = double.tryParse(item['tax']?.toString() ?? '0') ?? 0;
+        return sum + qty * rate * tax / 100;
+      });
+
   Future<void> _save() async {
     if (selectedIssueId == null) {
       _msg("Select an Issue first");
@@ -335,7 +342,9 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
               2: const pw.FixedColumnWidth(40),
               3: const pw.FixedColumnWidth(50),
               4: const pw.FixedColumnWidth(60),
-              5: const pw.FixedColumnWidth(60),
+              5: const pw.FixedColumnWidth(45),
+              6: const pw.FixedColumnWidth(60),
+              7: const pw.FixedColumnWidth(65),
             },
             children: [
               pw.TableRow(
@@ -346,6 +355,8 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
                   _pdfCell("Unit", bold: true, alignment: pw.Alignment.center),
                   _pdfCell("Qty", bold: true, alignment: pw.Alignment.centerRight),
                   _pdfCell("Rate", bold: true, alignment: pw.Alignment.centerRight),
+                  _pdfCell("GST %", bold: true, alignment: pw.Alignment.centerRight),
+                  _pdfCell("GST Amt", bold: true, alignment: pw.Alignment.centerRight),
                   _pdfCell("Amount", bold: true, alignment: pw.Alignment.centerRight),
                 ],
               ),
@@ -353,7 +364,9 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
                 final r = items[i];
                 final qty = double.tryParse(r['qty']?.toString() ?? '0') ?? 0;
                 final rate = double.tryParse(r['rate']?.toString() ?? '0') ?? 0;
+                final tax = double.tryParse(r['tax']?.toString() ?? '0') ?? 0;
                 final amount = qty * rate;
+                final gstAmount = amount * tax / 100;
                 final itemMaster = r['item_master'] as Map<String, dynamic>?;
                 final brand = itemMaster?['brand']?.toString() ?? r['brand']?.toString() ?? '';
                 final itemName = itemMaster?['item_name'] ?? r['item_name'] ?? r['item_code'] ?? '';
@@ -366,6 +379,8 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
                     _pdfCell(unit, alignment: pw.Alignment.center),
                     _pdfCell(qty.toString(), alignment: pw.Alignment.centerRight),
                     _pdfCell(CurrencyService.format(rate), alignment: pw.Alignment.centerRight),
+                    _pdfCell(tax.toStringAsFixed(2), alignment: pw.Alignment.centerRight),
+                    _pdfCell(CurrencyService.format(gstAmount), alignment: pw.Alignment.centerRight),
                     _pdfCell(CurrencyService.format(amount), alignment: pw.Alignment.centerRight),
                   ],
                 );
@@ -383,7 +398,7 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
                 color: PdfColors.grey50,
               ),
               child: pw.Text(
-                "Total Amount : ${CurrencyService.format(total)}",
+                "Subtotal: ${CurrencyService.format(total)}    GST: ${CurrencyService.format(totalGst)}    Total: ${CurrencyService.format(total + totalGst)}",
                 style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9, color: PdfColors.blueGrey900),
               ),
             ),
@@ -1072,6 +1087,7 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
                         const DataColumn(label: Text("Unit")),
                         const DataColumn(label: Text("Qty")),
                         const DataColumn(label: Text("Rate")),
+                        const DataColumn(label: Text("Tax %")),
                         const DataColumn(label: Text("Amount")),
                         if (isEditable) const DataColumn(label: Text("Action")),
                       ],
@@ -1079,6 +1095,7 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
                         final item = items[i];
                         final qty = double.tryParse(item['qty']?.toString() ?? '0') ?? 0;
                         final rate = double.tryParse(item['rate']?.toString() ?? '0') ?? 0;
+                        final tax = double.tryParse(item['tax']?.toString() ?? '0') ?? 0;
                         final amount = qty * rate;
                         final itemMaster = item['item_master'] as Map<String, dynamic>?;
                         final itemCode = itemMaster?['item_code'] ?? item['item_code'] ?? '';
@@ -1155,6 +1172,31 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
                                   : Text(CurrencyService.format(rate)),
                             ),
                             DataCell(
+                              isEditable
+                                  ? SizedBox(
+                                      width: 72,
+                                      height: 36,
+                                      child: TextFormField(
+                                        key: ValueKey('issue-tax-$selectedIssueId-$i-${item['id']}'),
+                                        initialValue: tax.toString(),
+                                        textAlign: TextAlign.center,
+                                        textAlignVertical: TextAlignVertical.center,
+                                        style: const TextStyle(fontSize: 12),
+                                        decoration: const InputDecoration(
+                                          isDense: true,
+                                          contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                                          border: OutlineInputBorder(),
+                                        ),
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        onChanged: (v) {
+                                          item['tax'] = double.tryParse(v) ?? 0;
+                                          setState(() {});
+                                        },
+                                      ),
+                                    )
+                                  : Text('${tax.toStringAsFixed(2)}%'),
+                            ),
+                            DataCell(
                               Text(
                                 CurrencyService.format(amount),
                                 style: const TextStyle(fontWeight: FontWeight.bold),
@@ -1200,7 +1242,7 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
                   ),
                   child: Row(
                     children: [
-                      Text("Total Amount: ", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
+                      Text("Subtotal: ", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
                       Text(
                         CurrencyService.format(total),
                         style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
@@ -1208,6 +1250,10 @@ class _IssueModifyScreenState extends State<IssueModifyScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(width: 12),
+                Text('GST: ${CurrencyService.format(totalGst)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
+                const SizedBox(width: 12),
+                Text('Total: ${CurrencyService.format(total + totalGst)}', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
               ],
             ),
           ),

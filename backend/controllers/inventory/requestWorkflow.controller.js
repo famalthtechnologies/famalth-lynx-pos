@@ -110,12 +110,14 @@ const cancelRequest = async (req, res) => {
             where: { id, outlet_id }
         });
         if (!header) {
+            await t.rollback();
             return res.status(404).json({ success: false });
         }
-        if (['CLOSED', 'CANCELLED'].includes(String(header.status || '').toUpperCase())) {
+        if (['PARTIAL', 'CLOSED', 'ISSUED', 'CANCELLED'].includes(String(header.status || '').toUpperCase())) {
+            await t.rollback();
             return res.status(400).json({
                 success: false,
-                message: 'Only open or partial requests can be cancelled'
+                message: 'Issued requests cannot be cancelled'
             });
         }
         const oldData = header.toJSON();
@@ -207,30 +209,38 @@ const modifyRequest = async (req, res) => {
         const { id } = req.params;
         const { department, items = [] } = req.body;
         const outlet_id = req.user.outlet_id;
-        const normalizedItems = items.map((item) => ({
-            ...item,
-            line_status: normalizeLineStatus(item.line_status)
-        }));
         const header = await req.propertyDb.models.request_headers.findOne({
             where: { id, outlet_id }
         });
         if (!header) {
+            await t.rollback();
             return res.status(404).json({ success: false });
         }
-        if (header.status === 'CLOSED') {
+        if (['PARTIAL', 'CLOSED', 'ISSUED'].includes(String(header.status || '').toUpperCase())) {
+            await t.rollback();
             return res.status(400).json({
                 success: false,
-                message: 'Request closed'
+                message: 'Issued requests cannot be modified'
             });
         }
-        await header.update({
-            department,
-            status: deriveHeaderStatus(normalizedItems)
-        }, { transaction: t });
         const existingItems = await req.propertyDb.models.request_items.findAll({
             where: { request_id: id },
             transaction: t
         });
+        const existingById = new Map(existingItems.map((item) => [String(item.id), item]));
+        const normalizedItems = items.map((item) => {
+            const existingItem = item.id ? existingById.get(String(item.id)) : null;
+            return {
+                ...item,
+                line_status: existingItem
+                    ? normalizeLineStatus(existingItem.line_status)
+                    : normalizeLineStatus(item.line_status || 'OPEN')
+            };
+        });
+        await header.update({
+            department,
+            status: deriveHeaderStatus(normalizedItems)
+        }, { transaction: t });
         const existingIds = existingItems.map((i) => i.id);
         const incomingIds = normalizedItems.map((i) => i.id).filter((i) => i);
         const deleteIds = existingIds.filter((existingId) => !incomingIds.includes(existingId));

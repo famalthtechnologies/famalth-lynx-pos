@@ -1306,11 +1306,13 @@ export const acceptAndPayAppointment = async (req: Request, res: Response) => {
                         const priorBalance = Number(existingSale.balance_due || 0);
                         const newAmountPaid = Number(existingSale.amount_paid || 0) + finalCollected;
                         const newBal = Math.max(0, Number(existingSale.net_amount || 0) - newAmountPaid);
+                        const posPayRef = 'POSPAY:' + JSON.stringify([{ method: payment_mode || 'CASH', amount: newAmountPaid }]);
                         await existingSale.update({
                             customer_id: customerId || existingSale.customer_id,
                             amount_paid: newAmountPaid,
                             balance_due: newBal,
                             payment_mode: newBal === 0 ? (payment_mode || 'CASH') : existingSale.payment_mode,
+                            payment_reference: posPayRef,
                             status: 'COMPLETED'
                         });
 
@@ -1327,6 +1329,7 @@ export const acceptAndPayAppointment = async (req: Request, res: Response) => {
                         }
                     } else {
                         // Create completed sales_headers record so it shows in customer ledger & statements
+                        const posPayRef = 'POSPAY:' + JSON.stringify([{ method: payment_mode || 'CASH', amount: finalCollected }]);
                         await (req as any).propertyDb.models.sales_headers.create({
                             outlet_id,
                             sale_no: `APPT-${appointment.id}`,
@@ -1339,6 +1342,7 @@ export const acceptAndPayAppointment = async (req: Request, res: Response) => {
                             amount_paid: finalCollected,
                             balance_due: 0,
                             payment_mode: payment_mode || 'CASH',
+                            payment_reference: posPayRef,
                             order_type: 'CLINIC_APPOINTMENT',
                             status: 'COMPLETED',
                             is_latest: true,
@@ -3274,8 +3278,11 @@ export const getPatientCreditStatus = async (req: Request, res: Response) => {
         }
 
         const whereMatch: any = [];
-        if (phone) whereMatch.push({ customer_phone: phone });
-        if (name) whereMatch.push({ customer_name: { [Op.iLike]: `%${name}%` } });
+        if (phone && phone.trim()) {
+            whereMatch.push({ customer_phone: phone.trim() });
+        } else if (name && name.trim()) {
+            whereMatch.push({ customer_name: { [Op.iLike]: `%${name.trim()}%` } });
+        }
 
         const whereCondition: any = {
             outlet_id,
@@ -3349,8 +3356,11 @@ export const settlePatientCredit = async (req: Request, res: Response) => {
         }
 
         const whereMatch: any = [];
-        if (phone && phone.trim()) whereMatch.push({ customer_phone: phone.trim() });
-        if (name && name.trim()) whereMatch.push({ customer_name: { [Op.iLike]: `%${name.trim()}%` } });
+        if (phone && phone.trim()) {
+            whereMatch.push({ customer_phone: phone.trim() });
+        } else if (name && name.trim()) {
+            whereMatch.push({ customer_name: { [Op.iLike]: `%${name.trim()}%` } });
+        }
 
         let targetSale: any = null;
         if (appointment_id) {

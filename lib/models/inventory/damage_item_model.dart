@@ -2,6 +2,7 @@ class DamageItem {
   final int? itemId;
   final String itemCode;
   final String itemName;
+  final String brand;
   final String unit;
   final double qty;
   final double rate;
@@ -11,6 +12,7 @@ class DamageItem {
     this.itemId,
     required this.itemCode,
     required this.itemName,
+    this.brand = '',
     required this.unit,
     required this.qty,
     required this.rate,

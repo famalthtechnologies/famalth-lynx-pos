@@ -33,7 +33,22 @@ import 'mobile_item_master_sheet.dart';
 import 'mobile_stock_balance_sheet.dart';
 
 class MobileBillingAppScreen extends StatefulWidget {
-  const MobileBillingAppScreen({super.key});
+  final int? preloadedTableId;
+  final String? preloadedTableName;
+  final List<Map<String, dynamic>>? preloadedItems;
+  final List<int>? preloadedKotIds;
+  final String? preloadedCustomerName;
+  final String? preloadedCustomerPhone;
+
+  const MobileBillingAppScreen({
+    super.key,
+    this.preloadedTableId,
+    this.preloadedTableName,
+    this.preloadedItems,
+    this.preloadedKotIds,
+    this.preloadedCustomerName,
+    this.preloadedCustomerPhone,
+  });
 
   @override
   State<MobileBillingAppScreen> createState() => _MobileBillingAppScreenState();
@@ -159,6 +174,63 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
       } catch (_) {}
 
       _filterItems();
+
+      // If opened with preloaded items from Waiter / Captain App (Table order or Takeaway)
+      if (widget.preloadedItems != null && widget.preloadedItems!.isNotEmpty && _cart.isEmpty) {
+        for (final pItem in widget.preloadedItems!) {
+          final pId = int.tryParse(pItem['item_id']?.toString() ?? '0') ?? 0;
+          final pQty = (double.tryParse(pItem['qty']?.toString() ?? '1') ?? 1.0).round();
+          final pRate = double.tryParse(pItem['rate']?.toString() ?? '0') ?? 0.0;
+          final pName = (pItem['item_name'] ?? '').toString();
+
+          Item? matchedItem;
+          if (pId > 0) {
+            try {
+              matchedItem = _allItems.firstWhere((it) => it.id == pId);
+            } catch (_) {}
+          }
+          if (matchedItem == null && pName.isNotEmpty) {
+            try {
+              matchedItem = _allItems.firstWhere((it) => it.itemName.toLowerCase() == pName.toLowerCase());
+            } catch (_) {}
+          }
+
+          final effectiveItem = Item(
+            id: pId > 0 ? pId : (100000 + _cart.length),
+            itemCode: matchedItem?.itemCode ?? 'ITM-$pId',
+            itemName: pName.isNotEmpty ? pName : (matchedItem?.itemName ?? 'Item #$pId'),
+            hsnSacCode: matchedItem?.hsnSacCode ?? '',
+            itemGroup: matchedItem?.itemGroup ?? 'Restaurant',
+            subCategory: matchedItem?.subCategory ?? '',
+            brand: matchedItem?.brand ?? '',
+            unit: (matchedItem != null && matchedItem.unit.isNotEmpty) ? matchedItem.unit : 'Nos',
+            barcode: matchedItem?.barcode ?? '',
+            imagePath: matchedItem?.imagePath ?? '',
+            location: matchedItem?.location ?? '-',
+            rate: pRate > 0 ? pRate : (matchedItem?.rate ?? 0.0),
+            retailSalePrice: pRate > 0 ? pRate : (matchedItem?.retailSalePrice ?? 0.0),
+            taxType: (matchedItem != null && matchedItem.taxType.isNotEmpty) ? matchedItem.taxType : 'GST',
+            taxPercent: matchedItem?.taxPercent ?? 5.0,
+            taxGroupId: matchedItem?.taxGroupId,
+            taxGroup: matchedItem?.taxGroup,
+            discountApplicable: matchedItem?.discountApplicable ?? false,
+            schemeApplicable: matchedItem?.schemeApplicable ?? false,
+            openingBalance: matchedItem?.openingBalance ?? 0.0,
+            packQty: matchedItem?.packQty ?? 1.0,
+            looseItemCode: matchedItem?.looseItemCode ?? '',
+            minLevel: matchedItem?.minLevel ?? 0,
+            maxLevel: matchedItem?.maxLevel ?? 0,
+            stockable: matchedItem?.stockable ?? true,
+            isSaleable: matchedItem?.isSaleable ?? true,
+            isModifier: matchedItem?.isModifier ?? false,
+            foodType: matchedItem?.foodType ?? '',
+            isTaxInclusive: matchedItem?.isTaxInclusive ?? false,
+            mrp: pRate > 0 ? pRate : (matchedItem?.mrp ?? 0.0),
+          );
+
+          _cart[effectiveItem.id] = _CartEntry(item: effectiveItem, quantity: pQty > 0 ? pQty : 1);
+        }
+      }
     } catch (_) {
       // Handled gracefully in UI
     } finally {
@@ -605,14 +677,26 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
         paymentMethods: _paymentMethods,
         salesCtrl: _salesCtrl,
         getItemPrice: _getItemPrice,
+        tableId: widget.preloadedTableId,
+        tableName: widget.preloadedTableName,
+        kotIds: widget.preloadedKotIds,
+        initialCustomerName: widget.preloadedCustomerName,
+        initialCustomerPhone: widget.preloadedCustomerPhone,
         onIncreaseItem: (item) => _addToCart(item),
         onDecreaseItem: (id) => _decreaseCartItem(id),
         onRemoveItem: (id) => _removeCartItem(id),
-        onCheckoutComplete: (SaleOrder savedOrder) {
+        onCheckoutComplete: (SaleOrder savedOrder) async {
           Navigator.pop(ctx);
           setState(() {
             _cart.clear();
           });
+          if (widget.preloadedTableId != null) {
+            try {
+              await ApiClient.put('${ApiEndpoints.restaurantTables}/${widget.preloadedTableId}/status', {
+                'status': 'Available',
+              });
+            } catch (_) {}
+          }
           _loadPulseAndOrders();
           _showInvoiceSuccessDialog(savedOrder);
         },
@@ -691,9 +775,16 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Done / New Bill',
-                  style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold)),
+              onPressed: () {
+                Navigator.pop(ctx);
+                if (widget.preloadedTableId != null && Navigator.canPop(context)) {
+                  Navigator.pop(context, true);
+                }
+              },
+              child: Text(
+                widget.preloadedTableId != null ? 'Done (Return to Tables)' : 'Done / New Bill',
+                style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         );
@@ -876,6 +967,39 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
         Column(
           children: [
             _buildTopAppBar(title: 'Fast Mobile POS'),
+            if (widget.preloadedTableName != null || widget.preloadedTableId != null)
+              Container(
+                margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF93C5FD)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.table_restaurant_rounded, color: Color(0xFF2563EB), size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Pre-filled for: ${widget.preloadedTableName ?? 'Table #${widget.preloadedTableId}'}',
+                        style: const TextStyle(color: Color(0xFF1E40AF), fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDBEAFE),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${_cart.length} items',
+                        style: const TextStyle(color: Color(0xFF1D4ED8), fontWeight: FontWeight.bold, fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             // Search Bar + Live Barcode Scanner Button
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -999,7 +1123,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                             final inCart = _cart[item.id]?.quantity ?? 0;
                             final bool isStockTracked = item.stockable || item.openingBalance != 0;
                             final double availableStock = item.openingBalance - inCart;
-                            final bool isOutOfStock = isStockTracked && availableStock <= 0;
+                            final bool isOutOfStock = isStockTracked && availableStock <= 0 && !allowNegative;
 
                             return Container(
                               decoration: BoxDecoration(
@@ -3679,6 +3803,16 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
         children: [
           Row(
             children: [
+              if (Navigator.canPop(context)) ...[
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded, color: textDark, size: 22),
+                  tooltip: 'Return to Waiter App',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                const SizedBox(width: 8),
+              ],
               Container(
                 width: 32,
                 height: 32,
@@ -4271,6 +4405,11 @@ class _CheckoutModalSheet extends StatefulWidget {
   final Function(int) onDecreaseItem;
   final Function(int) onRemoveItem;
   final Function(SaleOrder) onCheckoutComplete;
+  final int? tableId;
+  final String? tableName;
+  final List<int>? kotIds;
+  final String? initialCustomerName;
+  final String? initialCustomerPhone;
 
   const _CheckoutModalSheet({
     required this.cart,
@@ -4287,6 +4426,11 @@ class _CheckoutModalSheet extends StatefulWidget {
     required this.onDecreaseItem,
     required this.onRemoveItem,
     required this.onCheckoutComplete,
+    this.tableId,
+    this.tableName,
+    this.kotIds,
+    this.initialCustomerName,
+    this.initialCustomerPhone,
   });
 
   @override
@@ -4331,6 +4475,12 @@ class _CheckoutModalSheetState extends State<_CheckoutModalSheet> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialCustomerName != null && widget.initialCustomerName!.isNotEmpty) {
+      _customerNameCtrl.text = widget.initialCustomerName!;
+    }
+    if (widget.initialCustomerPhone != null && widget.initialCustomerPhone!.isNotEmpty) {
+      _customerPhoneCtrl.text = widget.initialCustomerPhone!;
+    }
     _selectedPaymentMode = widget.paymentMethods.isNotEmpty ? widget.paymentMethods.first : 'CASH';
     _cashTenderedCtrl.text = widget.total.toStringAsFixed(0);
     _customerPhoneCtrl.addListener(_onCustomerSearchChanged);
@@ -4850,6 +5000,8 @@ class _CheckoutModalSheetState extends State<_CheckoutModalSheet> {
         saleDate: DateTime.now(),
         status: 'COMPLETED',
         orderType: 'B2C',
+        tableId: widget.tableId,
+        kotIds: widget.kotIds,
         billingCountry: settings?.billingCountry ?? 'India',
         billingTaxMode: _taxMode,
         billFormat: format,
@@ -4952,6 +5104,28 @@ class _CheckoutModalSheetState extends State<_CheckoutModalSheet> {
                         style: const TextStyle(color: Color(0xFF2563EB), fontSize: 12, fontWeight: FontWeight.bold),
                       ),
                     ),
+                    if (widget.tableName != null) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFFDE68A)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.table_restaurant, size: 12, color: Color(0xFFD97706)),
+                            const SizedBox(width: 4),
+                            Text(
+                              widget.tableName!,
+                              style: const TextStyle(color: Color(0xFFB45309), fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 IconButton(

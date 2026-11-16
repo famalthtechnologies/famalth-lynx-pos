@@ -1721,6 +1721,54 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                 // 2. SECURITY & GATEWAYS TAB
                 buildTabBody([
                   _customSection(
+                    'Companion Apps & Staff Setup QR',
+                    'Scan or print QR standees to instantly connect Waiter, Billing, Rider, Retailer, and Customer apps to this server (Cloud & LAN).',
+                    [
+                      _settingRow(
+                        title: 'Staff Companion Apps (Universal Setup QR)',
+                        description: 'Generate & print QR standee so Waiter, Billing, Rider, and Retailer apps auto-configure without manual typing.',
+                        isLast: false,
+                        control: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF059669),
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: () async {
+                            final targetUrl = (kIsWeb || AppConfig.isCloudServer)
+                                ? AppConfig.baseUrl
+                                : await AppConfig.getLanServerUrl();
+                            if (context.mounted) {
+                              AppSetupQrDialog.show(context, mode: AppSetupQrMode.staff, serverUrl: targetUrl);
+                            }
+                          },
+                          icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                          label: const Text('Generate Staff QR Standee'),
+                        ),
+                      ),
+                      _settingRow(
+                        title: 'Customer Store & Order QR (Family & Friends)',
+                        description: 'Generate QR code for customer self-ordering, online catalog, appointment booking, and digital dining.',
+                        isLast: true,
+                        control: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF0284C7),
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: () async {
+                            final targetUrl = (kIsWeb || AppConfig.isCloudServer)
+                                ? AppConfig.baseUrl
+                                : await AppConfig.getLanServerUrl();
+                            if (context.mounted) {
+                              AppSetupQrDialog.show(context, mode: AppSetupQrMode.customer, serverUrl: targetUrl);
+                            }
+                          },
+                          icon: const Icon(Icons.storefront_rounded, size: 18),
+                          label: const Text('Share Customer Store QR'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _customSection(
                     'Storage & Tenant Backups',
                     'Enterprise storage analytics, portable outlet snapshots, and server migration.',
                     [
@@ -1730,11 +1778,11 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                       ),
                     ],
                   ),
-                  if (AppConfig.isLocalServer)
-                    _customSection(
-                      'Data & Security',
-                      'Manage your cloud configuration and manual offline backups.',
-                      [
+                  _customSection(
+                    'Data & Security',
+                    'Manage your cloud configuration and manual system backups.',
+                    [
+                      if (AppConfig.isLocalServer)
                         _settingRow(
                           title: 'Enable Cloud Backup',
                           description: 'Automatically sync your store data to the Cloud',
@@ -1762,49 +1810,52 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                             },
                           ),
                         ),
-                        _settingRow(
-                          title: 'Create Manual Backup',
-                          description: 'Export an isolated outlet archive (.fambak) or full encrypted system snapshot (.enc) to your Downloads folder.',
-                          control: Wrap(
-                            spacing: 10,
-                            runSpacing: 8,
-                            children: [
-                              FilledButton.icon(
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFEF4444),
-                                  foregroundColor: Colors.white,
-                                ),
-                                onPressed: (_isCreatingFambakBackup || _isCreatingEncBackup)
-                                    ? null
-                                    : () async {
-                                        setState(() => _isCreatingFambakBackup = true);
-                                        try {
-                                          final savedPath = await BackupService.createAndSaveLocalFambakBackup(scope: 'OUTLET');
-                                          if (!mounted) return;
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(
-                                              content: Text('Outlet .fambak backup saved to ' + savedPath),
-                                              backgroundColor: Colors.green,
-                                            ),
-                                          );
-                                        } catch (e) {
-                                          if (!mounted) return;
-                                          showErrorSnackbar('Failed to create .fambak backup: ' + e.toString());
-                                        } finally {
-                                          if (mounted) {
-                                            setState(() => _isCreatingFambakBackup = false);
-                                          }
-                                        }
-                                      },
-                                icon: _isCreatingFambakBackup
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                      )
-                                    : const Icon(Icons.archive_outlined, size: 18),
-                                label: Text(_isCreatingFambakBackup ? 'Exporting...' : 'Create .fambak Backup'),
+                      _settingRow(
+                        title: 'Create Manual Backup',
+                        description: (kIsWeb || AppConfig.isCloudServer)
+                            ? 'Export an isolated backup archive (.fambak) for your outlet.'
+                            : 'Export an isolated outlet archive (.fambak) or full encrypted system snapshot (.enc) to your Downloads folder.',
+                        control: Wrap(
+                          spacing: 10,
+                          runSpacing: 8,
+                          children: [
+                            FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFEF4444),
+                                foregroundColor: Colors.white,
                               ),
+                              onPressed: (_isCreatingFambakBackup || _isCreatingEncBackup)
+                                  ? null
+                                  : () async {
+                                      setState(() => _isCreatingFambakBackup = true);
+                                      try {
+                                        final savedPath = await BackupService.createAndSaveLocalFambakBackup(scope: 'OUTLET');
+                                        if (!mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Outlet .fambak backup saved: ' + savedPath),
+                                            backgroundColor: Colors.green,
+                                          ),
+                                        );
+                                      } catch (e) {
+                                        if (!mounted) return;
+                                        showErrorSnackbar('Failed to create .fambak backup: ' + e.toString());
+                                      } finally {
+                                        if (mounted) {
+                                          setState(() => _isCreatingFambakBackup = false);
+                                        }
+                                      }
+                                    },
+                              icon: _isCreatingFambakBackup
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.archive_outlined, size: 18),
+                              label: Text(_isCreatingFambakBackup ? 'Exporting...' : 'Create .fambak Backup'),
+                            ),
+                            if (AppConfig.isLocalServer)
                               FilledButton.icon(
                                 onPressed: (_isCreatingEncBackup || _isCreatingFambakBackup)
                                     ? null
@@ -1815,7 +1866,7 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                                           if (!mounted) return;
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             SnackBar(
-                                              content: Text('.enc backup saved to ' + savedPath),
+                                              content: Text('.enc backup saved: ' + savedPath),
                                               backgroundColor: Colors.green,
                                             ),
                                           );
@@ -1837,13 +1888,14 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                                     : const Icon(Icons.enhanced_encryption_outlined, size: 18),
                                 label: Text(_isCreatingEncBackup ? 'Backing up...' : 'Create .enc Backup'),
                               ),
-                            ],
-                          ),
+                          ],
                         ),
+                      ),
+                      if (AppConfig.isLocalServer)
                         _settingRow(
                           title: '1-Click Migrate Store to Cloud',
                           description: 'Seamlessly upload all local store products, customers, and invoices to your online cloud instance.',
-                          isLast: false,
+                          isLast: true,
                           control: FilledButton.icon(
                             style: FilledButton.styleFrom(
                               backgroundColor: const Color(0xFF0284C7),
@@ -1859,27 +1911,8 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
                             label: const Text('Start Migration Wizard'),
                           ),
                         ),
-                        _settingRow(
-                          title: 'Companion Apps Setup QR Standee',
-                          description: 'Generate & print QR standee so Waiter, Billing, Rider, and Retailer apps auto-configure without manual typing.',
-                          isLast: true,
-                          control: FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF059669),
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: () async {
-                              final lanUrl = await AppConfig.getLanServerUrl();
-                              if (context.mounted) {
-                                AppSetupQrDialog.show(context, serverUrl: lanUrl);
-                              }
-                            },
-                            icon: const Icon(Icons.qr_code_2_rounded, size: 18),
-                            label: const Text('Generate QR Standee'),
-                          ),
-                        ),
-                      ],
-                    ),
+                    ],
+                  ),
                   _customSection(
                     'Payment Gateways & Digital Wallets',
                     'Configure UPI, Stripe, Square, Razorpay, PayPal, M-Pesa, and POS settlement modes in the unified Payment & Settlement Management console.',

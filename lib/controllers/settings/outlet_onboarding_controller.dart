@@ -38,6 +38,9 @@ class OutletOnboardingController extends ChangeNotifier {
   bool supplierConfigured = false;
   bool restaurantConfigured = false;
   bool usersConfigured = false;
+  bool clinicDoctorsConfigured = false;
+  bool hrmsMastersConfigured = false;
+  bool hrmsEmployeesConfigured = false;
 
   int get completedStepsCount => steps.where((s) => s.isConfigured).length;
   int get totalStepsCount => steps.length;
@@ -54,7 +57,7 @@ class OutletOnboardingController extends ChangeNotifier {
         subtitle: 'Configure store name, address, phone number, GSTIN, and receipt logo',
         icon: Icons.storefront_rounded,
         isConfigured: propertyConfigured,
-        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'ALL'],
+        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'CLINIC', 'HRMS', 'ACCOUNTING', 'ALL'],
         actionText: 'Configure Property',
       ),
       OnboardingStepStatus(
@@ -63,7 +66,7 @@ class OutletOnboardingController extends ChangeNotifier {
         subtitle: 'Set billing country, base currency symbol, ISO code, timezone, and billing rules',
         icon: Icons.public_rounded,
         isConfigured: settingsConfigured,
-        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'ALL'],
+        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'CLINIC', 'HRMS', 'ACCOUNTING', 'ALL'],
         actionText: 'Setup Currency',
       ),
       OnboardingStepStatus(
@@ -72,7 +75,7 @@ class OutletOnboardingController extends ChangeNotifier {
         subtitle: 'Create regional tax groups (State Tax, City Tax, GST, VAT) for items and billing',
         icon: Icons.account_balance_wallet_outlined,
         isConfigured: taxGroupConfigured,
-        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'ALL'],
+        allowedModules: const ['RETAIL', 'RESTAURANT', 'INVENTORY', 'CLINIC', 'ACCOUNTING', 'ALL'],
         actionText: 'Manage Taxes',
       ),
       OnboardingStepStatus(
@@ -81,25 +84,25 @@ class OutletOnboardingController extends ChangeNotifier {
         subtitle: 'Set auto-numbering prefixes for sales bills, KOTs, GRNs, and POs',
         icon: Icons.pin_outlined,
         isConfigured: sequenceConfigured,
-        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'ALL'],
+        allowedModules: const ['RETAIL', 'RESTAURANT', 'INVENTORY', 'CLINIC', 'ACCOUNTING', 'ALL'],
         actionText: 'Set Sequences',
       ),
       OnboardingStepStatus(
         key: 'LOCATION',
-        title: 'Inventory Location / Warehouse',
-        subtitle: 'Add store locations, stock rooms, or warehouses for inventory control',
+        title: 'Location / Department Setup',
+        subtitle: 'Add store locations, departments, stock rooms, or warehouses',
         icon: Icons.location_on_outlined,
         isConfigured: locationConfigured,
-        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'ALL'],
+        allowedModules: const ['INVENTORY', 'ALL'],
         actionText: 'Setup Locations',
       ),
       OnboardingStepStatus(
         key: 'ITEM_MASTER',
-        title: 'Item Master & Inventory Catalog',
-        subtitle: 'Add products, categories, rates, and opening stock items',
+        title: 'Product & Item Catalog',
+        subtitle: 'Add products, menu items, categories, and selling rates',
         icon: Icons.inventory_2_outlined,
         isConfigured: itemMasterConfigured,
-        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'ALL'],
+        allowedModules: const ['RETAIL', 'RESTAURANT', 'INVENTORY', 'ALL'],
         actionText: 'Add Items',
       ),
       OnboardingStepStatus(
@@ -108,7 +111,7 @@ class OutletOnboardingController extends ChangeNotifier {
         subtitle: 'Register vendors and suppliers for purchase orders and receiving',
         icon: Icons.local_shipping_outlined,
         isConfigured: supplierConfigured,
-        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'ALL'],
+        allowedModules: const ['INVENTORY', 'ALL'],
         actionText: 'Manage Vendors',
       ),
       OnboardingStepStatus(
@@ -117,8 +120,35 @@ class OutletOnboardingController extends ChangeNotifier {
         subtitle: 'Create dining areas, section floors, and seating table layouts',
         icon: Icons.table_restaurant_outlined,
         isConfigured: restaurantConfigured,
-        allowedModules: const ['RESTAURANT', 'HOTEL'],
+        allowedModules: const ['RESTAURANT', 'ALL'],
         actionText: 'Setup Tables',
+      ),
+      OnboardingStepStatus(
+        key: 'CLINIC_DOCTORS',
+        title: 'Doctor & Clinic Masters',
+        subtitle: 'Set up doctor profiles and clinic consultation details',
+        icon: Icons.medical_services_outlined,
+        isConfigured: clinicDoctorsConfigured,
+        allowedModules: const ['CLINIC', 'ALL'],
+        actionText: 'Setup Doctors',
+      ),
+      OnboardingStepStatus(
+        key: 'HRMS_MASTERS',
+        title: 'HR & Payroll Masters',
+        subtitle: 'Configure designations, shifts, leave types, and salary components',
+        icon: Icons.badge_outlined,
+        isConfigured: hrmsMastersConfigured,
+        allowedModules: const ['HRMS', 'ALL'],
+        actionText: 'Setup HR Masters',
+      ),
+      OnboardingStepStatus(
+        key: 'HRMS_EMPLOYEES',
+        title: 'HR Employees',
+        subtitle: 'Add the employees managed by the HR module',
+        icon: Icons.people_alt_outlined,
+        isConfigured: hrmsEmployeesConfigured,
+        allowedModules: const ['HRMS', 'ALL'],
+        actionText: 'Add Employees',
       ),
       OnboardingStepStatus(
         key: 'USERS',
@@ -126,18 +156,77 @@ class OutletOnboardingController extends ChangeNotifier {
         subtitle: 'Create cashier and manager accounts with custom security permissions',
         icon: Icons.people_alt_outlined,
         isConfigured: usersConfigured,
-        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'ALL'],
+        allowedModules: const ['RETAIL', 'RESTAURANT', 'HOTEL', 'INVENTORY', 'CLINIC', 'HRMS', 'ACCOUNTING', 'ALL'],
         actionText: 'Manage Staff',
       ),
     ];
 
     final currentMod = businessModule.trim().toUpperCase();
-    return allSteps.where((s) {
-      if ((currentMod == 'RETAIL' || currentMod == 'INVENTORY') && s.key == 'RESTAURANT') {
-        return false;
-      }
-      return true;
+    final enabledModules = currentMod
+        .split(',')
+        .map((module) => module.trim())
+        .where((module) => module.isNotEmpty)
+        .toSet();
+    final allModulesEnabled = enabledModules.contains('ALL');
+    return allSteps.where((step) {
+      return allModulesEnabled ||
+          step.allowedModules.any(enabledModules.contains);
     }).toList();
+  }
+
+  bool _moduleEnabled(String module) {
+    final modules = businessModule
+        .toUpperCase()
+        .split(',')
+        .map((value) => value.trim())
+        .toSet();
+    return modules.contains('ALL') || modules.contains(module);
+  }
+
+  bool _hasRows(dynamic response) => response is Map &&
+      response['success'] == true &&
+      response['data'] is List &&
+      (response['data'] as List).isNotEmpty;
+
+  bool _hasDoctorProfile(dynamic response) {
+    if (response is! Map || response['success'] != true || response['data'] is! List) {
+      return false;
+    }
+    return (response['data'] as List).any((user) {
+      if (user is! Map) return false;
+      final role = (user['role'] ?? '').toString().toUpperCase();
+      final specialty = (user['speciality'] ?? user['specialty'] ?? '').toString().trim();
+      return role == 'DOCTOR' || specialty.isNotEmpty;
+    });
+  }
+
+  Future<void> _refreshModuleSetupStatus() async {
+    final requests = <Future<dynamic>>[];
+    if (_moduleEnabled('CLINIC')) {
+      requests.add(ApiClient.get(ApiEndpoints.users).catchError((_) => null));
+    }
+    if (_moduleEnabled('HRMS')) {
+      requests.addAll([
+        ApiClient.get(ApiEndpoints.hrmsDesignations).catchError((_) => null),
+        ApiClient.get(ApiEndpoints.hrmsShifts).catchError((_) => null),
+        ApiClient.get(ApiEndpoints.hrmsLeaveTypes).catchError((_) => null),
+        ApiClient.get(ApiEndpoints.hrmsSalaryComponents).catchError((_) => null),
+        ApiClient.get(ApiEndpoints.hrmsPayStructures).catchError((_) => null),
+        ApiClient.get(ApiEndpoints.hrmsEmployees).catchError((_) => null),
+      ]);
+    }
+    if (requests.isEmpty) return;
+
+    final results = await Future.wait(requests);
+    var index = 0;
+    if (_moduleEnabled('CLINIC')) {
+      clinicDoctorsConfigured = _hasDoctorProfile(results[index++]);
+    }
+    if (_moduleEnabled('HRMS')) {
+      hrmsMastersConfigured = results.sublist(index, index + 5).every(_hasRows);
+      index += 5;
+      hrmsEmployeesConfigured = _hasRows(results[index]);
+    }
   }
 
   Future<void> refreshStatus() async {
@@ -160,6 +249,7 @@ class OutletOnboardingController extends ChangeNotifier {
           supplierConfigured = data['supplier_configured'] == true;
           restaurantConfigured = data['restaurant_configured'] == true;
           usersConfigured = data['users_configured'] == true;
+          await _refreshModuleSetupStatus();
           isLoading = false;
           notifyListeners();
 
@@ -194,16 +284,23 @@ class OutletOnboardingController extends ChangeNotifier {
       // 1. Determine Business Module (Inventory Only / Retail / Restaurant / Hotel)
       final propRes = results[0];
       String rawModule = '';
-      if (propRes != null && propRes['success'] == true && propRes['data'] != null) {
+      final userModule = (userMap?['business_module'] ?? userMap?['outlet_module'] ?? '').toString().trim();
+      if (userModule.isNotEmpty) {
+        rawModule = userModule;
+      } else if (propRes != null && propRes['success'] == true && propRes['data'] != null) {
         final pData = propRes['data'];
-        rawModule = (pData['business_type'] ?? pData['business_module'] ?? pData['property_type'] ?? pData['businessType'] ?? '').toString();
+        rawModule = (pData['business_module'] ?? pData['business_type'] ?? pData['property_type'] ?? pData['businessType'] ?? '').toString();
       }
       if (rawModule.isEmpty || rawModule == 'null') {
         rawModule = (userMap?['business_type'] ?? userMap?['business_module'] ?? userMap?['outlet_module'] ?? userMap?['outlet_type'] ?? 'ALL').toString();
       }
 
       final upper = rawModule.trim().toUpperCase();
-      if (upper.contains('INVENTORY') || upper.contains('WAREHOUSE') || upper.contains('STOCK')) {
+      if (upper.contains(',')) {
+        businessModule = upper;
+      } else if (const {'RETAIL', 'RESTAURANT', 'INVENTORY', 'CLINIC', 'HRMS', 'ACCOUNTING', 'ALL'}.contains(upper)) {
+        businessModule = upper;
+      } else if (upper.contains('INVENTORY') || upper.contains('WAREHOUSE') || upper.contains('STOCK')) {
         businessModule = 'INVENTORY';
       } else if (upper.contains('RETAIL') || upper.contains('STORE') || upper.contains('MART') || upper.contains('GROCERY') || upper.contains('SUPERMARKET') || upper.contains('SHOP')) {
         businessModule = 'RETAIL';
@@ -300,6 +397,7 @@ class OutletOnboardingController extends ChangeNotifier {
       } else {
         usersConfigured = false;
       }
+      await _refreshModuleSetupStatus();
     } finally {
       isLoading = false;
       notifyListeners();

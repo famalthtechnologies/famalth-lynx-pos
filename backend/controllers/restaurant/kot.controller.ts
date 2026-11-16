@@ -402,14 +402,15 @@ export const createKot = async (req: Request, res: Response) => {
             }
         }
 
-        // Generate KOT number using Document Sequence Settings
+        // Generate KOT number atomically using Document Sequence Settings
         let kot_no: string | undefined;
         try {
-            const resolved = await numberingHelper.resolveNextNumber({
-                req,
+            const resolved = await numberingHelper.allocateNextNumber({
+                db: (req as any).propertyDb,
                 module: 'KOT',
                 date: new Date(),
-                outlet_id
+                outlet_id,
+                transaction: t
             });
             if (resolved && resolved.number) {
                 kot_no = resolved.number;
@@ -430,6 +431,22 @@ export const createKot = async (req: Request, res: Response) => {
             });
             const seq = String(count + 1).padStart(4, '0');
             kot_no = `KOT-${dateStr}-${seq}`;
+        }
+
+        // Safety check: ensure kot_no does not collide with any concurrent KOT
+        let kotExists = await (req as any).propertyDb.models.kot_headers.findOne({
+            where: { outlet_id, kot_no },
+            attributes: ['id'],
+            transaction: t
+        });
+        while (kotExists) {
+            const extra = Math.floor(100 + Math.random() * 900);
+            kot_no = `${kot_no}-${extra}`;
+            kotExists = await (req as any).propertyDb.models.kot_headers.findOne({
+                where: { outlet_id, kot_no },
+                attributes: ['id'],
+                transaction: t
+            });
         }
 
         // Validate waiter and captain exist

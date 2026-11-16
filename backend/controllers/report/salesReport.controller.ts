@@ -699,14 +699,27 @@ exports.getSalesReport = async (req: any, res: any) => {
                     }
                 }
 
+                const normalizeReportPaymentMethod = (methodName: string): string => {
+                    const m = String(methodName || '').trim().toUpperCase();
+                    if (!m) return 'CASH';
+                    if (m === 'CASH' || m.includes('CASH')) return 'CASH';
+                    if (m === 'CARD' || m.includes('CARD') || m.includes('DEBIT') || m.includes('CREDIT_CARD') || m.includes('POS')) return 'CARD';
+                    if (m === 'UPI' || m.includes('UPI') || m.includes('QR') || m.includes('GPAY') || m.includes('GOOGLE') || m.includes('PHONEPE') || m.includes('PAYTM') || m.includes('BHIM') || m.includes('ONLINE') || m.includes('SCAN') || m.includes('WALLET')) return 'UPI';
+                    if (m === 'CREDIT' || m.includes('CREDIT') || m.includes('DUE') || m.includes('PAY_LATER') || m.includes('PAY_AT_CLINIC')) return 'CREDIT';
+                    if (m === 'ADVANCE_ADDED' || m === 'ADVANCE_DEPOSIT') return 'ADVANCE_DEPOSIT';
+                    if (m === 'ADVANCE' || m === 'ADVANCE_ADJUSTMENT' || m === 'ADVANCE_APPLY' || m === 'SUBSCRIPTION') return 'ADVANCE_ADJUSTMENT';
+                    return m;
+                };
+
                 if (Object.keys(methodMap).length > 0) {
-                    for (const [method, amt] of Object.entries(methodMap)) {
+                    for (const [rawMethod, amt] of Object.entries(methodMap)) {
+                        const method = normalizeReportPaymentMethod(rawMethod);
                         if (method === 'CASH') cashAmount += amt;
                         else if (method === 'CARD') cardAmount += amt;
                         else if (method === 'UPI') upiAmount += amt;
                         else if (method === 'CREDIT') creditAmount += amt;
-                        else if (method === 'ADVANCE_ADDED' || method === 'ADVANCE_DEPOSIT') advanceAmount += amt;
-                        else if (method === 'ADVANCE' || method === 'ADVANCE_ADJUSTMENT' || method === 'ADVANCE_APPLY' || method === 'SUBSCRIPTION') advanceAdjustmentAmount += amt;
+                        else if (method === 'ADVANCE_DEPOSIT') advanceAmount += amt;
+                        else if (method === 'ADVANCE_ADJUSTMENT') advanceAdjustmentAmount += amt;
                         else otherAmount += amt;
                     }
                 }
@@ -736,14 +749,14 @@ exports.getSalesReport = async (req: any, res: any) => {
                 if (totalParsed === 0 && saleNetRevenue > 0) {
                     const nonSubNetRevenue = Math.max(saleNetRevenue - subscriptionNet, 0);
                     const balDue = toNumber(sale.balance_due);
-                    const mode = String(sale.payment_mode || 'CASH').toUpperCase();
+                    const mode = normalizeReportPaymentMethod(sale.payment_mode);
                     if (mode === 'CREDIT' || balDue >= nonSubNetRevenue - 0.01) {
                         creditAmount = balDue > 0 ? balDue : nonSubNetRevenue;
                     } else if (mode === 'CASH') cashAmount = nonSubNetRevenue;
                     else if (mode === 'CARD') cardAmount = nonSubNetRevenue;
                     else if (mode === 'UPI') upiAmount = nonSubNetRevenue;
-                    else if (mode === 'ADVANCE' || mode === 'ADVANCE_ADJUSTMENT' || mode === 'SUBSCRIPTION') advanceAdjustmentAmount = saleNetRevenue;
-                    else if (mode === 'ADVANCE_ADDED') advanceAmount = nonSubNetRevenue;
+                    else if (mode === 'ADVANCE_ADJUSTMENT') advanceAdjustmentAmount = saleNetRevenue;
+                    else if (mode === 'ADVANCE_DEPOSIT') advanceAmount = nonSubNetRevenue;
                     else otherAmount = nonSubNetRevenue;
                 }
 

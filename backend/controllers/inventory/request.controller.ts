@@ -20,6 +20,10 @@ function deriveHeaderStatus(items: any[]) {
     return 'CLOSED';
 }
 
+function isIssuedRequestStatus(value: any) {
+    return ['PARTIAL', 'CLOSED', 'ISSUED'].includes(String(value || '').trim().toUpperCase());
+}
+
 export const createRequest = async (req: Request, res: Response) => {
     const t = await (req as any).propertyDb.transaction();
     try {
@@ -33,12 +37,30 @@ export const createRequest = async (req: Request, res: Response) => {
         const outlet_id = (req as any).user.outlet_id;
         const user_id = (req as any).user.id;
 
+        let effectiveRequestNo = String(open_request_no || '').trim();
+        // On actual insert, ALWAYS mint official sequential Request number atomically from DB
+        try {
+            const numberingHelper = require('./numberingSettingsV2.controller');
+            const resolved = await numberingHelper.allocateNextNumber({
+                db: (req as any).propertyDb,
+                module: 'REQUEST',
+                date: request_date || new Date(),
+                outlet_id,
+                transaction: t
+            });
+            if (resolved && resolved.number) {
+                effectiveRequestNo = resolved.number;
+            }
+        } catch (seqErr: any) {
+            console.warn('[REQUEST SEQ] Auto-resolve numbering warning:', seqErr?.message || seqErr);
+        }
+
         // 1️⃣ Create header
         const header = await (req as any).propertyDb.models.request_headers.create({
-            request_no: open_request_no,
+            request_no: effectiveRequestNo,
             department,
             request_date,
-            open_request_no,
+            open_request_no: effectiveRequestNo,
             status: 'OPEN',
             approval_status: 'PENDING',
             outlet_id,
@@ -156,6 +178,12 @@ export const updateRequestItem = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, message: 'Item not found' });
         }
 
+        const header = await (req as any).propertyDb.models.request_headers.findByPk(item.request_id, { transaction: t });
+        if (header && isIssuedRequestStatus(header.status)) {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Issued requests cannot be modified' });
+        }
+
         const oldData = item.toJSON();
 
         await item.update({ qty, rate }, { transaction: t });
@@ -189,6 +217,12 @@ export const deleteRequestItem = async (req: Request, res: Response) => {
 
         if (!item) {
             return res.status(404).json({ success: false });
+        }
+
+        const header = await (req as any).propertyDb.models.request_headers.findByPk(item.request_id, { transaction: t });
+        if (header && isIssuedRequestStatus(header.status)) {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Items in issued requests cannot be deleted' });
         }
 
         const oldData = item.toJSON();
@@ -226,6 +260,11 @@ export const cancelRequest = async (req: Request, res: Response) => {
 
         if (!header) {
             return res.status(404).json({ success: false });
+        }
+
+        if (isIssuedRequestStatus(header.status)) {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Issued requests cannot be cancelled' });
         }
 
         const oldData = header.toJSON();
@@ -355,10 +394,11 @@ export const modifyRequest = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false });
         }
 
-        if (header.status === 'CLOSED') {
+        if (isIssuedRequestStatus(header.status)) {
+            await t.rollback();
             return res.status(400).json({
                 success: false,
-                message: 'Request closed'
+                message: 'Issued requests cannot be modified'
             });
         }
 
@@ -439,7 +479,7 @@ export const getRequestDetails = async (req: Request, res: Response) => {
             include: [{
                 model: (req as any).propertyDb.models.item_master,
                 as: 'item_master',
-                attributes: ['item_name', 'unit']
+                attributes: ['item_name', 'brand', 'unit']
             }]
         }]
     });

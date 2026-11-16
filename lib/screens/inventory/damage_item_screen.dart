@@ -143,7 +143,13 @@ class _DamageItemScreenState extends State<DamageItemScreen> {
   // ================= ACTIONS =================
   Future<void> _saveItem() async {
     if (_selectedBrandItemId == null || _qty.text.isEmpty) return;
-    final qty = int.parse(_qty.text);
+    final qty = double.tryParse(_qty.text);
+    if (qty == null || !qty.isFinite || qty <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid quantity greater than 0')),
+      );
+      return;
+    }
 
     if (qty > _availableStock) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -179,8 +185,9 @@ class _DamageItemScreenState extends State<DamageItemScreen> {
       itemId: selected.id,
       itemCode: selected.itemCode,
       itemName: selected.itemName,
+      brand: selected.brand,
       unit: selected.unit,
-      qty: qty.toDouble(),
+      qty: qty,
       remarks: _remarks.text,
       rate: selected.rate,
     );
@@ -240,7 +247,7 @@ class _DamageItemScreenState extends State<DamageItemScreen> {
       _selectedItemName = r.itemName;
       _code.text = r.itemCode;
       _unit.text = r.unit;
-      _qty.text = r.qty.toInt().toString(); // Adjust to int display if needed
+      _qty.text = r.qty.toString();
       _rate.text = r.rate.toString();
       _remarks.text = r.remarks;
       _remainingStock = stock - r.qty;
@@ -367,6 +374,9 @@ class _DamageItemScreenState extends State<DamageItemScreen> {
   }
 
   double get totalDamageValue => _items.fold(0, (s, e) => s + e.amount);
+
+  String _displayItemName(String name, String brand) =>
+      brand.trim().isEmpty ? name : '$name (${brand.trim()})';
 
   // ================= UI =================
   @override
@@ -723,7 +733,7 @@ class _DamageItemScreenState extends State<DamageItemScreen> {
                           i.isEven ? Colors.grey.shade50 : Colors.white),
                       cells: [
                         DataCell(Text('${i + 1}')),
-                        DataCell(Text(d.itemName)),
+                        DataCell(Text(_displayItemName(d.itemName, d.brand))),
                         DataCell(Text(d.unit)),
                         DataCell(Text(d.qty.toString())),
                         DataCell(Text(CurrencyService.format(d.rate))),
@@ -1018,7 +1028,7 @@ class _DamageItemScreenState extends State<DamageItemScreen> {
                 return pw.TableRow(
                   children: [
                     _cell("${i + 1}", alignment: pw.Alignment.center),
-                    _cell(d.itemName),
+                    _cell(_displayItemName(d.itemName, d.brand)),
                     _cell(d.unit, alignment: pw.Alignment.center),
                     _cell(d.qty.toString(), alignment: pw.Alignment.centerRight),
                     _cell(CurrencyService.format(d.rate), alignment: pw.Alignment.centerRight),

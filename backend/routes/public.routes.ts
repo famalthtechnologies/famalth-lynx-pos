@@ -99,7 +99,7 @@ router.post(['/clinic/appointment', '/clinic/appointments'], clinicCtrl.bookAppo
 router.get('/clinic/patient-history', clinicCtrl.getPatientHistoryPublic);
 router.post('/clinic/cancel-appointment', clinicCtrl.cancelAppointmentPublic);
 router.get('/clinic/operating-status', clinicCtrl.getClinicOperatingStatusPublic);
-router.get('/clinic/my-subscriptions', clinicCtrl.getPublicPatientSubscriptions);
+router.get(['/clinic/my-subscriptions', '/clinic/patient-subscriptions'], clinicCtrl.getPublicPatientSubscriptions);
 
 // Customer UPI QR Landing Page
 const { renderCustomerQrPage } = require('../controllers/public/customerQr.controller');

@@ -13,6 +13,7 @@ import '../../controllers/reports/return_report_controller.dart'
     show ReturnReportController;
 import '../../core/currency/currency_service.dart';
 import '../../core/printing/pos_invoice_printer.dart';
+import '../../models/inventory/return_item_model.dart';
 import '../../utils/branding_storage.dart';
 
 class ReturnReportScreen extends StatefulWidget {
@@ -28,6 +29,11 @@ class _ReturnReportScreenState extends State<ReturnReportScreen> {
   final TextEditingController _fromCtrl = TextEditingController();
   final TextEditingController _toCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
+
+  String _itemNameWithBrand(ReturnItemReport item) {
+    final brand = item.brand.trim();
+    return brand.isEmpty ? item.itemName : '${item.itemName} ($brand)';
+  }
 
   @override
   void initState() {
@@ -317,7 +323,7 @@ class _ReturnReportScreenState extends State<ReturnReportScreen> {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         const Text(
-                          "Net Amount",
+                          "Total Amount",
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey,
@@ -357,6 +363,9 @@ class _ReturnReportScreenState extends State<ReturnReportScreen> {
                       DataColumn(label: Text('Qty')),
                       DataColumn(label: Text('Rate')),
                       DataColumn(label: Text('Amount')),
+                      DataColumn(label: Text('Tax %')),
+                      DataColumn(label: Text('Tax Amount')),
+                      DataColumn(label: Text('Total Amount')),
                     ],
                     rows: List.generate(items.length, (i) {
                       final item = items[i];
@@ -367,13 +376,16 @@ class _ReturnReportScreenState extends State<ReturnReportScreen> {
                         ),
                         cells: [
                           DataCell(Text(
-                            item.itemName,
+                            _itemNameWithBrand(item),
                             style: const TextStyle(fontWeight: FontWeight.w500),
                           )),
                           DataCell(Text(item.qty.toString())),
                           DataCell(Text(CurrencyService.format(item.rate))),
+                          DataCell(Text(CurrencyService.format(item.amount))),
+                          DataCell(Text(item.tax.toStringAsFixed(2))),
+                          DataCell(Text(CurrencyService.format(item.taxAmount))),
                           DataCell(Text(
-                            CurrencyService.format(item.amount),
+                            CurrencyService.format(item.totalAmount),
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           )),
                         ],
@@ -488,7 +500,9 @@ class _ReturnReportScreenState extends State<ReturnReportScreen> {
       row++;
 
       // ===== Table Header =====
-      final columns = ['Item Name', 'Qty', 'Rate', 'Amount'];
+      final columns = [
+        'Item Name', 'Qty', 'Rate', 'Amount', 'Tax %', 'Tax Amount', 'Total Amount'
+      ];
 
       for (int i = 0; i < columns.length; i++) {
         final cell = sheet.cell(
@@ -519,26 +533,34 @@ class _ReturnReportScreenState extends State<ReturnReportScreen> {
           cell.cellStyle = exc.CellStyle(backgroundColorHex: bgColor);
         }
 
-        setCell(0, exc.TextCellValue(item.itemName));
+        setCell(0, exc.TextCellValue(_itemNameWithBrand(item)));
         setCell(1, exc.DoubleCellValue(item.qty));
         setCell(2, exc.DoubleCellValue(item.rate));
         setCell(3, exc.DoubleCellValue(item.amount));
+        setCell(4, exc.DoubleCellValue(item.tax));
+        setCell(5, exc.DoubleCellValue(item.taxAmount));
+        setCell(6, exc.DoubleCellValue(item.totalAmount));
 
         row++;
       }
 
       // ===== Return Total =====
-      sheet
-          .cell(exc.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: row))
-          .value = exc.TextCellValue('Return Total');
-
-      sheet
-          .cell(exc.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row))
-          .value = exc.DoubleCellValue(header.totalAmount);
+      sheet.cell(exc.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row)).value =
+          exc.TextCellValue('Subtotal');
+      sheet.cell(exc.CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row)).value =
+          exc.DoubleCellValue(header.items.fold(0.0, (sum, item) => sum + item.amount));
+      sheet.cell(exc.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row + 1)).value =
+          exc.TextCellValue('Tax Amount');
+      sheet.cell(exc.CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row + 1)).value =
+          exc.DoubleCellValue(header.items.fold(0.0, (sum, item) => sum + item.taxAmount));
+      sheet.cell(exc.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row + 2)).value =
+          exc.TextCellValue('Total Amount');
+      sheet.cell(exc.CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row + 2)).value =
+          exc.DoubleCellValue(header.totalAmount);
 
       grandTotal += header.totalAmount;
 
-      row += 2;
+      row += 4;
     }
 
     // ===== Grand Total =====
@@ -711,13 +733,18 @@ class _ReturnReportScreenState extends State<ReturnReportScreen> {
               ),
             );
 
-            final tableHeaders = ['Item Name', 'Qty', 'Rate', 'Amount'];
+            final tableHeaders = [
+              'Item Name', 'Qty', 'Rate', 'Amount', 'Tax %', 'Tax Amount', 'Total Amount'
+            ];
             final tableData = header.items.map((item) {
               return [
-                item.itemName,
+                _itemNameWithBrand(item),
                 item.qty.toString(),
                 item.rate.toStringAsFixed(2),
                 currency.format(item.amount),
+                item.tax.toStringAsFixed(2),
+                currency.format(item.taxAmount),
+                currency.format(item.totalAmount),
               ];
             }).toList();
 
@@ -734,6 +761,9 @@ class _ReturnReportScreenState extends State<ReturnReportScreen> {
                   1: pw.Alignment.centerRight,
                   2: pw.Alignment.centerRight,
                   3: pw.Alignment.centerRight,
+                  4: pw.Alignment.centerRight,
+                  5: pw.Alignment.centerRight,
+                  6: pw.Alignment.centerRight,
                 },
                 rowDecoration: const pw.BoxDecoration(color: PdfColors.white),
                 oddRowDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#F8FAFC')),
@@ -744,6 +774,9 @@ class _ReturnReportScreenState extends State<ReturnReportScreen> {
                   1: pw.FlexColumnWidth(1.0),
                   2: pw.FlexColumnWidth(1.2),
                   3: pw.FlexColumnWidth(1.5),
+                  4: pw.FlexColumnWidth(0.8),
+                  5: pw.FlexColumnWidth(1.3),
+                  6: pw.FlexColumnWidth(1.5),
                 },
               ),
             );

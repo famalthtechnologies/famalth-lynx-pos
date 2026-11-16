@@ -9,6 +9,7 @@ import path from 'path';
 import crypto from 'crypto';
 const { sendMail } = require('../../services/email.service');
 const jwtUtil = require('../../utils/jwt.util');
+const { isCloudEnvironment } = require('../../utils/backupTracker');
 
 function formatBytes(bytes: number, decimals: number = 2): string {
   if (bytes === 0) return '0 Bytes';
@@ -349,21 +350,22 @@ export class BackupManagementController {
       const userRole = String(req.user?.role || '').toUpperCase();
       const isMasterAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN';
 
-      // Check if request is from a LAN Client PC (private IP not loopback)
-      const isLanClient = !isLoopback && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
-      if (isLanClient) {
+      const isCloud = isCloudEnvironment();
+      const scope: 'ALL' | 'OUTLET' = (String(req.body?.scope || 'OUTLET').toUpperCase() === 'ALL') ? 'ALL' : 'OUTLET';
+
+      // On cloud-hosted servers, ALL outlets backup is strictly forbidden - only own outlet backup allowed
+      if (isCloud && scope === 'ALL') {
         return res.status(403).json({
           success: false,
-          message: 'Database backups cannot be initiated from a Client PC. Please perform backups on the Main Server PC.',
+          message: 'When hosted on cloud, only your own outlet backup (.fambak) is allowed. Multi-outlet system backups are disabled on cloud instances.',
         });
       }
 
-      const scope: 'ALL' | 'OUTLET' = (String(req.body?.scope || 'OUTLET').toUpperCase() === 'ALL') ? 'ALL' : 'OUTLET';
-      // Full enterprise database backup (ALL) is restricted strictly to the Local Server PC
-      if (scope === 'ALL' && (!isLoopback || !isMasterAdmin)) {
+      const isLanClient = !isLoopback && !isCloud && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
+      if (scope === 'ALL' && !isLoopback && !isMasterAdmin) {
         return res.status(403).json({
           success: false,
-          message: 'All Outlets (Enterprise DB) backups can only be created directly on the Local Server PC. Cloud servers and remote terminals are restricted to their own outlet backup.',
+          message: 'All Outlets (Enterprise DB) backups can only be created directly on the Local Server PC. Cloud servers and client terminals are restricted to their own outlet backup.',
         });
       }
       const outletId = Number(req.body?.outletId || (req as any).outlet_id || req.user?.outlet_id || 1);
@@ -478,19 +480,20 @@ export class BackupManagementController {
       const isMasterAdmin = (userRole === 'SUPER_ADMIN' || userRole === 'ENTERPRISE_ADMIN');
       const isLocalServerSuperAdmin = isMasterAdmin && isLoopback;
 
-      // Reject restore from a LAN Client PC
-      const isLanClient = !isLoopback && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
-      if (isLanClient) {
+      const isCloud = isCloudEnvironment();
+      const requestedScope = String(req.body?.scope || '').toUpperCase();
+      const isLanClient = !isLoopback && !isCloud && (ip.includes('192.168.') || ip.includes('10.') || ip.includes('172.'));
+      if (requestedScope === 'ALL' && isLanClient && !isMasterAdmin) {
         return res.status(403).json({
           success: false,
-          message: 'Database restoration cannot be performed from a Client PC. Please restore on the Main Server PC.',
+          message: 'Full system database restoration cannot be performed from a Client PC. Please restore on the Main Server PC.',
         });
       }
 
       const userOutletCode = String((req as any).outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
 
       const requestedScope = String(req.body?.scope || '').toUpperCase();
-      if (requestedScope === 'ALL' && !isLocalServerSuperAdmin) {
+      if (requestedScope === 'ALL' && !isLoopback && !isCloud && !isMasterAdmin) {
         return res.status(403).json({
           success: false,
           message: 'Complete enterprise database restoration can only be performed directly on the Local Server PC.',

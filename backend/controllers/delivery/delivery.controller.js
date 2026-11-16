@@ -115,6 +115,17 @@ exports.listCatalogProducts = async (req, res) => {
             raw: true
         });
         const categories = distinctGroups.map(dg => dg.item_group).filter(Boolean);
+
+        let allowNegativeStock = false;
+        try {
+            if (req.propertyDb.models.system_settings) {
+                const sysSettings = await req.propertyDb.models.system_settings.findOne({ where: { outlet_id: outletId } });
+                if (sysSettings && (sysSettings.allow_negative_stock === true || sysSettings.allow_negative_stock === 1 || String(sysSettings.allow_negative_stock) === 'true')) {
+                    allowNegativeStock = true;
+                }
+            }
+        } catch (_) {}
+
         // Build conditions
         let queryConditions = `im.outlet_id = :outletId AND im.is_active = true AND im.is_saleable = true`;
         const replacements = { outletId, limit, offset };
@@ -259,10 +270,12 @@ exports.listCatalogProducts = async (req, res) => {
                 mergedItem.special_price = itemSellingPrice;
                 mergedItem.original_price = itemMrp;
             }
+            mergedItem.allow_negative_stock = allowNegativeStock;
             processedItems.push(mergedItem);
         }
         res.json({
             success: true,
+            allow_negative_stock: allowNegativeStock,
             data: processedItems,
             pagination: {
                 totalCount,

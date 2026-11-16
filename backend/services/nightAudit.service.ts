@@ -334,39 +334,57 @@ export async function executeNightAudit(propertyDb: any, outletId: any, userId: 
             const paymentRef = String(sale.payment_reference || '').trim();
             const changeAmount = parseFloat(sale.change_amount || 0);
 
+            const normalizeAuditMethod = (methodName: string): string => {
+                const m = String(methodName || '').trim().toUpperCase();
+                if (!m) return 'CASH';
+                if (m === 'CASH' || m.includes('CASH')) return 'CASH';
+                if (m === 'CARD' || m.includes('CARD') || m.includes('DEBIT') || m.includes('CREDIT_CARD') || m.includes('POS')) return 'CARD';
+                if (m === 'UPI' || m.includes('UPI') || m.includes('QR') || m.includes('GPAY') || m.includes('GOOGLE') || m.includes('PHONEPE') || m.includes('PAYTM') || m.includes('BHIM') || m.includes('ONLINE') || m.includes('SCAN') || m.includes('WALLET') || m.includes('NETBANKING')) return 'UPI';
+                if (m === 'ROOM' || m.includes('ROOM')) return 'ROOM_POSTING';
+                if (m === 'CREDIT' || m.includes('CREDIT') || m.includes('DUE') || m.includes('PAY_LATER') || m.includes('PAY_AT_CLINIC')) return 'CREDIT';
+                return 'OTHER';
+            };
+
             if (paymentRef.startsWith('POSPAY:')) {
                 try {
                     const parsed = JSON.parse(paymentRef.substring(7));
                     if (Array.isArray(parsed) && parsed.length > 0) {
                         for (const line of parsed) {
-                            const m = String(line?.method || '').trim().toUpperCase();
+                            const m = normalizeAuditMethod(line?.method);
                             const amt = parseFloat(line?.amount || 0);
                             if (m === 'CASH') {
                                 const netCash = changeAmount > 0 ? Math.max(0, amt - changeAmount) : amt;
                                 paymentBreakdown.CASH += netCash;
                                 cashExpected += netCash;
-                            } else if (m === 'CARD') paymentBreakdown.CARD += amt;
-                            else if (m === 'UPI' || m === 'ONLINE' || m === 'PAYTM' || m === 'GPAY' || m === 'PHONEPE') paymentBreakdown.UPI += amt;
-                            else if (m === 'ROOM') paymentBreakdown.ROOM_POSTING += amt;
-                            else if (m === 'CREDIT') paymentBreakdown.CREDIT += amt;
-                            else paymentBreakdown.OTHER += amt;
+                            } else if (m === 'CARD') {
+                                paymentBreakdown.CARD += amt;
+                            } else if (m === 'UPI') {
+                                paymentBreakdown.UPI += amt;
+                            } else if (m === 'ROOM_POSTING') {
+                                paymentBreakdown.ROOM_POSTING += amt;
+                            } else if (m === 'CREDIT') {
+                                paymentBreakdown.CREDIT += amt;
+                            } else {
+                                paymentBreakdown.OTHER += amt;
+                            }
                         }
                         return;
                     }
                 } catch (_) {}
             }
 
-            if (mode.includes('CASH')) {
+            const normalizedMode = normalizeAuditMethod(mode);
+            if (normalizedMode === 'CASH') {
                 const netCash = net > 0 ? net : Math.max(0, parseFloat(sale.amount_paid || 0) - changeAmount);
                 paymentBreakdown.CASH += netCash;
                 cashExpected += netCash;
-            } else if (mode.includes('CARD')) {
+            } else if (normalizedMode === 'CARD') {
                 paymentBreakdown.CARD += net;
-            } else if (mode.includes('UPI') || mode.includes('ONLINE') || mode.includes('PAYTM') || mode.includes('GPAY')) {
+            } else if (normalizedMode === 'UPI') {
                 paymentBreakdown.UPI += net;
-            } else if (mode.includes('ROOM')) {
+            } else if (normalizedMode === 'ROOM_POSTING') {
                 paymentBreakdown.ROOM_POSTING += net;
-            } else if (mode.includes('CREDIT')) {
+            } else if (normalizedMode === 'CREDIT') {
                 paymentBreakdown.CREDIT += net;
             } else {
                 paymentBreakdown.OTHER += net;

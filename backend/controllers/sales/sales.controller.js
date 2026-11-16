@@ -3250,46 +3250,23 @@ exports.getNextSaleNo = async (req, res) => {
     try {
         const outlet_id = req.user.outlet_id;
         const normalizedDate = normalizeDateKey(req.query.date);
-        const resolved = await numberingHelper.getEffectiveSetting({
+        const data = await numberingHelper.resolveNextNumber({
             db: req.propertyDb,
             outlet_id,
             module: 'SALES',
             date: normalizedDate || req.query.date || new Date().toISOString()
         });
-        if (!resolved) {
+        if (!data || !data.number) {
             return res.status(400).json({
                 success: false,
                 message: 'Sales numbering not configured'
             });
         }
-        const { effective, nextSetting } = resolved;
-        const existingSales = await req.propertyDb.models.sales_headers.findAll({
-            where: {
-                outlet_id,
-                is_latest: true,
-                is_deleted: false,
-                sale_date: nextSetting?.start_date
-                    ? {
-                        [Op.gte]: effective.start_date,
-                        [Op.lt]: nextSetting.start_date
-                    }
-                    : { [Op.gte]: effective.start_date }
-            },
-            order: [['id', 'DESC']],
-            limit: 100,
-            attributes: ['sale_no']
-        });
-        let nextNum = toWholeNumber(effective.start_no);
-        for (const sale of existingSales) {
-            const numeric = numberingHelper.extractNumericPart(sale.sale_no, effective);
-            if (numeric !== null) {
-                nextNum = Math.max(nextNum, numeric + 1);
-            }
-        }
         res.json({
             success: true,
             data: {
-                number: `${effective.prefix || ''}${nextNum}${effective.postfix || ''}`
+                number: data.number,
+                next_no: data.next_no
             }
         });
     }
@@ -3477,8 +3454,42 @@ exports.createSale = async (req, res) => {
         const freeBillDiscount = toRoundedAmount(freeBillItems.reduce((sum, row) => sum + toAmount(row.line_total), 0));
         const hasSubscriptionFreeRows = splitItems.free.some((row) => row._subscription_free === true || row.is_advance_free === true);
         const hasSchemeFreeRows = splitItems.free.some((row) => row.is_scheme_free === true && !(row._subscription_free === true || row.is_advance_free === true));
-        const paidSaleNo = String(headerForCreate.sale_no || '').trim();
-        const freeSaleNo = splitItems.paid.length > 0 ? incrementSaleNo(paidSaleNo) : paidSaleNo;
+        // On actual insert, ALWAYS mint the official sequential bill number atomically from DB
+        const allocated = await numberingHelper.allocateNextNumber({
+            db: req.propertyDb,
+            outlet_id: req.user.outlet_id,
+            module: 'SALES',
+            date: headerForCreate.sale_date || new Date(),
+            transaction: t
+        });
+        let paidSaleNo = allocated?.number || String(headerForCreate.sale_no || '').trim();
+
+        let freeSaleNo = splitItems.paid.length > 0 ? incrementSaleNo(paidSaleNo) : paidSaleNo;
+        if (splitItems.paid.length > 0 && splitItems.free.length > 0) {
+            let existsFree = await req.propertyDb.models.sales_headers.findOne({
+                where: {
+                    outlet_id: req.user.outlet_id,
+                    sale_no: freeSaleNo,
+                    is_deleted: false,
+                    is_latest: true
+                },
+                attributes: ['id'],
+                transaction: t
+            });
+            while (existsFree) {
+                freeSaleNo = incrementSaleNo(freeSaleNo);
+                existsFree = await req.propertyDb.models.sales_headers.findOne({
+                    where: {
+                        outlet_id: req.user.outlet_id,
+                        sale_no: freeSaleNo,
+                        is_deleted: false,
+                        is_latest: true
+                    },
+                    attributes: ['id'],
+                    transaction: t
+                });
+            }
+        }
         const reqEnableToken = req.body.enable_token_system || req.body.header?.enable_token_system;
         let isTokenEnabled = reqEnableToken === true || reqEnableToken === 'true' || reqEnableToken === 1;
         if (!isTokenEnabled) {
@@ -3496,11 +3507,12 @@ exports.createSale = async (req, res) => {
         }
         if (!headerForCreate.token_no) {
             try {
-                const tokenRes = await numberingHelper.resolveNextNumber({
-                    req,
+                const tokenRes = await numberingHelper.allocateNextNumber({
+                    db: req.propertyDb,
                     module: 'TOKEN',
                     date: headerForCreate.sale_date || new Date(),
-                    outlet_id: req.user.outlet_id
+                    outlet_id: req.user.outlet_id,
+                    transaction: t
                 });
                 if (tokenRes && tokenRes.number) {
                     headerForCreate.token_no = tokenRes.number;
@@ -3949,10 +3961,12 @@ exports.createSale = async (req, res) => {
         res.json({
             success: true,
             sale_id: referenceSale.id,
+            sale_no: primarySale?.sale_no || referenceSale.sale_no,
             token_no: referenceSale.token_no || primarySale?.token_no || null,
             sale_ids: createdSales.map((sale) => sale.id),
             sale_nos: createdSales.map((sale) => sale.sale_no),
             data: {
+                sale_no: primarySale?.sale_no || referenceSale.sale_no,
                 primary_sale_id: primarySale?.id || null,
                 primary_sale_no: primarySale?.sale_no || null,
                 token_no: referenceSale.token_no || primarySale?.token_no || null,
@@ -4039,7 +4053,8 @@ exports.modifySale = async (req, res) => {
                 req,
                 module: 'SALES',
                 date: headerForModify.sale_date || new Date(),
-                outlet_id: req.user.outlet_id
+                outlet_id: req.user.outlet_id,
+                transaction: t
             });
             if (!resolved || !resolved.number) {
                 return res.status(400).json({

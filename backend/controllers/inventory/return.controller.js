@@ -21,7 +21,7 @@ exports.getIssuedItems = async (req, res) => {
             {
                 model: req.propertyDb.models.item_master,
                 as: 'item_master', // ✅ REQUIRED
-                attributes: ['item_name', 'unit', 'item_code']
+                    attributes: ['item_name', 'brand', 'unit', 'item_code']
             }
         ]
     });
@@ -66,12 +66,21 @@ exports.saveReturn = async (req, res) => {
                 throw new Error(`Return qty exceeds allowed. Remaining: ${remainingQty}`);
             }
             // 3️⃣ Now safe to insert
+            const qty = Number(it.qty) || 0;
+            const rate = Number(it.rate) || 0;
+            const tax = Number(issueItem.tax) || 0;
+            const amount = qty * rate;
+            const tax_amount = amount * tax / 100;
             await req.propertyDb.models.return_items.create({
                 return_id: header.id,
                 issue_item_id: it.issue_item_id,
                 item_id: it.item_id,
-                qty: it.qty,
-                rate: it.rate
+                qty,
+                rate,
+                tax,
+                amount,
+                tax_amount,
+                total_after_tax: amount + tax_amount
             }, { transaction: t });
             await insertLedger({
                 db: req.propertyDb,

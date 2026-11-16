@@ -23,6 +23,7 @@ exports.getStockTakingItems = async (req, res) => {
                 im.id,
                 im.item_code,
                 im.item_name,
+                im.brand,
                 im.unit,
                 im.item_group AS department,
                 im.rate,
@@ -40,6 +41,7 @@ exports.getStockTakingItems = async (req, res) => {
                 im.id,
                 im.item_code,
                 im.item_name,
+                im.brand,
                 im.unit,
                 im.item_group,
                 im.rate,
@@ -97,6 +99,7 @@ exports.saveStockTakingAudit = async (req, res) => {
                 audit_date: dateStr,
                 item_code: item.item_code,
                 item_name: item.item_name,
+                brand: item.brand || '',
                 unit: item.unit || 'PCS',
                 department: item.department || 'General',
                 system_balance: currentBalance,
@@ -192,6 +195,14 @@ exports.getStockTakingReports = async (req, res) => {
                 audit_date,
                 item_code,
                 item_name,
+                COALESCE(
+                    NULLIF(brand, ''),
+                    (SELECT im.brand FROM item_master im
+                     WHERE im.item_code = stock_taking.item_code
+                       AND im.outlet_id = stock_taking.outlet_id
+                     LIMIT 1),
+                    ''
+                ) AS brand,
                 unit,
                 department,
                 system_balance,

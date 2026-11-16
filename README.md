@@ -151,6 +151,8 @@ Deploy the web application and backend seamlessly on [Render.com](https://render
 - 🛠️ **[System Maintenance Mode & Emergency Lockout](./Docs/User-Guide-Maintenance-Mode-And-Lockout.md)** — Non-dismissible lockout modal, advance maintenance notices & auto-resumption
 - 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./Docs/User-Guide-Delivery-Challan-And-Transport-Logistics.md)** — Issuing goods in transit challans, fleet vehicle/driver management, trip loading manifest & POS conversion
 - 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/User-Guide-Tiered-Storage-And-Backup-Architecture.md)** — Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing & .fambak/.posbak archives
+- 📱 **[Mobile Billing Suite & Universal Companion Apps](./Docs/User-Guide-Mobile-Billing-And-Companion-Apps.md)** — Handheld POS terminal, bottom sheets, waiter/rider companion apps & QR scan-to-connect
+- 🌐 **[Model Context Protocol (MCP) & AI Gateway](./Docs/User-Guide-Model-Context-Protocol-And-AI-Gateway.md)** — Connecting ChatGPT, Claude Desktop, Gemini & Cursor AI for natural language sales & POS control
 - ❓ **[Complete Store Operations FAQ](./Docs/User-Guide-FAQ.md)** — Frequently asked cashier and manager troubleshooting questions
 - 📖 **[Master User Guide & Workflow Index](./Docs/User-Guide.md)** — Universal operational documentation hub
 
@@ -159,7 +161,8 @@ Deploy the web application and backend seamlessly on [Render.com](https://render
 ### 🛠️ Developer & Technical Architecture Guides
 - 📋 **[Master Feature & Documentation Coverage Matrix](./Docs/Feature-Coverage-Checklist.md)** — 100% verified UI & backend feature audit
 - 📜 **[System Architecture Upgrades & Changelog (Sept–Oct 2026)](./Docs/System-Architecture-And-Changelog.md)** — Architectural evolution timeline & core invariants
-- 📡 **[Master REST API Endpoint Reference](./Docs/Endpoint-Reference.md)** — Comprehensive specification of all 48 backend route modules
+- 📡 **[Master REST API Endpoint Reference](./Docs/Endpoint-Reference.md)** — Comprehensive specification of all 49 backend route modules
+- 🌐 **[Model Context Protocol (MCP) & AI Gateway Architecture](./Docs/Developer-Guide-Model-Context-Protocol-And-AI-Gateway.md)** — SSE/JSON-RPC transports, dynamic ChatGPT Action OpenAPI 3.0 spec, Gemini function calling & OAuth 2.0 PKCE
 - 🏢 **[Enterprise SaaS Control Plane & Data Doctor](./Docs/Developer-Guide-Enterprise-Control-Plane-And-Data-Doctor.md)** — Master IAM, multi-tenant fleet governance, 30-day quota guard, sandboxed Data Doctor SQL runner, vector PDF invoicing & Inno Setup packaging
 - 🏥 **[Clinic Management & Digital Prescription Architecture](./Docs/Developer-Guide-Clinic-Management-And-OPD.md)** — Appointment state machine, doctor desk vitals JSONB, direct pharmacy billing & vector prescription PDF
 - 🛠️ **[System Maintenance & Lockout Middleware Engine](./Docs/Developer-Guide-Maintenance-Mode-And-Lockout.md)** — Maintenance middleware, atomic JSON state storage, role-based bypass rules & Flutter interceptor

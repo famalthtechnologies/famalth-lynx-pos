@@ -70,6 +70,12 @@ class _StockTakingScreenState extends State<StockTakingScreen> with SingleTicker
     return double.tryParse(val.toString()) ?? 0.0;
   }
 
+  String _displayItemName(Map item) {
+    final name = (item['item_name'] ?? '').toString();
+    final brand = (item['brand'] ?? '').toString().trim();
+    return brand.isEmpty ? name : '$name ($brand)';
+  }
+
   Future<void> _fetchItems() async {
     setState(() => _loading = true);
     try {
@@ -85,6 +91,7 @@ class _StockTakingScreenState extends State<StockTakingScreen> with SingleTicker
               'id': item['id'],
               'item_code': item['item_code']?.toString() ?? '',
               'item_name': item['item_name']?.toString() ?? '',
+              'brand': item['brand']?.toString() ?? '',
               'unit': item['unit']?.toString() ?? 'PCS',
               'department': item['department']?.toString() ?? 'General',
               'rate': _toDouble(item['rate']),
@@ -117,7 +124,8 @@ class _StockTakingScreenState extends State<StockTakingScreen> with SingleTicker
         final matchDept = _selectedDepartment == 'ALL' || item['department'] == _selectedDepartment;
         final name = (item['item_name'] ?? '').toString().toLowerCase();
         final code = (item['item_code'] ?? '').toString().toLowerCase();
-        final matchSearch = query.isEmpty || name.contains(query) || code.contains(query);
+        final brand = (item['brand'] ?? '').toString().toLowerCase();
+        final matchSearch = query.isEmpty || name.contains(query) || code.contains(query) || brand.contains(query);
         final variance = _toDouble(item['variance']);
         final matchVariance = !_showVarianceOnly || variance.abs() > 0.001;
         return matchDept && matchSearch && matchVariance;
@@ -168,6 +176,7 @@ class _StockTakingScreenState extends State<StockTakingScreen> with SingleTicker
         'items': _allItems.map((item) => {
           'item_code': item['item_code'],
           'item_name': item['item_name'],
+          'brand': item['brand'],
           'unit': item['unit'],
           'department': item['department'],
           'current_balance': item['current_balance'],
@@ -442,7 +451,7 @@ class _StockTakingScreenState extends State<StockTakingScreen> with SingleTicker
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Text(item['item_name'], style: const TextStyle(fontWeight: FontWeight.w600)),
+                                  Text(_displayItemName(item), style: const TextStyle(fontWeight: FontWeight.w600)),
                                   Text(item['item_code'], style: const TextStyle(fontSize: 11, color: Colors.grey)),
                                 ],
                               ),
@@ -642,7 +651,7 @@ class _StockTakingScreenState extends State<StockTakingScreen> with SingleTicker
                                     ],
                                   ),
                                 ),
-                                DataCell(Text(row['item_name'] ?? '')),
+                                DataCell(Text(_displayItemName(row))),
                                 DataCell(Text(row['department'] ?? 'General')),
                                 DataCell(Text(row['unit'] ?? 'PCS')),
                                 DataCell(Text(_toDouble(row['system_balance']).toStringAsFixed(2))),

@@ -115,18 +115,22 @@ app.use('/storage', express_1.default.static(path_1.default.join(rootDir, 'stora
 // health
 app.get('/health', async (req, res) => {
     try {
-        const licensePath = path_1.default.join(rootDir, 'license.key');
-        if (!fs_1.default.existsSync(licensePath)) {
-            return res.json({ success: false, action: 'LICENSE_ERROR', message: "License key is missing." });
-        }
-        try {
-            const license = JSON.parse(fs_1.default.readFileSync(licensePath, 'utf8'));
-            if (new Date() > new Date(license.valid_till)) {
-                return res.json({ success: false, action: 'LICENSE_ERROR', message: "License has expired." });
+        const isCloudMode = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.DB_HOST);
+        // In cloud mode, skip local file checks (license.key / sysConfig.enc not present in cloud)
+        if (!isCloudMode) {
+            const licensePath = path_1.default.join(rootDir, 'license.key');
+            if (!fs_1.default.existsSync(licensePath)) {
+                return res.json({ success: false, action: 'LICENSE_ERROR', message: "License key is missing." });
             }
-        }
-        catch (e) {
-            return res.json({ success: false, action: 'LICENSE_ERROR', message: "License file is corrupted." });
+            try {
+                const license = JSON.parse(fs_1.default.readFileSync(licensePath, 'utf8'));
+                if (new Date() > new Date(license.valid_till)) {
+                    return res.json({ success: false, action: 'LICENSE_ERROR', message: "License has expired." });
+                }
+            }
+            catch (e) {
+                return res.json({ success: false, action: 'LICENSE_ERROR', message: "License file is corrupted." });
+            }
         }
         if (!process.env.DATABASE_URL && !process.env.DB_HOST) {
             const configPath = path_1.default.join(rootDir, 'config.enc');
@@ -171,8 +175,12 @@ app.use(db_middleware_1.default);
 app.use(timezone_middleware_1.default);
 app.use('/api', rateLimit_middleware_1.apiLimiter);
 const licensePath = path_1.default.join(rootDir, 'license.key');
-let license = { allowed_mode: 'OFFLINE' };
-if (!fs_1.default.existsSync(licensePath)) {
+const isCloudMode = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.DB_HOST);
+let license = { allowed_mode: isCloudMode ? 'ONLINE' : 'OFFLINE' };
+if (isCloudMode) {
+    console.log('☁️ [SYSTEM] Cloud mode detected. Bypassing local license.key and sysConfig.enc checks.');
+}
+else if (!fs_1.default.existsSync(licensePath)) {
     console.error('⚠️ [SYSTEM] LICENSE FILE MISSING. Booting in limited Recovery Mode.');
 }
 else {
@@ -712,6 +720,9 @@ app.use('/api/v1/operations', require('./routes/operations.routes'));
 app.use('/api/v1/workflows', require('./routes/workflow.routes'));
 app.use('/api/v1/agent', require('./routes/autonomous_agent.routes'));
 app.use('/api/v1/developer', require('./routes/developer.routes'));
+// RFC 8414 OAuth 2.0 Authorization Server Discovery (ChatGPT & Remote MCP)
+const developerController = require('./controllers/developer.controller');
+app.get(['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'], developerController.getOAuthMetadata);
 app.use('/api/v1/plugins', require('./routes/plugin.routes'));
 app.use('/api/v1/open', require('./routes/open_api.routes'));
 app.use('/api/notes', require('./routes/userNote.routes'));

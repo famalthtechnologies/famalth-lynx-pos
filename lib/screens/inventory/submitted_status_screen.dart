@@ -503,6 +503,7 @@ class _SubmittedStatusScreenState extends State<SubmittedStatusScreen> with Sing
                 i['name'] ??
                 '-';
             final itemName = rawName.toString().trim().isEmpty ? '-' : rawName.toString().trim();
+            final brand = (i['brand'] ?? i['item']?['brand'] ?? i['item_master']?['brand'] ?? '').toString().trim();
 
             final rateFmt = CurrencyService.format(rate);
             final amountFmt = CurrencyService.format(amount);
@@ -511,7 +512,10 @@ class _SubmittedStatusScreenState extends State<SubmittedStatusScreen> with Sing
               children: [
                 Padding(
                   padding: const EdgeInsets.all(8.0),
-                  child: Text(itemName, style: const TextStyle(fontSize: 12)),
+                  child: Text(
+                    brand.isEmpty ? itemName : '$itemName ($brand)',
+                    style: const TextStyle(fontSize: 12),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(8.0),

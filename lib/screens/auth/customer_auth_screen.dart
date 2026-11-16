@@ -206,7 +206,52 @@ class _CustomerAuthScreenState extends State<CustomerAuthScreen>
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
+
+                // Server Connection Banner (Tap to configure or scan store QR)
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ServerConfigScreen(nextScreen: CustomerAuthScreen())),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.deepOrange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.deepOrange.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.qr_code_scanner_rounded, color: primaryColor, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Store Server: ${AppConfig.baseUrl}",
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF9A3412)),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                "Tap here to scan Store Setup QR or switch server",
+                                style: TextStyle(fontSize: 11, color: Colors.deepOrange.shade700),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.tune_rounded, color: primaryColor, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
 
                 // Card panel with tabs
                 Card(

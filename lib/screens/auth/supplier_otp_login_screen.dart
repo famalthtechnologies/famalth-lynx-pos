@@ -7,6 +7,7 @@ import '../../core/auth/token_storage.dart';
 import '../../core/config/app_config.dart';
 import '../../core/navigation/home_route_helper.dart';
 import '../dashboard/server_config_screen.dart';
+import 'supplier_splash_screen.dart';
 
 class SupplierOtpLoginScreen extends StatefulWidget {
   const SupplierOtpLoginScreen({super.key});
@@ -162,7 +163,11 @@ class _SupplierOtpLoginScreenState extends State<SupplierOtpLoginScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const ServerConfigScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const ServerConfigScreen(
+                    nextScreen: SupplierAppSplashScreen(),
+                  ),
+                ),
               );
             },
             tooltip: "Server Config",

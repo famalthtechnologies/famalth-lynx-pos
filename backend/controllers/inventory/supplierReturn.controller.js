@@ -114,17 +114,24 @@ const saveSupplierReturn = async (req, res) => {
                 throw new Error(`Return qty exceeds allowed for ${receiptItem.item_name}. Remaining: ${remainingQty}`);
             }
             const amount = qty * rate;
-            total_amount += amount;
+            const tax = Number(receiptItem.tax) || 0;
+            const tax_amount = amount * tax / 100;
+            const total_after_tax = amount + tax_amount;
+            total_amount += total_after_tax;
             await req.propertyDb.models.supplier_return_items.create({
                 return_id: header.id,
                 receipt_item_id: receiptItem.id,
                 item_id: receiptItem.item_id,
                 item_code: receiptItem.item_code,
                 item_name: receiptItem.item_name,
+                brand: receiptItem.brand || '',
                 unit: receiptItem.unit,
                 qty,
                 rate,
-                amount
+                amount,
+                tax,
+                tax_amount,
+                total_after_tax
             }, { transaction: t });
             await insertLedger({
                 db: req.propertyDb,
@@ -186,6 +193,19 @@ const listSupplierReturns = async (req, res) => {
                     model: req.propertyDb.models.goods_receipts,
                     as: 'grn',
                     attributes: ['grn_no', 'supplier_bill_no']
+                },
+                {
+                    model: req.propertyDb.models.supplier_return_items,
+                    as: 'items',
+                    include: [{
+                        model: req.propertyDb.models.item_master,
+                        as: 'item_master',
+                        attributes: ['brand']
+                    }, {
+                        model: req.propertyDb.models.goods_receipt_items,
+                        as: 'receipt_item',
+                        attributes: ['tax', 'brand']
+                    }]
                 }
             ],
             order: [['return_date', 'DESC'], ['id', 'DESC']]

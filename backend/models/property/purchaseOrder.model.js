@@ -10,13 +10,31 @@ module.exports = (sequelize, DataTypes) => {
         total_amount: DataTypes.DECIMAL(12, 2),
         round_off_amount: { type: DataTypes.DECIMAL(12, 2), defaultValue: 0.00 },
         status: DataTypes.STRING,
-        created_by: DataTypes.INTEGER
+        created_by: DataTypes.INTEGER,
+        approval_status: { type: DataTypes.STRING(20), defaultValue: 'APPROVED' },
+        approved_by: DataTypes.INTEGER,
+        approved_at: DataTypes.DATE,
+        rejected_by: DataTypes.INTEGER,
+        rejected_at: DataTypes.DATE,
+        rejection_reason: DataTypes.TEXT
     }, {
         tableName: 'purchase_orders',
         timestamps: true,
         createdAt: 'created_at',
         updatedAt: 'updated_at'
     });
+
+    if (sequelize && typeof sequelize.query === 'function') {
+        sequelize.query(`
+            ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) DEFAULT 'APPROVED';
+            ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approved_by INTEGER;
+            ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;
+            ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS rejected_by INTEGER;
+            ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP;
+            ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+            UPDATE purchase_orders SET approval_status = 'APPROVED' WHERE approval_status IS NULL;
+        `).catch(() => {});
+    }
     purchase_order.associate = (models) => {
         purchase_order.hasMany(models.purchase_order_items, {
             foreignKey: 'po_id',

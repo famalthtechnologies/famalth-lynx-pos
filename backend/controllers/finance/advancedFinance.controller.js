@@ -10,15 +10,30 @@ const { refreshSaleOutstanding, getRepaymentTotal, resolvePaymentStatus, extract
 async function createAutoAccountingVoucher({ req, outlet_id, created_by, voucher_type, voucher_date, payment_mode, reference_no, narration, total_amount, debit_account_name, debit_account_type = 'GENERAL', credit_account_name, credit_account_type = 'GENERAL', transaction }) {
     let autoNo;
     try {
-        autoNo = await getNextNumber(req.propertyDb, outlet_id, voucher_type);
+        autoNo = await getNextNumber(req.propertyDb, outlet_id, voucher_type, transaction);
     }
     catch (_) {
-        const prefixMap = { CONTRA: 'CN', PAYMENT: 'PV', RECEIPT: 'RV', JOURNAL: 'JV', SALES: 'SV', PURCHASE: 'PV' };
+        const prefixMap = { CONTRA: 'CNT', PAYMENT: 'PAY', RECEIPT: 'RCT', JOURNAL: 'JRN', SALES: 'SV', PURCHASE: 'PV' };
         const count = await req.propertyDb.models.accounting_vouchers.count({
             where: { outlet_id, voucher_type },
             transaction
         });
         autoNo = `${prefixMap[voucher_type] || 'VC'}-${String(count + 1).padStart(4, '0')}`;
+    }
+    // Safety check against concurrent voucher duplicate
+    let vExists = await req.propertyDb.models.accounting_vouchers.findOne({
+        where: { outlet_id, voucher_no: autoNo },
+        attributes: ['id'],
+        transaction
+    });
+    while (vExists) {
+        const extra = Math.floor(100 + Math.random() * 900);
+        autoNo = `${autoNo}-${extra}`;
+        vExists = await req.propertyDb.models.accounting_vouchers.findOne({
+            where: { outlet_id, voucher_no: autoNo },
+            attributes: ['id'],
+            transaction
+        });
     }
     const vDate = voucher_date || new Date().toISOString().split('T')[0];
     const amountVal = Number(total_amount || 0);
@@ -1259,8 +1274,27 @@ exports.createRepayment = async (req, res) => {
             if (!waiveOff && isBankRepay) {
                 try {
                     const bank = await creditBankBalance({ db: req.propertyDb, outlet_id: req.user.outlet_id, amount, transaction: t });
-                    const count = await req.propertyDb.models.accounting_vouchers.count({ where: { outlet_id: req.user.outlet_id, voucher_type: 'RECEIPT' }, transaction: t });
-                    const vNo = `RV-${String(count + 1).padStart(4, '0')}`;
+                    let vNo;
+                    try {
+                        vNo = await getNextNumber(req.propertyDb, req.user.outlet_id, 'RECEIPT', t);
+                    } catch (_) {
+                        const count = await req.propertyDb.models.accounting_vouchers.count({ where: { outlet_id: req.user.outlet_id, voucher_type: 'RECEIPT' }, transaction: t });
+                        vNo = `RCT59-${String(count + 1).padStart(4, '0')}-26`;
+                    }
+                    let rExists = await req.propertyDb.models.accounting_vouchers.findOne({
+                        where: { outlet_id: req.user.outlet_id, voucher_no: vNo },
+                        attributes: ['id'],
+                        transaction: t
+                    });
+                    while (rExists) {
+                        const extra = Math.floor(100 + Math.random() * 900);
+                        vNo = `${vNo}-${extra}`;
+                        rExists = await req.propertyDb.models.accounting_vouchers.findOne({
+                            where: { outlet_id: req.user.outlet_id, voucher_no: vNo },
+                            attributes: ['id'],
+                            transaction: t
+                        });
+                    }
                     const vHeader = await req.propertyDb.models.accounting_vouchers.create({
                         outlet_id: req.user.outlet_id,
                         voucher_no: vNo,
@@ -2499,10 +2533,30 @@ exports.getCustomerLedger = async (req, res) => {
         const customerPhone = String(req.query.customer_phone || req.query.phone || '').trim();
         const customerName = String(req.query.customer_name || req.query.name || '').trim();
         const search = String(req.query.customer || req.query.search || customerPhone || customerName).trim();
-        if (!search && !customerName) {
+        if (!search && !customerName && !customerPhone) {
             return res.status(400).json({ success: false, error: 'Customer phone or name is required' });
         }
-        const customerMatch = buildCustomerMatch(customerPhone || search, customerName);
+        let customerMatch = null;
+        if (customerPhone) {
+            const variants = getPhoneSearchVariants(customerPhone);
+            const cleanDigits = customerPhone.replace(/\D/g, '');
+            const phoneConditions = [];
+            if (variants.length > 0) {
+                phoneConditions.push({ [Op.in]: variants });
+            }
+            if (cleanDigits.length >= 4) {
+                phoneConditions.push({ [Op.iLike]: `%${cleanDigits}%` });
+            }
+            customerMatch = {
+                customer_phone: phoneConditions.length > 1 ? { [Op.or]: phoneConditions } : (phoneConditions[0] || customerPhone)
+            };
+        } else if (customerName) {
+            customerMatch = {
+                customer_name: { [Op.iLike]: `%${customerName}%` }
+            };
+        } else if (search) {
+            customerMatch = buildCustomerMatch(search);
+        }
         let customerProfile = null;
         if (req.propertyDb.models.customers) {
             customerProfile = await req.propertyDb.models.customers.findOne({

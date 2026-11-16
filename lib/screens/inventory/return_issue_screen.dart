@@ -29,6 +29,8 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
   final ReturnController returnCtrl = ReturnController();
   double remainingQty = 0;
   final propertyCtrl = PropertyInfoController();
+  final _issuedTableScrollController = ScrollController();
+  final _returnTableScrollController = ScrollController();
   // ---------------- INDENT ----------------
   List<String> indentList = [];
   String? selectedIndent;
@@ -47,11 +49,27 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
 
   int? _editIndex;
 
+  String _displayItemName(String name, String brand) =>
+      brand.trim().isEmpty ? name : '$name (${brand.trim()})';
+
   @override
   void initState() {
     super.initState();
     _loadPropertyInfo();
     dateCtrl.text = DateFormat('dd-MMM-yyyy').format(selectedDate);
+  }
+
+  @override
+  void dispose() {
+    dateCtrl.dispose();
+    qtyCtrl.dispose();
+    rateCtrl.dispose();
+    valueCtrl.dispose();
+    _issuedTableScrollController.dispose();
+    _returnTableScrollController.dispose();
+    returnCtrl.dispose();
+    propertyCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPropertyInfo() async {
@@ -106,9 +124,11 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
 
   // ================= CALC =================
   void recalc() {
-    final q = int.tryParse(qtyCtrl.text) ?? 0;
+    final q = double.tryParse(qtyCtrl.text) ?? 0;
     final r = double.tryParse(rateCtrl.text) ?? 0;
-    valueCtrl.text = (q * r).toStringAsFixed(2);
+    final subtotal = q * r;
+    valueCtrl.text = subtotal.toStringAsFixed(2);
+    setState(() {});
   }
 
   // ================= SAVE RETURN =================
@@ -144,9 +164,10 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
       issueItemId: selectedIssuedItem!.issueItemId,
       itemCode: selectedIssuedItem!.itemCode,
       itemName: selectedIssuedItem!.itemName,
+      brand: selectedIssuedItem!.brand,
       unit: selectedIssuedItem!.unit,
       qty: qty,
-      rate: selectedIssuedItem!.rate,
+      rate: double.tryParse(rateCtrl.text) ?? selectedIssuedItem!.rate,
       tax: selectedIssuedItem!.tax,
       itemId: selectedIssuedItem!.itemId,
     );
@@ -206,7 +227,9 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
 
   double get issuedTotal => issuedItems.fold(0, (s, e) => s + e.amount);
 
-  double get returnTotal => returnItems.fold(0, (s, e) => s + e.amount);
+  double get returnSubtotal => returnItems.fold(0, (s, e) => s + e.amount);
+  double get returnTaxTotal => returnItems.fold(0, (s, e) => s + e.taxAmount);
+  double get returnTotal => returnItems.fold(0, (s, e) => s + e.totalAmount);
 
   // ================= UI =================
   @override
@@ -288,27 +311,44 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
           height: constraints.maxHeight,
           child: SingleChildScrollView(
             scrollDirection: Axis.vertical,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
+            child: Scrollbar(
+              controller: _issuedTableScrollController,
+              thumbVisibility: true,
+              trackVisibility: true,
+              thickness: 8,
+              child: SingleChildScrollView(
+                controller: _issuedTableScrollController,
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  horizontalMargin: 12,
+                  columnSpacing: 20,
                 columns: const [
                   DataColumn(label: Text('Item')),
                   DataColumn(label: Text('Unit')),
                   DataColumn(label: Text('Qty')),
                   DataColumn(label: Text('Rate')),
+                  DataColumn(label: Text('Amount')),
+                  DataColumn(label: Text('Tax %')),
+                  DataColumn(label: Text('Tax Amount')),
+                  DataColumn(label: Text('Total Amount')),
                 ],
                 rows: issuedItems.map((e) {
                   return DataRow(
                     selected: selectedIssuedItem == e,
                     onSelectChanged: (_) => selectIssuedItem(e),
                     cells: [
-                      DataCell(Text(e.itemName)),
+                      DataCell(Text(_displayItemName(e.itemName, e.brand))),
                       DataCell(Text(e.unit)),
                       DataCell(Text(e.qty.toString())),
                       DataCell(Text(CurrencyService.format(e.rate))),
+                      DataCell(Text(CurrencyService.format(e.amount))),
+                      DataCell(Text(e.tax.toStringAsFixed(2))),
+                      DataCell(Text(CurrencyService.format(e.taxAmount))),
+                      DataCell(Text(CurrencyService.format(e.totalAmount))),
                     ],
                   );
                 }).toList(),
+                ),
               ),
             ),
           ));
@@ -322,24 +362,38 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
           height: constraints.maxHeight,
           child: SingleChildScrollView(
             scrollDirection: Axis.vertical,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
+            child: Scrollbar(
+              controller: _returnTableScrollController,
+              thumbVisibility: true,
+              trackVisibility: true,
+              thickness: 8,
+              child: SingleChildScrollView(
+                controller: _returnTableScrollController,
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  horizontalMargin: 12,
+                  columnSpacing: 20,
                 columns: const [
                   DataColumn(label: Text('Item')),
                   DataColumn(label: Text('Qty')),
                   DataColumn(label: Text('Rate')),
                   DataColumn(label: Text('Amount')),
+                  DataColumn(label: Text('Tax %')),
+                  DataColumn(label: Text('Tax Amount')),
+                  DataColumn(label: Text('Total Amount')),
                   DataColumn(label: Text('Action')),
                 ],
                 rows: List.generate(returnItems.length, (i) {
                   final e = returnItems[i];
 
                   return DataRow(cells: [
-                    DataCell(Text(e.itemName)),
+                    DataCell(Text(_displayItemName(e.itemName, e.brand))),
                     DataCell(Text(e.qty.toString())),
                     DataCell(Text(CurrencyService.format(e.rate))),
                     DataCell(Text(CurrencyService.format(e.amount))),
+                    DataCell(Text(e.tax.toStringAsFixed(2))),
+                    DataCell(Text(CurrencyService.format(e.taxAmount))),
+                    DataCell(Text(CurrencyService.format(e.totalAmount))),
                     DataCell(Row(
                       children: [
                         IconButton(
@@ -359,6 +413,7 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
                     )),
                   ]);
                 }),
+                ),
               ),
             ),
           ));
@@ -377,7 +432,23 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
           _roField('Unit', selectedIssuedItem?.unit),
           _editField(qtyCtrl, 'Return Qty', recalc),
           _editField(rateCtrl, 'Rate', recalc),
-          _roField('Value', valueCtrl.text),
+          _roField('Tax %', selectedIssuedItem?.tax.toStringAsFixed(2)),
+          _roField('Tax Amount', selectedIssuedItem == null || valueCtrl.text.isEmpty
+              ? '0.00'
+              : ((double.tryParse(qtyCtrl.text) ?? 0) *
+                      (double.tryParse(rateCtrl.text) ?? 0) *
+                      selectedIssuedItem!.tax /
+                      100)
+                  .toStringAsFixed(2)),
+          _roField('Amount', valueCtrl.text),
+          _roField('Total Amount',
+              ((double.tryParse(valueCtrl.text) ?? 0) +
+                      (selectedIssuedItem == null
+                          ? 0
+                          : (double.tryParse(valueCtrl.text) ?? 0) *
+                              selectedIssuedItem!.tax /
+                              100))
+                  .toStringAsFixed(2)),
           FilledButton.icon(
             icon: const Icon(Icons.add),
             label: Text(_editIndex == null ? 'Add Item' : 'Update Item'),
@@ -389,7 +460,9 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
             onPressed: clearDetail,
             child: const Text('Clear'),
           ),
-          _amountChip('Returned Total', returnTotal),
+          _amountChip('Return Subtotal', returnSubtotal),
+          _amountChip('Tax Amount', returnTaxTotal),
+          _amountChip('Total Amount', returnTotal),
         ],
       ),
     );
@@ -436,6 +509,10 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
         'item_id': e.itemId,
         'qty': e.qty,
         'rate': e.rate,
+        'tax': e.tax,
+        'tax_amount': e.taxAmount,
+        'amount': e.amount,
+        'total_after_tax': e.totalAmount,
       };
     }).toList();
 
@@ -529,6 +606,10 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
               2: const pw.FlexColumnWidth(1),
               3: const pw.FlexColumnWidth(1),
               4: const pw.FlexColumnWidth(1),
+              5: const pw.FlexColumnWidth(1),
+              6: const pw.FlexColumnWidth(0.8),
+              7: const pw.FlexColumnWidth(1.1),
+              8: const pw.FlexColumnWidth(1.2),
             },
             children: [
               pw.TableRow(
@@ -539,6 +620,10 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
                   _cell("Unit"),
                   _cell("Qty"),
                   _cell("Rate"),
+                  _cell("Amount"),
+                  _cell("Tax %"),
+                  _cell("Tax Amount"),
+                  _cell("Total Amount"),
                 ],
               ),
               ...List.generate(returnItems.length, (i) {
@@ -546,10 +631,14 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
                 return pw.TableRow(
                   children: [
                     _cell("${i + 1}"),
-                    _cell(r.itemName),
+                    _cell(_displayItemName(r.itemName, r.brand)),
                     _cell(r.unit),
                     _cell(r.qty.toString()),
                     _cell(CurrencyService.format(r.rate)),
+                    _cell(CurrencyService.format(r.amount)),
+                    _cell(r.tax.toStringAsFixed(2)),
+                    _cell(CurrencyService.format(r.taxAmount)),
+                    _cell(CurrencyService.format(r.totalAmount)),
                   ],
                 );
               })
@@ -566,6 +655,12 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
               children: [
                 pw.Text(
                   "Stock Dispatch Total : ${CurrencyService.format(issuedTotal)}",
+                ),
+                pw.Text(
+                  "Subtotal : ${CurrencyService.format(returnSubtotal)}",
+                ),
+                pw.Text(
+                  "Tax Amount : ${CurrencyService.format(returnTaxTotal)}",
                 ),
                 pw.Text(
                   "Returned Total : ${CurrencyService.format(returnTotal)}",
@@ -686,7 +781,7 @@ class _ReturnIssueScreenState extends State<ReturnIssueScreen> {
           ],
           decoration: InputDecoration(labelText: l),
           onChanged: (val) {
-            final entered = int.tryParse(val) ?? 0;
+            final entered = double.tryParse(val) ?? 0;
 
             if (entered > remainingQty) {
               ScaffoldMessenger.of(context).showSnackBar(

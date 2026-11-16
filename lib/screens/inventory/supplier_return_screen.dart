@@ -3,8 +3,14 @@ import 'package:dropdown_search/dropdown_search.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../controllers/inventory/supplier_return_controller.dart';
+import '../../controllers/settings/property_info_controller.dart';
+import '../../core/printing/pos_invoice_printer.dart';
+import '../../utils/branding_storage.dart';
 import '../../models/inventory/supplier_return_model.dart';
 
 class SupplierReturnScreen extends StatefulWidget {
@@ -16,11 +22,14 @@ class SupplierReturnScreen extends StatefulWidget {
 
 class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
   final ctrl = SupplierReturnController();
+  final propertyCtrl = PropertyInfoController();
   final dateCtrl = TextEditingController();
   final notesCtrl = TextEditingController();
   final qtyCtrl = TextEditingController();
   final rateCtrl = TextEditingController();
   final valueCtrl = TextEditingController();
+  final _receivedTableScrollController = ScrollController();
+  final _returnTableScrollController = ScrollController();
 
   DateTime selectedDate = DateTime.now();
   List<Map<String, dynamic>> grnList = [];
@@ -31,6 +40,9 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
   int? editIndex;
   double remainingQty = 0;
 
+  String _displayItemName(String name, String brand) =>
+      brand.trim().isEmpty ? name : '$name (${brand.trim()})';
+
   String _fmtNumber(num value) {
     return value % 1 == 0 ? value.toInt().toString() : value.toString();
   }
@@ -39,6 +51,21 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
   void initState() {
     super.initState();
     dateCtrl.text = DateFormat('dd-MMM-yyyy').format(selectedDate);
+    propertyCtrl.load();
+  }
+
+  @override
+  void dispose() {
+    dateCtrl.dispose();
+    notesCtrl.dispose();
+    qtyCtrl.dispose();
+    rateCtrl.dispose();
+    valueCtrl.dispose();
+    _receivedTableScrollController.dispose();
+    _returnTableScrollController.dispose();
+    ctrl.dispose();
+    propertyCtrl.dispose();
+    super.dispose();
   }
 
   void searchGrns() async {
@@ -78,7 +105,8 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
   void recalc() {
     final qty = double.tryParse(qtyCtrl.text) ?? 0;
     final rate = double.tryParse(rateCtrl.text) ?? 0;
-    valueCtrl.text = (qty * rate).toStringAsFixed(2);
+    final subtotal = qty * rate;
+    valueCtrl.text = subtotal.toStringAsFixed(2);
     setState(() {});
   }
 
@@ -113,9 +141,11 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
       itemId: selectedItem!.itemId,
       itemCode: selectedItem!.itemCode,
       itemName: selectedItem!.itemName,
+      brand: selectedItem!.brand,
       unit: selectedItem!.unit,
       qty: qty,
       rate: rate,
+      tax: selectedItem!.tax,
     );
 
     setState(() {
@@ -152,8 +182,10 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
     valueCtrl.clear();
   }
 
-  double get receivedTotal => receivedItems.fold(0, (s, e) => s + e.amount);
-  double get returnTotal => returnItems.fold(0, (s, e) => s + e.amount);
+  double get receivedTotal => receivedItems.fold(0, (s, e) => s + e.totalAmount);
+  double get returnSubtotal => returnItems.fold(0, (s, e) => s + e.amount);
+  double get returnTaxTotal => returnItems.fold(0, (s, e) => s + e.taxAmount);
+  double get returnTotal => returnItems.fold(0, (s, e) => s + e.totalAmount);
 
   Future<void> saveReturn() async {
     if (selectedGrn == null || returnItems.isEmpty) {
@@ -170,6 +202,25 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
         items: returnItems,
       );
 
+      final shouldPrint = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Print Supplier Return'),
+          content: const Text('Supplier return saved. Print the return note?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Later'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Print'),
+            ),
+          ],
+        ),
+      );
+      if (shouldPrint == true) await _printSupplierReturn();
+
       _showMessage('Supplier return saved');
       setState(() {
         returnItems.clear();
@@ -181,6 +232,120 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
       _showMessage(e.toString().replaceFirst('Exception: ', ''));
     }
   }
+
+  Future<void> _printSupplierReturn() async {
+    final grn = selectedGrn;
+    if (grn == null) return;
+
+    final pdf = await PosInvoicePrinter.createDocument();
+    final property = propertyCtrl.data;
+    final logo = await BrandingStorage.loadPdfLogo(property?.logoPath);
+    final supplier = grn['supplier'] as Map<String, dynamic>?;
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        build: (_) => [
+          PosInvoicePrinter.buildStandardA4Header(
+            property: property,
+            logo: logo,
+            rightWidget: pw.Container(
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(border: pw.Border.all()),
+              child: pw.Text(
+                'SUPPLIER RETURN NOTE',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 18),
+          pw.Text('Supplier: ${supplier?['supplier_name'] ?? 'N/A'}'),
+          pw.Text('GRN No: ${grn['grn_no'] ?? ''}'),
+          pw.Text('Supplier Bill No: ${grn['supplier_bill_no'] ?? ''}'),
+          pw.Text('Return Date: ${DateFormat('dd-MMM-yyyy').format(selectedDate)}'),
+          pw.SizedBox(height: 18),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+            columnWidths: {
+              0: const pw.FixedColumnWidth(32),
+              1: const pw.FlexColumnWidth(3),
+              2: const pw.FixedColumnWidth(52),
+              3: const pw.FixedColumnWidth(65),
+              4: const pw.FixedColumnWidth(72),
+              5: const pw.FixedColumnWidth(44),
+              6: const pw.FixedColumnWidth(72),
+              7: const pw.FixedColumnWidth(78),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.blueGrey50),
+                children: [
+                  _pdfCell('S.No', bold: true),
+                  _pdfCell('Item', bold: true),
+                  _pdfCell('Qty', bold: true),
+                  _pdfCell('Rate', bold: true),
+                  _pdfCell('Amount', bold: true),
+                  _pdfCell('Tax %', bold: true),
+                  _pdfCell('Tax Amt', bold: true),
+                  _pdfCell('Total Amount', bold: true),
+                ],
+              ),
+              ...List.generate(returnItems.length, (index) {
+                final item = returnItems[index];
+                return pw.TableRow(children: [
+                  _pdfCell('${index + 1}'),
+                  _pdfCell(_displayItemName(item.itemName, item.brand)),
+                  _pdfCell(_fmtNumber(item.qty)),
+                  _pdfCell(CurrencyService.format(item.rate)),
+                  _pdfCell(CurrencyService.format(item.amount)),
+                  _pdfCell(item.tax.toStringAsFixed(2)),
+                  _pdfCell(CurrencyService.format(item.taxAmount)),
+                  _pdfCell(CurrencyService.format(item.totalAmount)),
+                ]);
+              }),
+            ],
+          ),
+          pw.SizedBox(height: 16),
+          pw.Align(
+            alignment: pw.Alignment.centerRight,
+            child: pw.Text(
+              'Subtotal: ${CurrencyService.format(returnSubtotal)}\n'
+              'Tax Amount: ${CurrencyService.format(returnTaxTotal)}\n'
+              'Total Amount: ${CurrencyService.format(returnTotal)}',
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
+            ),
+          ),
+          if (notesCtrl.text.trim().isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            pw.Text('Notes: ${notesCtrl.text.trim()}'),
+          ],
+          pw.SizedBox(height: 40),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text('Returned By'),
+              pw.Text('Received By'),
+              pw.Text('Authorized Signatory'),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    await Printing.layoutPdf(
+      name: 'Supplier_Return_${grn['grn_no'] ?? 'GRN'}',
+      onLayout: (_) async => pdf.save(),
+    );
+  }
+
+  pw.Widget _pdfCell(String text, {bool bold = false}) => pw.Padding(
+        padding: const pw.EdgeInsets.all(6),
+        child: pw.Text(
+          text,
+          style: pw.TextStyle(fontSize: 9, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal),
+        ),
+      );
 
   void _showMessage(String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
@@ -306,27 +471,44 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
       expandChild: true, // Tells the card to expand this child safely
       child: SingleChildScrollView(
         scrollDirection: Axis.vertical,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
+        child: Scrollbar(
+          controller: _receivedTableScrollController,
+          thumbVisibility: true,
+          trackVisibility: true,
+          thickness: 8,
+          child: SingleChildScrollView(
+            controller: _receivedTableScrollController,
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              horizontalMargin: 12,
+              columnSpacing: 20,
             columns: const [
               DataColumn(label: Text('Item')),
               DataColumn(label: Text('Unit')),
               DataColumn(label: Text('Qty')),
               DataColumn(label: Text('Rate')),
+              DataColumn(label: Text('Amount')),
+              DataColumn(label: Text('Tax %')),
+              DataColumn(label: Text('Tax Amount')),
+              DataColumn(label: Text('Total Amount')),
             ],
             rows: receivedItems.map((e) {
               return DataRow(
                 selected: selectedItem?.receiptItemId == e.receiptItemId,
                 onSelectChanged: (_) => selectSourceItem(e),
                 cells: [
-                  DataCell(Text(e.itemName)),
+                  DataCell(Text(_displayItemName(e.itemName, e.brand))),
                   DataCell(Text(e.unit)),
                   DataCell(Text(_fmtNumber(e.qty))),
                   DataCell(Text(CurrencyService.format(e.rate))),
+                  DataCell(Text(CurrencyService.format(e.amount))),
+                  DataCell(Text(e.tax.toStringAsFixed(2))),
+                  DataCell(Text(CurrencyService.format(e.taxAmount))),
+                  DataCell(Text(CurrencyService.format(e.totalAmount))),
                 ],
               );
             }).toList(),
+            ),
           ),
         ),
       ),
@@ -339,24 +521,38 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
       expandChild: true, // Tells the card to expand this child safely
       child: SingleChildScrollView(
         scrollDirection: Axis.vertical,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
+        child: Scrollbar(
+          controller: _returnTableScrollController,
+          thumbVisibility: true,
+          trackVisibility: true,
+          thickness: 8,
+          child: SingleChildScrollView(
+            controller: _returnTableScrollController,
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              horizontalMargin: 12,
+              columnSpacing: 20,
             columns: const [
               DataColumn(label: Text('Item')),
               DataColumn(label: Text('Qty')),
               DataColumn(label: Text('Rate')),
               DataColumn(label: Text('Amount')),
+              DataColumn(label: Text('Tax %')),
+              DataColumn(label: Text('Tax Amount')),
+              DataColumn(label: Text('Total Amount')),
               DataColumn(label: Text('Action')),
             ],
             rows: List.generate(returnItems.length, (index) {
               final item = returnItems[index];
               return DataRow(
                 cells: [
-                  DataCell(Text(item.itemName)),
+                  DataCell(Text(_displayItemName(item.itemName, item.brand))),
                   DataCell(Text(_fmtNumber(item.qty))),
                   DataCell(Text(CurrencyService.format(item.rate))),
                   DataCell(Text(CurrencyService.format(item.amount))),
+                  DataCell(Text(item.tax.toStringAsFixed(2))),
+                  DataCell(Text(CurrencyService.format(item.taxAmount))),
+                  DataCell(Text(CurrencyService.format(item.totalAmount))),
                   DataCell(
                     Row(
                       children: [
@@ -379,6 +575,7 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
                 ],
               );
             }),
+            ),
           ),
         ),
       ),
@@ -397,7 +594,23 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
           _readOnlyField('Remaining Qty', _fmtNumber(remainingQty)),
           _editField(qtyCtrl, 'Return Qty', recalc),
           _editField(rateCtrl, 'Purchase Rate', recalc),
-          _readOnlyField('Value', valueCtrl.text),
+          _readOnlyField('Tax %', selectedItem?.tax.toStringAsFixed(2)),
+          _readOnlyField('Tax Amount', selectedItem == null
+              ? '0.00'
+              : (((double.tryParse(qtyCtrl.text) ?? 0) *
+                          (double.tryParse(rateCtrl.text) ?? 0) *
+                          selectedItem!.tax) /
+                      100)
+                  .toStringAsFixed(2)),
+          _readOnlyField('Amount', valueCtrl.text),
+          _readOnlyField('Total Amount',
+              ((double.tryParse(valueCtrl.text) ?? 0) +
+                      (selectedItem == null
+                          ? 0
+                          : (double.tryParse(valueCtrl.text) ?? 0) *
+                              selectedItem!.tax /
+                              100))
+                  .toStringAsFixed(2)),
           SizedBox(
             width: 260,
             child: TextField(
@@ -414,6 +627,9 @@ class _SupplierReturnScreenState extends State<SupplierReturnScreen> {
             onPressed: () => setState(clearDetail),
             child: const Text('Clear'),
           ),
+          _amountChip('Return Subtotal', returnSubtotal),
+          _amountChip('Tax Amount', returnTaxTotal),
+          _amountChip('Total Amount', returnTotal),
         ],
       ),
     );
