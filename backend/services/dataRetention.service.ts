@@ -9,7 +9,7 @@ export interface RetentionFilterOptions {
   olderThanYears?: number;
   startDate?: string | Date;
   endDate?: string | Date;
-  modules?: string[]; // 'SALES', 'INVENTORY', 'PURCHASES', 'FINANCE', 'HRMS', 'AUDIT_LOGS', 'ALL'
+  modules?: string[]; // 'SALES', 'INVENTORY', 'PURCHASES', 'FINANCE', 'HRMS', 'AUDIT_LOGS', 'CLINIC', 'ALL'
   createBackupFirst?: boolean;
   recipientEmail?: string;
   req?: any;
@@ -86,7 +86,10 @@ export const RETENTION_TABLES: TablePurgeDef[] = [
   { table: 'hr_leave_balances', module: 'HRMS', dateColumn: 'created_at' },
   { table: 'hr_leave_applications', module: 'HRMS', dateColumn: 'created_at' },
 
-  // 8. Sales & Customer Transactions
+  // 8. Clinic & OPD Appointments
+  { table: 'clinic_appointments', module: 'CLINIC', dateColumn: 'created_at' },
+
+  // 9. Sales & Customer Transactions
   { table: 'sales_items', module: 'SALES', isChild: true, parentTable: 'sales_headers', parentFk: 'sale_id' },
   { table: 'sales_refunds', module: 'SALES', isChild: true, parentTable: 'sales_headers', parentFk: 'sale_id' },
   { table: 'sales_credit_notes', module: 'SALES', dateColumn: 'created_at' },

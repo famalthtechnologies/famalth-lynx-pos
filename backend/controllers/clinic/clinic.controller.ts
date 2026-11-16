@@ -2216,7 +2216,7 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
             source: 'ONLINE_WEB'
         });
 
-        // Record in Financial Ledger and Customer Credit
+        // Record in Financial Ledger and Customer Credit if prepaid
         if (payment_status === 'PAID' && finalPaid > 0) {
             try {
                 const { createLedgerEntry } = require('../../services/cashLedger.service');
@@ -2235,7 +2235,7 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
                 });
 
                 if ((req as any).propertyDb.models.sales_headers) {
-                    await (req as any).propertyDb.models.sales_headers.create({
+                    const createdSale = await (req as any).propertyDb.models.sales_headers.create({
                         outlet_id,
                         sale_no: `APPT-${appointment.id}`,
                         sale_date: appointment_date || new Date(),
@@ -2253,53 +2253,20 @@ export const bookAppointmentPublic = async (req: Request, res: Response) => {
                         is_deleted: false,
                         notes: `Online OPD Prepaid Fee: Token #${token_number} (${appointment.doctor_name || 'Clinic'})`
                     }).catch(() => null);
+
+                    if (createdSale && createdSale.id) {
+                        await appointment.update({
+                            billing_sale_id: createdSale.id,
+                            billing_sale_no: createdSale.sale_no
+                        }).catch(() => null);
+                    }
                 }
             } catch (ledgerErr) {
                 console.error('[LEDGER ONLINE BOOKING ERR]', ledgerErr);
             }
-        } else if (payment_status === 'PAY_LATER' && (consultation_fee ? Number(consultation_fee) : 0) > 0) {
-            try {
-                const dueAmount = Number(consultation_fee);
-                const { createLedgerEntry } = require('../../services/cashLedger.service');
-                await createLedgerEntry({
-                    db: (req as any).propertyDb,
-                    outlet_id,
-                    txn_date: appointment_date || new Date(),
-                    transaction_type: 'SALE_CREDIT',
-                    reference_type: 'CLINIC_APPOINTMENT',
-                    reference_id: appointment.id,
-                    reference_no: `APPT-${appointment.id}`,
-                    party_name: appointment.patient_name,
-                    payment_method: 'CREDIT',
-                    amount_in: 0,
-                    adjustment_amount: dueAmount,
-                    notes: `Consultation Fee Due (Pay Later): Token #${token_number} - ${appointment.patient_name} (${appointment.doctor_name || 'Clinic'}) with outstanding ${dueAmount.toFixed(2)}`
-                });
-
-                if ((req as any).propertyDb.models.sales_headers) {
-                    await (req as any).propertyDb.models.sales_headers.create({
-                        outlet_id,
-                        sale_no: `APPT-${appointment.id}`,
-                        sale_date: appointment_date || new Date(),
-                        customer_id: customer ? customer.id : null,
-                        customer_name: appointment.patient_name,
-                        customer_phone: phone,
-                        net_amount: dueAmount,
-                        total_amount: dueAmount,
-                        amount_paid: 0,
-                        balance_due: dueAmount,
-                        payment_mode: 'CREDIT',
-                        order_type: 'CLINIC_APPOINTMENT',
-                        status: 'COMPLETED',
-                        is_latest: true,
-                        is_deleted: false,
-                        notes: `Consultation Fee Due (Pay Later) - Token #${token_number} (${appointment.doctor_name || 'Clinic'})`
-                    }).catch(() => null);
-                }
-            } catch (creditErr) {
-                console.error('[LEDGER ONLINE BOOKING (CREDIT) ERR]', creditErr);
-            }
         }
+        // Note: For PAY_LATER / UNPAID, do NOT create debt/credit in sales_headers or ledger.
+        // It is an unvisited scheduled appointment; fees are paid or billed when patient arrives at clinic.
 
         // Trigger real-time popup via SocketHub
         try {
@@ -2448,31 +2415,30 @@ export const cancelAppointmentPublic = async (req: Request, res: Response) => {
 
         const payStatus = (appt.payment_status || '').toUpperCase();
         if (payStatus === 'PAY_LATER' || payStatus === 'UNPAID') {
-            await appt.update({ payment_status: 'CANCELLED' });
+            await appt.update({ payment_status: 'CANCELLED', paid_amount: 0 });
 
-            // Void associated sales invoice if any
-            if (appt.billing_sale_id) {
+            // Void associated sales invoice if any (by billing_sale_id OR by sale_no APPT-id)
+            if ((req as any).propertyDb.models.sales_headers) {
+                const saleConditions: any[] = [{ sale_no: `APPT-${appt.id}` }];
+                if (appt.billing_sale_id) {
+                    saleConditions.push({ id: appt.billing_sale_id });
+                }
                 await (req as any).propertyDb.models.sales_headers.update(
-                    { status: 'CANCELLED', is_deleted: true, balance_due: 0 },
-                    { where: { id: appt.billing_sale_id } }
+                    { status: 'CANCELLED', is_deleted: true, balance_due: 0, amount_paid: 0 },
+                    { where: { [Op.or]: saleConditions } }
                 ).catch(() => null);
             }
 
             // Remove uncollected SALE_CREDIT from cash ledger
-            try {
-                await (req as any).propertyDb.query(`
-                    DELETE FROM cash_ledger 
-                    WHERE reference_type = 'CLINIC_APPOINTMENT' 
-                      AND (reference_id = :id OR description LIKE :desc)
-                      AND transaction_type = 'SALE_CREDIT'
-                `, {
-                    replacements: { 
-                        id: String(appt.id),
-                        desc: `%APPT-${appt.id}%`
+            if ((req as any).propertyDb.models.cash_ledger) {
+                await (req as any).propertyDb.models.cash_ledger.destroy({
+                    where: {
+                        [Op.or]: [
+                            { reference_no: `APPT-${appt.id}` },
+                            { reference_id: String(appt.id), reference_type: 'CLINIC_APPOINTMENT' }
+                        ]
                     }
-                });
-            } catch (err) {
-                console.warn('Error clearing ledger credit for public cancelled appointment:', err);
+                }).catch(() => null);
             }
         } else if (payStatus === 'PAID') {
             await appt.update({
