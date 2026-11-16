@@ -1,4 +1,4 @@
-# Famalth Lynx — Enterprise Retail & Restaurant ERP & POS System
+# Famalth Lynx - Enterprise Retail & Restaurant ERP & POS System
 
 **Famalth Lynx** is a comprehensive, production-ready ERP and Multi-Module POS solution built with a cross-platform **Flutter** client and high-performance **Node.js / PostgreSQL** backend. Designed for hybrid retail stores, restaurants, multi-branch operations, and enterprise inventory management.
 
@@ -112,96 +112,96 @@ Deploy the web application and backend seamlessly on [Render.com](https://render
 
 ## 📚 Complete Documentation Suite
 
-> 🌟 **[Browse the Full Master Wiki (WIKI.md)](./WIKI.md)** — Complete searchable documentation portal covering every architecture diagram, API, user walkthrough, and data model.
+> 🌟 **[Browse the Full Master Wiki (WIKI.md)](./WIKI.md)** - Complete searchable documentation portal covering every architecture diagram, API, user walkthrough, and data model.
 
 ### 👤 Store User & Operator Guides (No Coding Required)
-- 🚀 **[1-Click Cloud & Offline Store Migration](./Docs/User-Guide-1Click-Cloud-Migration.md)** — Bi-directional sync, store cloning & backup restore
-- ⚡ **[Fast Staff Login & PIN Access](./Docs/User-Guide-Fast-Login-And-PIN-Access.md)** — Dropdown quick-login, 4-digit staff PIN & preloading speedup
-- 👤 **[Staff PIN Configuration & Mobile Login](./Docs/User-Guide-Staff-PIN-And-Quick-Login.md)** — Setting user PINs & mobile-friendly auth
-- 🍽️ **[Captain Console & Floor Table Management](./Docs/User-Guide-Captain-Console-Table-Management.md)** — Multi-client split bills, waiter table assignment & Excel import
-- 📱 **[Contactless QR Table Ordering](./Docs/User-Guide-QR-Table-Ordering.md)** — Self-ordering standees, tent cards & digital dining
-- 🍳 **[Restaurant & Hospitality Operations](./Docs/User-Guide-Restaurant-And-Hospitality.md)** — Visual floor plan, KDS kitchen display & table transfers
-- 🧭 **[System Navigation & Clean Menu Structure](./Docs/User-Guide-Navigation-And-Menu-Structure.md)** — Deduplicated operations menu & role-specific drawer views
-- 💼 **[Vendor Purchasing & Supplier Payments](./Docs/User-Guide-Vendor-Purchase-And-Payments.md)** — International vendors, opening balance COA sync, VAT rounding & custom payments
-- 📦 **[Stock Taking, Modifiers & GRN Verification](./Docs/User-Guide-Stock-Taking-Modifiers-And-GRN-Verification.md)** — Physical count audit, extra cheese recipes, dietary flags & manual GRN receiving
-- 🛒 **[POS Operations & Inventory Management](./Docs/User-Guide-POS-Operations-And-Inventory.md)** — High-speed billing, barcode manager, damage write-offs & stock transfers
-- 🏭 **[Manufacturing & BOM Assembly](./Docs/User-Guide-Manufacturing-BOM-And-Assembly.md)** — Recipe configurations, finished goods production & component deductions
-- 💰 **[Accounting, COA & Financial Ledgers](./Docs/User-Guide-Accounting-And-Financial-Ledger.md)** — Double-entry vouchers, bank reconciliation, loans/EMI & P&L statements
-- 👥 **[HRMS & Staff Payroll Management](./Docs/User-Guide-HRMS-And-Payroll.md)** — Daily attendance punch, shifts, salary structures & automated payslips
-- 🎁 **[Promotions, Loyalty & Lucky Draw](./Docs/User-Guide-Promotions-Loyalty-And-LuckyDraw.md)** — Happy hours, bill-value promos, tiered reward points & raffle draws
-- 🖨️ **[A5 Invoice & Thermal Template Designer](./Docs/User-Guide-A5-Invoice-And-Template-Designer.md)** — Customizing A5 laser, 80mm & 58mm receipt layouts
-- 🌐 **[Auto-Tax Seeding & Tax Integrity](./Docs/User-Guide-Auto-Tax-Seeding-And-Tax-Integrity.md)** — Country tax rules (GST/VAT/Sales Tax) & safe tax replacement
-- 🔀 **[Dynamic Workstation Console Routing](./Docs/User-Guide-Dynamic-Console-Routing.md)** — Dispatching orders across Captain, Retailer, and Rider portals
-- 🛍️ **[B2B Wholesale Marketplace & Vendor Portal](./Docs/User-Guide-B2B-Marketplace-And-Vendor.md)** — Vendor catalog publishing, direct PO carts & trade directory
-- 💬 **[B2B Community Hub & Direct Trade Chat](./Docs/User-Guide-B2B-Community-And-Chat.md)** — Merchant-to-vendor messaging & industry group channels
-- 🤖 **[Famalth Lynx AI Assistant & Voice Search](./Docs/User-Guide-Lynx-AI-Assistant.md)** — Natural language store querying & conversational PO drafting
-- 📝 **[POS Sticky Notes & Shift Checklists](./Docs/User-Guide-Sticky-Notes.md)** — Pinnable color-coded shift reminders & scratchpads
-- 🌍 **[Currency Formats & Tax Matrix](./Docs/User-Guide-Currency-And-Taxes.md)** — Multi-currency formatting & rate management
-- ☁️ **[Cloud Features & Server Configuration](./Docs/User-Guide-Cloud-Features-And-Server-Config.md)** — Online hosting URLs, outlet verification & gateway setup
-- 🛡️ **[Security, Anti-Hacker & Data Protection](./Docs/User-Guide-Security-And-Data-Protection.md)** — Master recovery PIN, auto-reinstall & disaster recovery
-- 📱 **[M-Pesa & Mobile Money Integration](./Docs/User-Guide-Mpesa-Mobile-Money.md)** — Safaricom Daraja STK push configuration & instant checkout reconciliation
-- 🏢 **[Multi-Outlet & Warehouse Hierarchy](./Docs/User-Guide-Multi-Outlet-And-Warehouse-Hierarchy.md)** — Central warehouse distribution, branch linking & shelf location bins
-- 📊 **[Reports & Business Intelligence Suite](./Docs/User-Guide-Reports-And-Business-Intelligence.md)** — Generating and exporting 26+ financial, stock, and sales analytics
-- 💳 **[Payment Gateways & Virtual Simulator](./Docs/User-Guide-Payment-Gateways-And-Virtual-Simulator.md)** — Configuring Razorpay, Stripe, Square, PayPal, M-Pesa, UPI QR & POS simulation
-- 🧩 **[Plugin Dev Studio & Marketplace](./Docs/User-Guide-Plugin-Dev-Studio-And-Marketplace.md)** — Browsing marketplace plugins and authoring custom store automations
-- 🛵 **[Third-Party Orders & Outlet OTP](./Docs/User-Guide-Third-Party-Orders-And-Outlet-OTP.md)** — Tracking food aggregator orders, commissions, and outlet phone/email OTP verification
-- 🔄 **[Operations Document Modifications](./Docs/User-Guide-Operations-Document-Modification-Workflows.md)** — Safely editing existing POs, GRNs, requisitions, and stock issues
-- 🏢 **[Enterprise SaaS Control Plane & Fleet Management](./Docs/User-Guide-Enterprise-Control-Plane-And-SaaS-Management.md)** — Master tenant governance, 30-day quota guard, relationship managers & support tickets
-- 🏥 **[Clinic Management, OPD Queue & Digital Prescriptions](./Docs/User-Guide-Clinic-Management-And-OPD.md)** — Doctor consultation desk, vitals recording, stock medicine prescribing & public appointment portal
-- 🛠️ **[System Maintenance Mode & Emergency Lockout](./Docs/User-Guide-Maintenance-Mode-And-Lockout.md)** — Non-dismissible lockout modal, advance maintenance notices & auto-resumption
-- 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./Docs/User-Guide-Delivery-Challan-And-Transport-Logistics.md)** — Issuing goods in transit challans, fleet vehicle/driver management, trip loading manifest & POS conversion
-- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/User-Guide-Tiered-Storage-And-Backup-Architecture.md)** — Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing & .fambak/.posbak archives
-- 📱 **[Mobile Billing Suite & Universal Companion Apps](./Docs/User-Guide-Mobile-Billing-And-Companion-Apps.md)** — Handheld POS terminal, bottom sheets, waiter/rider companion apps & QR scan-to-connect
-- 🌐 **[Model Context Protocol (MCP) & AI Gateway](./Docs/User-Guide-Model-Context-Protocol-And-AI-Gateway.md)** — Connecting ChatGPT, Claude Desktop, Gemini & Cursor AI for natural language sales & POS control
-- ❓ **[Complete Store Operations FAQ](./Docs/User-Guide-FAQ.md)** — Frequently asked cashier and manager troubleshooting questions
-- 📖 **[Master User Guide & Workflow Index](./Docs/User-Guide.md)** — Universal operational documentation hub
+- 🚀 **[1-Click Cloud & Offline Store Migration](./Docs/User-Guide-1Click-Cloud-Migration.md)** - Bi-directional sync, store cloning & backup restore
+- ⚡ **[Fast Staff Login & PIN Access](./Docs/User-Guide-Fast-Login-And-PIN-Access.md)** - Dropdown quick-login, 4-digit staff PIN & preloading speedup
+- 👤 **[Staff PIN Configuration & Mobile Login](./Docs/User-Guide-Staff-PIN-And-Quick-Login.md)** - Setting user PINs & mobile-friendly auth
+- 🍽️ **[Captain Console & Floor Table Management](./Docs/User-Guide-Captain-Console-Table-Management.md)** - Multi-client split bills, waiter table assignment & Excel import
+- 📱 **[Contactless QR Table Ordering](./Docs/User-Guide-QR-Table-Ordering.md)** - Self-ordering standees, tent cards & digital dining
+- 🍳 **[Restaurant & Hospitality Operations](./Docs/User-Guide-Restaurant-And-Hospitality.md)** - Visual floor plan, KDS kitchen display & table transfers
+- 🧭 **[System Navigation & Clean Menu Structure](./Docs/User-Guide-Navigation-And-Menu-Structure.md)** - Deduplicated operations menu & role-specific drawer views
+- 💼 **[Vendor Purchasing & Supplier Payments](./Docs/User-Guide-Vendor-Purchase-And-Payments.md)** - International vendors, opening balance COA sync, VAT rounding & custom payments
+- 📦 **[Stock Taking, Modifiers & GRN Verification](./Docs/User-Guide-Stock-Taking-Modifiers-And-GRN-Verification.md)** - Physical count audit, extra cheese recipes, dietary flags & manual GRN receiving
+- 🛒 **[POS Operations & Inventory Management](./Docs/User-Guide-POS-Operations-And-Inventory.md)** - High-speed billing, barcode manager, damage write-offs & stock transfers
+- 🏭 **[Manufacturing & BOM Assembly](./Docs/User-Guide-Manufacturing-BOM-And-Assembly.md)** - Recipe configurations, finished goods production & component deductions
+- 💰 **[Accounting, COA & Financial Ledgers](./Docs/User-Guide-Accounting-And-Financial-Ledger.md)** - Double-entry vouchers, bank reconciliation, loans/EMI & P&L statements
+- 👥 **[HRMS & Staff Payroll Management](./Docs/User-Guide-HRMS-And-Payroll.md)** - Daily attendance punch, shifts, salary structures & automated payslips
+- 🎁 **[Promotions, Loyalty & Lucky Draw](./Docs/User-Guide-Promotions-Loyalty-And-LuckyDraw.md)** - Happy hours, bill-value promos, tiered reward points & raffle draws
+- 🖨️ **[A5 Invoice & Thermal Template Designer](./Docs/User-Guide-A5-Invoice-And-Template-Designer.md)** - Customizing A5 laser, 80mm & 58mm receipt layouts
+- 🌐 **[Auto-Tax Seeding & Tax Integrity](./Docs/User-Guide-Auto-Tax-Seeding-And-Tax-Integrity.md)** - Country tax rules (GST/VAT/Sales Tax) & safe tax replacement
+- 🔀 **[Dynamic Workstation Console Routing](./Docs/User-Guide-Dynamic-Console-Routing.md)** - Dispatching orders across Captain, Retailer, and Rider portals
+- 🛍️ **[B2B Wholesale Marketplace & Vendor Portal](./Docs/User-Guide-B2B-Marketplace-And-Vendor.md)** - Vendor catalog publishing, direct PO carts & trade directory
+- 💬 **[B2B Community Hub & Direct Trade Chat](./Docs/User-Guide-B2B-Community-And-Chat.md)** - Merchant-to-vendor messaging & industry group channels
+- 🤖 **[Famalth Lynx AI Assistant & Voice Search](./Docs/User-Guide-Lynx-AI-Assistant.md)** - Natural language store querying & conversational PO drafting
+- 📝 **[POS Sticky Notes & Shift Checklists](./Docs/User-Guide-Sticky-Notes.md)** - Pinnable color-coded shift reminders & scratchpads
+- 🌍 **[Currency Formats & Tax Matrix](./Docs/User-Guide-Currency-And-Taxes.md)** - Multi-currency formatting & rate management
+- ☁️ **[Cloud Features & Server Configuration](./Docs/User-Guide-Cloud-Features-And-Server-Config.md)** - Online hosting URLs, outlet verification & gateway setup
+- 🛡️ **[Security, Anti-Hacker & Data Protection](./Docs/User-Guide-Security-And-Data-Protection.md)** - Master recovery PIN, auto-reinstall & disaster recovery
+- 📱 **[M-Pesa & Mobile Money Integration](./Docs/User-Guide-Mpesa-Mobile-Money.md)** - Safaricom Daraja STK push configuration & instant checkout reconciliation
+- 🏢 **[Multi-Outlet & Warehouse Hierarchy](./Docs/User-Guide-Multi-Outlet-And-Warehouse-Hierarchy.md)** - Central warehouse distribution, branch linking & shelf location bins
+- 📊 **[Reports & Business Intelligence Suite](./Docs/User-Guide-Reports-And-Business-Intelligence.md)** - Generating and exporting 26+ financial, stock, and sales analytics
+- 💳 **[Payment Gateways & Virtual Simulator](./Docs/User-Guide-Payment-Gateways-And-Virtual-Simulator.md)** - Configuring Razorpay, Stripe, Square, PayPal, M-Pesa, UPI QR & POS simulation
+- 🧩 **[Plugin Dev Studio & Marketplace](./Docs/User-Guide-Plugin-Dev-Studio-And-Marketplace.md)** - Browsing marketplace plugins and authoring custom store automations
+- 🛵 **[Third-Party Orders & Outlet OTP](./Docs/User-Guide-Third-Party-Orders-And-Outlet-OTP.md)** - Tracking food aggregator orders, commissions, and outlet phone/email OTP verification
+- 🔄 **[Operations Document Modifications](./Docs/User-Guide-Operations-Document-Modification-Workflows.md)** - Safely editing existing POs, GRNs, requisitions, and stock issues
+- 🏢 **[Enterprise SaaS Control Plane & Fleet Management](./Docs/User-Guide-Enterprise-Control-Plane-And-SaaS-Management.md)** - Master tenant governance, 30-day quota guard, relationship managers & support tickets
+- 🏥 **[Clinic Management, OPD Queue & Digital Prescriptions](./Docs/User-Guide-Clinic-Management-And-OPD.md)** - Doctor consultation desk, vitals recording, stock medicine prescribing & public appointment portal
+- 🛠️ **[System Maintenance Mode & Emergency Lockout](./Docs/User-Guide-Maintenance-Mode-And-Lockout.md)** - Non-dismissible lockout modal, advance maintenance notices & auto-resumption
+- 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./Docs/User-Guide-Delivery-Challan-And-Transport-Logistics.md)** - Issuing goods in transit challans, fleet vehicle/driver management, trip loading manifest & POS conversion
+- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/User-Guide-Tiered-Storage-And-Backup-Architecture.md)** - Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing & .fambak/.posbak archives
+- 📱 **[Mobile Billing Suite & Universal Companion Apps](./Docs/User-Guide-Mobile-Billing-And-Companion-Apps.md)** - Handheld POS terminal, bottom sheets, waiter/rider companion apps & QR scan-to-connect
+- 🌐 **[Model Context Protocol (MCP) & AI Gateway](./Docs/User-Guide-Model-Context-Protocol-And-AI-Gateway.md)** - Connecting ChatGPT, Claude Desktop, Gemini & Cursor AI for natural language sales & POS control
+- ❓ **[Complete Store Operations FAQ](./Docs/User-Guide-FAQ.md)** - Frequently asked cashier and manager troubleshooting questions
+- 📖 **[Master User Guide & Workflow Index](./Docs/User-Guide.md)** - Universal operational documentation hub
 
 ---
 
 ### 🛠️ Developer & Technical Architecture Guides
-- 📋 **[Master Feature & Documentation Coverage Matrix](./Docs/Feature-Coverage-Checklist.md)** — 100% verified UI & backend feature audit
-- 📜 **[System Architecture Upgrades & Changelog (Sept–Oct 2026)](./Docs/System-Architecture-And-Changelog.md)** — Architectural evolution timeline & core invariants
-- 📡 **[Master REST API Endpoint Reference](./Docs/Endpoint-Reference.md)** — Comprehensive specification of all 49 backend route modules
-- 🌐 **[Model Context Protocol (MCP) & AI Gateway Architecture](./Docs/Developer-Guide-Model-Context-Protocol-And-AI-Gateway.md)** — SSE/JSON-RPC transports, dynamic ChatGPT Action OpenAPI 3.0 spec, Gemini function calling & OAuth 2.0 PKCE
-- 🏢 **[Enterprise SaaS Control Plane & Data Doctor](./Docs/Developer-Guide-Enterprise-Control-Plane-And-Data-Doctor.md)** — Master IAM, multi-tenant fleet governance, 30-day quota guard, sandboxed Data Doctor SQL runner, vector PDF invoicing & Inno Setup packaging
-- 🏥 **[Clinic Management & Digital Prescription Architecture](./Docs/Developer-Guide-Clinic-Management-And-OPD.md)** — Appointment state machine, doctor desk vitals JSONB, direct pharmacy billing & vector prescription PDF
-- 🛠️ **[System Maintenance & Lockout Middleware Engine](./Docs/Developer-Guide-Maintenance-Mode-And-Lockout.md)** — Maintenance middleware, atomic JSON state storage, role-based bypass rules & Flutter interceptor
-- 🚚 **[Delivery Challan, Fleet Vehicles & Transport Architecture](./Docs/Developer-Guide-Delivery-Challan-And-Transport-Logistics.md)** — Logistics schema, trip assignment manifest, doorstep OTP verification & POS sales conversion pipeline
-- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/Developer-Guide-Tiered-Storage-And-Backup-Architecture.md)** — Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing, .fambak archive internals & quota services
-- 💳 **[Payment Gateways & Virtual Simulator Architecture](./Docs/Developer-Guide-Payment-Gateways-And-Virtual-Simulator.md)** — Multi-gateway credential store, secret masking & Flutter simulator
-- 🧩 **[Plugin Dev Studio & Sandbox Architecture](./Docs/Developer-Guide-Plugin-Dev-Studio-And-Sandbox.md)** — In-app IDE, safe TypeScript runner, sandbox lifecycle hooks & marketplace publishing
-- 🛵 **[Third-Party Orders & Outlet OTP Architecture](./Docs/Developer-Guide-Third-Party-Orders-And-Outlet-OTP.md)** — Delivery aggregator order normalization, commissions & OTP onboarding
-- 🔄 **[Operations Document Modifications & Differential Ledger](./Docs/Developer-Guide-Operations-Document-Modification-Workflows.md)** — Differential stock adjustments, row locking & tax group recalculation
-- ⚡ **[Fast Login, PIN Authentication & Preloading Architecture](./Docs/Developer-Guide-Fast-Login-And-Preloading.md)** — Benchmark speedups & parallel cache warming
-- 👤 **[Staff PIN Security & Dynamic Dropdown Architecture](./Docs/Developer-Guide-Staff-PIN-And-Quick-Login.md)** — Multi-user collision resolution & JWT scoping
-- 🍽️ **[Captain Console & Floor Management Architecture](./Docs/Developer-Guide-Captain-Console-Table-Management.md)** — Multi-client split sessions, waiter binding & Excel parser
-- 📱 **[QR Contactless Ordering & Real-Time Dining Architecture](./Docs/Developer-Guide-QR-Table-Ordering.md)** — Geometry print engine, customer web app & atomic KOT stream
-- 🍳 **[Restaurant & Hospitality Technical Architecture](./Docs/Developer-Guide-Restaurant-Hospitality.md)** — Table state machine, KDS live pipeline & billing settlement
-- 🧭 **[Navigation Hierarchy, Menu Layout & Deduplication](./Docs/Developer-Guide-Menu-Layout-And-Deduplication.md)** — Module filtering & route consolidation
-- 💼 **[Vendor Lifecycle, Purchase Engine & COA Integration](./Docs/Developer-Guide-Vendor-Purchase-And-COA-Integration.md)** — Opening balance vouchers, VAT integer rounding & payment methods
-- 📦 **[Stock Taking, Modifier Recipes & GRN Verification](./Docs/Developer-Guide-Stock-Taking-Modifiers-And-GRN-Verification.md)** — Variance journals, raw stock deductions & manual GRN doctrine
-- 🛒 **[POS Engine, Inventory State Machine & BOM Manufacturing](./Docs/Developer-Guide-POS-Inventory-Manufacturing.md)** — Atomic stock deduction & assembly algorithms
-- 💰 **[Financial Accounting, COA & Double-Entry Ledger Architecture](./Docs/Developer-Guide-Accounting-Finance.md)** — Voucher invariants, amortization & balance sheet generation
-- 👥 **[HRMS, Shift Scheduling & Payroll Processing Engine](./Docs/Developer-Guide-HRMS-Payroll.md)** — Punch calculation logic, tax deductions & payslip generator
-- 🤖 **[AI Framework, Autonomous Background Agents & Lynx](./Docs/Developer-Guide-AI-Autonomous-Agents.md)** — Autonomous agent loop, LLM tool definitions & upsell model
-- 🧩 **[Plugins, Workflows & WhatsApp Queue Architecture](./Docs/Developer-Guide-Plugins-Workflows-Automation.md)** — Sandbox plugin runtime, webhooks & adaptive backoff queue
-- 🖨️ **[A5 Invoice Rendering Pipeline & Template Schema](./Docs/Developer-Guide-A5-Invoice-And-Template-Designer.md)** — Vector PDF generation & JSON block layout engine
-- 🌐 **[Auto-Tax Seeding & Tax Integrity Engine](./Docs/Developer-Guide-Auto-Tax-Seeding-And-Tax-Integrity.md)** — Country tax presets & relational integrity safety
-- 🔀 **[Dynamic Workstation Console Routing Architecture](./Docs/Developer-Guide-Dynamic-Console-Routing.md)** — Dispatch channels for Captain, Retailer, and Rider consoles
-- 🛡️ **[Security, Anti-DDoS, Rate Limiting & Load Balancer Guide](./Docs/Developer-Security-Cache-LoadBalancer-Guide.md)** — Redis rate-limiting, token buckets & intrusion detection
-- 📱 **[M-Pesa Mobile Money Integration Architecture](./Docs/Developer-Guide-Mpesa-Mobile-Money.md)** — Safaricom Daraja STK push lifecycle, OAuth token caching & webhooks
-- 🏢 **[Multi-Outlet Hierarchy & Scoping Architecture](./Docs/Developer-Guide-Multi-Outlet-Hierarchy.md)** — Multi-tenant database routing, warehouse trees & numbering settings
-- 📊 **[Reports, Analytics & BI Engine Architecture](./Docs/Developer-Guide-Reports-And-Analytics.md)** — SQL aggregations, Redis cache warming & vector PDF generation
-- 🚀 **[1-Click Relational Store Migration Architecture](./Docs/One-Click-Cloud-Migration-Guide.md)** — Relational ID translation engine & sequence re-alignment
-- 🛍️ **[B2B Wholesale Marketplace & Community Chat Architecture](./Docs/B2B-Marketplace-And-Community-Guide.md)** — Real-time chat, vendor publishing & direct PO integration
-- 🤖 **[Lynx AI, Sticky Notes & Currency Engine Architecture](./Docs/Lynx-AI-StickyNotes-Currency-Tax-Guide.md)** — Storage schemas, sync routines & AI natural language parser
-- 💻 **[Backend Core Developer Guide](./Docs/Backend-Guide.md)** & **[Frontend Developer Guide](./Docs/Frontend-Guide.md)** — Architecture overviews & component standards
+- 📋 **[Master Feature & Documentation Coverage Matrix](./Docs/Feature-Coverage-Checklist.md)** - 100% verified UI & backend feature audit
+- 📜 **[System Architecture Upgrades & Changelog (Sept-Oct 2026)](./Docs/System-Architecture-And-Changelog.md)** - Architectural evolution timeline & core invariants
+- 📡 **[Master REST API Endpoint Reference](./Docs/Endpoint-Reference.md)** - Comprehensive specification of all 49 backend route modules
+- 🌐 **[Model Context Protocol (MCP) & AI Gateway Architecture](./Docs/Developer-Guide-Model-Context-Protocol-And-AI-Gateway.md)** - SSE/JSON-RPC transports, dynamic ChatGPT Action OpenAPI 3.0 spec, Gemini function calling & OAuth 2.0 PKCE
+- 🏢 **[Enterprise SaaS Control Plane & Data Doctor](./Docs/Developer-Guide-Enterprise-Control-Plane-And-Data-Doctor.md)** - Master IAM, multi-tenant fleet governance, 30-day quota guard, sandboxed Data Doctor SQL runner, vector PDF invoicing & Inno Setup packaging
+- 🏥 **[Clinic Management & Digital Prescription Architecture](./Docs/Developer-Guide-Clinic-Management-And-OPD.md)** - Appointment state machine, doctor desk vitals JSONB, direct pharmacy billing & vector prescription PDF
+- 🛠️ **[System Maintenance & Lockout Middleware Engine](./Docs/Developer-Guide-Maintenance-Mode-And-Lockout.md)** - Maintenance middleware, atomic JSON state storage, role-based bypass rules & Flutter interceptor
+- 🚚 **[Delivery Challan, Fleet Vehicles & Transport Architecture](./Docs/Developer-Guide-Delivery-Challan-And-Transport-Logistics.md)** - Logistics schema, trip assignment manifest, doorstep OTP verification & POS sales conversion pipeline
+- 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./Docs/Developer-Guide-Tiered-Storage-And-Backup-Architecture.md)** - Partitioned root volume (storage/), dedicated enterprise tier, outlet sandboxing, .fambak archive internals & quota services
+- 💳 **[Payment Gateways & Virtual Simulator Architecture](./Docs/Developer-Guide-Payment-Gateways-And-Virtual-Simulator.md)** - Multi-gateway credential store, secret masking & Flutter simulator
+- 🧩 **[Plugin Dev Studio & Sandbox Architecture](./Docs/Developer-Guide-Plugin-Dev-Studio-And-Sandbox.md)** - In-app IDE, safe TypeScript runner, sandbox lifecycle hooks & marketplace publishing
+- 🛵 **[Third-Party Orders & Outlet OTP Architecture](./Docs/Developer-Guide-Third-Party-Orders-And-Outlet-OTP.md)** - Delivery aggregator order normalization, commissions & OTP onboarding
+- 🔄 **[Operations Document Modifications & Differential Ledger](./Docs/Developer-Guide-Operations-Document-Modification-Workflows.md)** - Differential stock adjustments, row locking & tax group recalculation
+- ⚡ **[Fast Login, PIN Authentication & Preloading Architecture](./Docs/Developer-Guide-Fast-Login-And-Preloading.md)** - Benchmark speedups & parallel cache warming
+- 👤 **[Staff PIN Security & Dynamic Dropdown Architecture](./Docs/Developer-Guide-Staff-PIN-And-Quick-Login.md)** - Multi-user collision resolution & JWT scoping
+- 🍽️ **[Captain Console & Floor Management Architecture](./Docs/Developer-Guide-Captain-Console-Table-Management.md)** - Multi-client split sessions, waiter binding & Excel parser
+- 📱 **[QR Contactless Ordering & Real-Time Dining Architecture](./Docs/Developer-Guide-QR-Table-Ordering.md)** - Geometry print engine, customer web app & atomic KOT stream
+- 🍳 **[Restaurant & Hospitality Technical Architecture](./Docs/Developer-Guide-Restaurant-Hospitality.md)** - Table state machine, KDS live pipeline & billing settlement
+- 🧭 **[Navigation Hierarchy, Menu Layout & Deduplication](./Docs/Developer-Guide-Menu-Layout-And-Deduplication.md)** - Module filtering & route consolidation
+- 💼 **[Vendor Lifecycle, Purchase Engine & COA Integration](./Docs/Developer-Guide-Vendor-Purchase-And-COA-Integration.md)** - Opening balance vouchers, VAT integer rounding & payment methods
+- 📦 **[Stock Taking, Modifier Recipes & GRN Verification](./Docs/Developer-Guide-Stock-Taking-Modifiers-And-GRN-Verification.md)** - Variance journals, raw stock deductions & manual GRN doctrine
+- 🛒 **[POS Engine, Inventory State Machine & BOM Manufacturing](./Docs/Developer-Guide-POS-Inventory-Manufacturing.md)** - Atomic stock deduction & assembly algorithms
+- 💰 **[Financial Accounting, COA & Double-Entry Ledger Architecture](./Docs/Developer-Guide-Accounting-Finance.md)** - Voucher invariants, amortization & balance sheet generation
+- 👥 **[HRMS, Shift Scheduling & Payroll Processing Engine](./Docs/Developer-Guide-HRMS-Payroll.md)** - Punch calculation logic, tax deductions & payslip generator
+- 🤖 **[AI Framework, Autonomous Background Agents & Lynx](./Docs/Developer-Guide-AI-Autonomous-Agents.md)** - Autonomous agent loop, LLM tool definitions & upsell model
+- 🧩 **[Plugins, Workflows & WhatsApp Queue Architecture](./Docs/Developer-Guide-Plugins-Workflows-Automation.md)** - Sandbox plugin runtime, webhooks & adaptive backoff queue
+- 🖨️ **[A5 Invoice Rendering Pipeline & Template Schema](./Docs/Developer-Guide-A5-Invoice-And-Template-Designer.md)** - Vector PDF generation & JSON block layout engine
+- 🌐 **[Auto-Tax Seeding & Tax Integrity Engine](./Docs/Developer-Guide-Auto-Tax-Seeding-And-Tax-Integrity.md)** - Country tax presets & relational integrity safety
+- 🔀 **[Dynamic Workstation Console Routing Architecture](./Docs/Developer-Guide-Dynamic-Console-Routing.md)** - Dispatch channels for Captain, Retailer, and Rider consoles
+- 🛡️ **[Security, Anti-DDoS, Rate Limiting & Load Balancer Guide](./Docs/Developer-Security-Cache-LoadBalancer-Guide.md)** - Redis rate-limiting, token buckets & intrusion detection
+- 📱 **[M-Pesa Mobile Money Integration Architecture](./Docs/Developer-Guide-Mpesa-Mobile-Money.md)** - Safaricom Daraja STK push lifecycle, OAuth token caching & webhooks
+- 🏢 **[Multi-Outlet Hierarchy & Scoping Architecture](./Docs/Developer-Guide-Multi-Outlet-Hierarchy.md)** - Multi-tenant database routing, warehouse trees & numbering settings
+- 📊 **[Reports, Analytics & BI Engine Architecture](./Docs/Developer-Guide-Reports-And-Analytics.md)** - SQL aggregations, Redis cache warming & vector PDF generation
+- 🚀 **[1-Click Relational Store Migration Architecture](./Docs/One-Click-Cloud-Migration-Guide.md)** - Relational ID translation engine & sequence re-alignment
+- 🛍️ **[B2B Wholesale Marketplace & Community Chat Architecture](./Docs/B2B-Marketplace-And-Community-Guide.md)** - Real-time chat, vendor publishing & direct PO integration
+- 🤖 **[Lynx AI, Sticky Notes & Currency Engine Architecture](./Docs/Lynx-AI-StickyNotes-Currency-Tax-Guide.md)** - Storage schemas, sync routines & AI natural language parser
+- 💻 **[Backend Core Developer Guide](./Docs/Backend-Guide.md)** & **[Frontend Developer Guide](./Docs/Frontend-Guide.md)** - Architecture overviews & component standards
 - 🖥️ **[Retailer Installation & Update Installer Guide](./Docs/Retailer-Installation-Guide.md)** & **[Windows Inno Setup Guide](./Docs/Windows-Installer-Developer-Guide.md)**
 - ☁️ **[Render Cloud Deployment Guide](./Docs/Render-Cloud-Deployment-Guide.md)**, **[Web Deployment Guide](./Docs/Web-Deployment-Guide.md)** & **[Own Server Guide](./Docs/Own-Server-Online-Deployment-Guide.md)**
 - ✉️ **[Google Gmail OAuth2 Setup Guide](./Docs/Google-Gmail-OAuth2-Setup-Guide.md)** & **[Settings Master Guide](./Docs/Settings-Guide.md)**
-- 🛡️ **[Disaster Recovery & Bare-Metal Restore Guide](./Docs/Disaster-Recovery-Documentation.md)** — AES-256 cloud backup pipeline, write-ahead sync tracker & automated restore
-- 🪟 **[Windows EXE Packaging & Node.js Compilation Guide](./Docs/Windows-EXE-Packaging-And-Deployment-Guide.md)** — Binary packaging via pkg, native dependencies & production distribution
-- 🐘 **[PostgreSQL Complete Removal & Clean Reinstallation Guide](./Docs/PostgreSQL-Complete-Removal-Guide.md)** — Deep Windows service removal, registry cleanup & silent Inno Setup reinstallation
+- 🛡️ **[Disaster Recovery & Bare-Metal Restore Guide](./Docs/Disaster-Recovery-Documentation.md)** - AES-256 cloud backup pipeline, write-ahead sync tracker & automated restore
+- 🪟 **[Windows EXE Packaging & Node.js Compilation Guide](./Docs/Windows-EXE-Packaging-And-Deployment-Guide.md)** - Binary packaging via pkg, native dependencies & production distribution
+- 🐘 **[PostgreSQL Complete Removal & Clean Reinstallation Guide](./Docs/PostgreSQL-Complete-Removal-Guide.md)** - Deep Windows service removal, registry cleanup & silent Inno Setup reinstallation
 - 📘 **[Complete Help File & Feature Directory](./Docs/Help-File.md)**
 
 ---

@@ -1,4 +1,4 @@
-# 📜 System Architecture Upgrades & Changelog (Sept 2026 – Nov 2026)
+# 📜 System Architecture Upgrades & Changelog (Sept 2026 - Nov 2026)
 
 ## 📌 Executive Summary
 
@@ -80,7 +80,7 @@ graph TD
 
 ---
 
-### 3. ⚡ Infrastructure Cost & API Polling Optimizations (Sept–Oct 2026)
+### 3. ⚡ Infrastructure Cost & API Polling Optimizations (Sept-Oct 2026)
 * **WhatsApp Queue Worker Adaptive Backoff**:
   * Replaced aggressive 2-second polling with an **adaptive idle backoff** (sleeps 30 seconds when queue is empty).
   * Added event-driven **`wakeWhatsappQueue()`** trigger so new invoice notifications process instantly with 0 idle database load (97%+ reduction in idle DB queries).
@@ -97,7 +97,7 @@ graph TD
 ### 4. 🎨 Design Standardization & High-Entropy Security (Sept 2026)
 * **Design & Color Palette Synchronization**:
   * Aligned design tokens, gradients, and elevation styling across Login, Self-Registration, Billing POS, and Settings screens.
-### 5. 🛠️ Backend JavaScript to TypeScript (JS ➔ TS) Migration (Sept–Oct 2026)
+### 5. 🛠️ Backend JavaScript to TypeScript (JS ➔ TS) Migration (Sept-Oct 2026)
 * **Full-Stack Type Safety**:
   * Migrated backend from legacy CommonJS JavaScript to strong **TypeScript (`.ts`)** with modular `tsconfig.json` architecture.
   * Converted all controllers (`controllers/public/`, `controllers/auth/`, `controllers/settings/`, `controllers/inventory/`, `controllers/sales/`), route files (`routes/*.routes.ts`), services (`services/*.service.ts`), jobs (`jobs/*.ts`), and utility modules (`utils/*.ts`).
@@ -108,7 +108,7 @@ graph TD
 
 ---
 
-### 6. 🛍️ B2B Wholesale Marketplace & Vendor Onboarding (Sept–Oct 2026)
+### 6. 🛍️ B2B Wholesale Marketplace & Vendor Onboarding (Sept-Oct 2026)
 * **Vendor Self-Onboarding & Catalog Publishing**:
   * Merchants can toggle "Become a Marketplace Vendor", configure Minimum Order Value (MOV), operational regional hub, and accepted payment modes.
   * Automated synchronization of active [`item_master`](../backend/models/property/itemMaster.model.js) catalog into the regional marketplace.
@@ -118,7 +118,7 @@ graph TD
 
 ---
 
-### 7. 💬 B2B Direct Trade Chat & Community Hub (Sept–Oct 2026)
+### 7. 💬 B2B Direct Trade Chat & Community Hub (Sept-Oct 2026)
 * **Direct Supplier-to-Retailer Messaging**:
   * Integrated private 1-on-1 chat (`/api/community/*`) for instant price quotes, bulk discounts, invoice exchanges, and delivery schedules.
 * **Community Trade Groups & Public Channels**:
@@ -128,7 +128,7 @@ graph TD
 
 ---
 
-### 8. 📦 1-Click Purchase Order Generation from Vendor Catalog (Sept–Oct 2026)
+### 8. 📦 1-Click Purchase Order Generation from Vendor Catalog (Sept-Oct 2026)
 * **Direct Catalog-to-PO Conversion**:
   * Retailers can browse a vendor's live wholesale catalog in [`B2BMarketplaceScreen`](../lib/screens/inventory/b2b_marketplace_screen.dart), add required quantities to cart, and convert directly into a formal [`purchase_orders`](../backend/models/property/purchaseOrder.model.js) entry.
 * **Automated Vendor Linkage**:
@@ -136,7 +136,7 @@ graph TD
 
 ---
 
-### 9. 🤖 Famalth Lynx AI Assistant & Natural Language PO Generation (Sept–Oct 2026)
+### 9. 🤖 Famalth Lynx AI Assistant & Natural Language PO Generation (Sept-Oct 2026)
 * **Natural Language Store Intelligence**:
   * Integrated Lynx AI conversational assistant in [`LynxAssistModal`](../lib/widgets/lynx_assist_modal.dart) and [`ai_assist.controller.ts`](../backend/controllers/ai_assist.controller.ts).
   * Real-time intent detection for revenue analysis, low stock alerts, top-selling items, customer balance lookups, and fast POS voice shortcuts.
@@ -148,7 +148,7 @@ graph TD
 
 ---
 
-### 10. 📝 Sticky Notes Collaboration System (Sept–Oct 2026)
+### 10. 📝 Sticky Notes Collaboration System (Sept-Oct 2026)
 * **Digital Shift Sticky Notes**:
   * Floating widget in [`StickyNotesModal`](../lib/widgets/sticky_notes_modal.dart) and management via [`userNote.controller.ts`](../backend/controllers/notes/userNote.controller.ts).
   * Color-coded note cards (Yellow, Green, Blue, Purple, Orange, Pink, Teal).
@@ -157,7 +157,7 @@ graph TD
 
 ---
 
-### 11. 🌍 Global Multi-Currency & Multi-Tax Matrix (Sept–Oct 2026)
+### 11. 🌍 Global Multi-Currency & Multi-Tax Matrix (Sept-Oct 2026)
 * **Multi-Currency Engine**:
   * Configurable currency symbols, ISO codes (USD, EUR, GBP, KES, INR, AED, CAD, AUD), symbol placement (before/after amount), and customizable decimal precision.
   * Centralized formatting via [`CurrencyService`](../lib/core/currency/currency_service.dart) and [`SystemSettings`](../backend/models/property/systemSettings.model.ts).

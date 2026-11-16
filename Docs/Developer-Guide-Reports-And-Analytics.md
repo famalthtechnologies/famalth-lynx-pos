@@ -99,16 +99,16 @@ if (order_type) {
 
 Mounted under `/api/reports` and `/api/analytics`:
 
-- `GET /api/reports/sales` — Detailed sales summary with tax and discount splits.
-- `GET /api/reports/stock-balance` — Real-time inventory balance and stock valuation.
-- `GET /api/reports/stock-ledger` — Item-level chronological transaction ledger.
-- `GET /api/reports/payment-analysis` — Revenue distribution by payment mode.
-- `GET /api/reports/credit-report` — Customer credit aging and outstanding balances.
-- `GET /api/reports/cashier-handover` — Shift handover cash drawer reconciliation.
-- `GET /api/reports/night-audit` — Night audit history and discrepancy logs.
-- `GET /api/reports/brand-analysis` — Brand-wise revenue and margin share.
-- `GET /api/reports/commission-report` — Staff sales commissions and payouts.
-- `GET /api/analytics/dashboard-summary` — Real-time executive KPIs (Sales, Revenue, Average Order Value).
+- `GET /api/reports/sales` - Detailed sales summary with tax and discount splits.
+- `GET /api/reports/stock-balance` - Real-time inventory balance and stock valuation.
+- `GET /api/reports/stock-ledger` - Item-level chronological transaction ledger.
+- `GET /api/reports/payment-analysis` - Revenue distribution by payment mode.
+- `GET /api/reports/credit-report` - Customer credit aging and outstanding balances.
+- `GET /api/reports/cashier-handover` - Shift handover cash drawer reconciliation.
+- `GET /api/reports/night-audit` - Night audit history and discrepancy logs.
+- `GET /api/reports/brand-analysis` - Brand-wise revenue and margin share.
+- `GET /api/reports/commission-report` - Staff sales commissions and payouts.
+- `GET /api/analytics/dashboard-summary` - Real-time executive KPIs (Sales, Revenue, Average Order Value).
 
 ---
 

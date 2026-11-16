@@ -1,6 +1,6 @@
 # ❓ Store Operator & Cashier Frequently Asked Questions (FAQ)
 
-Welcome to the **Store Operator & Cashier FAQ**. This guide provides simple, step-by-step solutions to common daily questions and challenges encountered while running your retail store or restaurant—**no coding or technical knowledge required!**
+Welcome to the **Store Operator & Cashier FAQ**. This guide provides simple, step-by-step solutions to common daily questions and challenges encountered while running your retail store or restaurant-**no coding or technical knowledge required!**
 
 ---
 
@@ -48,7 +48,7 @@ Welcome to the **Store Operator & Cashier FAQ**. This guide provides simple, ste
 ## 2. Discounts, Happy Hours & Coupons
 
 ### Q1: Why is the Happy Hour or Bill-Value discount not applying automatically?
-1. Check the system clock on your POS computer. Happy hours apply only during configured time windows (e.g., 4:00 PM – 7:00 PM).
+1. Check the system clock on your POS computer. Happy hours apply only during configured time windows (e.g., 4:00 PM - 7:00 PM).
 2. Ensure the total bill amount meets the minimum threshold (e.g., Minimum spend \$100 for 10% off).
 3. Ensure items in the cart are not marked as *'Non-discountable'* in the Item Master.
 
@@ -129,7 +129,7 @@ Welcome to the **Store Operator & Cashier FAQ**. This guide provides simple, ste
 2. Locate the table or KOT number.
 3. Orders color-code automatically:
    - 🟢 **Green**: Under 10 minutes.
-   - 🟡 **Yellow**: 10–20 minutes.
+   - 🟡 **Yellow**: 10-20 minutes.
    - 🔴 **Red**: Delayed (Over 20 minutes).
 4. You can click **Remind Kitchen** to send an urgent ping to the kitchen screen.
 

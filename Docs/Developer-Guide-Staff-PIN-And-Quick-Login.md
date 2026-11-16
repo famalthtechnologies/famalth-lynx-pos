@@ -67,7 +67,7 @@ COMMIT;
 | `outlet_id` | `INTEGER` | No | - | Foreign key to `outlets.id` |
 | `username` | `VARCHAR(50)` | No | - | Unique username within outlet |
 | `password_hash`| `TEXT` | Yes | NULL | Bcrypt encrypted login password |
-| `pin_code` | `VARCHAR(100)` | Yes | NULL | 4–6 digit PIN (plaintext or bcrypt hash) |
+| `pin_code` | `VARCHAR(100)` | Yes | NULL | 4-6 digit PIN (plaintext or bcrypt hash) |
 | `show_in_quick_login` | `BOOLEAN` | No | `TRUE` | Controls visibility in pre-login quick user dropdown |
 | `full_name` | `VARCHAR(255)` | Yes | NULL | Staff full legal/display name |
 | `role` | `VARCHAR(50)` | No | `'STORE'` | Assigned role (`ADMIN`, `MANAGER`, `WAITER`, `CAPTAIN`, etc.) |
@@ -142,7 +142,7 @@ Authenticates a staff member using their PIN code.
 ## 4. Scoped Multi-User Authentication Engine
 
 ### The Problem Solved
-In busy retail and dining outlets with 10–20 staff members, staff frequently use convenient default PINs (e.g., `1234` or `0000`). If PIN login only looked up by `pin`, entering `1234` created an ambiguous collision.
+In busy retail and dining outlets with 10-20 staff members, staff frequently use convenient default PINs (e.g., `1234` or `0000`). If PIN login only looked up by `pin`, entering `1234` created an ambiguous collision.
 
 ### The Solution: Scoped Tuple Validation
 Authentication is strictly evaluated as a 3-tuple:

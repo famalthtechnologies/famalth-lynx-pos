@@ -191,19 +191,19 @@ In `lib/core/printing/pos_invoice_printer.dart` and `lib/screens/inventory/sales
 
 Mounted under `/api/accounting` and `/api/finance`:
 
-- `GET /api/accounting/coa` — Retrieve hierarchical Chart of Accounts tree.
-- `POST /api/accounting/coa` — Create new ledger account.
-- `POST /api/accounting/coa/seed` — Seed standard retail/restaurant accounts template.
-- `GET /api/accounting/vouchers` — Search vouchers with date, type, and pagination filters.
-- `POST /api/accounting/vouchers` — Post balanced double-entry voucher.
-- `GET /api/accounting/banks` — List bank accounts with live balances.
-- `POST /api/accounting/banks` — Register company bank account.
-- `GET /api/accounting/loans-assets` — Retrieve loan profiles and capital assets with amortization schedules.
-- `POST /api/accounting/loans` — Register new loan facility with automatic EMI calculation.
-- `POST /api/accounting/loans/pay-emi` — Post loan installment with automated principal/interest split.
-- `GET /api/reports/trial-balance` — Generate real-time Trial Balance report.
-- `GET /api/reports/profit-loss` — Generate period Profit & Loss statement.
-- `GET /api/reports/balance-sheet` — Generate certified Balance Sheet.
+- `GET /api/accounting/coa` - Retrieve hierarchical Chart of Accounts tree.
+- `POST /api/accounting/coa` - Create new ledger account.
+- `POST /api/accounting/coa/seed` - Seed standard retail/restaurant accounts template.
+- `GET /api/accounting/vouchers` - Search vouchers with date, type, and pagination filters.
+- `POST /api/accounting/vouchers` - Post balanced double-entry voucher.
+- `GET /api/accounting/banks` - List bank accounts with live balances.
+- `POST /api/accounting/banks` - Register company bank account.
+- `GET /api/accounting/loans-assets` - Retrieve loan profiles and capital assets with amortization schedules.
+- `POST /api/accounting/loans` - Register new loan facility with automatic EMI calculation.
+- `POST /api/accounting/loans/pay-emi` - Post loan installment with automated principal/interest split.
+- `GET /api/reports/trial-balance` - Generate real-time Trial Balance report.
+- `GET /api/reports/profit-loss` - Generate period Profit & Loss statement.
+- `GET /api/reports/balance-sheet` - Generate certified Balance Sheet.
 
 ---
 

@@ -84,8 +84,8 @@ Turn one-time shoppers into repeat regular customers with a digital points walle
 ### Customer Tier Levels (Silver, Gold, Platinum)
 | Tier | Annual Spend Target | Earning Multiplier | Special Perks |
 | :--- | :--- | :--- | :--- |
-| 🥈 **Silver** | Entry Level (\$0 – \$500) | 1x Points | Standard member deals |
-| 🥇 **Gold** | \$501 – \$2,000 | 1.5x Points | Free delivery, birthday bonus |
+| 🥈 **Silver** | Entry Level (\$0 - \$500) | 1x Points | Standard member deals |
+| 🥇 **Gold** | \$501 - \$2,000 | 1.5x Points | Free delivery, birthday bonus |
 | 💎 **Platinum** | \$2,001+ | 2x Points | Priority service, exclusive VIP events |
 
 ### Redeeming Points at POS Counter

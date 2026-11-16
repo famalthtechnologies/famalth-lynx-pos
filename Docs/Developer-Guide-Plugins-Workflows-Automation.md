@@ -111,16 +111,16 @@ Receiving servers can verify this signature to guarantee authenticity.
 
 ## 📡 REST API Endpoint Specifications
 
-- `GET /api/v1/plugins/marketplace` — Fetch available plugin directory.
-- `POST /api/v1/plugins/install` — Download and register plugin sandbox.
-- `POST /api/v1/plugins/:id/toggle` — Enable or disable installed plugin.
-- `GET /api/v1/workflows/rules` — List configured automation rules.
-- `POST /api/v1/workflows/rules/:id/toggle` — Activate/deactivate rule.
-- `POST /api/v1/workflows/trigger` — Emit event into workflow pipeline.
-- `GET /api/whatsapp/config` — Retrieve WhatsApp API setup.
-- `POST /api/whatsapp/config` — Update Meta Cloud API tokens & phone number ID.
-- `GET /api/v1/developer/api-keys` — List generated developer integration keys.
-- `POST /api/v1/developer/api-keys` — Generate new scoped developer API key.
+- `GET /api/v1/plugins/marketplace` - Fetch available plugin directory.
+- `POST /api/v1/plugins/install` - Download and register plugin sandbox.
+- `POST /api/v1/plugins/:id/toggle` - Enable or disable installed plugin.
+- `GET /api/v1/workflows/rules` - List configured automation rules.
+- `POST /api/v1/workflows/rules/:id/toggle` - Activate/deactivate rule.
+- `POST /api/v1/workflows/trigger` - Emit event into workflow pipeline.
+- `GET /api/whatsapp/config` - Retrieve WhatsApp API setup.
+- `POST /api/whatsapp/config` - Update Meta Cloud API tokens & phone number ID.
+- `GET /api/v1/developer/api-keys` - List generated developer integration keys.
+- `POST /api/v1/developer/api-keys` - Generate new scoped developer API key.
 
 ---
 

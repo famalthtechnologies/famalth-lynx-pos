@@ -1,4 +1,4 @@
-# 📖 Famalth Lynx ERP & POS Suite — Master Documentation Wiki
+# 📖 Famalth Lynx ERP & POS Suite - Master Documentation Wiki
 
 Welcome to the **Famalth Lynx ERP & POS Suite Master Wiki**. This wiki serves as the central documentation portal for store owners, cashiers, kitchen staff, accountants, system administrators, and software engineers.
 
@@ -157,7 +157,7 @@ sequenceDiagram
 
 ### Core Architecture Reference Documents:
 - 📋 **[Master Feature & Documentation Coverage Matrix](./Feature-Coverage-Checklist.md)**: Comprehensive 100% audit of all 85+ screens and 38 backend routes.
-- 📜 **[System Architecture Upgrades & Changelog (Sept–Oct 2026)](./System-Architecture-And-Changelog.md)**: Technical timeline of major refactors, cloud migrations, and optimizations.
+- 📜 **[System Architecture Upgrades & Changelog (Sept-Oct 2026)](./System-Architecture-And-Changelog.md)**: Technical timeline of major refactors, cloud migrations, and optimizations.
 - 📡 **[Master REST API Endpoint Reference](./Endpoint-Reference.md)**: Complete parameter, header, and response schema definitions for all backend endpoints.
 - ⚡ **[Fast Login & Preloading Architecture Guide](./Developer-Guide-Fast-Login-And-Preloading.md)**: Parallel cache warming, asynchronous startup, and benchmark optimizations.
 - 👤 **[Staff PIN & Quick Login Architecture Guide](./Developer-Guide-Staff-PIN-And-Quick-Login.md)**: Multi-user PIN collision handling and outlet-scoped authentication.

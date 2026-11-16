@@ -66,7 +66,7 @@ Reports Hub
 
 ### Credit & Aging Analysis
 - **Screen**: `Reports > Credit Analysis`
-- Lists customer accounts with pending credit balances, sorted by aging buckets (0–30 days, 31–60 days, 60+ days overdue) with 1-click WhatsApp payment reminders!
+- Lists customer accounts with pending credit balances, sorted by aging buckets (0-30 days, 31-60 days, 60+ days overdue) with 1-click WhatsApp payment reminders!
 
 ---
 

@@ -81,7 +81,7 @@ When logged in as a doctor or accessing the **Doctor Desk Tab**:
 
 ```
 +---------------------------------------------------------------------------------+
-| 🩺 CONSULTATION DESK — Token #101: Rajesh Sharma (42 / Male)                    |
+| 🩺 CONSULTATION DESK - Token #101: Rajesh Sharma (42 / Male)                    |
 |---------------------------------------------------------------------------------|
 | [ Vitals: BP: 120/80 mmHg | Pulse: 72 bpm | Temp: 98.6°F | Wt: 74 kg | BMI: 24.2 ] |
 |---------------------------------------------------------------------------------|
@@ -133,7 +133,7 @@ To collect consultation fees directly at the clinic reception desk:
 
 ```
 +-----------------------------------------------------------------+
-| 💳 SETTLE CONSULTATION FEE — Token #101                        |
+| 💳 SETTLE CONSULTATION FEE - Token #101                        |
 |-----------------------------------------------------------------|
 | Patient: Rajesh Sharma                   Doctor: Dr. Sarah Adams|
 | Consultation Fee:                        ₹500.00                |
@@ -166,7 +166,7 @@ Clinic administrators can configure doctor rosters via the **Doctor Management D
 - **Qualifications**: e.g., *MBBS, MD (Internal Medicine)*.
 - **Consultation Fee**: Standard OPD fee (e.g., ₹500.00).
 - **Cabin / Room Number**: Room 102.
-- **Available Days & Time Slots**: Monday through Saturday, 09:00 AM – 01:00 PM and 05:00 PM – 08:00 PM.
+- **Available Days & Time Slots**: Monday through Saturday, 09:00 AM - 01:00 PM and 05:00 PM - 08:00 PM.
 - **Public Directory Toggle**: When switched **ON**, this doctor appears on your clinic's public appointment booking website.
 
 ---

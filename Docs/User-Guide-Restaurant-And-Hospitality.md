@@ -107,8 +107,8 @@ Replace paper slips in the hot kitchen with interactive touchscreens:
 1. Open **Restaurant > Kitchen Display System (KDS)** on kitchen monitors or tablets.
 2. New orders appear instantly with audible alert chimes.
 3. Cards display ordered items, special modifiers, table numbers, and live elapsed timers:
-   - 🟢 **Fresh (0–10 mins)**: Normal cooking pace.
-   - 🟡 **Warning (10–20 mins)**: Attention required.
+   - 🟢 **Fresh (0-10 mins)**: Normal cooking pace.
+   - 🟡 **Warning (10-20 mins)**: Attention required.
    - 🔴 **Delayed (>20 mins)**: Flashing urgent alert to kitchen supervisor.
 4. When a dish is prepared, the chef taps **Item Ready** or **Complete KOT**.
 5. The Captain receives an instant notification that food is ready for pickup!

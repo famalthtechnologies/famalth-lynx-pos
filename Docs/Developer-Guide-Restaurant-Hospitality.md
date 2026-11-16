@@ -84,24 +84,24 @@ stateDiagram-v2
 Mounted under `/api/restaurant` (Requires JWT Authentication):
 
 ### 1. Floors & Dining Areas
-- `GET /api/restaurant/floors` — Retrieve all floors with attached dining areas.
-- `POST /api/restaurant/floors` — Create a new floor. Body: `{ "name": "Rooftop" }`.
-- `PUT /api/restaurant/floors/:id` — Update floor name/order.
-- `DELETE /api/restaurant/floors/:id` — Remove floor (checks for active tables).
-- `GET /api/restaurant/dining-areas` — List dining areas with table counts.
-- `POST /api/restaurant/dining-areas` — Create dining area. Body: `{ "name": "Family AC", "floor_id": 1 }`.
+- `GET /api/restaurant/floors` - Retrieve all floors with attached dining areas.
+- `POST /api/restaurant/floors` - Create a new floor. Body: `{ "name": "Rooftop" }`.
+- `PUT /api/restaurant/floors/:id` - Update floor name/order.
+- `DELETE /api/restaurant/floors/:id` - Remove floor (checks for active tables).
+- `GET /api/restaurant/dining-areas` - List dining areas with table counts.
+- `POST /api/restaurant/dining-areas` - Create dining area. Body: `{ "name": "Family AC", "floor_id": 1 }`.
 
 ### 2. Tables & Floor Plan
-- `GET /api/restaurant/tables` — Fetch table list with live status and active KOT summary.
-- `POST /api/restaurant/tables` — Create new table. Body: `{ "table_number": "T-10", "dining_area_id": 1, "seating_capacity": 4, "shape": "SQUARE", "coord_x": 120, "coord_y": 250 }`.
-- `PUT /api/restaurant/tables/:id` — Update coordinates, capacity, or shape.
-- `PUT /api/restaurant/tables/:id/status` — Manual override of table status.
-- `POST /api/restaurant/tables/transfer` — Transfer active order between tables. Body: `{ "source_table_id": 2, "target_table_id": 5 }`.
-- `POST /api/restaurant/tables/merge` — Merge multiple tables for group dining. Body: `{ "primary_table_id": 3, "secondary_table_ids": [4, 5] }`.
+- `GET /api/restaurant/tables` - Fetch table list with live status and active KOT summary.
+- `POST /api/restaurant/tables` - Create new table. Body: `{ "table_number": "T-10", "dining_area_id": 1, "seating_capacity": 4, "shape": "SQUARE", "coord_x": 120, "coord_y": 250 }`.
+- `PUT /api/restaurant/tables/:id` - Update coordinates, capacity, or shape.
+- `PUT /api/restaurant/tables/:id/status` - Manual override of table status.
+- `POST /api/restaurant/tables/transfer` - Transfer active order between tables. Body: `{ "source_table_id": 2, "target_table_id": 5 }`.
+- `POST /api/restaurant/tables/merge` - Merge multiple tables for group dining. Body: `{ "primary_table_id": 3, "secondary_table_ids": [4, 5] }`.
 
 ### 3. KOTs & Kitchen Display System (KDS)
-- `GET /api/restaurant/kots/active` — Real-time list of all cooking/pending KOTs for KDS.
-- `POST /api/restaurant/kots` — Create & dispatch new KOT. Body:
+- `GET /api/restaurant/kots/active` - Real-time list of all cooking/pending KOTs for KDS.
+- `POST /api/restaurant/kots` - Create & dispatch new KOT. Body:
 ```json
 {
   "table_id": 4,
@@ -118,8 +118,8 @@ Mounted under `/api/restaurant` (Requires JWT Authentication):
   ]
 }
 ```
-- `PUT /api/restaurant/kots/:id/items/:itemId/status` — Chef bump-bar action (`COOKING` -> `DONE`).
-- `POST /api/restaurant/kots/:id/settle` — Convert completed KOT into final POS sales invoice with tax split and payment ledger integration.
+- `PUT /api/restaurant/kots/:id/items/:itemId/status` - Chef bump-bar action (`COOKING` -> `DONE`).
+- `POST /api/restaurant/kots/:id/settle` - Convert completed KOT into final POS sales invoice with tax split and payment ledger integration.
 
 ---
 

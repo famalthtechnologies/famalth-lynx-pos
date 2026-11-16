@@ -77,12 +77,12 @@ sequenceDiagram
 
 ## 📡 REST API Endpoint Specifications
 
-- `GET /api/public/outlet` — List registered outlets.
-- `POST /api/public/outlet` — Register new outlet terminal.
-- `GET /api/inventory/stock-locations` — List warehouse aisles and bin locations.
-- `POST /api/inventory/stock-locations` — Create stock storage zone.
-- `GET /api/inventory/numbering-settings` — Retrieve sequence formatting for outlet.
-- `POST /api/inventory/numbering-settings` — Update sequence rules (Prefix/Suffix/Padding).
+- `GET /api/public/outlet` - List registered outlets.
+- `POST /api/public/outlet` - Register new outlet terminal.
+- `GET /api/inventory/stock-locations` - List warehouse aisles and bin locations.
+- `POST /api/inventory/stock-locations` - Create stock storage zone.
+- `GET /api/inventory/numbering-settings` - Retrieve sequence formatting for outlet.
+- `POST /api/inventory/numbering-settings` - Update sequence rules (Prefix/Suffix/Padding).
 
 ---
 
