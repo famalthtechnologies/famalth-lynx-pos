@@ -1,6 +1,6 @@
 # 📡 Master REST API Endpoint Reference
 
-This document is the **complete, exhaustive HTTP REST API reference** for all 32 route modules in the backend server.
+This document is the **complete, exhaustive HTTP REST API reference** for all 49 route modules and developer integration subsystems in the backend server.
 
 ---
 
@@ -37,6 +37,23 @@ This document is the **complete, exhaustive HTTP REST API reference** for all 32
 30. [Notifications (`/api/notifications`)](#30-notifications-apinotifications)
 31. [System Server Time (`/api/system`)](#31-system-server-time-apisystem)
 32. [1-Click Cloud Migration Gateway (`/api/public/migration`)](#32-1-click-cloud-migration-gateway-apipublicmigration)
+33. [Quick Users & PIN Authentication (`/api/auth`)](#33-quick-users--pin-authentication-apiauth)
+34. [Multi-Country Tax Seeding & Integrity (`/api/settings/tax-groups`)](#34-multi-country-tax-seeding--integrity-apisettingstax-groups)
+35. [Contactless QR Table Dining & Multi-Seat Portal (`/api/restaurant/dining`)](#35-contactless-qr-table-dining--multi-seat-portal-apirestaurantdining)
+36. [M-Pesa & Mobile Money Gateway (`/api/mpesa`)](#36-m-pesa--mobile-money-gateway-apimpesa)
+37. [Multi-Gateway Payment Configuration (`/api/payments/gateways`)](#37-multi-gateway-payment-configuration-apipaymentsgateways)
+38. [Plugin Developer Studio & Sandbox Engine (`/api/v1/plugins`)](#38-plugin-developer-studio--sandbox-engine-apiv1plugins)
+39. [Public Outlet Onboarding & OTP Verification (`/api/public/outlet`)](#39-public-outlet-onboarding--otp-verification-apipublicoutlet)
+40. [Operations Document Modification & Differential Revisions](#40-operations-document-modification--differential-revisions)
+41. [Enterprise SaaS Control Plane & IAM (`/api/v1/control-plane`)](#41-enterprise-saas-control-plane--iam-apiv1control-plane)
+42. [Sandboxed Data Doctor & Schema Studio (`/api/v1/control-plane/support`)](#42-sandboxed-data-doctor--schema-studio-apiv1control-planesupport)
+43. [Clinic Management & OPD Healthcare Suite (`/api/clinic`)](#43-clinic-management--opd-healthcare-suite-apiclinic)
+44. [Public Patient Portal & Appointments (`/api/public/clinic`)](#44-public-patient-portal--appointments-apipublicclinic)
+45. [System Maintenance & Lockout Engine (`/api/system/maintenance`)](#45-system-maintenance--lockout-engine-apisystemmaintenance)
+46. [Transport Logistics & Fleet Management (`/api/transport`)](#46-transport-logistics--fleet-management-apitransport)
+47. [Delivery Challan Subsystem (`/api/restaurant/challan`)](#47-delivery-challan-subsystem-apirestaurantchallan)
+48. [Multi-Tiered Storage & Enterprise Backups (`/api/backup`)](#48-multi-tiered-storage--enterprise-backups-apibackup)
+49. [Model Context Protocol (MCP) & AI Gateway (`/api/v1/developer/mcp`)](#49-model-context-protocol-mcp--ai-gateway-apiv1developermcp)
 
 ---
 
@@ -589,4 +606,37 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 ---
 
-*Last Updated: November 2026 | Covers 100% of all 48 Express Route Modules & Developer Subsystems*
+## 49. Model Context Protocol (MCP) & AI Gateway (`/api/v1/developer/mcp`)
+
+*Authentication: `X-API-Key` header, query parameter `?api_key=`, Bearer JWT from OAuth 2.0 PKCE, or loopback exemption for local kiosks. Strictly scoped to developer key's tenant outlet and linked branch clusters.*
+
+### OAuth 2.0 Authorization Server & Discovery
+- `GET /api/v1/developer/.well-known/oauth-authorization-server` — RFC 8414 Authorization Server Metadata discovery endpoint for OpenAI ChatGPT Actions and external MCP hosts.
+- `GET /api/v1/developer/.well-known/openid-configuration` — OpenID Connect compatibility discovery document.
+- `GET /api/v1/developer/mcp/.well-known/oauth-authorization-server` — Discovery alias under MCP namespace.
+- `GET /api/v1/developer/oauth/authorize` — Interactive browser consent dialog for OAuth 2.0 Authorization Code flow with PKCE (`code_challenge` / `code_challenge_method=S256`).
+- `POST /api/v1/developer/oauth/authorize` — Process user sign-in and authorization grant generation.
+- `POST /api/v1/developer/oauth/token` — Exchange authorization code or API key credentials for scoped access token (`grant_type=authorization_code` or `client_credentials`).
+
+### Protocol Transports & Metadata
+- `GET /api/v1/developer/mcp/config` — Retrieve active MCP server version, protocol capabilities, transport status, and connected outlet cluster info.
+- `GET /api/v1/developer/mcp/tools` — Enumerate all active AI tools with JSON Schema parameters, output schemas, and security scopes.
+- `POST /api/v1/developer/mcp` — Standard JSON-RPC 2.0 transport over HTTP (supports `initialize`, `tools/list`, `tools/call`, `ping`).
+- `GET /api/v1/developer/mcp/sse` — Remote MCP Server-Sent Events (SSE) streaming transport for Claude Desktop, Cursor AI, and continuous LLM streaming sessions. Emits `event: endpoint`.
+- `POST /api/v1/developer/mcp/messages` — Endpoint for client message exchange over SSE transport session.
+- `ALL /api/v1/developer/mcp/chat` — Universal compatibility alias supporting SSE (GET) and JSON-RPC 2.0 (POST).
+
+### Dynamic LLM Specification Generators
+- `GET /api/v1/developer/mcp/chatgpt-openapi.json` — Dynamic OpenAPI 3.0 specification tailored for ChatGPT Custom GPT Actions, reflecting real-time outlet server URL, OAuth authorization endpoints, and tool actions.
+- `GET /api/v1/developer/mcp/gemini-tools.json` — Native Google Gemini Function Calling declaration schema for Vertex AI / Google AI Studio integration.
+
+### Direct AI Tool Execution Endpoints (OpenAPI Actions)
+- `POST /api/v1/developer/mcp/tools/execute` — Universal direct tool execution dispatcher by `tool_name` and `arguments`.
+- `POST /api/v1/developer/mcp/tools/analyze-sales` — AI tool analyzing sales revenue, order volumes, tax summaries, payment methods, and hourly velocity trends over customizable date ranges.
+- `POST /api/v1/developer/mcp/tools/create-order-bill` — AI tool creating draft or finalized POS sales orders/bills with customer info, item lines, and automated stock deductions.
+- `POST /api/v1/developer/mcp/tools/inventory-status` — AI tool inspecting real-time stock levels, low-stock reorder thresholds, and active warehouse batch counts.
+- `POST /api/v1/developer/mcp/tools/search-products` — AI tool searching product catalogs across names, barcodes, SKUs, and categories with live pricing.
+
+---
+
+*Last Updated: November 2026 | Covers 100% of all 49 Express Route Modules & Developer Subsystems*

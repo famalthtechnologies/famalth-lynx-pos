@@ -53,6 +53,8 @@ Click on any guide below for comprehensive step-by-step instructions:
 | 🛠️ **[System Maintenance Mode & Emergency Lockout](./User-Guide-Maintenance-Mode-And-Lockout.md)** | Non-dismissible lockout modal, advance scheduled maintenance warning banners, and automatic client terminal resumption. |
 | 🚚 **[Delivery Challan, Fleet Vehicles & Transport Logistics](./User-Guide-Delivery-Challan-And-Transport-Logistics.md)** | Issuing goods in transit challans, registering fleet vehicles/drivers, trip route manifests, doorstep verification, and 1-tap POS billing conversion. |
 | 🗄️ **[Multi-Tiered Storage & Enterprise Backup Architecture](./User-Guide-Tiered-Storage-And-Backup-Architecture.md)** | Partitioned root volume (`storage/`), dedicated enterprise tier, multi-tenant outlet sandboxing, `.fambak` / `.posbak` archives, and storage quota governance. |
+| 📱 **[Mobile Billing Suite & Companion Apps](./User-Guide-Mobile-Billing-And-Companion-Apps.md)** | Handheld POS billing, barcode camera scanning, mobile cash & customer ledgers, and 1-tap QR scan-to-connect setup. |
+| 🌐 **[Model Context Protocol (MCP) & AI Gateway](./User-Guide-Model-Context-Protocol-And-AI-Gateway.md)** | Connecting ChatGPT, Claude Desktop, Google Gemini, and Cursor AI to Famalth Lynx to query sales, inventory, and draft orders in natural language. |
 | 🛡️ **[Enterprise Disaster Recovery & Cloud Backup](./Disaster-Recovery-Documentation.md)** | Complete guide to automated AES-256 Google Drive backups, sync status tracking, and 1-click bare-metal store restoration. |
 
 ---

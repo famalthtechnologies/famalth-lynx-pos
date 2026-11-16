@@ -1,8 +1,8 @@
-# 📜 System Architecture Upgrades & Changelog (Sept 2026 – Oct 2026)
+# 📜 System Architecture Upgrades & Changelog (Sept 2026 – Nov 2026)
 
 ## 📌 Executive Summary
 
-This document details all major architectural enhancements, cost optimizations, cloud integrations, and migration features implemented in the **Famalth Lynx ERP & POS Suite** from **September 2026 to October 2026**.
+This document details all major architectural enhancements, cost optimizations, cloud integrations, and migration features implemented in the **Famalth Lynx ERP & POS Suite** from **September 2026 to November 2026**.
 
 ---
 
@@ -373,5 +373,75 @@ graph TD
 * **Differential Document Revisions**:
   * Dedicated high-speed screens for modifying existing Purchase Orders (`purchase_modify.dart`), Goods Receiving (`receiving_modify.dart`), Store Requests (`request_modify.dart`), and Stock Out notes (`stock_out_modify.dart`).
   * Automated differential inventory posting (`delta_in`, `delta_out`) without deleting audit history or corrupting stock ledgers.
+
+---
+
+### 26. 🤖 Model Context Protocol (MCP) & External AI Gateway (Nov 2026)
+* **Architecture & Standards**:
+  * Implemented an enterprise **Model Context Protocol (MCP)** server on `/api/v1/developer/mcp` supporting Server-Sent Events (SSE) and JSON-RPC 2.0.
+  * Direct execution bridge for **OpenAI ChatGPT Actions**, **Claude Desktop**, **Google Gemini**, and **Cursor AI**.
+* **OAuth 2.0 & RFC 8414 Auto-Discovery**:
+  * Complete RFC 6749 OAuth 2.0 authorization server with RFC 7636 PKCE (`code_challenge` / `code_verifier`).
+  * Implemented RFC 8414 metadata discovery at `GET /.well-known/oauth-authorization-server` allowing 1-click discovery in ChatGPT without manual parameter typing.
+* **Dynamic Spec Generators**:
+  * Dynamic OpenAPI 3.0 specification (`/api/v1/developer/mcp/chatgpt-openapi.json`) reflecting active host and SSL domain.
+  * Native Google Gemini Function Calling declaration schema (`/api/v1/developer/mcp/gemini-tools.json`).
+* **Multi-Tenant Scoping Engine (`resolveMcpOutletContext`)**:
+  * Enforces strict outlet-scoped access control; AI models can only access the caller's assigned outlet or linked franchise clusters.
+* **6 Production Tools**:
+  * `analyze_sales`: Period revenue, AOV, payment splits, hourly volume, and top velocity items.
+  * `create_order_bill`: Creates POS sales bills, deducts inventory, and outputs receipts.
+  * `get_inventory_status`: Stock levels, reorder alerts, and warehouse batch counts.
+  * `search_products`: Multi-attribute keyword search across names, SKUs, and barcodes.
+  * `get_order_details`: Detailed receipt breakdown by invoice number.
+  * `get_customer_insights`: RFM loyalty score, lifetime spending, and outstanding ledger balance.
+
+---
+
+### 27. 📷 Universal Companion Apps Suite & QR Scan-to-Connect (Nov 2026)
+* **Instant Staff Configuration Dialog (`AppSetupQrDialog.show`)**:
+  * Replaced manual IP and port configuration with **1-tap QR scan-to-connect**.
+  * Generates high-resolution vector QR codes encoding server host, outlet ID, and store name.
+  * Staff scan the standee from any Android, iOS, or tablet device running the Waiter or Mobile Billing app to connect in under 3 seconds.
+* **Customer Dining & Storefront Standees**:
+  * Toggle to customer mode for digital table dining, self-ordering catalogs, and clinic appointments with vector PDF counter standee printing.
+
+---
+
+### 28. 📱 Handheld Mobile Billing Suite & Bottom Drawers (Nov 2026)
+* **Full-Featured Mobile POS (`MobileBillingAppScreen`)**:
+  * 5 dedicated tabs: High-speed barcode billing with camera scanner, order history & instant thermal reprints, milk/grocery subscriptions, real-time analytics, and workstation hardware profiles.
+* **5 Mobile Operational Sheets**:
+  * `mobile_bill_modify_sheet.dart`: In-place item modification and price updates on existing bills.
+  * `mobile_cash_ledger_sheet.dart`: Live cash drawer balance, pay-ins, and pay-outs.
+  * `mobile_customer_ledger_sheet.dart`: Customer credit balance ledger, debt collection, and receipt generation.
+  * `mobile_item_master_sheet.dart`: Mobile item search and camera-based barcode tagging.
+  * `mobile_stock_balance_sheet.dart`: Instant warehouse stock and batch audit.
+
+---
+
+### 29. 🔢 Numbering Settings v2 & Concurrency-Safe Sequence Engine (Nov 2026)
+* **Race Condition Elimination (`numberingSettingsV2.controller.ts`)**:
+  * Resolved duplicate invoice numbers during simultaneous checkout across multiple POS and mobile terminals.
+  * Implemented row-level locking (`transaction`) and atomic increment of `last_used_no`.
+* **Exhaustive Module Prefix Fallbacks**:
+  * Standardized fallback prefixes for all 12 operational modules: `SALES` (`FAM-`), `TOKEN` (`TK-`), `KOT` (`KOT-`), `RECEIVING` (`RC-`), `PO` (`PO-`), `INDENT` (`INT-`), `REQUEST` (`REC-`), `DAMAGE` (`DMG-`), `CONTRA` (`CNT-`), `PAYMENT` (`PAY-`), `RECEIPT` (`RCT-`), `JOURNAL` (`JRN-`).
+
+---
+
+### 30. 🌐 Dynamic Server Port Resolution & Auto-Discovery (Nov 2026)
+* **Automatic Port Conflict Handling**:
+  * If the primary port 3000 is occupied by another process, the backend automatically binds to an available ephemeral port and records it to `server_port.txt`.
+  * Flutter client `resolveServerPort()` reads the active port file, ensuring seamless local startup without manual port re-configuration.
+
+---
+
+### 31. 🚀 Modern CI/CD Pipeline & Slim Docker Deployment (Nov 2026)
+* **GitHub Actions Web Compilation (`.github/workflows/auto_deploy.yml`)**:
+  * Offloaded heavy Flutter web builds (`flutter build web --release`) to GitHub Actions CI runners.
+* **Lightweight Node-Only Container (`Dockerfile.web`, `render.yaml`)**:
+  * Production containers on Render.com run a slim Node.js alpine image that serves pre-built static web assets and Express APIs.
+  * Reduced Docker image footprint from 2.5GB to under 250MB, dramatically cutting cold-start and deployment times.
+
 
 

@@ -8,8 +8,9 @@ This guide explains how to use **Quick PIN Sign-In** for instant terminal access
 1. [Overview of Fast Sign-In](#1-overview-of-fast-sign-in)
 2. [How to Use PIN Sign-In (POS & Mobile)](#2-how-to-use-pin-sign-in-pos--mobile)
 3. [Zero-Lag Terminal Launch](#3-zero-lag-terminal-launch)
-4. [Setting Your Favorite Startup Screen](#4-setting-your-favorite-startup-screen)
-5. [Troubleshooting & Quick Tips](#5-troubleshooting--quick-tips)
+4. [Companion Apps Universal Setup QR & Scan-to-Connect](#4-companion-apps-universal-setup-qr--scan-to-connect)
+5. [Setting Your Favorite Startup Screen](#5-setting-your-favorite-startup-screen)
+6. [Troubleshooting & Quick Tips](#6-troubleshooting--quick-tips)
 
 ---
 
@@ -62,7 +63,21 @@ Once you enter your PIN, the application immediately routes you to your workstat
 
 ---
 
-## 4. Setting Your Favorite Startup Screen
+## 4. Companion Apps Universal Setup QR & Scan-to-Connect
+
+Connecting a mobile phone, tablet, or handheld POS to the store terminal no longer requires typing IP addresses manually:
+
+1. On the main POS terminal, open **Settings** $\rightarrow$ Click **"Staff Setup QR"** (or use the QR icon on the navigation bar).
+2. The **Universal Setup Standee Dialog** displays an auto-generated QR code encoding your store's active server URL and outlet identifier.
+3. On the staff member's mobile phone:
+   - Launch the **Waiter App**, **Mobile Billing Terminal**, or **Rider App**.
+   - Tap **"Scan QR to Connect"** on the startup splash screen.
+   - Aim the camera at the standee on the POS monitor.
+4. The mobile app connects immediately and displays the Staff Quick PIN selection screen.
+
+---
+
+## 5. Setting Your Favorite Startup Screen
 
 If you prefer logging directly into a specific screen on your terminal:
 1. Go to **Settings** $\rightarrow$ **System Settings** $\rightarrow$ **Workstation Configuration**.
@@ -76,7 +91,7 @@ If you prefer logging directly into a specific screen on your terminal:
 
 ---
 
-## 5. Troubleshooting & Quick Tips
+## 6. Troubleshooting & Quick Tips
 
 - **Forgot PIN?** Click the **Password** tab and log in with your primary store password. An administrator can reset your PIN in **User Management** at any time.
 - **Offline Sign-in**: Fast PIN sign-in works seamlessly on your local store network even if external internet connectivity is disconnected.
