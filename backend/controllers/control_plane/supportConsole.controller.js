@@ -18,7 +18,7 @@ class SupportConsoleController {
      */
     static async createTicket(req, res) {
         try {
-            const { tenant_id, outlet_id, outlet_code, subject, priority, initial_message, client_telemetry, sender_name, } = req.body;
+            const { tenant_id, outlet_id, outlet_code, subject, priority, initial_message, message, client_telemetry, telemetry, sender_name, } = req.body;
             if (!subject) {
                 return res.status(400).json({ success: false, message: 'Subject is required.' });
             }
@@ -36,6 +36,18 @@ class SupportConsoleController {
                 // Fallback to first active tenant
                 const firstTenant = await MasterTenant.findOne({ where: { status: 'ACTIVE' } });
                 resolvedTenantId = firstTenant?.id;
+            }
+            if (!resolvedTenantId) {
+                const anyTenant = await MasterTenant.findOne();
+                resolvedTenantId = anyTenant?.id;
+            }
+            if (!resolvedTenantId) {
+                const defaultTenant = await MasterTenant.create({
+                    client_code: 'STORE-DEFAULT',
+                    legal_name: 'Retail Store POS Client',
+                    status: 'ACTIVE',
+                });
+                resolvedTenantId = defaultTenant.id;
             }
             if (!resolvedOutletId) {
                 resolvedOutletId = 1;
@@ -60,7 +72,7 @@ class SupportConsoleController {
                 priority: priority || 'MEDIUM',
                 status: assignedAgent ? 'ASSIGNED' : 'OPEN',
                 assigned_agent_id: assignedAgent?.id || null,
-                client_telemetry: client_telemetry || {},
+                client_telemetry: client_telemetry || telemetry || {},
             });
             // Increment agent load if assigned
             if (assignedAgent) {
@@ -72,22 +84,24 @@ class SupportConsoleController {
                 ticket_id: ticket.id,
                 sender_type: 'CLIENT_OUTLET',
                 sender_name: sender_name || 'POS Terminal Operator',
-                message: initial_message || subject,
-                diagnostic_payload: client_telemetry || null,
+                message: initial_message || message || subject,
+                diagnostic_payload: client_telemetry || telemetry || null,
             });
             // Fetch populated ticket for real-time notification
             const populatedTicket = await SupportTicket.findByPk(ticket.id, {
                 include: [
-                    { model: MasterTenant, as: 'tenant', attributes: ['id', 'legal_name', 'client_code'] },
-                    { model: SupportAgent, as: 'agent', attributes: ['id', 'full_name', 'email', 'role_level'] },
+                    { model: MasterTenant, as: 'tenant', attributes: ['id', 'legal_name', 'client_code'], required: false },
+                    { model: SupportAgent, as: 'agent', attributes: ['id', 'full_name', 'email', 'role_level'], required: false },
                 ],
             });
             // Broadcast real-time sound chime alert to all support staff in control panel
-            (0, socketHub_service_1.broadcastNewSupportTicket)(populatedTicket);
+            try {
+                (0, socketHub_service_1.broadcastNewSupportTicket)(populatedTicket || ticket.toJSON());
+            } catch (_) {}
             return res.status(201).json({
                 success: true,
                 message: 'Ticket raised successfully.',
-                data: populatedTicket,
+                data: populatedTicket || ticket.toJSON(),
             });
         }
         catch (err) {

@@ -142,6 +142,24 @@ export const createReceiving = async (req: Request, res: Response) => {
             items = []
         } = req.body;
 
+        if (po_no && String(po_no).trim().length > 0) {
+            const purchaseOrder = await (req as any).propertyDb.models.purchase_orders.findOne({
+                where: { id: po_no, outlet_id },
+                transaction: t
+            });
+            if (!purchaseOrder) {
+                await t.rollback();
+                return res.status(404).json({ success: false, message: 'Purchase order not found' });
+            }
+            if (String(purchaseOrder.approval_status || 'APPROVED').toUpperCase() !== 'APPROVED') {
+                await t.rollback();
+                return res.status(400).json({
+                    success: false,
+                    message: 'Purchase order must be approved before receiving goods'
+                });
+            }
+        }
+
         const billNo = String(supplier_bill_no || '').trim();
         if (!billNo || billNo === '0') {
             await t.rollback();

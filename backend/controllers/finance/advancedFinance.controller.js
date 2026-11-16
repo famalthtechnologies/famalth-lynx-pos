@@ -2533,10 +2533,30 @@ exports.getCustomerLedger = async (req, res) => {
         const customerPhone = String(req.query.customer_phone || req.query.phone || '').trim();
         const customerName = String(req.query.customer_name || req.query.name || '').trim();
         const search = String(req.query.customer || req.query.search || customerPhone || customerName).trim();
-        if (!search && !customerName) {
+        if (!search && !customerName && !customerPhone) {
             return res.status(400).json({ success: false, error: 'Customer phone or name is required' });
         }
-        const customerMatch = buildCustomerMatch(customerPhone || search, customerName);
+        let customerMatch = null;
+        if (customerPhone) {
+            const variants = getPhoneSearchVariants(customerPhone);
+            const cleanDigits = customerPhone.replace(/\D/g, '');
+            const phoneConditions = [];
+            if (variants.length > 0) {
+                phoneConditions.push({ [Op.in]: variants });
+            }
+            if (cleanDigits.length >= 4) {
+                phoneConditions.push({ [Op.iLike]: `%${cleanDigits}%` });
+            }
+            customerMatch = {
+                customer_phone: phoneConditions.length > 1 ? { [Op.or]: phoneConditions } : (phoneConditions[0] || customerPhone)
+            };
+        } else if (customerName) {
+            customerMatch = {
+                customer_name: { [Op.iLike]: `%${customerName}%` }
+            };
+        } else if (search) {
+            customerMatch = buildCustomerMatch(search);
+        }
         let customerProfile = null;
         if (req.propertyDb.models.customers) {
             customerProfile = await req.propertyDb.models.customers.findOne({

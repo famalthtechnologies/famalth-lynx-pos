@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -28,6 +30,7 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
   final _outletCodeCtrl = TextEditingController();
   bool _isLoading = false;
   bool _isProcessingQr = false;
+  String _loadingMessage = "Verifying connection...";
 
   late bool _isScanMode;
   bool _isTorchOn = false;
@@ -104,14 +107,14 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
     final rawVal = capture.barcodes.first.rawValue;
     if (rawVal == null || rawVal.trim().isEmpty) return;
 
-    await _processScannedData(rawVal);
+    await _applyPayloadAndConnect(rawVal.trim());
   }
 
-  Future<void> _processScannedData(String raw) async {
-    if (_isProcessingQr || _isLoading) return;
+  Future<void> _applyPayloadAndConnect(String raw) async {
     setState(() {
       _isProcessingQr = true;
       _isLoading = true;
+      _loadingMessage = "Connecting to server...";
     });
 
     try {
@@ -123,7 +126,7 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("Unrecognized QR format. Please scan a valid Store Setup QR code."),
+            content: Text("Unrecognized QR format. Please scan or upload a valid Store Setup QR code."),
             backgroundColor: Colors.orange,
           ),
         );
@@ -169,80 +172,168 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
 
   Future<void> _pickAndScanImage() async {
     if (_isProcessingQr || _isLoading) return;
+
+    // 1. Temporarily pause live camera preview so Android CameraX and ML Kit scanner hardware lock is released
+    if (_isScanMode) {
+      try {
+        await _scannerController.stop();
+      } catch (_) {}
+    }
+
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.image,
         allowMultiple: false,
         withData: true,
       );
-      if (result == null || result.files.isEmpty) return;
+      if (result == null || result.files.isEmpty) {
+        // User cancelled picker -> resume camera if scan mode is active
+        if (_isScanMode && mounted) {
+          try { await _scannerController.start(); } catch (_) {}
+        }
+        return;
+      }
 
-      setState(() => _isLoading = true);
+      setState(() {
+        _isProcessingQr = true;
+        _isLoading = true;
+        _loadingMessage = "Analyzing QR image / screenshot...";
+      });
 
+      Uint8List? imageBytes = result.files.single.bytes;
       String? filePath = result.files.single.path;
-      File? tempFile;
 
-      if (!kIsWeb) {
-        if (filePath == null || filePath.isEmpty || !File(filePath).existsSync()) {
-          if (result.files.single.bytes != null) {
-            final tempDir = await getTemporaryDirectory();
-            final ext = result.files.single.extension ?? 'png';
-            tempFile = File(p.join(tempDir.path, 'scanned_qr_${DateTime.now().millisecondsSinceEpoch}.$ext'));
-            await tempFile.writeAsBytes(result.files.single.bytes!, flush: true);
-            filePath = tempFile.path;
-          }
-        }
-      }
-
-      if (filePath == null || filePath.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Could not read image file. Please try taking a photo or choosing from local storage."),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
-      }
-
-      BarcodeCapture? capture;
-      try {
-        capture = await _scannerController.analyzeImage(filePath);
-      } catch (scanErr) {
+      if (imageBytes == null && filePath != null && File(filePath).existsSync()) {
         try {
-          final standaloneScanner = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
-          capture = await standaloneScanner.analyzeImage(filePath);
-          await standaloneScanner.dispose();
+          imageBytes = await File(filePath).readAsBytes();
         } catch (_) {}
-      } finally {
-        if (tempFile != null && await tempFile.exists()) {
-          try { await tempFile.delete(); } catch (_) {}
+      }
+
+      final List<String> candidatePaths = [];
+      final List<File> tempFilesToClean = [];
+      final tempDir = await getTemporaryDirectory();
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      // Candidate 1: Original file if directly on disk, or raw bytes file
+      if (filePath != null && filePath.isNotEmpty && File(filePath).existsSync()) {
+        candidatePaths.add(filePath);
+      } else if (imageBytes != null && imageBytes.isNotEmpty) {
+        final rawFile = File(p.join(tempDir.path, 'raw_qr_$nowMs.png'));
+        await rawFile.writeAsBytes(imageBytes, flush: true);
+        tempFilesToClean.add(rawFile);
+        candidatePaths.add(rawFile.path);
+      }
+
+      // Candidate 2, 3, 4, 5: Cropped variants for phone screenshots
+      // Screenshots (e.g. 1080x2400) have small QR codes in the middle that get blurred when ML Kit downsamples.
+      // Cropping the center/top regions gives ML Kit full 1:1 pixel resolution of the QR finder patterns.
+      if (imageBytes != null && imageBytes.isNotEmpty) {
+        try {
+          final decoded = img.decodeImage(imageBytes);
+          if (decoded != null) {
+            final w = decoded.width;
+            final h = decoded.height;
+            final minDim = math.min(w, h);
+
+            // Candidate 2: Center crop (75% of min dimension) - standard center placement
+            final c75Size = (minDim * 0.75).toInt();
+            final c75X = math.max(0, (w - c75Size) ~/ 2);
+            final c75Y = math.max(0, (h - c75Size) ~/ 2);
+            final c75 = img.copyCrop(decoded, x: c75X, y: c75Y, width: c75Size, height: c75Size);
+            final f75 = File(p.join(tempDir.path, 'crop75_$nowMs.png'));
+            await f75.writeAsBytes(img.encodePng(c75), flush: true);
+            tempFilesToClean.add(f75);
+            candidatePaths.add(f75.path);
+
+            // Candidate 3: Tight center crop (50% of min dimension) - dialog/standee center zoom
+            final c50Size = (minDim * 0.50).toInt();
+            final c50X = math.max(0, (w - c50Size) ~/ 2);
+            final c50Y = math.max(0, (h - c50Size) ~/ 2);
+            final c50 = img.copyCrop(decoded, x: c50X, y: c50Y, width: c50Size, height: c50Size);
+            final f50 = File(p.join(tempDir.path, 'crop50_$nowMs.png'));
+            await f50.writeAsBytes(img.encodePng(c50), flush: true);
+            tempFilesToClean.add(f50);
+            candidatePaths.add(f50.path);
+
+            // Candidate 4: Upper center crop (for modals / dialogs displayed in top half of tall mobile screens)
+            if (h > w) {
+              final cTopSize = (minDim * 0.65).toInt();
+              final cTopX = math.max(0, (w - cTopSize) ~/ 2);
+              final cTopY = math.max(0, (h * 0.35 - cTopSize / 2).toInt());
+              final cTop = img.copyCrop(decoded, x: cTopX, y: cTopY, width: cTopSize, height: cTopSize);
+              final fTop = File(p.join(tempDir.path, 'croptop_$nowMs.png'));
+              await fTop.writeAsBytes(img.encodePng(cTop), flush: true);
+              tempFilesToClean.add(fTop);
+              candidatePaths.add(fTop.path);
+            }
+
+            // Candidate 5: Resized normalized (if huge camera photo e.g. 4000x3000)
+            if (w > 1200 || h > 1200) {
+              final resized = img.copyResize(
+                decoded,
+                width: w >= h ? 1200 : null,
+                height: h > w ? 1200 : null,
+              );
+              final fResized = File(p.join(tempDir.path, 'resized_$nowMs.png'));
+              await fResized.writeAsBytes(img.encodePng(resized), flush: true);
+              tempFilesToClean.add(fResized);
+              candidatePaths.add(fResized.path);
+            }
+          }
+        } catch (cropErr) {
+          debugPrint("QR candidate preparation error: $cropErr");
         }
       }
 
-      if (capture == null || capture.barcodes.isEmpty) {
+      String? foundRawVal;
+
+      // Analyze candidates using a clean dedicated MobileScannerController
+      for (final path in candidatePaths) {
+        if (!File(path).existsSync()) continue;
+        try {
+          final standaloneScanner = MobileScannerController(
+            formats: const [BarcodeFormat.all],
+            detectionSpeed: DetectionSpeed.noDuplicates,
+          );
+          final capture = await standaloneScanner.analyzeImage(path).timeout(
+            const Duration(seconds: 4),
+            onTimeout: () => null,
+          );
+          await standaloneScanner.dispose();
+
+          if (capture != null && capture.barcodes.isNotEmpty) {
+            for (final b in capture.barcodes) {
+              final v = b.rawValue?.trim();
+              if (v != null && v.isNotEmpty) {
+                foundRawVal = v;
+                break;
+              }
+            }
+          }
+          if (foundRawVal != null) break;
+        } catch (_) {}
+      }
+
+      // Cleanup all temporary crop files
+      for (final tempFile in tempFilesToClean) {
+        try {
+          if (await tempFile.exists()) await tempFile.delete();
+        } catch (_) {}
+      }
+
+      if (foundRawVal == null || foundRawVal.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("No QR code found in selected image. Please make sure the QR code is clearly visible and well-lit."),
+            content: Text("No QR code found in selected image. Please make sure the QR code is clearly visible and not blurred."),
             backgroundColor: Colors.orange,
           ),
         );
         return;
       }
 
-      final rawVal = capture.barcodes.first.rawValue;
-      if (rawVal != null && rawVal.trim().isNotEmpty) {
-        await _processScannedData(rawVal);
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("QR code was detected but could not be decoded. Please choose a sharper image."),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
+      // Connect to server using scanned QR payload
+      await _applyPayloadAndConnect(foundRawVal);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -253,7 +344,15 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
       );
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isProcessingQr = false;
+          _isLoading = false;
+        });
+        if (_isScanMode) {
+          try {
+            await _scannerController.start();
+          } catch (_) {}
+        }
       }
     }
   }
@@ -300,6 +399,7 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
       final res = await ApiClient.post(
         "$finalUrl/api/public/outlet/check",
         {'outlet_code': outletCode},
+        timeout: const Duration(seconds: 15),
       );
 
       if (res['success'] == true && res['exists'] == true) {
@@ -603,15 +703,16 @@ class _ServerConfigScreenState extends State<ServerConfigScreen>
                   if (_isLoading)
                     Container(
                       color: Colors.black.withValues(alpha: 0.65),
-                      child: const Center(
+                      child: Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            CircularProgressIndicator(color: Colors.white),
-                            SizedBox(height: 12),
+                            const CircularProgressIndicator(color: Colors.white),
+                            const SizedBox(height: 12),
                             Text(
-                              "Verifying connection...",
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                              _loadingMessage,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                             ),
                           ],
                         ),

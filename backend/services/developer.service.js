@@ -14,6 +14,8 @@ exports.generateApiKey = generateApiKey;
 exports.deleteApiKey = deleteApiKey;
 exports.issueOAuthToken = issueOAuthToken;
 exports.refreshOAuthToken = refreshOAuthToken;
+exports.createAuthorizationCode = createAuthorizationCode;
+exports.exchangeAuthCode = exchangeAuthCode;
 const crypto_1 = __importDefault(require("crypto"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const http_1 = __importDefault(require("http"));
@@ -325,6 +327,154 @@ async function generateApiKey(propertyDb, outletId = 0, keyName, scopes) {
     memoryApiKeys.unshift(newKeyEntry);
     return newKeyEntry;
 }
+
+const authCodes = new Map();
+
+// Periodic cleanup of expired auth codes
+setInterval(() => {
+    const now = Date.now();
+    for (const [c, entry] of authCodes.entries()) {
+        if (entry.expiresAt < now) {
+            authCodes.delete(c);
+        }
+    }
+}, 60 * 1000).unref?.();
+
+/**
+ * OAuth 2.0 RFC 6749 Authorization Code Generator (Used by ChatGPT Custom MCP OAuth flow)
+ */
+async function createAuthorizationCode(propertyDb, params) {
+    if (!params || !params.clientId) {
+        throw new Error('client_id is required.');
+    }
+    const allKeys = await getApiKeys(propertyDb, 0);
+    const keyRecord = allKeys.find(k => k.clientId === params.clientId);
+
+    if (!keyRecord) {
+        throw new Error(`Client ID '${params.clientId}' was not found in Famalth Lynx developer registry.`);
+    }
+
+    if (!keyRecord.isActive) {
+        throw new Error(`Client credentials for '${params.clientId}' have been revoked or disabled.`);
+    }
+
+    const code = `lynx_auth_${crypto_1.default.randomBytes(24).toString('hex')}`;
+    const effectiveScopes = (params.scopes && params.scopes.length > 0)
+        ? params.scopes
+        : keyRecord.scopes;
+
+    authCodes.set(code, {
+        code,
+        clientId: params.clientId,
+        outletId: keyRecord.outletId,
+        redirectUri: params.redirectUri,
+        scopes: effectiveScopes,
+        codeChallenge: params.codeChallenge,
+        codeChallengeMethod: params.codeChallengeMethod || 'S256',
+        expiresAt: Date.now() + (10 * 60 * 1000) // 10 minutes
+    });
+
+    return { code, keyRecord };
+}
+
+/**
+ * OAuth 2.0 RFC 6749 / RFC 7636 Authorization Code Exchange
+ */
+async function exchangeAuthCode(propertyDb, params) {
+    if (!params || !params.code) {
+        throw new Error('code parameter is required for grant_type=authorization_code.');
+    }
+
+    const entry = authCodes.get(params.code);
+    if (!entry) {
+        throw new Error('Invalid or expired authorization code.');
+    }
+
+    if (Date.now() > entry.expiresAt) {
+        authCodes.delete(params.code);
+        throw new Error('Authorization code has expired (valid for 10 minutes).');
+    }
+
+    if (params.clientId && entry.clientId !== params.clientId) {
+        throw new Error('Authorization code was not issued to this client_id.');
+    }
+
+    // Validate client secret against database
+    const allKeys = await getApiKeys(propertyDb, 0);
+    const keyRecord = allKeys.find(k => k.clientId === entry.clientId && k.clientSecret === params.clientSecret);
+
+    if (!keyRecord) {
+        throw new Error('Invalid client secret for the provided authorization code.');
+    }
+
+    if (!keyRecord.isActive) {
+        throw new Error('Client credentials have been revoked or disabled.');
+    }
+
+    // Verify PKCE if code_challenge was provided
+    if (entry.codeChallenge) {
+        if (!params.codeVerifier) {
+            throw new Error('code_verifier is required for PKCE-secured authorization exchange.');
+        }
+
+        if (entry.codeChallengeMethod === 'S256') {
+            const hash = crypto_1.default.createHash('sha256').update(params.codeVerifier).digest();
+            const computedBase64Url = hash.toString('base64url');
+            const computedRawBase64 = hash.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            if (computedBase64Url !== entry.codeChallenge && computedRawBase64 !== entry.codeChallenge) {
+                throw new Error('code_verifier does not match the code_challenge.');
+            }
+        } else if (params.codeVerifier !== entry.codeChallenge) {
+            throw new Error('code_verifier does not match plain challenge.');
+        }
+    }
+
+    // One-time use: delete code
+    authCodes.delete(params.code);
+
+    // Update last_used_at
+    if (propertyDb) {
+        propertyDb.query(
+            `UPDATE developer_api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            { bind: [keyRecord.id] }
+        ).catch(() => {});
+    }
+
+    const jwtSecret = process.env.JWT_SECRET || 'lynx_enterprise_dev_secret_2026';
+    const expiresInSeconds = 86400; // 24 Hours
+
+    const token = jsonwebtoken_1.default.sign(
+        {
+            sub: keyRecord.clientId,
+            outlet_id: keyRecord.outletId,
+            scopes: entry.scopes || keyRecord.scopes,
+            key_name: keyRecord.keyName,
+            type: 'authorization_code'
+        },
+        jwtSecret,
+        { expiresIn: expiresInSeconds }
+    );
+
+    const refreshToken = jsonwebtoken_1.default.sign(
+        {
+            sub: keyRecord.clientId,
+            client_secret_hash: crypto_1.default.createHash('sha256').update(keyRecord.clientSecret).digest('hex'),
+            outlet_id: keyRecord.outletId,
+            type: 'refresh_token'
+        },
+        jwtSecret,
+        { expiresIn: '30d' }
+    );
+
+    return {
+        access_token: token,
+        refresh_token: refreshToken,
+        token_type: 'Bearer',
+        expires_in: expiresInSeconds,
+        scope: (entry.scopes || keyRecord.scopes).join(' '),
+        outlet_id: keyRecord.outletId
+    };
+}
 async function deleteApiKey(propertyDb, outletId = 0, keyId) {
     await ensureDeveloperTables(propertyDb);
     if (propertyDb) {
@@ -447,5 +597,7 @@ exports.default = {
     generateApiKey,
     deleteApiKey,
     issueOAuthToken,
-    refreshOAuthToken
+    refreshOAuthToken,
+    createAuthorizationCode,
+    exchangeAuthCode
 };

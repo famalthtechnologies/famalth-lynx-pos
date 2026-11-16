@@ -818,10 +818,12 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
   }
 
   void _addToCart(Map<String, dynamic> item) {
+    final settingsCtrl = context.read<SystemSettingsController>();
+    final bool allowNegativeStock = settingsCtrl.settings?.allowNegativeStock ?? false;
     final bool isStockable = item['stockable'] == true || item['stockable'] == 1 || item['stockable'].toString() == 'true';
     final double stock = double.tryParse(item['opening_balance']?.toString() ?? '0') ?? 0.0;
     
-    if (isStockable && stock <= 0) {
+    if (!allowNegativeStock && isStockable && stock <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${item['item_name']} is currently out of stock!'),
@@ -835,7 +837,7 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
     setState(() {
       if (_cart.containsKey(itemId)) {
         final double currentQty = double.tryParse(_cart[itemId]!['qty'].toString()) ?? 0.0;
-        if (isStockable && currentQty >= stock) {
+        if (!allowNegativeStock && isStockable && currentQty >= stock) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Cannot add more. Only ${stock.toInt()} units available in stock.'),
@@ -1825,7 +1827,7 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
                                                   item['stockable'].toString() == 'true';
                                               final cartQty = _cart[item['id']]?['qty'] ?? 0.0;
                                               final double stock = (double.tryParse(item['opening_balance']?.toString() ?? '0') ?? 0.0) - cartQty;
-                                              final bool isOutOfStock = isStockable && stock <= 0;
+                                              final bool isOutOfStock = isStockable && stock <= 0 && !(settingsCtrl.settings?.allowNegativeStock ?? false);
                                               final bool allowNegativeStock = settingsCtrl.settings?.allowNegativeStock ?? false;
 
                                               final double rawRate = double.tryParse((item['retail_sale_price'] ?? item['rate'] ?? 0.0).toString()) ?? 0.0;

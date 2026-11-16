@@ -400,9 +400,9 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
               'stockable': item['stockable'] == true || item['stockable'] == 1 || item['stockable'].toString() == 'true',
               'stock': double.tryParse((item['stock'] ?? item['opening_balance'] ?? item['current_stock'] ?? 0).toString()) ?? 0.0,
               'opening_balance': double.tryParse((item['opening_balance'] ?? item['stock'] ?? item['current_stock'] ?? 0).toString()) ?? 0.0,
-              'is_out_of_stock': (item['is_out_of_stock'] == true) ||
+              'is_out_of_stock': !_allowNegativeStock && ((item['is_out_of_stock'] == true) ||
                   ((item['stockable'] == true || item['stockable'] == 1 || item['stockable'].toString() == 'true') &&
-                      (double.tryParse((item['stock'] ?? item['opening_balance'] ?? item['current_stock'] ?? 0).toString()) ?? 0.0) <= 0),
+                      (double.tryParse((item['stock'] ?? item['opening_balance'] ?? item['current_stock'] ?? 0).toString()) ?? 0.0) <= 0)),
               'tax_percent': double.tryParse((item['tax_percent'] ?? 0).toString()) ?? 0.0,
               'is_tax_inclusive': item['is_tax_inclusive'] == true || item['is_tax_inclusive'] == 1 || item['is_tax_inclusive'].toString() == 'true',
               'tax_group_name': item['tax_group_name']?.toString() ?? '',
@@ -665,8 +665,19 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
 
   // --- CART OPERATIONS & MODIFIERS / ADDONS ---
 
+  bool get _allowNegativeStock {
+    if (_restaurantData != null) {
+      final v = _restaurantData!['allow_negative_stock'] ?? _restaurantData!['allowNegativeStock'];
+      if (v == true || v == 1 || v.toString() == 'true') return true;
+    }
+    return false;
+  }
+
   bool _isItemOutOfStock(dynamic item) {
     if (item == null) return false;
+    if (_allowNegativeStock || item['allow_negative_stock'] == true || item['allow_negative_stock'].toString() == 'true') {
+      return false;
+    }
     if (item['is_out_of_stock'] == true || item['is_out_of_stock'].toString() == 'true') return true;
     final bool isStockable = item['stockable'] == true || item['stockable'] == 1 || item['stockable'].toString() == 'true';
     if (!isStockable) return false;
@@ -691,7 +702,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     }
 
     final currentQty = _cart[itemId]?['qty'] as int? ?? 0;
-    if (isStockable && stock > 0 && currentQty >= stock) {
+    if (!_allowNegativeStock && isStockable && stock > 0 && currentQty >= stock) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Only ${stock.toInt()} unit(s) available in stock for ${item['item_name'] ?? 'this item'}'),

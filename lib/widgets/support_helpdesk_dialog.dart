@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../core/api/api_client.dart';
 
@@ -114,13 +115,29 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
     setState(() => _isSubmitting = true);
 
     try {
+      String osName = 'Unknown';
+      String osVersion = '';
+      String hostname = '';
+
+      if (kIsWeb) {
+        osName = 'Web';
+        osVersion = 'Browser';
+        hostname = 'web-client';
+      } else {
+        try {
+          osName = Platform.operatingSystem;
+          osVersion = Platform.operatingSystemVersion;
+          hostname = Platform.localHostname;
+        } catch (_) {}
+      }
+
       final telemetry = {
-        'os': Platform.operatingSystem,
-        'osVersion': Platform.operatingSystemVersion,
+        'os': osName,
+        'osVersion': osVersion,
         'appVersion': '1.0.3+1',
         'outletId': widget.outletId,
         'outletCode': widget.outletCode ?? '',
-        'localHostname': Platform.localHostname,
+        'localHostname': hostname,
         'reportedAt': DateTime.now().toIso8601String(),
       };
 
@@ -130,7 +147,9 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
         'subject': subject,
         'priority': _priority,
         'message': message,
+        'initial_message': message.isNotEmpty ? message : subject,
         'telemetry': telemetry,
+        'client_telemetry': telemetry,
       };
 
       final res = await ApiClient.post('/api/v1/control-plane/support/tickets', payload);
@@ -156,9 +175,33 @@ class _SupportHelpdeskDialogState extends State<SupportHelpdeskDialog> {
         if (_activeTicket != null && _activeTicket!['id'] != null) {
           _pollTicketMessages();
         }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Support request submitted successfully! An engineer will reply shortly.'),
+            backgroundColor: Color(0xFF16A34A),
+          ),
+        );
+      } else {
+        if (mounted) {
+          setState(() => _isSubmitting = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res?['message'] ?? 'Failed to submit support request'),
+              backgroundColor: const Color(0xFFDC2626),
+            ),
+          );
+        }
       }
     } catch (e) {
-      if (mounted) setState(() => _isSubmitting = false);
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error submitting support request: $e'),
+            backgroundColor: const Color(0xFFDC2626),
+          ),
+        );
+      }
     }
   }
 

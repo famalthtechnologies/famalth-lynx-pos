@@ -3037,10 +3037,11 @@ const getPatientCreditStatus = async (req, res) => {
             return res.json({ success: true, total_credit_due: 0, total_billed: 0, total_paid: 0, unpaid_bills: [] });
         }
         const whereMatch = [];
-        if (phone)
-            whereMatch.push({ customer_phone: phone });
-        if (name)
-            whereMatch.push({ customer_name: { [sequelize_1.Op.iLike]: `%${name}%` } });
+        if (phone && phone.trim()) {
+            whereMatch.push({ customer_phone: phone.trim() });
+        } else if (name && name.trim()) {
+            whereMatch.push({ customer_name: { [sequelize_1.Op.iLike]: `%${name.trim()}%` } });
+        }
         const whereCondition = {
             outlet_id,
             [sequelize_1.Op.or]: whereMatch,
@@ -3099,10 +3100,11 @@ const settlePatientCredit = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Settlement amount must be greater than 0.' });
         }
         const whereMatch = [];
-        if (phone && phone.trim())
+        if (phone && phone.trim()) {
             whereMatch.push({ customer_phone: phone.trim() });
-        if (name && name.trim())
+        } else if (name && name.trim()) {
             whereMatch.push({ customer_name: { [sequelize_1.Op.iLike]: `%${name.trim()}%` } });
+        }
         let targetSale = null;
         if (appointment_id) {
             targetSale = await req.propertyDb.models.sales_headers.findOne({

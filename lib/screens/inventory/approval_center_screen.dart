@@ -21,9 +21,11 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
 
   List<dynamic> _requests = [];
   List<dynamic> _damages = [];
+  List<dynamic> _purchaseOrders = [];
   bool _loading = false;
   String _selectedRequestFilter = 'PENDING';
   String _selectedDamageFilter = 'PENDING';
+  String _selectedPurchaseFilter = 'PENDING';
 
   // Date range for reports (defaulting to last 90 days to capture pending approvals)
   DateTime _fromDate = DateTime.now().subtract(const Duration(days: 90));
@@ -32,7 +34,7 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         _loadData();
@@ -63,6 +65,14 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
         if (!mounted) return;
         setState(() {
           _requests = res['data'] ?? [];
+        });
+      } else if (_tabController.index == 1) {
+        final res = await ApiClient.get(
+          '${ApiEndpoints.purchaseOrders}/approvals?from_date=$fromStr&to_date=$toStr',
+        );
+        if (!mounted) return;
+        setState(() {
+          _purchaseOrders = res['data'] ?? [];
         });
       } else {
         final res = await ApiClient.get(
@@ -174,13 +184,51 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
     }
   }
 
-  void _showRejectionDialog(int id, bool isRequest) {
+  Future<void> _approvePurchaseOrder(int id) async {
+    try {
+      setState(() => _loading = true);
+      await ApiClient.put('${ApiEndpoints.purchaseOrders}/$id/approve', {});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Purchase Order approved successfully'), backgroundColor: Colors.green),
+      );
+      _loadData();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red.shade600),
+      );
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _rejectPurchaseOrder(int id, String reason) async {
+    try {
+      setState(() => _loading = true);
+      await ApiClient.put('${ApiEndpoints.purchaseOrders}/$id/reject', {
+        'rejection_reason': reason,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Purchase Order rejected successfully'), backgroundColor: Colors.orange),
+      );
+      _loadData();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red.shade600),
+      );
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _showRejectionDialog(int id, bool isRequest, {bool isPurchaseOrder = false}) {
     final reasonCtrl = TextEditingController();
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(isRequest ? 'Reject Request' : 'Reject Damage'),
+          title: Text(isRequest ? 'Reject Request' : isPurchaseOrder ? 'Reject Purchase Order' : 'Reject Damage'),
           content: TextField(
             controller: reasonCtrl,
             decoration: const InputDecoration(
@@ -210,6 +258,8 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
                 Navigator.pop(context);
                 if (isRequest) {
                   _rejectRequest(id, reason);
+                } else if (isPurchaseOrder) {
+                  _rejectPurchaseOrder(id, reason);
                 } else {
                   _rejectDamage(id, reason);
                 }
@@ -264,6 +314,7 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
           labelStyle: const TextStyle(fontWeight: FontWeight.bold),
           tabs: const [
             Tab(text: 'Material Requests'),
+            Tab(text: 'Purchase Orders'),
             Tab(text: 'Damage Reports'),
           ],
         ),
@@ -296,6 +347,7 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
                       controller: _tabController,
                       children: [
                         _buildRequestTab(scheme),
+                        _buildPurchaseOrderTab(),
                         _buildDamageTab(scheme),
                       ],
                     ),
@@ -308,7 +360,11 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
 
   Widget _buildFilterChips() {
     final currentTab = _tabController.index;
-    final activeFilter = currentTab == 0 ? _selectedRequestFilter : _selectedDamageFilter;
+    final activeFilter = currentTab == 0
+        ? _selectedRequestFilter
+        : currentTab == 1
+            ? _selectedPurchaseFilter
+            : _selectedDamageFilter;
 
     return Wrap(
       spacing: 8,
@@ -342,6 +398,8 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
               setState(() {
                 if (currentTab == 0) {
                   _selectedRequestFilter = filter;
+                } else if (currentTab == 1) {
+                  _selectedPurchaseFilter = filter;
                 } else {
                   _selectedDamageFilter = filter;
                 }
@@ -469,6 +527,98 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
                             icon: const Icon(Icons.check_circle_outline, size: 18),
                             label: const Text('Approve'),
                             onPressed: () => _approveRequest(req['id']),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPurchaseOrderTab() {
+    final filtered = _purchaseOrders
+        .where((po) => (po['approval_status'] ?? 'APPROVED').toString().toUpperCase() == _selectedPurchaseFilter)
+        .toList();
+    if (filtered.isEmpty) {
+      return _buildEmptyState(
+        Icons.shopping_cart_checkout_outlined,
+        'No purchase orders found in status $_selectedPurchaseFilter',
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: filtered.length,
+      itemBuilder: (context, index) {
+        final po = filtered[index];
+        final poId = int.tryParse(po['id']?.toString() ?? '') ?? 0;
+        final items = po['items'] as List? ?? [];
+        final supplier = (po['supplier']?['supplier_name'] ?? po['supplier_name'] ?? 'Supplier').toString();
+        final parsedDate = DateTime.tryParse(po['po_date']?.toString() ?? '');
+        final date = parsedDate == null ? '-' : DateFormat('dd-MMM-yyyy').format(parsedDate);
+        final total = CurrencyService.format(double.tryParse(po['total_amount']?.toString() ?? '') ?? 0);
+        return Card(
+          elevation: 2,
+          margin: const EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ExpansionTile(
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('PO #${po['po_no'] ?? po['id']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                _buildStatusBadge((po['approval_status'] ?? 'APPROVED').toString()),
+              ],
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 16,
+                runSpacing: 4,
+                children: [
+                  Text(supplier),
+                  Text(date),
+                  Text(total, style: const TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            children: [
+              Container(
+                width: double.infinity,
+                color: Colors.grey.shade50,
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Purchase Order Items:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 8),
+                    _buildItemsTable(items, showValue: true),
+                    if ((po['rejection_reason'] ?? '').toString().trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text('Rejection Reason: ${po['rejection_reason']}', style: TextStyle(color: Colors.red.shade800)),
+                    ],
+                    if ((po['approval_status'] ?? 'APPROVED').toString().toUpperCase() == 'PENDING') ...[
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.cancel_outlined, size: 18),
+                            label: const Text('Reject'),
+                            style: OutlinedButton.styleFrom(foregroundColor: Colors.red.shade700),
+                            onPressed: () => _showRejectionDialog(poId, false, isPurchaseOrder: true),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.check_circle_outline, size: 18),
+                            label: const Text('Approve'),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade600, foregroundColor: Colors.white),
+                            onPressed: () => _approvePurchaseOrder(poId),
                           ),
                         ],
                       ),

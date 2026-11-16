@@ -3167,7 +3167,11 @@ class _DoctorBookingDialogState extends State<_DoctorBookingDialog> {
     final phone = _phoneCtrl.text.trim();
     if (phone.isEmpty) return;
     try {
-      final res = await ApiClient.get('/api/public/clinic/patient-subscriptions', queryParams: {'phone': phone});
+      final res = await ApiClient.get(
+        ApiEndpoints.publicPatientSubscriptions,
+        queryParams: {'phone': phone},
+        silent: true,
+      );
       if (res != null && res['data'] is List && mounted) {
         setState(() {
           _activePackages = (res['data'] as List).where((p) {

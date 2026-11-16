@@ -123,6 +123,20 @@ const createReceiving = async (req, res) => {
         const outlet_id = req.user.outlet_id;
         const user_id = req.user.id;
         const { grn_no, manual_no, po_no, supplier_id, receipt_date, supplier_bill_no, status, round_off_amount, round_off, items = [] } = req.body;
+        if (po_no && String(po_no).trim().length > 0) {
+            const purchaseOrder = await req.propertyDb.models.purchase_orders.findOne({
+                where: { id: po_no, outlet_id },
+                transaction: t
+            });
+            if (!purchaseOrder) {
+                await t.rollback();
+                return res.status(404).json({ success: false, message: 'Purchase order not found' });
+            }
+            if (String(purchaseOrder.approval_status || 'APPROVED').toUpperCase() !== 'APPROVED') {
+                await t.rollback();
+                return res.status(400).json({ success: false, message: 'Purchase order must be approved before receiving goods' });
+            }
+        }
         const billNo = String(supplier_bill_no || '').trim();
         if (!billNo || billNo === '0') {
             await t.rollback();

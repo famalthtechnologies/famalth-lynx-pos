@@ -743,6 +743,9 @@ app.use('/api/v1/operations', require('./routes/operations.routes'));
 app.use('/api/v1/workflows', require('./routes/workflow.routes'));
 app.use('/api/v1/agent', require('./routes/autonomous_agent.routes'));
 app.use('/api/v1/developer', require('./routes/developer.routes'));
+// RFC 8414 OAuth 2.0 Authorization Server Discovery (ChatGPT & Remote MCP)
+const developerController = require('./controllers/developer.controller');
+app.get(['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'], developerController.getOAuthMetadata);
 app.use('/api/v1/plugins', require('./routes/plugin.routes'));
 app.use('/api/v1/open', require('./routes/open_api.routes'));
 app.use('/api/notes', require('./routes/userNote.routes'));

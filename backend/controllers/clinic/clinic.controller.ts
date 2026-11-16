@@ -3278,8 +3278,11 @@ export const getPatientCreditStatus = async (req: Request, res: Response) => {
         }
 
         const whereMatch: any = [];
-        if (phone) whereMatch.push({ customer_phone: phone });
-        if (name) whereMatch.push({ customer_name: { [Op.iLike]: `%${name}%` } });
+        if (phone && phone.trim()) {
+            whereMatch.push({ customer_phone: phone.trim() });
+        } else if (name && name.trim()) {
+            whereMatch.push({ customer_name: { [Op.iLike]: `%${name.trim()}%` } });
+        }
 
         const whereCondition: any = {
             outlet_id,
@@ -3353,8 +3356,11 @@ export const settlePatientCredit = async (req: Request, res: Response) => {
         }
 
         const whereMatch: any = [];
-        if (phone && phone.trim()) whereMatch.push({ customer_phone: phone.trim() });
-        if (name && name.trim()) whereMatch.push({ customer_name: { [Op.iLike]: `%${name.trim()}%` } });
+        if (phone && phone.trim()) {
+            whereMatch.push({ customer_phone: phone.trim() });
+        } else if (name && name.trim()) {
+            whereMatch.push({ customer_name: { [Op.iLike]: `%${name.trim()}%` } });
+        }
 
         let targetSale: any = null;
         if (appointment_id) {

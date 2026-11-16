@@ -84,7 +84,8 @@ export const createPurchaseOrder = async (req: Request, res: Response) => {
             round_off_amount: roundOff,
             total_amount: total,
             status: deriveHeaderStatus(normalizedItems),
-            created_by: user_id
+            created_by: user_id,
+            approval_status: 'PENDING'
         }, { transaction: t });
 
         for (const i of normalizedItems) {
@@ -180,6 +181,7 @@ export const getPurchaseOrderReport = async (req: Request, res: Response) => {
                 'total_amount',
                 'round_off_amount',
                 'status',
+                'approval_status',
                 [Sequelize.col('supplier.supplier_name'), 'supplier_name']
             ],
             include: [
@@ -222,6 +224,139 @@ export const getPurchaseOrderDetails = async (req: Request, res: Response) => {
         res.json({ success: true, data: po });
 
     } catch (err: any) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const getPurchaseOrderApprovals = async (req: Request, res: Response) => {
+    try {
+        const { from_date, to_date, status } = req.query as any;
+        const where: any = { outlet_id: (req as any).user.outlet_id };
+        if (from_date && to_date) {
+            where.po_date = { [Op.between]: [from_date, to_date] };
+        }
+        if (status) where.approval_status = String(status).toUpperCase();
+
+        const rows = await (req as any).propertyDb.models.purchase_orders.findAll({
+            where,
+            include: [
+                {
+                    model: (req as any).propertyDb.models.supplier_master,
+                    as: 'supplier',
+                    attributes: ['supplier_name', 'supplier_code']
+                },
+                {
+                    model: (req as any).propertyDb.models.purchase_order_items,
+                    as: 'items'
+                }
+            ],
+            order: [['po_date', 'DESC'], ['id', 'DESC']]
+        });
+        res.json({ success: true, data: rows });
+    } catch (err: any) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const approvePurchaseOrder = async (req: Request, res: Response) => {
+    if (String((req as any).user.role || '').toUpperCase() !== 'ADMIN') {
+        return res.status(403).json({ success: false, message: 'Only admin can approve purchase orders' });
+    }
+    const t = await (req as any).propertyDb.transaction();
+    try {
+        const po = await (req as any).propertyDb.models.purchase_orders.findOne({
+            where: { id: req.params.id, outlet_id: (req as any).user.outlet_id },
+            transaction: t
+        });
+        if (!po) {
+            await t.rollback();
+            return res.status(404).json({ success: false, message: 'Purchase order not found' });
+        }
+        if (String(po.approval_status || 'APPROVED').toUpperCase() !== 'PENDING') {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Only pending purchase orders can be approved' });
+        }
+        await po.update({
+            approval_status: 'APPROVED',
+            approved_by: (req as any).user.id,
+            approved_at: new Date(),
+            rejected_by: null,
+            rejected_at: null,
+            rejection_reason: null
+        }, { transaction: t });
+        await (req as any).propertyDb.models.system_notifications.create({
+            outlet_id: (req as any).user.outlet_id,
+            module: 'PURCHASE',
+            title: 'Purchase Order Approved',
+            message: `Purchase Order ${po.po_no} approved`,
+            type: 'SUCCESS',
+            entity_id: po.id
+        }, { transaction: t });
+        await audit.log({
+            req,
+            module: 'PURCHASE_ORDER',
+            action: 'APPROVE',
+            table: 'purchase_orders',
+            recordId: po.id,
+            newData: { approval_status: 'APPROVED' }
+        }, { transaction: t });
+        await t.commit();
+        res.json({ success: true, message: 'Purchase order approved successfully' });
+    } catch (err: any) {
+        await t.rollback();
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+export const rejectPurchaseOrder = async (req: Request, res: Response) => {
+    if (String((req as any).user.role || '').toUpperCase() !== 'ADMIN') {
+        return res.status(403).json({ success: false, message: 'Only admin can reject purchase orders' });
+    }
+    const reason = String(req.body.rejection_reason || '').trim();
+    if (!reason) return res.status(400).json({ success: false, message: 'Rejection reason is required' });
+
+    const t = await (req as any).propertyDb.transaction();
+    try {
+        const po = await (req as any).propertyDb.models.purchase_orders.findOne({
+            where: { id: req.params.id, outlet_id: (req as any).user.outlet_id },
+            transaction: t
+        });
+        if (!po) {
+            await t.rollback();
+            return res.status(404).json({ success: false, message: 'Purchase order not found' });
+        }
+        if (String(po.approval_status || 'APPROVED').toUpperCase() !== 'PENDING') {
+            await t.rollback();
+            return res.status(400).json({ success: false, message: 'Only pending purchase orders can be rejected' });
+        }
+        await po.update({
+            approval_status: 'REJECTED',
+            rejected_by: (req as any).user.id,
+            rejected_at: new Date(),
+            rejection_reason: reason,
+            approved_by: null,
+            approved_at: null
+        }, { transaction: t });
+        await (req as any).propertyDb.models.system_notifications.create({
+            outlet_id: (req as any).user.outlet_id,
+            module: 'PURCHASE',
+            title: 'Purchase Order Rejected',
+            message: `Purchase Order ${po.po_no} rejected: ${reason}`,
+            type: 'WARNING',
+            entity_id: po.id
+        }, { transaction: t });
+        await audit.log({
+            req,
+            module: 'PURCHASE_ORDER',
+            action: 'REJECT',
+            table: 'purchase_orders',
+            recordId: po.id,
+            newData: { approval_status: 'REJECTED', rejection_reason: reason }
+        }, { transaction: t });
+        await t.commit();
+        res.json({ success: true, message: 'Purchase order rejected successfully' });
+    } catch (err: any) {
+        await t.rollback();
         res.status(500).json({ success: false, message: err.message });
     }
 };
@@ -370,7 +505,13 @@ export const modifyPurchaseOrder = async (req: Request, res: Response) => {
             supplier_id,
             round_off_amount: roundOff,
             total_amount: finalTotal,
-            status: deriveHeaderStatus(normalizedItems)
+            status: deriveHeaderStatus(normalizedItems),
+            approval_status: 'PENDING',
+            approved_by: null,
+            approved_at: null,
+            rejected_by: null,
+            rejected_at: null,
+            rejection_reason: null
         }, { transaction: t });
 
         await (req as any).propertyDb.models.purchase_order_items.destroy({
@@ -438,6 +579,7 @@ export const listPurchaseOrders = async (req: Request, res: Response) => {
         const data = await (req as any).propertyDb.models.purchase_orders.findAll({
             where: {
                 outlet_id: (req as any).user.outlet_id,
+                approval_status: 'APPROVED',
                 status: {
                     [Op.in]: ['OPEN', 'PARTIAL']
                 }
@@ -478,7 +620,15 @@ export const updatePurchaseOrder = async (req: Request, res: Response) => {
     if (!po || po.status !== 'OPEN')
         return res.status(400).json({ success: false, message: 'PO locked' });
 
-    await po.update(req.body);
+    await po.update({
+        ...req.body,
+        approval_status: 'PENDING',
+        approved_by: null,
+        approved_at: null,
+        rejected_by: null,
+        rejected_at: null,
+        rejection_reason: null
+    });
 
     await audit.log({
         req,
@@ -566,6 +716,19 @@ export const sendPoEmail = async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, message: 'Recipient email address is required.' });
         }
 
+        const purchaseOrder = await (req as any).propertyDb.models.purchase_orders.findOne({
+            where: { outlet_id, po_no }
+        });
+        if (!purchaseOrder) {
+            return res.status(404).json({ success: false, message: 'Purchase order not found.' });
+        }
+        if (String(purchaseOrder.approval_status || 'APPROVED').toUpperCase() !== 'APPROVED') {
+            return res.status(400).json({
+                success: false,
+                message: 'Purchase order must be approved before it can be emailed to the supplier.'
+            });
+        }
+
         let attachments: any[] = [];
         if (pdf_base64) {
             attachments.push({
@@ -633,6 +796,9 @@ const purchaseOrderController = {
     createPurchaseOrder,
     getPurchaseOrderReport,
     getPurchaseOrderDetails,
+    getPurchaseOrderApprovals,
+    approvePurchaseOrder,
+    rejectPurchaseOrder,
     getPoByDate,
     getPurchaseOrderForPrint,
     modifyPurchaseOrder,
