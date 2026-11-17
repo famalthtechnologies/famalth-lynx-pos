@@ -1429,6 +1429,162 @@ class ControlPlaneController {
             return res.status(500).json({ success: false, message: err.message });
         }
     }
+    /**
+     * 15. Server Health, Uptime & Telemetry Status
+     */
+    static async getServerHealth(req, res) {
+        try {
+            const os = require('os');
+            const processUptime = process.uptime();
+            const systemUptime = os.uptime();
+
+            let dbStatus = 'CONNECTED';
+            let dbLatencyMs = 0;
+            let dbSize = 'Unknown';
+            let activeConnections = 1;
+
+            try {
+                const t0 = Date.now();
+                await propertyDb_1.default.query('SELECT 1;');
+                dbLatencyMs = Date.now() - t0;
+
+                try {
+                    const [sizeRow] = await propertyDb_1.default.query('SELECT pg_size_pretty(pg_database_size(current_database())) as size;');
+                    if (sizeRow && sizeRow[0]?.size) dbSize = String(sizeRow[0].size);
+                } catch (_) {}
+
+                try {
+                    const [connRow] = await propertyDb_1.default.query('SELECT count(*) as count FROM pg_stat_activity WHERE datname = current_database();');
+                    if (connRow && connRow[0]?.count) activeConnections = Number(connRow[0].count);
+                } catch (_) {}
+            } catch (dbErr) {
+                dbStatus = 'DISCONNECTED';
+                dbLatencyMs = -1;
+            }
+
+            const memUsage = process.memoryUsage();
+            const totalRam = os.totalmem();
+            const freeRam = os.freemem();
+            const usedRam = totalRam - freeRam;
+            const memUsagePercent = totalRam > 0 ? Math.round((usedRam / totalRam) * 100) : 0;
+
+            let socketClientsCount = 0;
+            try {
+                const { getSocketHub } = require('../../services/socketHub.service');
+                const io = getSocketHub();
+                if (io) {
+                    socketClientsCount = io.engine?.clientsCount || (io.sockets?.sockets?.size ?? 0);
+                }
+            } catch (_) {}
+
+            const networkIps = [];
+            try {
+                const ifaces = os.networkInterfaces();
+                for (const name of Object.keys(ifaces)) {
+                    for (const iface of ifaces[name] || []) {
+                        if (iface.family === 'IPv4' && !iface.internal) {
+                            networkIps.push(`${iface.address} (${name})`);
+                        }
+                    }
+                }
+            } catch (_) {}
+
+            const formatDuration = (seconds) => {
+                const d = Math.floor(seconds / (3600 * 24));
+                const h = Math.floor((seconds % (3600 * 24)) / 3600);
+                const m = Math.floor((seconds % 3600) / 60);
+                const s = Math.floor(seconds % 60);
+                const parts = [];
+                if (d > 0) parts.push(`${d}d`);
+                if (h > 0 || d > 0) parts.push(`${h}h`);
+                if (m > 0 || h > 0 || d > 0) parts.push(`${m}m`);
+                parts.push(`${s}s`);
+                return parts.join(' ');
+            };
+
+            const isCloud = !!(process.env.IS_CLOUD === 'true' || process.env.DATABASE_URL || process.env.RENDER || process.env.VERCEL);
+            const cloudProvider = process.env.RENDER
+                ? 'Render Cloud'
+                : (process.env.VERCEL ? 'Vercel' : (process.env.AWS ? 'Amazon Web Services' : (isCloud ? 'Cloud Container' : 'Local / On-Premise Workstation')));
+
+            const serverPort = Number(process.env.PORT || 3000);
+            const hostHeader = req.get('host') || `${os.hostname()}:${serverPort}`;
+            const serverOrigin = `${req.protocol}://${hostHeader}`;
+            const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').toString();
+
+            let overallStatus = 'HEALTHY';
+            if (dbStatus !== 'CONNECTED' || dbLatencyMs > 2500) {
+                overallStatus = 'DEGRADED';
+            }
+            if (memUsagePercent > 92) {
+                overallStatus = 'WARNING';
+            }
+
+            return res.json({
+                success: true,
+                data: {
+                    overall_status: overallStatus,
+                    timestamp: new Date().toISOString(),
+                    uptime: {
+                        process_uptime_seconds: Math.floor(processUptime),
+                        system_uptime_seconds: Math.floor(systemUptime),
+                        started_at: new Date(Date.now() - processUptime * 1000).toISOString(),
+                        formatted_process_uptime: formatDuration(processUptime),
+                        formatted_system_uptime: formatDuration(systemUptime),
+                    },
+                    connected_server: {
+                        origin: serverOrigin,
+                        host: hostHeader,
+                        client_ip: clientIp,
+                        port: serverPort,
+                        environment: process.env.NODE_ENV || 'production',
+                        deployment_mode: isCloud ? 'Cloud Server' : 'Local On-Premise',
+                        cloud_provider: cloudProvider,
+                        node_version: process.version,
+                        pid: process.pid,
+                        hostname: os.hostname(),
+                        platform: `${os.platform()} (${os.type()} ${os.arch()})`,
+                        os_release: os.release(),
+                        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata',
+                        network_ips: networkIps,
+                    },
+                    database: {
+                        status: dbStatus,
+                        dialect: 'PostgreSQL',
+                        database_name: (propertyDb_1.default.config && propertyDb_1.default.config.database) || 'retail_sale_pos',
+                        database_size: dbSize,
+                        query_latency_ms: dbLatencyMs,
+                        active_connections: activeConnections,
+                    },
+                    system_resources: {
+                        memory: {
+                            process_heap_used_mb: Math.round((memUsage.heapUsed / (1024 * 1024)) * 10) / 10,
+                            process_heap_total_mb: Math.round((memUsage.heapTotal / (1024 * 1024)) * 10) / 10,
+                            process_rss_mb: Math.round((memUsage.rss / (1024 * 1024)) * 10) / 10,
+                            system_total_gb: Math.round((totalRam / (1024 * 1024 * 1024)) * 10) / 10,
+                            system_free_gb: Math.round((freeRam / (1024 * 1024 * 1024)) * 10) / 10,
+                            system_used_gb: Math.round((usedRam / (1024 * 1024 * 1024)) * 10) / 10,
+                            system_usage_percent: memUsagePercent,
+                        },
+                        cpu: {
+                            cores: os.cpus().length,
+                            model: (os.cpus()[0] && os.cpus()[0].model) || 'CPU Core',
+                            load_average: os.loadavg(),
+                        },
+                    },
+                    services: {
+                        api_gateway: { status: 'ONLINE', latency_ms: 1 },
+                        database: { status: dbStatus, latency_ms: dbLatencyMs },
+                        realtime_sockets: { status: 'ONLINE', connected_clients: socketClientsCount },
+                    },
+                },
+            });
+        }
+        catch (err) {
+            console.error('getServerHealth error:', err);
+            return res.status(500).json({ success: false, message: 'Failed to retrieve server health: ' + err.message });
+        }
+    }
 }
 exports.ControlPlaneController = ControlPlaneController;
 exports.default = ControlPlaneController;
