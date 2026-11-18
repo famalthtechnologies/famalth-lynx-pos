@@ -139,6 +139,15 @@ class ApiEndpoints {
   static const accountingProfitLoss = '/api/accounting/reports/profit-loss';
   static const accountingBalanceSheet = '/api/accounting/reports/balance-sheet';
   static const accountingBrs = '/api/accounting/reports/brs';
+
+  // Statutory Tax Compliance (GST & ITR) Endpoints
+  static const taxGstSummary = '/api/accounting/tax/gst-summary';
+  static const taxGstr1Export = '/api/accounting/tax/gstr1-export';
+  static const taxGspFileGstr1 = '/api/accounting/tax/gsp-file-gstr1';
+  static const taxItrSummary = '/api/accounting/tax/itr-summary';
+  static const taxItr4Export = '/api/accounting/tax/itr4-export';
+  static const taxConfig = '/api/accounting/tax/config';
+  static const taxFilings = '/api/accounting/tax/filings';
   static const sales = '/api/sales';
   static const commissionRules = '/api/sales/commission-rules';
   static const salesSchemes = '/api/sales/schemes';

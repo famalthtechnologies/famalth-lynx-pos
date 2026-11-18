@@ -6,6 +6,8 @@ import 'accounting_vouchers_screen.dart';
 import 'trial_balance_screen.dart';
 import 'profit_loss_screen.dart';
 import 'balance_sheet_screen.dart';
+import 'gst_compliance_screen.dart';
+import 'itr_filing_screen.dart';
 
 import '../../controllers/inventory/stock_transfer_controller.dart';
 
@@ -317,6 +319,36 @@ class _AccountingDashboardScreenState extends State<AccountingDashboardScreen> {
                       icon: Icons.assessment,
                       color: Colors.purple.shade800,
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BalanceSheetScreen(outletId: _selectedOutletId?.toString() ?? 'ALL'))),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // Section 4: Statutory Tax Compliance & Filing (GST & ITR)
+              const Text('STATUTORY TAX COMPLIANCE & FILINGS (GST & ITR)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryColor, letterSpacing: 0.5)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildTile(
+                      context,
+                      title: 'GST Compliance & Return Hub (GSTR-1, 3B, 2B)',
+                      subtitle: '1-Click Direct GSP API filing, B2B/B2CS tax breakdown, HSN register, and Gov-certified JSON exporter',
+                      icon: Icons.account_balance_wallet,
+                      color: tealColor,
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GstComplianceScreen(outletId: _selectedOutletId?.toString() ?? 'ALL'))),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildTile(
+                      context,
+                      title: 'Income Tax Return (ITR) & Direct Tax Hub',
+                      subtitle: 'Section 44AD Presumptive Taxation (6% digital / 8% cash deemed profit), Advance Tax schedule, and ITR-4 JSON exporter',
+                      icon: Icons.assignment_turned_in,
+                      color: const Color(0xFF1E3A8A),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ItrFilingScreen(outletId: _selectedOutletId?.toString() ?? 'ALL'))),
                     ),
                   ),
                 ],
