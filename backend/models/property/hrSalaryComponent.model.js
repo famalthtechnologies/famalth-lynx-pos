@@ -4,6 +4,7 @@ module.exports = (sequelize, DataTypes) => {
     const HrSalaryComponent = sequelize.define('hr_salary_components', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         outlet_id: { type: DataTypes.INTEGER, allowNull: false },
+        office_id: { type: DataTypes.INTEGER, allowNull: true },
         name: { type: DataTypes.STRING(150), allowNull: false },
         nature: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'Earning' },
         type: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'Fixed' },
@@ -19,6 +20,9 @@ module.exports = (sequelize, DataTypes) => {
     });
     HrSalaryComponent.associate = (models) => {
         HrSalaryComponent.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
+        if (models.hr_offices) {
+            HrSalaryComponent.belongsTo(models.hr_offices, { foreignKey: 'office_id', as: 'office' });
+        }
         HrSalaryComponent.belongsToMany(models.hr_pay_structures, {
             through: models.hr_pay_structure_components,
             foreignKey: 'salary_component_id',

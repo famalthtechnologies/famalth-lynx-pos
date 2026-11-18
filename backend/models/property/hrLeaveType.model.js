@@ -4,6 +4,7 @@ module.exports = (sequelize, DataTypes) => {
     const HrLeaveType = sequelize.define('hr_leave_types', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         outlet_id: { type: DataTypes.INTEGER, allowNull: false },
+        office_id: { type: DataTypes.INTEGER, allowNull: true },
         name: { type: DataTypes.STRING(100), allowNull: false },
         is_paid: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
         annual_quota: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 14 },
@@ -16,6 +17,9 @@ module.exports = (sequelize, DataTypes) => {
     });
     HrLeaveType.associate = (models) => {
         HrLeaveType.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
+        if (models.hr_offices) {
+            HrLeaveType.belongsTo(models.hr_offices, { foreignKey: 'office_id', as: 'office' });
+        }
     };
     return HrLeaveType;
 };

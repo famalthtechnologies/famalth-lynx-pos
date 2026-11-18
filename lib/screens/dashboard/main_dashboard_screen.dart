@@ -73,6 +73,7 @@ import '../reports/expiry_tracker_screen.dart';
 import '../clinic/clinic_dashboard_screen.dart';
 import '../clinic/public_appointment_booking_screen.dart';
 import '../clinic/clinic_doctor_management_dialog.dart';
+import '../hrms/hrms_dashboard_screen.dart';
 import '../hrms/employee_screen.dart';
 import '../hrms/attendance_screen.dart';
 import '../hrms/payroll_screen.dart';
@@ -4907,7 +4908,15 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentGatewaysScreen())),
       },
 
-      // HR & Payroll
+            // HR & Payroll
+      {
+        'category': 'HR & Payroll',
+        'icon': Icons.dashboard_outlined,
+        'label': 'HRMS Dashboard',
+        'permission': 'HR_ATTENDANCE',
+        'keywords': ['hrms dashboard', 'workforce analytics', 'staff attendance', 'overtime', 'geofence violations'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrmsDashboardScreen())),
+      },
       {
         'category': 'HR & Payroll',
         'icon': Icons.people_outline,
@@ -5784,7 +5793,17 @@ class _MainDashboardScreenState extends State<MainDashboardScreen>
         'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WhatsAppDashboardScreen())),
       },
 
-      // HR & Payroll
+            // HR & Payroll
+      {
+        'category': 'HR & Payroll',
+        'icon': Icons.dashboard_outlined,
+        'label': 'HRMS & Workforce Dashboard',
+        'subLabel': 'HR & Payroll ➜ live workforce attendance, late arrivals, geofence overview',
+        'permission': 'HR_ATTENDANCE',
+        'keywords': ['hrms dashboard', 'workforce analytics', 'staff attendance overview', 'overtime', 'geofence violations'],
+        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HrmsDashboardScreen())),
+      },
+// HR & Payroll
       {
         'category': 'HR & Payroll',
         'icon': Icons.people_outline,

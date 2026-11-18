@@ -1,5 +1,6 @@
 import '../../core/currency/currency_service.dart';
 import '../../core/utils/country_tax_helper.dart';
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:io';
@@ -96,8 +97,12 @@ class _SaleScreenState extends State<SaleScreen> {
   final settingsCtrl = SystemSettingsController();
   Printer? _defaultPrinter;
   int? _preloadedTableId;
+  String? _preloadedTableName;
   int? _preloadedAppointmentId;
   List<int>? _preloadedKotIds;
+  int _restaurantBillRequestCount = 0;
+  int _restaurantOccupiedCount = 0;
+  Timer? _restaurantPollingTimer;
   bool _isRestaurantModule = false;
   bool get _isRestaurantActive => _isRestaurantModule || _isKotOrderLocked;
 
@@ -750,6 +755,39 @@ class _SaleScreenState extends State<SaleScreen> {
         setState(() {
           _isRestaurantModule = isRestActive;
         });
+        if (isRestActive) {
+          _loadRestaurantCounts();
+          _restaurantPollingTimer?.cancel();
+          _restaurantPollingTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+            if (mounted) _loadRestaurantCounts();
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadRestaurantCounts() async {
+    if (!_isRestaurantModule && !_isRestaurantActive) return;
+    try {
+      final res = await ApiClient.get(ApiEndpoints.restaurantTables);
+      if (res != null && res['data'] is List) {
+        final tables = res['data'] as List;
+        int billReq = 0;
+        int occupied = 0;
+        for (final t in tables) {
+          final st = (t['status'] ?? '').toString().toLowerCase();
+          if (st.contains('bill') || st.contains('request')) {
+            billReq++;
+          } else if (st == 'occupied') {
+            occupied++;
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _restaurantBillRequestCount = billReq;
+            _restaurantOccupiedCount = occupied;
+          });
+        }
       }
     } catch (_) {}
   }
@@ -979,6 +1017,7 @@ class _SaleScreenState extends State<SaleScreen> {
 
   @override
   void dispose() {
+    _restaurantPollingTimer?.cancel();
     _saleNo.dispose();
     _saleDateCtrl.dispose();
     _customerName.dispose();
@@ -8021,6 +8060,15 @@ class _SaleScreenState extends State<SaleScreen> {
           }
         }
       }
+      if (_preloadedTableId != null) {
+        try {
+          ApiClient.put('${ApiEndpoints.restaurantTables}/$_preloadedTableId/status', {
+            'status': 'Available',
+          });
+        } catch (e) {
+          debugPrint('Error updating table status to Available: $e');
+        }
+      }
     } else if (status == 'PRINTED' || status == 'RUNNING' || status == 'DRAFT') {
       if (_preloadedTableId != null) {
         try {
@@ -8035,12 +8083,17 @@ class _SaleScreenState extends State<SaleScreen> {
 
     final bool isRestaurantTableSale = _preloadedTableId != null || order.tableId != null;
     final bool isClinicConsultationSale = _preloadedAppointmentId != null;
-    if (isEditing || (status == 'COMPLETED' && (isRestaurantTableSale || isClinicConsultationSale)) || ((status == 'PRINTED' || status == 'RUNNING') && isRestaurantTableSale)) {
+    final bool isNavigatedTableBilling = widget.preloadedTableId != null;
+    if (isEditing || (status == 'COMPLETED' && (isNavigatedTableBilling || isClinicConsultationSale)) || ((status == 'PRINTED' || status == 'RUNNING') && isNavigatedTableBilling)) {
       if (Navigator.canPop(context)) {
         Navigator.pop(context, true);
       }
     } else {
+      _preloadedTableId = null;
+      _preloadedTableName = null;
+      _preloadedKotIds = null;
       await _resetSaleForm();
+      _loadRestaurantCounts();
     }
 
     // ── NON-BLOCKING PRINTING ────────────────────────────────────────────
@@ -10266,6 +10319,23 @@ class _SaleScreenState extends State<SaleScreen> {
                       count: _subscriptionDraftCount,
                       color: const Color(0xFF10B981),
                     ),
+                  if (_isRestaurantModule || _isRestaurantActive)
+                    _sidebarBadgeButton(
+                      icon: Icons.table_restaurant_rounded,
+                      onTap: _showRestaurantTablesDialog,
+                      tooltip: 'Restaurant Tables & Waiter Orders' +
+                          (_restaurantBillRequestCount > 0
+                              ? ' ($_restaurantBillRequestCount Bill Req)'
+                              : _restaurantOccupiedCount > 0
+                                  ? ' ($_restaurantOccupiedCount Occupied)'
+                                  : ''),
+                      count: _restaurantBillRequestCount > 0
+                          ? _restaurantBillRequestCount
+                          : _restaurantOccupiedCount,
+                      color: _restaurantBillRequestCount > 0
+                          ? Colors.amber.shade800
+                          : const Color(0xFF6366F1),
+                    ),
                 ],
               ),
             ),
@@ -10610,6 +10680,765 @@ class _SaleScreenState extends State<SaleScreen> {
       ),
     );
     _loadSubscriptionDraftCounts();
+  }
+
+  Future<void> _loadRestaurantTableIntoSaleCart(Map<String, dynamic> table, {List<dynamic>? preloadedKots}) async {
+    final tableId = int.tryParse(table['id']?.toString() ?? '0') ?? 0;
+    if (tableId <= 0) return;
+    final tableName = (table['table_name'] ?? table['name'] ?? 'Table #$tableId').toString();
+
+    // Check if cart has items
+    if (_items.isNotEmpty) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Replace Cart Items?'),
+          content: Text('Your current cart has ${_items.length} items.\n\nLoading "$tableName" will replace the current cart with the table\'s active order.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF7A1A)),
+              child: const Text('Replace Cart'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
+    // Fetch active KOTs if not passed
+    List<dynamic> activeKots = preloadedKots ?? [];
+    if (activeKots.isEmpty) {
+      try {
+        final res = await ApiClient.get('${ApiEndpoints.restaurantKots}?table_id=$tableId&active_only=true');
+        if (res != null && res['data'] is List) {
+          activeKots = res['data'] as List;
+        }
+      } catch (e) {
+        debugPrint('Error fetching KOTs for table $tableId: $e');
+      }
+    }
+
+    final kotIds = <int>[];
+    final consolidated = <Map<String, dynamic>>[];
+    String? custName;
+    String? custPhone;
+
+    for (final kot in activeKots) {
+      final kId = int.tryParse(kot['id']?.toString() ?? '0') ?? 0;
+      if (kId > 0 && !kotIds.contains(kId)) kotIds.add(kId);
+
+      final cName = (kot['customer_name'] ?? '').toString().trim();
+      final cPhone = (kot['customer_phone'] ?? '').toString().trim();
+      if (cName.isNotEmpty && cName.toLowerCase() != 'guest' && (custName == null || custName.isEmpty)) custName = cName;
+      if (cPhone.isNotEmpty && (custPhone == null || custPhone.isEmpty)) custPhone = cPhone;
+
+      dynamic itemsRaw = kot['items'];
+      if (itemsRaw is String) {
+        try { itemsRaw = jsonDecode(itemsRaw); } catch (_) {}
+      }
+      if (itemsRaw is List) {
+        for (final it in itemsRaw) {
+          if (it is Map) {
+            consolidated.add(Map<String, dynamic>.from(it));
+          }
+        }
+      }
+    }
+
+    if (consolidated.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$tableName has no active items to bill.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _items.clear();
+      _paymentEntries = const [];
+      _pendingPreviousAdjustment = 0;
+      _pendingAdvanceApplied = 0;
+      _pendingAdvanceCreated = 0;
+      _preloadedTableId = tableId;
+      _preloadedTableName = tableName;
+      _preloadedKotIds = kotIds;
+    });
+
+    // Populate customer if available
+    if (custName != null || custPhone != null) {
+      _customerName.text = custName ?? '';
+      _customerPhone.text = custPhone ?? '';
+      SaleCustomer? matched;
+      if (custPhone != null && custPhone.isNotEmpty) {
+        try {
+          matched = ctrl.customers.firstWhere((c) => c.customerPhone.trim() == custPhone);
+        } catch (_) {}
+      }
+      if (matched == null && custName != null && custName.isNotEmpty && custName.toLowerCase() != 'guest') {
+        try {
+          matched = ctrl.customers.firstWhere((c) => c.customerName.trim().toLowerCase() == custName!.toLowerCase());
+        } catch (_) {}
+      }
+      if (matched != null) {
+        await _applyCustomer(matched);
+      }
+    }
+
+    // Convert consolidated items to SaleItem
+    for (final preload in consolidated) {
+      final int itemId = int.tryParse((preload['item_id'] ?? preload['itemId'] ?? preload['id'] ?? 0).toString()) ?? 0;
+      final String itemCode = (preload['item_code'] ?? preload['itemCode'] ?? preload['code'] ?? '').toString().trim();
+      final String itemName = (preload['item_name'] ?? preload['itemName'] ?? preload['name'] ?? preload['title'] ?? '').toString().trim();
+      final double qty = double.tryParse((preload['qty'] ?? preload['quantity'] ?? 1.0).toString()) ?? 1.0;
+      final double rate = double.tryParse((preload['rate'] ?? preload['price'] ?? preload['cost'] ?? preload['mrp'] ?? '').toString()) ?? 0.0;
+
+      Item? matched;
+      if (itemId > 0) {
+        try { matched = ctrl.items.firstWhere((i) => i.id == itemId); } catch (_) {}
+      }
+      if (matched == null && itemCode.isNotEmpty) {
+        try { matched = ctrl.items.firstWhere((i) => i.itemCode.toLowerCase() == itemCode.toLowerCase()); } catch (_) {}
+      }
+      if (matched == null && itemName.isNotEmpty) {
+        final nameLow = itemName.toLowerCase();
+        try { matched = ctrl.items.firstWhere((i) => i.itemName.toLowerCase().contains(nameLow) || nameLow.contains(i.itemName.toLowerCase())); } catch (_) {}
+      }
+
+      final finalItemId = matched?.id ?? (itemId > 0 ? itemId : (ctrl.items.isNotEmpty ? ctrl.items.first.id : 0));
+
+      List<dynamic> modDetails = [];
+      if (preload['modifier_details'] is List) {
+        modDetails = List<dynamic>.from(preload['modifier_details']);
+      } else if (preload['modifier_details'] is String && preload['modifier_details'].toString().trim().startsWith('[')) {
+        try { modDetails = jsonDecode(preload['modifier_details']); } catch (_) {}
+      }
+
+      List<dynamic> modObjects = [];
+      if (preload['modifier_objects'] is List) {
+        modObjects = List<dynamic>.from(preload['modifier_objects']);
+      } else if (preload['modifier_objects'] is String && preload['modifier_objects'].toString().trim().startsWith('[')) {
+        try { modObjects = jsonDecode(preload['modifier_objects']); } catch (_) {}
+      }
+
+      double extraModifierPrice = 0.0;
+      if (modObjects.isNotEmpty) {
+        for (final m in modObjects) {
+          if (m is Map) {
+            final p = double.tryParse(m['price']?.toString() ?? '0') ?? 0.0;
+            final mq = int.tryParse(m['qty']?.toString() ?? '1') ?? 1;
+            extraModifierPrice += p * mq;
+          }
+        }
+      }
+
+      final baseRate = matched != null
+          ? (matched.retailSalePrice > 0 ? matched.retailSalePrice : (matched.rate > 0 ? matched.rate : matched.mrp))
+          : (rate > 0 ? rate : 0.0);
+      double resolvedRate = baseRate + extraModifierPrice;
+      if (resolvedRate <= 0 && rate > 0) resolvedRate = rate;
+
+      final saleItem = matched != null
+          ? _buildBaseSaleItem(
+              item: matched,
+              qty: qty,
+              seed: SaleItem(
+                itemId: matched.id,
+                itemCode: matched.itemCode,
+                itemName: matched.itemName,
+                hsnSacCode: matched.hsnSacCode,
+                barcode: matched.barcode,
+                unit: matched.unit,
+                qty: qty,
+                rate: resolvedRate,
+                taxType: matched.taxType,
+                taxPercent: matched.taxPercent,
+                taxGroupId: matched.taxGroupId,
+                taxGroup: matched.taxGroup,
+                discountApplicable: matched.discountApplicable,
+                schemeApplicable: matched.schemeApplicable,
+                brand: matched.brand,
+                isTaxInclusive: matched.isTaxInclusive,
+                location: matched.location.trim() != '-' ? matched.location.trim() : null,
+                notes: (preload['notes'] ?? preload['remarks'])?.toString(),
+                modifierDetails: modDetails.isNotEmpty ? modDetails : null,
+                modifierObjects: modObjects.isNotEmpty ? modObjects : null,
+                itemRemark: (preload['item_remark'] ?? preload['itemRemark'])?.toString().trim(),
+              ),
+            )
+          : SaleItem(
+              itemId: finalItemId,
+              itemCode: itemCode.isNotEmpty ? itemCode : 'ITEM-$finalItemId',
+              itemName: itemName.isNotEmpty ? itemName : 'Unknown Item',
+              barcode: '',
+              unit: 'PCS',
+              qty: qty,
+              rate: resolvedRate,
+              taxType: 'GST',
+              taxPercent: 0.0,
+              notes: (preload['notes'] ?? preload['remarks'])?.toString(),
+              modifierDetails: modDetails.isNotEmpty ? modDetails : null,
+              modifierObjects: modObjects.isNotEmpty ? modObjects : null,
+              itemRemark: (preload['item_remark'] ?? preload['itemRemark'])?.toString().trim(),
+            );
+
+      _items.add(saleItem);
+    }
+
+    _syncSelectedSchemePointers();
+    _rebuildItemAdvanceFreeLines();
+    _rebuildItemSchemeFreeLines();
+    _syncAmountPaidWithInvoice();
+    if (mounted) setState(() {});
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Auto-filled cart with ${_items.length} items from $tableName!'),
+          backgroundColor: const Color(0xFF16A34A),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _showRestaurantTablesDialog() async {
+    List<dynamic> tables = [];
+    List<dynamic> kots = [];
+    bool loading = true;
+    String filter = 'ALL';
+    String searchQuery = '';
+    final searchCtrl = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dlgCtx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          void fetchTables() async {
+            try {
+              final tRes = await ApiClient.get(ApiEndpoints.restaurantTables);
+              final kRes = await ApiClient.get(ApiEndpoints.restaurantKots);
+              if (ctx.mounted) {
+                setDlgState(() {
+                  tables = (tRes != null && tRes['data'] is List) ? (tRes['data'] as List) : [];
+                  kots = (kRes != null && kRes['data'] is List) ? (kRes['data'] as List) : [];
+                  loading = false;
+                });
+              }
+            } catch (_) {
+              if (ctx.mounted) setDlgState(() => loading = false);
+            }
+          }
+
+          if (loading && tables.isEmpty) {
+            fetchTables();
+          }
+
+          final sortedTables = List<dynamic>.from(tables)..sort((a, b) {
+            final aId = a['id'];
+            final bId = b['id'];
+            final aKots = kots.where((k) => k['table_id'] == aId && k['sales_header_id'] == null).toList();
+            final bKots = kots.where((k) => k['table_id'] == bId && k['sales_header_id'] == null).toList();
+
+            final aStatus = (a['status'] ?? '').toString().toLowerCase();
+            final bStatus = (b['status'] ?? '').toString().toLowerCase();
+
+            final aBillReq = aStatus.contains('bill') || aStatus.contains('request') ||
+                aKots.any((k) => (k['status'] ?? '').toString().toLowerCase().contains('bill'));
+            final bBillReq = bStatus.contains('bill') || bStatus.contains('request') ||
+                bKots.any((k) => (k['status'] ?? '').toString().toLowerCase().contains('bill'));
+
+            if (aBillReq && !bBillReq) return -1;
+            if (!aBillReq && bBillReq) return 1;
+
+            final aOcc = aKots.isNotEmpty || aStatus == 'occupied';
+            final bOcc = bKots.isNotEmpty || bStatus == 'occupied';
+            if (aOcc && !bOcc) return -1;
+            if (!aOcc && bOcc) return 1;
+
+            return (a['table_name'] ?? '').toString().compareTo((b['table_name'] ?? '').toString());
+          });
+
+          final filteredTables = sortedTables.where((t) {
+            final tId = t['id'];
+            final tKots = kots.where((k) => k['table_id'] == tId && k['sales_header_id'] == null).toList();
+            final tStatus = (t['status'] ?? '').toString().toLowerCase();
+            final isBillReq = tStatus.contains('bill') || tStatus.contains('request') ||
+                tKots.any((k) => (k['status'] ?? '').toString().toLowerCase().contains('bill'));
+            final isOcc = tKots.isNotEmpty || tStatus == 'occupied';
+
+            if (filter == 'BILL_REQUESTED' && !isBillReq) return false;
+            if (filter == 'OCCUPIED' && (!isOcc || isBillReq)) return false;
+            if (filter == 'AVAILABLE' && (isOcc || isBillReq)) return false;
+
+            if (searchQuery.isNotEmpty) {
+              final name = (t['table_name'] ?? t['name'] ?? '').toString().toLowerCase();
+              final sec = (t['section'] ?? t['floor'] ?? '').toString().toLowerCase();
+              final waiter = tKots.map((k) => (k['waiter_name'] ?? '').toString().toLowerCase()).join(' ');
+              if (!name.contains(searchQuery) && !sec.contains(searchQuery) && !waiter.contains(searchQuery)) {
+                return false;
+              }
+            }
+            return true;
+          }).toList();
+
+          int countBillReq = 0;
+          int countOcc = 0;
+          int countAvail = 0;
+          for (final t in tables) {
+            final tId = t['id'];
+            final tKots = kots.where((k) => k['table_id'] == tId && k['sales_header_id'] == null).toList();
+            final tStatus = (t['status'] ?? '').toString().toLowerCase();
+            final isBillReq = tStatus.contains('bill') || tStatus.contains('request') ||
+                tKots.any((k) => (k['status'] ?? '').toString().toLowerCase().contains('bill'));
+            final isOcc = tKots.isNotEmpty || tStatus == 'occupied';
+            if (isBillReq) countBillReq++;
+            else if (isOcc) countOcc++;
+            else countAvail++;
+          }
+
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Container(
+              width: 800,
+              height: 600,
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.table_restaurant_rounded, color: Color(0xFF2563EB), size: 24),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Restaurant Tables & Waiter Orders',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                            ),
+                            Text(
+                              countBillReq > 0
+                                  ? '$countBillReq Bill Request(s) awaiting cashier checkout'
+                                  : 'Select any active table to auto-fill the POS cart',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: countBillReq > 0 ? Colors.amber.shade900 : const Color(0xFF64748B),
+                                fontWeight: countBillReq > 0 ? FontWeight.w600 : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Refresh Tables',
+                        icon: const Icon(Icons.refresh_rounded),
+                        onPressed: () {
+                          setDlgState(() => loading = true);
+                          fetchTables();
+                        },
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(dlgCtx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: SizedBox(
+                          height: 38,
+                          child: TextField(
+                            controller: searchCtrl,
+                            onChanged: (v) => setDlgState(() => searchQuery = v.trim().toLowerCase()),
+                            decoration: InputDecoration(
+                              hintText: 'Search table or section...',
+                              hintStyle: const TextStyle(fontSize: 13),
+                              prefixIcon: const Icon(Icons.search, size: 18),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 5,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              _tableFilterChip('ALL', 'All (${tables.length})', filter, (val) => setDlgState(() => filter = val)),
+                              const SizedBox(width: 6),
+                              _tableFilterChip('BILL_REQUESTED', '🔔 Bill Req ($countBillReq)', filter, (val) => setDlgState(() => filter = val), badgeColor: Colors.amber.shade800),
+                              const SizedBox(width: 6),
+                              _tableFilterChip('OCCUPIED', 'Occupied ($countOcc)', filter, (val) => setDlgState(() => filter = val), badgeColor: const Color(0xFF2563EB)),
+                              const SizedBox(width: 6),
+                              _tableFilterChip('AVAILABLE', 'Available ($countAvail)', filter, (val) => setDlgState(() => filter = val), badgeColor: const Color(0xFF16A34A)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : filteredTables.isEmpty
+                            ? Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.table_restaurant_outlined, size: 48, color: Colors.grey.shade400),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      searchQuery.isNotEmpty ? 'No tables match "$searchQuery"' : 'No tables found',
+                                      style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: filteredTables.length,
+                                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                itemBuilder: (context, idx) {
+                                  final table = filteredTables[idx];
+                                  final tId = table['id'];
+                                  final tName = (table['table_name'] ?? table['name'] ?? 'Table #$tId').toString();
+                                  final section = (table['section'] ?? table['floor'] ?? '').toString();
+                                  final capacity = table['capacity']?.toString() ?? '';
+
+                                  final tKots = kots.where((k) => k['table_id'] == tId && k['sales_header_id'] == null).toList();
+                                  final tStatus = (table['status'] ?? '').toString().toLowerCase();
+
+                                  final isBillReq = tStatus.contains('bill') || tStatus.contains('request') ||
+                                      tKots.any((k) => (k['status'] ?? '').toString().toLowerCase().contains('bill'));
+                                  final isOcc = tKots.isNotEmpty || tStatus == 'occupied';
+
+                                  final itemsList = <Map<String, dynamic>>[];
+                                  String? waiterName;
+                                  String? customerName;
+                                  double runningTotal = 0.0;
+
+                                  for (final k in tKots) {
+                                    final wn = (k['waiter_name'] ?? '').toString().trim();
+                                    final cn = (k['customer_name'] ?? '').toString().trim();
+                                    if (wn.isNotEmpty && waiterName == null) waiterName = wn;
+                                    if (cn.isNotEmpty && cn.toLowerCase() != 'guest' && customerName == null) customerName = cn;
+
+                                    dynamic rawItems = k['items'];
+                                    if (rawItems is String) {
+                                      try { rawItems = jsonDecode(rawItems); } catch (_) {}
+                                    }
+                                    if (rawItems is List) {
+                                      for (final it in rawItems) {
+                                        if (it is Map) {
+                                          itemsList.add(Map<String, dynamic>.from(it));
+                                          final q = double.tryParse((it['qty'] ?? 1).toString()) ?? 1.0;
+                                          final r = double.tryParse((it['rate'] ?? it['price'] ?? 0).toString()) ?? 0.0;
+                                          runningTotal += (q * r);
+                                        }
+                                      }
+                                    }
+                                  }
+
+                                  final bool isCurrentTable = _preloadedTableId == tId;
+
+                                  return Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isBillReq
+                                          ? const Color(0xFFFFFBEB)
+                                          : isCurrentTable
+                                              ? const Color(0xFFF0FDF4)
+                                              : Colors.white,
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: isBillReq
+                                            ? Colors.amber.shade400
+                                            : isCurrentTable
+                                                ? const Color(0xFF86EFAC)
+                                                : const Color(0xFFE2E8F0),
+                                        width: isBillReq || isCurrentTable ? 1.5 : 1.0,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 52,
+                                          height: 52,
+                                          decoration: BoxDecoration(
+                                            color: isBillReq
+                                                ? Colors.amber.shade100
+                                                : isOcc
+                                                    ? const Color(0xFFEFF6FF)
+                                                    : const Color(0xFFF1F5F9),
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: isBillReq
+                                                  ? Colors.amber.shade300
+                                                  : isOcc
+                                                      ? const Color(0xFFBFDBFE)
+                                                      : const Color(0xFFE2E8F0),
+                                            ),
+                                          ),
+                                          child: Center(
+                                            child: Icon(
+                                              Icons.table_restaurant_rounded,
+                                              size: 26,
+                                              color: isBillReq
+                                                  ? Colors.amber.shade900
+                                                  : isOcc
+                                                      ? const Color(0xFF2563EB)
+                                                      : const Color(0xFF94A3B8),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Text(
+                                                    tName,
+                                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                                  ),
+                                                  if (section.isNotEmpty) ...[
+                                                    const SizedBox(width: 8),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0xFFF1F5F9),
+                                                        borderRadius: BorderRadius.circular(6),
+                                                      ),
+                                                      child: Text(
+                                                        section,
+                                                        style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                  if (capacity.isNotEmpty) ...[
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      '($capacity Seats)',
+                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                                    ),
+                                                  ],
+                                                  const Spacer(),
+                                                  if (isBillReq)
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.amber.shade500,
+                                                        borderRadius: BorderRadius.circular(12),
+                                                      ),
+                                                      child: const Row(
+                                                        mainAxisSize: MainAxisSize.min,
+                                                        children: [
+                                                          Icon(Icons.notifications_active, size: 12, color: Colors.white),
+                                                          SizedBox(width: 4),
+                                                          Text(
+                                                            'BILL REQUESTED',
+                                                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    )
+                                                  else if (isOcc)
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0xFF2563EB),
+                                                        borderRadius: BorderRadius.circular(12),
+                                                      ),
+                                                      child: const Text(
+                                                        'OCCUPIED',
+                                                        style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                                      ),
+                                                    )
+                                                  else
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0xFF16A34A),
+                                                        borderRadius: BorderRadius.circular(12),
+                                                      ),
+                                                      child: const Text(
+                                                        'AVAILABLE',
+                                                        style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 4),
+                                              if (isOcc || isBillReq) ...[
+                                                Row(
+                                                  children: [
+                                                    if (waiterName != null && waiterName.isNotEmpty) ...[
+                                                      const Icon(Icons.person_pin_outlined, size: 13, color: Color(0xFF64748B)),
+                                                      const SizedBox(width: 4),
+                                                      Text('Waiter: $waiterName', style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
+                                                      const SizedBox(width: 10),
+                                                    ],
+                                                    if (customerName != null && customerName.isNotEmpty) ...[
+                                                      const Icon(Icons.person_outline, size: 13, color: Color(0xFF64748B)),
+                                                      const SizedBox(width: 4),
+                                                      Text('Guest: $customerName', style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
+                                                      const SizedBox(width: 10),
+                                                    ],
+                                                    Text(
+                                                      '${itemsList.length} items (${tKots.length} KOTs)',
+                                                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                                    ),
+                                                  ],
+                                                ),
+                                                if (itemsList.isNotEmpty) ...[
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    itemsList.take(4).map((i) => '${(i['qty'] ?? 1)}x ${(i['item_name'] ?? 'Item')}').join(', ') +
+                                                        (itemsList.length > 4 ? ' +${itemsList.length - 4} more' : ''),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(fontSize: 11, color: Color(0xFF334155), fontStyle: FontStyle.italic),
+                                                  ),
+                                                ],
+                                              ] else ...[
+                                                const Text(
+                                                  'No active orders on this table',
+                                                  style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          children: [
+                                            if (runningTotal > 0)
+                                              Text(
+                                                CurrencyService.format(runningTotal),
+                                                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF0F172A)),
+                                              ),
+                                            const SizedBox(height: 6),
+                                            if (isCurrentTable)
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFDCFCE7),
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  border: Border.all(color: const Color(0xFF86EFAC)),
+                                                ),
+                                                child: const Text(
+                                                  'Loaded in POS',
+                                                  style: TextStyle(color: Color(0xFF15803D), fontSize: 11, fontWeight: FontWeight.bold),
+                                                ),
+                                              )
+                                            else if (isOcc || isBillReq)
+                                              FilledButton.icon(
+                                                style: FilledButton.styleFrom(
+                                                  backgroundColor: isBillReq ? const Color(0xFFEA580C) : const Color(0xFFFF7A1A),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                ),
+                                                onPressed: () {
+                                                  Navigator.pop(dlgCtx);
+                                                  _loadRestaurantTableIntoSaleCart(table, preloadedKots: tKots);
+                                                },
+                                                icon: const Icon(Icons.flash_on, size: 14),
+                                                label: const Text('Auto-Fill Cart', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                              )
+                                            else
+                                              OutlinedButton(
+                                                style: OutlinedButton.styleFrom(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                ),
+                                                onPressed: () {
+                                                  Navigator.pop(dlgCtx);
+                                                  setState(() {
+                                                    _preloadedTableId = tId;
+                                                    _preloadedTableName = tName;
+                                                    _preloadedKotIds = [];
+                                                  });
+                                                },
+                                                child: const Text('Select Table', style: TextStyle(fontSize: 11)),
+                                              ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _tableFilterChip(String value, String label, String currentFilter, ValueChanged<String> onSelect, {Color? badgeColor}) {
+    final selected = currentFilter == value;
+    return InkWell(
+      onTap: () => onSelect(value),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? (badgeColor ?? const Color(0xFF0F172A)) : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+            color: selected ? Colors.white : const Color(0xFF475569),
+          ),
+        ),
+      ),
+    );
   }
 
   void _goback() {
@@ -11604,6 +12433,54 @@ class _SaleScreenState extends State<SaleScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (_preloadedTableId != null) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFF59E0B)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.table_restaurant_rounded, size: 18, color: Color(0xFFB45309)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Table: ${_preloadedTableName ?? "#$_preloadedTableId"}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
+                        ),
+                        Text(
+                          '${_items.length} items from Waiter Order',
+                          style: const TextStyle(fontSize: 10, color: Color(0xFFB45309)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () {
+                      setState(() {
+                        _preloadedTableId = null;
+                        _preloadedTableName = null;
+                        _preloadedKotIds = null;
+                        _items.clear();
+                        _syncAmountPaidWithInvoice();
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(20),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4.0),
+                      child: Icon(Icons.close, size: 16, color: Color(0xFF92400E)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           Expanded(
             child: computedItems.isEmpty
                 ? const Center(

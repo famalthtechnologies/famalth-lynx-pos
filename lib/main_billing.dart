@@ -10,6 +10,7 @@ import 'controllers/settings/theme_controller.dart';
 import 'controllers/settings/ui_preferences_controller.dart';
 import 'controllers/settings/property_info_controller.dart';
 import 'controllers/sales/sales_controller.dart';
+import 'controllers/restaurant/restaurant_controller.dart';
 import 'core/config/app_config.dart';
 import 'core/config/date_time_service.dart';
 import 'main.dart'; // Reuses MyApp, global navigator and snackbar keys
@@ -33,6 +34,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => RecoveryController()),
         ChangeNotifierProvider(create: (_) => PropertyInfoController()..load()),
         ChangeNotifierProvider(create: (_) => SalesController()),
+        ChangeNotifierProvider(create: (_) => RestaurantController()..loadTables()),
       ],
       child: const MyApp(homeWidget: MobileBillingSplashScreen()),
     ),

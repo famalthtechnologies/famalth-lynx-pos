@@ -23,6 +23,7 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
   List<Map<String, dynamic>> _designations = [];
   List<Map<String, dynamic>> _shifts = [];
   List<Map<String, dynamic>> _payStructures = [];
+  List<Map<String, dynamic>> _offices = [];
 
   @override
   void initState() {
@@ -176,6 +177,9 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
     }
 
     final status = emp['status'] ?? 'Active';
+    final officeName = emp['office'] != null
+        ? (emp['office'] is Map ? (emp['office']['office_name'] ?? emp['office']['office_code'] ?? '') : emp['office'].toString())
+        : (emp['office_name'] ?? '');
     
     String shiftStr = '';
     if (emp['shift'] != null) {
@@ -266,6 +270,20 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
                             child: Text(shiftStr,
                                 style: const TextStyle(
                                     color: Color(0xFF0D9488),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        if (officeName.toString().isNotEmpty) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                                color: const Color(0xFFF0FDF4),
+                                borderRadius: BorderRadius.circular(4)),
+                            child: Text('📍 ${officeName}',
+                                style: const TextStyle(
+                                    color: Color(0xFF15803D),
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600)),
                           ),
@@ -419,6 +437,10 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
 
   // Section 2: Work Info
   DateTime? _hireDate;
+  List<Map<String, dynamic>> _offices = [];
+  int? _officeId;
+  final _passwordCtrl = TextEditingController(text: '123456');
+  bool _obscurePassword = true;
   int? _designationId;
   int? _shiftId;
   bool _requiresAttendance = true;
@@ -471,6 +493,7 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
       _hireDate = emp['hire_date'] != null ? DateTime.tryParse(emp['hire_date'].toString()) : null;
       _designationId = emp['designation_id'] as int?;
       _shiftId = emp['shift_id'] as int?;
+      _officeId = emp['office_id'] as int?;
       _requiresAttendance = emp['requires_attendance'] == true;
       _payIfUnmarked = emp['pay_if_unmarked'] == true;
       _approver1Id = emp['level1_approver_id'] as int?;
@@ -570,6 +593,10 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
         _payStructures= List<Map<String, dynamic>>.from(results[2]['data'] ?? []);
         _users        = List<Map<String, dynamic>>.from(results[3]['data'] ?? []);
         _leaveTypes   = List<Map<String, dynamic>>.from(results[4]['data'] ?? []);
+        _offices      = List<Map<String, dynamic>>.from(results[6]['data'] ?? []);
+        if (_officeId == null && _offices.isNotEmpty) {
+          _officeId = _offices.first['id'] as int?;
+        }
 
         for (final lt in _leaveTypes) {
           final ltId = lt['id'] as int;
@@ -1123,6 +1150,35 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionLabel('Work Details'),
+        _dropdownField<int>(
+          label: 'Office / Branch *',
+          icon: Icons.location_city_rounded,
+          value: _officeId,
+          items: _offices.map((o) => DropdownMenuItem<int>(
+            value: o['id'] as int?,
+            child: Text('${o['office_code']} • ${o['office_name']}'),
+          )).toList(),
+          onChanged: (v) => setState(() => _officeId = v),
+        ),
+        const SizedBox(height: 12),
+        if (widget.employee == null) ...[
+          TextFormField(
+            controller: _passwordCtrl,
+            obscureText: _obscurePassword,
+            decoration: InputDecoration(
+              labelText: 'Initial Login Password *',
+              helperText: 'Temporary password sent to employee via welcome email',
+              prefixIcon: const Icon(Icons.lock_outline, size: 18),
+              suffixIcon: IconButton(
+                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, size: 18),
+                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+              ),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         _dateTile(
           label: 'Hire Date *',
           value: _fmtDate(_hireDate),

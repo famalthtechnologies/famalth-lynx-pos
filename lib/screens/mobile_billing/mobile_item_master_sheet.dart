@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
+import '../../core/printing/official_rate_list_printer.dart';
 import '../../models/inventory/item_model.dart';
 
 class MobileItemMasterSheet extends StatefulWidget {
@@ -21,9 +23,17 @@ class MobileItemMasterSheet extends StatefulWidget {
 
 class _MobileItemMasterSheetState extends State<MobileItemMasterSheet> {
   final TextEditingController _searchCtrl = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  List<Item> _loadedItems = [];
   List<Item> _filteredItems = [];
   String _selectedCategory = 'All';
   List<String> _categories = ['All'];
+
+  int _currentPage = 1;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  bool _isInitialLoading = false;
+  Timer? _searchDebounce;
 
   static const Color textDark = Color(0xFF0F172A);
   static const Color textMuted = Color(0xFF64748B);
@@ -32,20 +42,101 @@ class _MobileItemMasterSheetState extends State<MobileItemMasterSheet> {
   @override
   void initState() {
     super.initState();
-    _filteredItems = List.from(widget.items);
-    _extractCategories();
-    _searchCtrl.addListener(_filterItems);
+    _scrollController.addListener(_onScroll);
+    if (widget.items.isNotEmpty) {
+      _loadedItems = List.from(widget.items.take(50));
+      _filteredItems = List.from(_loadedItems);
+      _extractCategories();
+    }
+    _searchCtrl.addListener(_onSearchChanged);
+    _loadInitialItems();
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _searchCtrl.dispose();
+    _searchDebounce?.cancel();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 &&
+        !_isLoadingMore &&
+        _hasMore) {
+      _loadMoreItems();
+    }
+  }
+
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      _loadInitialItems();
+    });
+  }
+
+  Future<void> _loadInitialItems() async {
+    setState(() => _isInitialLoading = _loadedItems.isEmpty);
+    _currentPage = 1;
+    try {
+      final q = _searchCtrl.text.trim();
+      final res = await ApiClient.get('${ApiEndpoints.items}?page=1&limit=50&q=$q');
+      if (res['success'] == true) {
+        final List raw = res['data'] ?? [];
+        final items = raw.map((e) => Item.fromJson(e)).toList();
+        final bool hasMore = res['hasMore'] ?? (items.length >= 50);
+        if (!mounted) return;
+        setState(() {
+          _loadedItems = items;
+          _hasMore = hasMore;
+          _extractCategories();
+          _filterItems();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading initial items: $e');
+    } finally {
+      if (mounted) setState(() => _isInitialLoading = false);
+    }
+  }
+
+  Future<void> _loadMoreItems() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+    final nextPage = _currentPage + 1;
+    try {
+      final q = _searchCtrl.text.trim();
+      final res = await ApiClient.get('${ApiEndpoints.items}?page=$nextPage&limit=50&q=$q');
+      if (res['success'] == true) {
+        final List raw = res['data'] ?? [];
+        final newItems = raw.map((e) => Item.fromJson(e)).toList();
+        final bool hasMore = res['hasMore'] ?? (newItems.length >= 50);
+        if (!mounted) return;
+        setState(() {
+          _currentPage = nextPage;
+          _hasMore = hasMore;
+          final existingIds = _loadedItems.map((e) => e.id).toSet();
+          for (final it in newItems) {
+            if (!existingIds.contains(it.id)) {
+              _loadedItems.add(it);
+            }
+          }
+          _extractCategories();
+          _filterItems();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading more items: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
   }
 
   void _extractCategories() {
     final cats = <String>{'All'};
-    for (final it in widget.items) {
+    for (final it in _loadedItems) {
       if (it.itemGroup.trim().isNotEmpty) cats.add(it.itemGroup.trim());
       if (it.subCategory.trim().isNotEmpty) cats.add(it.subCategory.trim());
     }
@@ -55,7 +146,7 @@ class _MobileItemMasterSheetState extends State<MobileItemMasterSheet> {
   void _filterItems() {
     final q = _searchCtrl.text.toLowerCase().trim();
     setState(() {
-      _filteredItems = widget.items.where((it) {
+      _filteredItems = _loadedItems.where((it) {
         final matchCat = _selectedCategory == 'All' ||
             it.itemGroup == _selectedCategory ||
             it.subCategory == _selectedCategory;
@@ -629,43 +720,71 @@ class _MobileItemMasterSheetState extends State<MobileItemMasterSheet> {
         children: [
           // Header
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: const BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               border: Border(bottom: BorderSide(color: borderSubtle)),
             ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
-                  children: [
-                    Icon(Icons.inventory_2_rounded, color: Color(0xFF2563EB), size: 24),
-                    SizedBox(width: 10),
-                    Text('Item Master & Pricing', style: TextStyle(color: textDark, fontSize: 17, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                Row(
-                  children: [
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        minimumSize: const Size(60, 32),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        elevation: 0,
+                const Expanded(
+                  child: Row(
+                    children: [
+                      Icon(Icons.inventory_2_rounded, color: Color(0xFF2563EB), size: 20),
+                      SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          'Item Master',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: textDark, fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
                       ),
-                      icon: const Icon(Icons.add, size: 16),
-                      label: const Text('Add', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                      onPressed: _openAddItemModal,
-                    ),
-                    const SizedBox(width: 6),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: textMuted),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF1E3A8A),
+                    backgroundColor: const Color(0xFFEFF6FF),
+                    side: const BorderSide(color: Color(0xFFBFDBFE)),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    minimumSize: const Size(48, 30),
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.print_rounded, size: 14, color: Color(0xFF2563EB)),
+                  label: const Text('Rate List', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  onPressed: () {
+                    OfficialRateListPrinter.showPrintOptionsDialog(
+                      context: context,
+                      currentItems: _filteredItems,
+                      currentCategory: _selectedCategory,
+                    );
+                  },
+                ),
+                const SizedBox(width: 4),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    minimumSize: const Size(44, 30),
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: 0,
+                  ),
+                  icon: const Icon(Icons.add, size: 14),
+                  label: const Text('Add', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  onPressed: _openAddItemModal,
+                ),
+                const SizedBox(width: 2),
+                IconButton(
+                  icon: const Icon(Icons.close, color: textMuted, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  onPressed: () => Navigator.pop(context),
                 ),
               ],
             ),
@@ -724,69 +843,95 @@ class _MobileItemMasterSheetState extends State<MobileItemMasterSheet> {
 
           // Items List
           Expanded(
-            child: _filteredItems.isEmpty
-                ? const Center(child: Text('No matching items found', style: TextStyle(color: textMuted)))
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _filteredItems.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, idx) {
-                      final it = _filteredItems[idx];
-                      return Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: borderSubtle),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(it.itemName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textDark)),
-                                  const SizedBox(height: 3),
-                                  Row(
+            child: _isInitialLoading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2563EB)),
+                    ),
+                  )
+                : _filteredItems.isEmpty
+                    ? const Center(child: Text('No matching items found', style: TextStyle(color: textMuted)))
+                    : ListView.separated(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _filteredItems.length + (_isLoadingMore ? 1 : 0),
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, idx) {
+                          if (idx == _filteredItems.length) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 14),
+                              child: Center(
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2563EB)),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text('Loading 50 more items...', style: TextStyle(fontSize: 12, color: textMuted)),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }
+                          final it = _filteredItems[idx];
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: borderSubtle),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        'Rate: ₹${it.retailSalePrice.toStringAsFixed(2)}',
-                                        style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold, fontSize: 12),
+                                      Text(it.itemName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textDark)),
+                                      const SizedBox(height: 3),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            'Rate: ₹${it.retailSalePrice.toStringAsFixed(2)}',
+                                            style: const TextStyle(color: Color(0xFF059669), fontWeight: FontWeight.bold, fontSize: 12),
+                                          ),
+                                          if (it.mrp > it.retailSalePrice) ...[
+                                            const SizedBox(width: 6),
+                                            Text('MRP: ₹${it.mrp.toStringAsFixed(0)}',
+                                                style: const TextStyle(color: textMuted, fontSize: 11, decoration: TextDecoration.lineThrough)),
+                                          ],
+                                          const SizedBox(width: 8),
+                                          Text('${it.taxPercent.toStringAsFixed(0)}% Tax',
+                                              style: const TextStyle(color: Color(0xFF2563EB), fontSize: 10.5, fontWeight: FontWeight.w600)),
+                                        ],
                                       ),
-                                      if (it.mrp > it.retailSalePrice) ...[
-                                        const SizedBox(width: 6),
-                                        Text('MRP: ₹${it.mrp.toStringAsFixed(0)}',
-                                            style: const TextStyle(color: textMuted, fontSize: 11, decoration: TextDecoration.lineThrough)),
-                                      ],
-                                      const SizedBox(width: 8),
-                                      Text('${it.taxPercent.toStringAsFixed(0)}% Tax',
-                                          style: const TextStyle(color: Color(0xFF2563EB), fontSize: 10.5, fontWeight: FontWeight.w600)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '${it.stockable ? 'Stock: ${it.openingBalance.toInt()}' : 'Non-stock'} • Code: ${it.itemCode} ${it.barcode.isNotEmpty ? '• Barcode: ${it.barcode}' : ''}',
+                                        style: const TextStyle(color: textMuted, fontSize: 10.5),
+                                      ),
                                     ],
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '${it.stockable ? 'Stock: ${it.openingBalance.toInt()}' : 'Non-stock'} • Code: ${it.itemCode} ${it.barcode.isNotEmpty ? '• Barcode: ${it.barcode}' : ''}',
-                                    style: const TextStyle(color: textMuted, fontSize: 10.5),
+                                ),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF2563EB),
+                                    side: const BorderSide(color: Color(0xFFBFDBFE)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                   ),
-                                ],
-                              ),
+                                  icon: const Icon(Icons.edit, size: 14),
+                                  label: const Text('Edit Price', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                  onPressed: () => _openEditPriceModal(it),
+                                ),
+                              ],
                             ),
-                            OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF2563EB),
-                                side: const BorderSide(color: Color(0xFFBFDBFE)),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              icon: const Icon(Icons.edit, size: 14),
-                              label: const Text('Edit Price', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                              onPressed: () => _openEditPriceModal(it),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+                          );
+                        },
+                      ),
           ),
         ],
       ),

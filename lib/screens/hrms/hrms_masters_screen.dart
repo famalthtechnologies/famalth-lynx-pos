@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
 
@@ -18,6 +19,8 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
   List<Map<String, dynamic>> _designations  = [];
   List<Map<String, dynamic>> _salaryComps   = [];
   List<Map<String, dynamic>> _payStructures = [];
+  List<Map<String, dynamic>> _offices       = [];
+  String _selectedOfficeFilter = 'all';
 
   bool _loading = true;
   String? _error;
@@ -54,6 +57,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         ApiClient.get(ApiEndpoints.hrmsDesignations),
         ApiClient.get(ApiEndpoints.hrmsSalaryComponents),
         ApiClient.get(ApiEndpoints.hrmsPayStructures),
+        ApiClient.get(ApiEndpoints.hrmsOffices),
       ]);
       setState(() {
         _leaveTypes    = _parseList(results[0]);
@@ -61,6 +65,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         _designations  = _parseList(results[2]);
         _salaryComps   = _parseList(results[3]);
         _payStructures = _parseList(results[4]);
+        _offices       = _parseList(results[5]);
         _loading = false;
       });
     } catch (e) {
@@ -114,28 +119,45 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
 
   Future<void> _editDesignation(Map<String, dynamic> d) async {
     final ctrl = TextEditingController(text: d['name']?.toString() ?? '');
-    final ok = await _showCompactDialog(
-      title: 'Edit Designation',
-      icon: Icons.badge_outlined,
-      iconColor: _blue,
-      iconBg: const Color(0xFFEFF6FF),
-      child: TextField(
-        controller: ctrl,
-        autofocus: true,
-        textCapitalization: TextCapitalization.words,
-        style: const TextStyle(fontSize: 13),
-        decoration: _fieldDecor(
-            'Designation Title *', 'e.g. Sales Manager',
-            Icons.badge_outlined),
+    String? selectedOfficeId = d['office_id']?.toString();
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => _CompactDialogWidget(
+          title: 'Edit Designation',
+          icon: Icons.badge_outlined,
+          iconColor: _blue,
+          iconBg: const Color(0xFFEFF6FF),
+          body: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                style: const TextStyle(fontSize: 13),
+                decoration: _fieldDecor(
+                    'Designation Title *', 'e.g. Sales Manager',
+                    Icons.badge_outlined),
+              ),
+              _buildOfficeSelector(
+                selectedOfficeId: selectedOfficeId,
+                onChanged: (v) => setS(() => selectedOfficeId = v),
+              ),
+            ],
+          ),
+          onSave: () async {
+            if (ctrl.text.trim().isEmpty) return false;
+            await ApiClient.put('${ApiEndpoints.hrmsDesignations}/${d['id']}', {
+              'name': ctrl.text.trim(),
+              'is_active': d['is_active'] != false,
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
+            });
+            return true;
+          },
+        ),
       ),
-      onSave: () async {
-        if (ctrl.text.trim().isEmpty) return false;
-        await ApiClient.put('${ApiEndpoints.hrmsDesignations}/${d['id']}', {
-          'name': ctrl.text.trim(),
-          'is_active': d['is_active'] != false,
-        });
-        return true;
-      },
     );
     if (ok == true) _loadAll();
   }
@@ -143,6 +165,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
   Future<void> _editShift(Map<String, dynamic> s) async {
     final nameCtrl  = TextEditingController(text: s['name']?.toString() ?? '');
     final graceCtrl = TextEditingController(text: s['grace_period_mins']?.toString() ?? '15');
+    String? selectedOfficeId = s['office_id']?.toString();
     final selectedOffs = List<String>.from(s['weekly_offs'] ?? ['Sunday']);
     final weekdayOptions = [
       'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
@@ -224,7 +247,12 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                 controller: graceCtrl,
                 keyboardType: TextInputType.number,
                 style: const TextStyle(fontSize: 13),
-                decoration: _fieldDecor('Grace Period (mins)', '15', Icons.timer_outlined),
+                decoration: _fieldDecor(
+                    'Grace Period (mins)', '15', Icons.timer_outlined),
+              ),
+              _buildOfficeSelector(
+                selectedOfficeId: selectedOfficeId,
+                onChanged: (v) => setS(() => selectedOfficeId = v),
               ),
               const SizedBox(height: 12),
               const Align(
@@ -255,17 +283,22 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                   );
                 }).toList(),
               ),
+              _buildOfficeSelector(
+                selectedOfficeId: selectedOfficeId,
+                onChanged: (v) => setS(() => selectedOfficeId = v),
+              ),
             ]),
             onSave: () async {
               if (nameCtrl.text.trim().isEmpty || startTime == null || endTime == null) return false;
               String toDb(TimeOfDay t) => '${t.hour.toString().padLeft(2,'0')}:${t.minute.toString().padLeft(2,'0')}:00';
               await ApiClient.put('${ApiEndpoints.hrmsShifts}/${s['id']}', {
                 'name': nameCtrl.text.trim(),
-                'start_time': toDb(startTime!),
-                'end_time': toDb(endTime!),
+                'start_time': '${startTime!.hour.toString().padLeft(2, '0')}:${startTime!.minute.toString().padLeft(2, '0')}',
+                'end_time': '${endTime!.hour.toString().padLeft(2, '0')}:${endTime!.minute.toString().padLeft(2, '0')}',
                 'grace_period_mins': int.tryParse(graceCtrl.text) ?? 15,
                 'weekly_offs': selectedOffs,
                 'is_active': s['is_active'] != false,
+                'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
               });
               return true;
             },
@@ -279,6 +312,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
   Future<void> _editLeaveType(Map<String, dynamic> l) async {
     final nameCtrl  = TextEditingController(text: l['name']?.toString() ?? '');
     final quotaCtrl = TextEditingController(text: l['annual_quota']?.toString() ?? '14');
+    String? selectedOfficeId = l['office_id']?.toString();
     bool isPaid = l['is_paid'] != false;
     
     final ok = await showDialog<bool>(
@@ -314,6 +348,10 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                 onChanged: (v) => setS(() => isPaid = v),
               ),
             ]),
+            _buildOfficeSelector(
+              selectedOfficeId: selectedOfficeId,
+              onChanged: (v) => setS(() => selectedOfficeId = v),
+            ),
           ]),
           onSave: () async {
             if (nameCtrl.text.trim().isEmpty) return false;
@@ -322,6 +360,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
               'annual_quota': int.tryParse(quotaCtrl.text) ?? 14,
               'is_paid': isPaid,
               'is_active': l['is_active'] != false,
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
             });
             return true;
           },
@@ -336,7 +375,8 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
     final formulaCtrl = TextEditingController(text: c['formula']?.toString() ?? '');
     String nature    = c['nature']?.toString() ?? 'Earning';
     String type      = c['type']?.toString() ?? 'Fixed';
-    bool   isTaxable = c['is_taxable'] != false;
+    bool isTaxable = c['is_taxable'] != false;
+    String? selectedOfficeId = c['office_id']?.toString();
 
     final ok = await showDialog<bool>(
       context: context,
@@ -391,6 +431,10 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                 ),
               ),
             ],
+            _buildOfficeSelector(
+              selectedOfficeId: selectedOfficeId,
+              onChanged: (v) => setS(() => selectedOfficeId = v),
+            ),
           ]),
           onSave: () async {
             if (nameCtrl.text.trim().isEmpty) return false;
@@ -401,6 +445,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
               'formula': formulaCtrl.text.trim().isEmpty ? null : formulaCtrl.text.trim(),
               'is_taxable': isTaxable,
               'is_active': c['is_active'] != false,
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
             });
             return true;
           },
@@ -416,6 +461,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
     
     final pComps  = List<Map<String, dynamic>>.from(p['hr_salary_components'] ?? p['components'] ?? []);
     final Set<int> selectedIds = pComps.map((c) => (c['id'] as num).toInt()).toSet();
+    String? selectedOfficeId = p['office_id']?.toString();
 
     final ok = await showDialog<bool>(
       context: context,
@@ -437,7 +483,12 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
             TextField(
               controller: descCtrl,
               style: const TextStyle(fontSize: 13),
-              decoration: _fieldDecor('Description', 'Optional notes', Icons.notes),
+              decoration: _fieldDecor(
+                  'Description', 'Optional notes', Icons.notes),
+            ),
+            _buildOfficeSelector(
+              selectedOfficeId: selectedOfficeId,
+              onChanged: (v) => setS(() => selectedOfficeId = v),
             ),
             if (_salaryComps.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -492,6 +543,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
               'description': descCtrl.text.trim(),
               'componentIds': selectedIds.toList(),
               'is_active': p['is_active'] != false,
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
             });
             return true;
           },
@@ -531,6 +583,8 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                   child: ListView(
                     padding: const EdgeInsets.only(top: 12, bottom: 32),
                     children: [
+                      _buildOfficeFilterBar(),
+                      _buildOffices(),
                       _buildDesignations(),
                       _buildShifts(),
                       _buildLeaveTypes(),
@@ -669,17 +723,539 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
             borderSide: const BorderSide(color: _red, width: 1.5)),
       );
 
+
+  // ─── OFFICE FILTER & SCOPE HELPERS ─────────────────────────
+  Widget _buildOfficeFilterBar() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEEF2FF),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.location_city_rounded, color: Color(0xFF4F46E5), size: 18),
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            'Master Scope / Office:',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: _navy),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedOfficeFilter,
+                isExpanded: true,
+                style: const TextStyle(fontSize: 13, color: Color(0xFF1E293B), fontWeight: FontWeight.w600),
+                items: [
+                  const DropdownMenuItem(
+                    value: 'all',
+                    child: Text('🌐 All Offices & Branches (Show All)'),
+                  ),
+                  ..._offices.map((o) => DropdownMenuItem(
+                    value: o['id'].toString(),
+                    child: Text('🏢 ${o['office_code']} - ${o['office_name']}'),
+                  )),
+                ],
+                onChanged: (v) {
+                  if (v != null) setState(() => _selectedOfficeFilter = v);
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _officeBadge(dynamic officeId) {
+    if (officeId == null) {
+      return _badge('All Offices', const Color(0xFFEFF6FF), const Color(0xFF2563EB));
+    }
+    final off = _offices.firstWhere((o) => o['id']?.toString() == officeId.toString(), orElse: () => {});
+    final name = off.isNotEmpty ? (off['office_code'] ?? off['office_name'] ?? 'Branch') : 'Branch #$officeId';
+    return _badge(name.toString(), const Color(0xFFF0FDF4), const Color(0xFF16A34A));
+  }
+
+  Widget _buildOfficeSelector({
+    required String? selectedOfficeId,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 10),
+        _label('OFFICE / BRANCH APPLICABILITY'),
+        const SizedBox(height: 5),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: _grey50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String?>(
+              value: selectedOfficeId,
+              isExpanded: true,
+              hint: const Text('All Offices (Company-wide)', style: TextStyle(fontSize: 12, color: _grey40)),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('🌐 All Offices & Branches (Company-wide)', style: TextStyle(fontSize: 12, color: _navy, fontWeight: FontWeight.w600)),
+                ),
+                ..._offices.map((o) => DropdownMenuItem<String?>(
+                  value: o['id'].toString(),
+                  child: Text('🏢 ${o['office_code']} - ${o['office_name']}', style: const TextStyle(fontSize: 12, color: _navy)),
+                )),
+              ],
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ═══ OFFICES & GEOFENCING ═══════════════════════════════
+  Widget _buildOffices() {
+    return _sectionCard(
+      title: 'Offices & Geofenced Locations',
+      icon: Icons.location_city_rounded,
+      iconColor: const Color(0xFF0D9488),
+      iconBg: const Color(0xFFCCFBF1),
+      onAdd: () => _showOfficeDialog(),
+      body: _offices.isEmpty
+          ? _emptyRow('No offices configured yet. Tap Add →')
+          : Column(
+              children: _offices.asMap().entries.map((e) => Column(children: [
+                _officeTile(e.value),
+                if (e.key < _offices.length - 1) _rowDivider(),
+              ])).toList(),
+            ),
+    );
+  }
+
+  Widget _officeTile(Map<String, dynamic> o) {
+    final code = (o['office_code'] ?? '').toString();
+    final name = (o['office_name'] ?? '').toString();
+    final address = [
+      o['address'],
+      o['city'],
+      o['state'],
+      o['pincode'],
+    ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+    final lat = o['latitude']?.toString() ?? '—';
+    final lng = o['longitude']?.toString() ?? '—';
+    final radius = o['geofence_radius_meters']?.toString() ?? '100';
+    final active = o['is_active'] != false;
+    final staffCount = o['employee_count'] ?? o['staff_count'] ?? 0;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFFCCFBF1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.business_rounded, color: Color(0xFF0D9488), size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      code.isNotEmpty ? '$code • $name' : name,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: _navy),
+                    ),
+                    const SizedBox(width: 8),
+                    _badge(active ? 'Active' : 'Inactive',
+                        active ? const Color(0xFFECFDF5) : _grey10,
+                        active ? _green : _grey40),
+                  ],
+                ),
+                if (address.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    address,
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF4B5563)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        border: Border.all(color: const Color(0xFFBBF7D0)),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '📍 Lat: $lat, Lng: $lng',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF15803D)),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        border: Border.all(color: const Color(0xFFBFDBFE)),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '📏 Radius: ${radius}m',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8)),
+                      ),
+                    ),
+                    if (staffCount > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFAF5FF),
+                          border: Border.all(color: const Color(0xFFE9D5FF)),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '👥 $staffCount Staff',
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF7E22CE)),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, size: 18, color: _blue),
+            tooltip: 'Edit Office',
+            onPressed: () => _showOfficeDialog(o),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          const SizedBox(width: 10),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 18, color: _red),
+            tooltip: 'Delete Office',
+            onPressed: () => _deleteMaster(ApiEndpoints.hrmsOffices, o['id'] as int, 'Office'),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showOfficeDialog([Map<String, dynamic>? office]) async {
+    final isEdit = office != null;
+    final codeCtrl = TextEditingController(text: office?['office_code']?.toString() ?? '');
+    final nameCtrl = TextEditingController(text: office?['office_name']?.toString() ?? '');
+    final addrCtrl = TextEditingController(text: office?['address']?.toString() ?? '');
+    final cityCtrl = TextEditingController(text: office?['city']?.toString() ?? 'Dehradun');
+    final stateCtrl = TextEditingController(text: office?['state']?.toString() ?? 'Uttarakhand');
+    final pinCtrl = TextEditingController(text: office?['pincode']?.toString() ?? '');
+    final latCtrl = TextEditingController(text: office?['latitude']?.toString() ?? '30.316495');
+    final lngCtrl = TextEditingController(text: office?['longitude']?.toString() ?? '78.032192');
+    final radCtrl = TextEditingController(text: office?['geofence_radius_meters']?.toString() ?? '100');
+    bool isActive = office?['is_active'] != false;
+    bool isFetchingGps = false;
+
+    await showDialog(
+      context: context,
+      builder: (dlgCtx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCCFBF1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.location_city_rounded, color: Color(0xFF0D9488), size: 20),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                isEdit ? 'Edit Office / Branch' : 'Add Office / Branch',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 1,
+                        child: TextField(
+                          controller: codeCtrl,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: _fieldDecor('Office Code *', 'e.g. HO-01', Icons.tag),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: TextField(
+                          controller: nameCtrl,
+                          decoration: _fieldDecor('Office Name *', 'e.g. Head Office', Icons.business),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: addrCtrl,
+                    decoration: _fieldDecor('Street Address', 'e.g. Rajpur Road', Icons.home_work_outlined),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: cityCtrl,
+                          decoration: _fieldDecor('City', 'City', Icons.location_on_outlined),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: stateCtrl,
+                          decoration: _fieldDecor('State', 'State', Icons.map_outlined),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: pinCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: _fieldDecor('PIN Code', 'PIN', Icons.pin_drop_outlined),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFBBF7D0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.gps_fixed_rounded, size: 16, color: Color(0xFF15803D)),
+                                SizedBox(width: 6),
+                                Text(
+                                  'GPS Geotagging & Geofence',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF15803D)),
+                                ),
+                              ],
+                            ),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF15803D),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              icon: isFetchingGps
+                                  ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                  : const Icon(Icons.my_location_rounded, size: 14),
+                              label: const Text('Detect Current GPS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              onPressed: isFetchingGps
+                                  ? null
+                                  : () async {
+                                      setDlgState(() => isFetchingGps = true);
+                                      try {
+                                        LocationPermission perm = await Geolocator.checkPermission();
+                                        if (perm == LocationPermission.denied) {
+                                          perm = await Geolocator.requestPermission();
+                                        }
+                                        final pos = await Geolocator.getCurrentPosition(
+                                          desiredAccuracy: LocationAccuracy.high,
+                                          timeLimit: const Duration(seconds: 10),
+                                        );
+                                        latCtrl.text = pos.latitude.toString();
+                                        lngCtrl.text = pos.longitude.toString();
+                                      } catch (err) {
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('Could not get GPS: $err'), backgroundColor: _red),
+                                          );
+                                        }
+                                      } finally {
+                                        setDlgState(() => isFetchingGps = false);
+                                      }
+                                    },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: latCtrl,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: _fieldDecor('Latitude *', 'e.g. 30.316495', Icons.explore_outlined),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: lngCtrl,
+                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                decoration: _fieldDecor('Longitude *', 'e.g. 78.032192', Icons.explore_outlined),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: radCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: _fieldDecor('Geofence Radius (meters) *', 'e.g. 100 (allowed distance for punch)', Icons.radar_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Office is Active', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                    value: isActive,
+                    activeColor: _green,
+                    onChanged: (v) => setDlgState(() => isActive = v),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dlgCtx),
+              child: const Text('Cancel', style: TextStyle(color: Color(0xFF6B7280))),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0D9488), foregroundColor: Colors.white),
+              onPressed: () async {
+                final code = codeCtrl.text.trim();
+                final name = nameCtrl.text.trim();
+                final lat = double.tryParse(latCtrl.text.trim());
+                final lng = double.tryParse(lngCtrl.text.trim());
+                final rad = int.tryParse(radCtrl.text.trim()) ?? 100;
+
+                if (code.isEmpty || name.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Office code and name are required'), backgroundColor: _red),
+                  );
+                  return;
+                }
+                if (lat == null || lng == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Valid GPS latitude and longitude are required'), backgroundColor: _red),
+                  );
+                  return;
+                }
+
+                final payload = {
+                  'office_code': code,
+                  'office_name': name,
+                  'address': addrCtrl.text.trim(),
+                  'city': cityCtrl.text.trim(),
+                  'state': stateCtrl.text.trim(),
+                  'pincode': pinCtrl.text.trim(),
+                  'latitude': lat,
+                  'longitude': lng,
+                  'geofence_radius_meters': rad,
+                  'is_active': isActive,
+                };
+
+                try {
+                  if (isEdit) {
+                    await ApiClient.put('${ApiEndpoints.hrmsOffices}/${office['id']}', payload);
+                  } else {
+                    await ApiClient.post(ApiEndpoints.hrmsOffices, payload);
+                  }
+                  Navigator.pop(dlgCtx);
+                  _loadAll();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Office ${isEdit ? "updated" : "created"} successfully'), backgroundColor: _green),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error: $e'), backgroundColor: _red),
+                    );
+                  }
+                }
+              },
+              child: Text(isEdit ? 'Save Changes' : 'Create Office'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ═══ DESIGNATIONS ════════════════════════════════════
   Widget _buildDesignations() {
+    final filtered = _selectedOfficeFilter == 'all'
+        ? _designations
+        : _designations.where((d) => d['office_id'] == null || d['office_id']?.toString() == _selectedOfficeFilter).toList();
     return _sectionCard(
       title: 'Designations',
       icon: Icons.badge_outlined,
       iconColor: _blue,
       iconBg: const Color(0xFFEFF6FF),
       onAdd: _addDesignation,
-      body: _designations.isEmpty
-          ? _emptyRow('No designations yet. Tap Add →')
-          : Column(children: _designations.asMap().entries
+      body: filtered.isEmpty
+          ? _emptyRow('No designations matching filter. Tap Add →')
+          : Column(children: filtered.asMap().entries
               .map((e) => Column(children: [
                     _desigTile(e.value),
                     if (e.key < _designations.length - 1) _rowDivider(),
@@ -703,10 +1279,18 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: Text(name,
-              style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14, color: _navy)),
+          child: Row(
+            children: [
+              Flexible(
+                child: Text(name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14, color: _navy)),
+              ),
+              const SizedBox(width: 8),
+              _officeBadge(d['office_id']),
+            ],
+          ),
         ),
         _badge(active ? 'Active' : 'Inactive',
             active ? const Color(0xFFECFDF5) : _grey10,
@@ -731,41 +1315,62 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
 
   Future<void> _addDesignation() async {
     final ctrl = TextEditingController();
-    final ok = await _showCompactDialog(
-      title: 'Add Designation',
-      icon: Icons.badge_outlined,
-      iconColor: _blue,
-      iconBg: const Color(0xFFEFF6FF),
-      child: TextField(
-        controller: ctrl,
-        autofocus: true,
-        textCapitalization: TextCapitalization.words,
-        style: const TextStyle(fontSize: 13),
-        decoration: _fieldDecor(
-            'Designation Title *', 'e.g. Sales Manager',
-            Icons.badge_outlined),
+    String? selectedOfficeId = _selectedOfficeFilter == 'all' ? null : _selectedOfficeFilter;
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => _CompactDialogWidget(
+          title: 'Add Designation',
+          icon: Icons.badge_outlined,
+          iconColor: _blue,
+          iconBg: const Color(0xFFEFF6FF),
+          body: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                style: const TextStyle(fontSize: 13),
+                decoration: _fieldDecor(
+                    'Designation Title *', 'e.g. Sales Manager',
+                    Icons.badge_outlined),
+              ),
+              _buildOfficeSelector(
+                selectedOfficeId: selectedOfficeId,
+                onChanged: (v) => setS(() => selectedOfficeId = v),
+              ),
+            ],
+          ),
+          onSave: () async {
+            if (ctrl.text.trim().isEmpty) return false;
+            await ApiClient.post(ApiEndpoints.hrmsDesignations, {
+              'name': ctrl.text.trim(),
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
+            });
+            return true;
+          },
+        ),
       ),
-      onSave: () async {
-        if (ctrl.text.trim().isEmpty) return false;
-        await ApiClient.post(ApiEndpoints.hrmsDesignations,
-            {'name': ctrl.text.trim()});
-        return true;
-      },
     );
     if (ok == true) _loadAll();
   }
 
   // ═══ SHIFTS ══════════════════════════════════════════
   Widget _buildShifts() {
+    final filtered = _selectedOfficeFilter == 'all'
+        ? _shifts
+        : _shifts.where((s) => s['office_id'] == null || s['office_id']?.toString() == _selectedOfficeFilter).toList();
     return _sectionCard(
       title: 'Shifts',
       icon: Icons.schedule,
       iconColor: const Color(0xFF7C3AED),
       iconBg: const Color(0xFFF5F3FF),
       onAdd: _addShift,
-      body: _shifts.isEmpty
-          ? _emptyRow('No shifts yet. Tap Add →')
-          : Column(children: _shifts.asMap().entries
+      body: filtered.isEmpty
+          ? _emptyRow('No shifts matching filter. Tap Add →')
+          : Column(children: filtered.asMap().entries
               .map((e) => Column(children: [
                     _shiftTile(e.value),
                     if (e.key < _shifts.length - 1) _rowDivider(),
@@ -795,10 +1400,18 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(name,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14, color: _navy)),
+            Row(
+              children: [
+                Flexible(
+                  child: Text(name,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14, color: _navy)),
+                ),
+                const SizedBox(width: 8),
+                _officeBadge(s['office_id']),
+              ],
+            ),
             const SizedBox(height: 2),
             Text('$start – $end  •  $grace min grace',
                 style: const TextStyle(fontSize: 11, color: _grey40)),
@@ -840,6 +1453,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
   Future<void> _addShift() async {
     final nameCtrl  = TextEditingController();
     final graceCtrl = TextEditingController(text: '15');
+    String? selectedOfficeId = _selectedOfficeFilter == 'all' ? null : _selectedOfficeFilter;
     final selectedOffs = <String>['Sunday'];
     final weekdayOptions = [
       'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
@@ -970,6 +1584,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                 'end_time'         : toDb(endTime!),
                 'grace_period_mins': int.tryParse(graceCtrl.text) ?? 15,
                 'weekly_offs'      : selectedOffs,
+                'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
               });
               return true;
             },
@@ -982,15 +1597,18 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
 
   // ═══ LEAVE TYPES ═════════════════════════════════════
   Widget _buildLeaveTypes() {
+    final filtered = _selectedOfficeFilter == 'all'
+        ? _leaveTypes
+        : _leaveTypes.where((l) => l['office_id'] == null || l['office_id']?.toString() == _selectedOfficeFilter).toList();
     return _sectionCard(
       title: 'Leave Types',
       icon: Icons.event_available,
       iconColor: _amber,
       iconBg: const Color(0xFFFFFBEB),
       onAdd: _addLeaveType,
-      body: _leaveTypes.isEmpty
-          ? _emptyRow('No leave types yet. Tap Add →')
-          : Column(children: _leaveTypes.asMap().entries
+      body: filtered.isEmpty
+          ? _emptyRow('No leave types matching filter. Tap Add →')
+          : Column(children: filtered.asMap().entries
               .map((e) => Column(children: [
                     _leaveTile(e.value),
                     if (e.key < _leaveTypes.length - 1) _rowDivider(),
@@ -1018,10 +1636,18 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(name,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14, color: _navy)),
+            Row(
+              children: [
+                Flexible(
+                  child: Text(name,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14, color: _navy)),
+                ),
+                const SizedBox(width: 8),
+                _officeBadge(l['office_id']),
+              ],
+            ),
             const SizedBox(height: 2),
             Text('$quota days/year  •  ${isPaid ? "Paid" : "Unpaid"}',
                 style: const TextStyle(fontSize: 11, color: _grey40)),
@@ -1051,6 +1677,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
   Future<void> _addLeaveType() async {
     final nameCtrl  = TextEditingController();
     final quotaCtrl = TextEditingController(text: '14');
+    String? selectedOfficeId = _selectedOfficeFilter == 'all' ? null : _selectedOfficeFilter;
     bool isPaid = true;
     final ok = await showDialog<bool>(
       context: context,
@@ -1090,13 +1717,18 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                 onChanged: (v) => setS(() => isPaid = v),
               ),
             ]),
+            _buildOfficeSelector(
+              selectedOfficeId: selectedOfficeId,
+              onChanged: (v) => setS(() => selectedOfficeId = v),
+            ),
           ]),
           onSave: () async {
             if (nameCtrl.text.trim().isEmpty) return false;
             await ApiClient.post(ApiEndpoints.hrmsLeaveTypes, {
-              'name'        : nameCtrl.text.trim(),
+              'name': nameCtrl.text.trim(),
               'annual_quota': int.tryParse(quotaCtrl.text) ?? 14,
-              'is_paid'     : isPaid,
+              'is_paid': isPaid,
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
             });
             return true;
           },
@@ -1108,17 +1740,19 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
 
   // ═══ SALARY COMPONENTS ═══════════════════════════════
   Widget _buildSalaryComponents() {
-    final earnings   = _salaryComps.where((c) => c['nature'] == 'Earning').toList();
-    final deductions = _salaryComps.where((c) => c['nature'] == 'Deduction').toList();
-
+    final filtered = _selectedOfficeFilter == 'all'
+        ? _salaryComps
+        : _salaryComps.where((c) => c['office_id'] == null || c['office_id']?.toString() == _selectedOfficeFilter).toList();
+    final earnings   = filtered.where((c) => c['nature'] == 'Earning').toList();
+    final deductions = filtered.where((c) => c['nature'] != 'Earning').toList();
     return _sectionCard(
       title: 'Salary Components',
       icon: Icons.account_balance_wallet_outlined,
       iconColor: _red,
       iconBg: const Color(0xFFFEF2F2),
       onAdd: _addSalaryComponent,
-      body: _salaryComps.isEmpty
-          ? _emptyRow('No salary components yet. Tap Add →')
+      body: filtered.isEmpty
+          ? _emptyRow('No salary components matching filter. Tap Add →')
           : Column(children: [
               if (earnings.isNotEmpty) ...[
                 _compGroupHeader('EARNINGS', _green),
@@ -1164,10 +1798,18 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(name,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13, color: _navy)),
+            Row(
+              children: [
+                Flexible(
+                  child: Text(name,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13, color: _navy)),
+                ),
+                const SizedBox(width: 8),
+                _officeBadge(c['office_id']),
+              ],
+            ),
             if (type != 'Fixed' && formula.isNotEmpty)
               Text(type == 'Percentage'
                   ? '$formula% of Basic' : formula,
@@ -1202,6 +1844,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
   Future<void> _addSalaryComponent() async {
     final nameCtrl    = TextEditingController();
     final formulaCtrl = TextEditingController();
+    String? selectedOfficeId = _selectedOfficeFilter == 'all' ? null : _selectedOfficeFilter;
     String nature    = 'Earning';
     String type      = 'Fixed';
     bool   isTaxable = true;
@@ -1279,6 +1922,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                   ? null : formulaCtrl.text.trim(),
               'is_taxable': isTaxable,
               'frequency' : 'Monthly',
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
             });
             return true;
           },
@@ -1315,15 +1959,18 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
 
   // ═══ PAY STRUCTURES ══════════════════════════════════
   Widget _buildPayStructures() {
+    final filtered = _selectedOfficeFilter == 'all'
+        ? _payStructures
+        : _payStructures.where((p) => p['office_id'] == null || p['office_id']?.toString() == _selectedOfficeFilter).toList();
     return _sectionCard(
       title: 'Pay Structures',
       icon: Icons.receipt_long_outlined,
       iconColor: const Color(0xFF0891B2),
       iconBg: const Color(0xFFECFEFF),
       onAdd: _addPayStructure,
-      body: _payStructures.isEmpty
-          ? _emptyRow('No pay structures yet. Tap Add →')
-          : Column(children: _payStructures.asMap().entries
+      body: filtered.isEmpty
+          ? _emptyRow('No pay structures matching filter. Tap Add →')
+          : Column(children: filtered.asMap().entries
               .map((e) => Column(children: [
                     _psTile(e.value),
                     if (e.key < _payStructures.length - 1) _rowDivider(),
@@ -1353,10 +2000,18 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
         Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(name,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14, color: _navy)),
+            Row(
+              children: [
+                Flexible(
+                  child: Text(name,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14, color: _navy)),
+                ),
+                const SizedBox(width: 8),
+                _officeBadge(p['office_id']),
+              ],
+            ),
             if (desc.isNotEmpty) ...[
               const SizedBox(height: 2),
               Text(desc,
@@ -1393,6 +2048,7 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
   Future<void> _addPayStructure() async {
     final nameCtrl = TextEditingController();
     final descCtrl = TextEditingController();
+    String? selectedOfficeId = _selectedOfficeFilter == 'all' ? null : _selectedOfficeFilter;
     final Set<int> selectedIds = {};
 
     final ok = await showDialog<bool>(
@@ -1420,6 +2076,10 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
               style: const TextStyle(fontSize: 13),
               decoration: _fieldDecor(
                   'Description', 'Optional notes', Icons.notes),
+            ),
+            _buildOfficeSelector(
+              selectedOfficeId: selectedOfficeId,
+              onChanged: (v) => setS(() => selectedOfficeId = v),
             ),
             if (_salaryComps.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -1481,9 +2141,10 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
           onSave: () async {
             if (nameCtrl.text.trim().isEmpty) return false;
             await ApiClient.post(ApiEndpoints.hrmsPayStructures, {
-              'name'        : nameCtrl.text.trim(),
-              'description' : descCtrl.text.trim(),
+              'name': nameCtrl.text.trim(),
+              'description': descCtrl.text.trim(),
               'componentIds': selectedIds.toList(),
+              'office_id': selectedOfficeId != null ? int.tryParse(selectedOfficeId!) : null,
             });
             return true;
           },

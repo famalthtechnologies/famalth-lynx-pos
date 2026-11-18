@@ -8,8 +8,27 @@ const ctrl = require('../controllers/hrms/hrms.controller');
 router.post('/biometric-punch', ctrl.receiveBiometricPushWebhook);
 router.post('/attendance/biometric-push', ctrl.receiveBiometricPushWebhook);
 
+// Public Employee Portal Auth (App Sign-In & OTP Password Reset)
+router.post('/employee-auth/login', ctrl.employeeLogin);
+router.post('/employee-auth/forgot-password/request-otp', ctrl.employeeRequestResetOtp);
+router.post('/employee-auth/forgot-password/reset', ctrl.employeeResetPassword);
+
 // All HRMS routes require auth and propertyContext
 router.use(auth, propertyContext);
+
+// Employee Portal (Authenticated App Operations)
+router.get('/employee/my-profile', ctrl.getMyEmployeeProfile);
+router.post('/employee/punch', ctrl.employeeGeotaggedPunch);
+router.post('/employee/change-password', ctrl.employeeChangePassword);
+
+// HRMS Dashboard Overview with Office Filter
+router.get('/dashboard-overview', ctrl.getHrmsDashboardOverview);
+
+// Offices Master
+router.get('/offices', ctrl.getOffices);
+router.post('/offices', ctrl.createOffice);
+router.put('/offices/:id', ctrl.updateOffice);
+router.delete('/offices/:id', ctrl.deleteOffice);
 
 // Masters
 router.get('/salary-components', ctrl.getSalaryComponents);

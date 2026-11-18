@@ -341,44 +341,74 @@ class _KdsScreenState extends State<KdsScreen> with WidgetsBindingObserver {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kitchen Display System (KDS)'),
+        title: Text(
+          MediaQuery.of(context).size.width < 600 ? 'Kitchen KDS' : 'Kitchen Display System (KDS)',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
         elevation: 0,
         actions: [
-          Tooltip(
-            message: 'Show Served Orders: Keep served items visible in kitchen queue',
-            child: Row(
-              children: [
-                const Text('Show Served', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                Switch(
-                  value: _showServedOrders,
-                  onChanged: (val) {
-                    setState(() {
-                      _showServedOrders = val;
-                    });
-                    _fetchKots();
-                  },
+          if (MediaQuery.of(context).size.width >= 600) ...[
+            Tooltip(
+              message: 'Show Served Orders: Keep served items visible in kitchen queue',
+              child: Row(
+                children: [
+                  const Text('Show Served', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  Switch(
+                    value: _showServedOrders,
+                    onChanged: (val) {
+                      setState(() {
+                        _showServedOrders = val;
+                      });
+                      _fetchKots();
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+            ),
+            Tooltip(
+              message: 'Direct Fast-Track Mode: Single-step status transitions for high-speed kitchen operations',
+              child: Row(
+                children: [
+                  const Text('Direct Serve Mode', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  Switch(
+                    value: _oneOptionMode,
+                    onChanged: (val) {
+                      setState(() {
+                        _oneOptionMode = val;
+                      });
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+            ),
+          ] else ...[
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.tune_rounded),
+              tooltip: 'KDS Controls',
+              onSelected: (val) {
+                if (val == 'served') {
+                  setState(() => _showServedOrders = !_showServedOrders);
+                  _fetchKots();
+                } else if (val == 'direct') {
+                  setState(() => _oneOptionMode = !_oneOptionMode);
+                }
+              },
+              itemBuilder: (ctx) => [
+                CheckedPopupMenuItem(
+                  value: 'served',
+                  checked: _showServedOrders,
+                  child: const Text('Show Served Orders'),
                 ),
-                const SizedBox(width: 8),
+                CheckedPopupMenuItem(
+                  value: 'direct',
+                  checked: _oneOptionMode,
+                  child: const Text('Direct Fast-Track Mode'),
+                ),
               ],
             ),
-          ),
-          Tooltip(
-            message: 'Direct Fast-Track Mode: Single-step status transitions for high-speed kitchen operations',
-            child: Row(
-              children: [
-                const Text('Direct Serve Mode', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                Switch(
-                  value: _oneOptionMode,
-                  onChanged: (val) {
-                    setState(() {
-                      _oneOptionMode = val;
-                    });
-                  },
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
-          ),
+          ],
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _fetchKots,
@@ -438,14 +468,17 @@ class _KdsScreenState extends State<KdsScreen> with WidgetsBindingObserver {
                       )
                     : LayoutBuilder(
                         builder: (context, constraints) {
-                          final crossAxisCount = (constraints.maxWidth / 320).floor().clamp(2, 6);
+                          final isMobile = constraints.maxWidth < 600;
+                          final crossAxisCount = isMobile ? 1 : (constraints.maxWidth / 320).floor().clamp(1, 6);
+                          final childAspectRatio = isMobile ? 1.25 : 0.85;
+
                           return GridView.builder(
                             padding: const EdgeInsets.all(16),
                             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                               crossAxisCount: crossAxisCount,
                               crossAxisSpacing: 16,
                               mainAxisSpacing: 16,
-                              childAspectRatio: 0.85,
+                              childAspectRatio: childAspectRatio,
                             ),
                             itemCount: filteredKots.length,
                             itemBuilder: (context, index) {
@@ -511,12 +544,16 @@ class _KdsScreenState extends State<KdsScreen> with WidgetsBindingObserver {
                                               children: [
                                                 Icon(statusIcon, size: 20, color: isKotCancelled ? Colors.red.shade900 : colorScheme.onSurfaceVariant),
                                                 const SizedBox(width: 8),
-                                                Text(
-                                                  '${(kot['kottype'] == 'nc' || (kot['service_type'] ?? '').toString().toLowerCase().contains('nc') || (kot['remarks'] ?? '').toString().toLowerCase().contains('nc')) ? "NC Order (No Charge)" : (kot['table'] != null ? "Table: ${kot['table']['table_name']}" : "Takeaway")} ${isKotCancelled ? "(CANCELLED/REJECTED)" : ""}',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 16,
-                                                    color: isKotCancelled ? Colors.red.shade900 : null,
+                                                Expanded(
+                                                  child: Text(
+                                                    '${(kot['kottype'] == 'nc' || (kot['service_type'] ?? '').toString().toLowerCase().contains('nc') || (kot['remarks'] ?? '').toString().toLowerCase().contains('nc')) ? "NC Order (No Charge)" : (kot['table'] != null ? "Table: ${kot['table']['table_name']}" : "Takeaway")} ${isKotCancelled ? "(CANCELLED)" : ""}',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 15,
+                                                      color: isKotCancelled ? Colors.red.shade900 : null,
+                                                    ),
                                                   ),
                                                 ),
                                               ],
@@ -528,6 +565,7 @@ class _KdsScreenState extends State<KdsScreen> with WidgetsBindingObserver {
                                               tooltip: 'Reject Complete Order',
                                               onPressed: () => _cancelEntireKotDialog(kot['id'], kot['kot_no'] ?? kot['id'].toString()),
                                             ),
+                                          const SizedBox(width: 6),
                                           Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                             decoration: BoxDecoration(
@@ -536,7 +574,7 @@ class _KdsScreenState extends State<KdsScreen> with WidgetsBindingObserver {
                                             ),
                                             child: Text(
                                               '${minutesElapsed}m ago',
-                                              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                                             ),
                                           )
                                         ],
@@ -548,8 +586,23 @@ class _KdsScreenState extends State<KdsScreen> with WidgetsBindingObserver {
                                       child: Row(
                                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
-                                          Text('KOT: ${kot['kot_no'] ?? kot['id']}', style: TextStyle(color: colorScheme.outline, fontSize: 12, fontWeight: FontWeight.bold)),
-                                          Text('Staff: ${kot['waiter_name'] ?? kot['created_by'] ?? 'Staff'}', style: TextStyle(color: colorScheme.outline, fontSize: 12)),
+                                          Expanded(
+                                            child: Text(
+                                              'KOT: ${kot['kot_no'] ?? kot['id']}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(color: colorScheme.outline, fontSize: 12, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Flexible(
+                                            child: Text(
+                                              'Staff: ${kot['waiter_name'] ?? kot['created_by'] ?? 'Staff'}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(color: colorScheme.outline, fontSize: 12),
+                                            ),
+                                          ),
                                         ],
                                       ),
                                     ),

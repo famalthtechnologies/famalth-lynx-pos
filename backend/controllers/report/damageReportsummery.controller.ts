@@ -60,9 +60,9 @@ exports.getDamageReport = async (req: any, res: any) => {
                     item_name: itemMaster.item_name || i.item_name || '',
                     brand: itemMaster.brand || i.brand || '',
                     unit: itemMaster.unit || i.unit || '',
-                    qty: Number(i.qty || 0),
+                    qty: Number(i.qty ?? i.quantity ?? 0),
                     rate: Number(i.rate || 0),
-                    amount: Number(i.amount || (Number(i.qty || 0) * Number(i.rate || 0)))
+                    amount: Number(i.amount != null && !isNaN(Number(i.amount)) ? i.amount : (Number(i.qty ?? i.quantity ?? 0) * Number(i.rate || 0)))
                 };
             });
 

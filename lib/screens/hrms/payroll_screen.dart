@@ -26,6 +26,8 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   String _runStatus = 'Draft';
   List<Map<String, dynamic>> _previewData = [];
   int? _activeRunId;
+  String _selectedOfficeId = 'all';
+  List<Map<String, dynamic>> _offices = [];
   
   // Tab Lists data
   List<Map<String, dynamic>> _revisions = [];
@@ -314,6 +316,14 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   Future<void> _loadTabContent() async {
     setState(() => _loadingTab = true);
     try {
+      if (_offices.isEmpty) {
+        try {
+          final offRes = await ApiClient.get(ApiEndpoints.hrmsOffices);
+          if (offRes['success'] == true && offRes['data'] is List) {
+            _offices = List<Map<String, dynamic>>.from(offRes['data']);
+          }
+        } catch (_) {}
+      }
       if (_tabController.index == 0) {
         await _checkPayrollStatus();
         final period = DateFormat('yyyy-MM').format(_currentMonth);
@@ -376,7 +386,11 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   Future<void> _fetchPreviewData() async {
     final period = DateFormat('yyyy-MM').format(_currentMonth);
     try {
-      final res = await ApiClient.post('/api/hrms/payroll/preview', {'pay_period': period});
+      final payload = {
+        'pay_period': period,
+        if (_selectedOfficeId != 'all') 'office_id': int.tryParse(_selectedOfficeId),
+      };
+      final res = await ApiClient.post('/api/hrms/payroll/preview', payload);
       if (res['success'] == true && res['data'] != null) {
         setState(() {
           _previewData = List<Map<String, dynamic>>.from(res['data'] ?? []);
@@ -595,6 +609,48 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
               ),
               const SizedBox(width: 12),
               _buildStatusChip(_runStatus),
+              const SizedBox(width: 10),
+              Container(
+                height: 34,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFCBD5E1)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.location_city, size: 14, color: Color(0xFF64748B)),
+                    const SizedBox(width: 6),
+                    DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedOfficeId,
+                        isDense: true,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF1E293B), fontWeight: FontWeight.w600),
+                        items: [
+                          const DropdownMenuItem(value: 'all', child: Text('🏢 All Offices & Branches')),
+                          ..._offices.map((o) => DropdownMenuItem(
+                                value: o['id'].toString(),
+                                child: Text('${o['office_code']} - ${o['office_name']}'),
+                              )),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              _selectedOfficeId = val;
+                              _previewData.clear();
+                              _showPreview = false;
+                            });
+                            _fetchPreviewData();
+                            _loadTabContent();
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
           Wrap(
@@ -624,7 +680,8 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   onPressed: _previewData.isNotEmpty ? () async {
                     try {
                       await ApiClient.post('/api/hrms/payroll/run', {
-                        'pay_period': DateFormat('yyyy-MM').format(_currentMonth)
+                        'pay_period': DateFormat('yyyy-MM').format(_currentMonth),
+                        if (_selectedOfficeId != 'all') 'office_id': int.tryParse(_selectedOfficeId),
                       });
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Payroll processed successfully!'), backgroundColor: Color(0xFF059669)),
@@ -2051,6 +2108,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     DateTime effectiveDate = DateTime.now();
     String target = 'All';
     dynamic selectedGradeId;
+    dynamic selectedOfficeTargetId;
 
     showDialog(
       context: context,
@@ -2100,30 +2158,72 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                 ),
                 const SizedBox(height: 16),
                 const Text('Target Employees', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF4B5563))),
-                Row(
+                Wrap(
+                  spacing: 4,
                   children: [
-                    Expanded(
+                    SizedBox(
+                      width: 90,
                       child: RadioListTile<String>(
-                        title: const Text('All', style: TextStyle(fontSize: 13)),
+                        title: const Text('All', style: TextStyle(fontSize: 12)),
                         value: 'All',
                         groupValue: target,
                         activeColor: const Color(0xFFE03E2D),
                         contentPadding: EdgeInsets.zero,
-                        onChanged: (v) => setDs(() => target = v!),
+                        onChanged: (v) => setDs(() {
+                          target = v!;
+                          selectedGradeId = null;
+                          selectedOfficeTargetId = null;
+                        }),
                       ),
                     ),
-                    Expanded(
+                    SizedBox(
+                      width: 120,
                       child: RadioListTile<String>(
-                        title: const Text('By Grade', style: TextStyle(fontSize: 13)),
+                        title: const Text('By Office', style: TextStyle(fontSize: 12)),
+                        value: 'Office',
+                        groupValue: target,
+                        activeColor: const Color(0xFFE03E2D),
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (v) => setDs(() {
+                          target = v!;
+                          if (_offices.isNotEmpty) selectedOfficeTargetId = _offices[0]['id'];
+                        }),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 110,
+                      child: RadioListTile<String>(
+                        title: const Text('By Grade', style: TextStyle(fontSize: 12)),
                         value: 'Designation',
                         groupValue: target,
                         activeColor: const Color(0xFFE03E2D),
                         contentPadding: EdgeInsets.zero,
-                        onChanged: (v) => setDs(() => target = v!),
+                        onChanged: (v) => setDs(() {
+                          target = v!;
+                          if (payStructures.isNotEmpty) selectedGradeId = payStructures[0]['id'];
+                        }),
                       ),
                     ),
                   ],
                 ),
+                if (target == 'Office') ...[
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<dynamic>(
+                    value: (_offices.any((o) => o['id'] == selectedOfficeTargetId)) ? selectedOfficeTargetId : null,
+                    hint: const Text('Select Company Office / Branch'),
+                    items: _offices
+                        .map((o) => DropdownMenuItem<dynamic>(
+                              value: o['id'],
+                              child: Text('🏢 ${o['office_code']} - ${o['office_name']}'),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDs(() => selectedOfficeTargetId = v),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ],
                 if (target == 'Designation') ...[
                   const SizedBox(height: 8),
                   DropdownButtonFormField<dynamic>(
@@ -2258,6 +2358,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     final reasonCtrl = TextEditingController(text: 'Diwali Bonus');
     String target = 'All';
     dynamic selectedGradeId;
+    dynamic selectedOfficeTargetId;
     String paymentMode = 'Payroll';
     String paymentMethod = 'Cash';
 
@@ -2269,6 +2370,8 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             final active = employees.where((e) => e['status']?.toString().toLowerCase() == 'active').toList();
             if (target == 'All') {
               return active;
+            } else if (target == 'Office') {
+              return active.where((e) => e['office_id'] == selectedOfficeTargetId).toList();
             } else {
               return active.where((e) => e['pay_structure_id'] == selectedGradeId).toList();
             }
@@ -2380,11 +2483,13 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   ],
                   const SizedBox(height: 16),
                   const Text('Target Employees', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF4B5563))),
-                  Row(
+                  Wrap(
+                    spacing: 4,
                     children: [
-                      Expanded(
+                      SizedBox(
+                        width: 90,
                         child: RadioListTile<String>(
-                          title: const Text('All', style: TextStyle(fontSize: 13)),
+                          title: const Text('All', style: TextStyle(fontSize: 12)),
                           value: 'All',
                           groupValue: target,
                           activeColor: const Color(0xFFE03E2D),
@@ -2392,26 +2497,58 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                           onChanged: (v) => setDs(() {
                             target = v!;
                             selectedGradeId = null;
+                            selectedOfficeTargetId = null;
                           }),
                         ),
                       ),
-                      Expanded(
+                      SizedBox(
+                        width: 120,
                         child: RadioListTile<String>(
-                          title: const Text('By Grade', style: TextStyle(fontSize: 13)),
+                          title: const Text('By Office', style: TextStyle(fontSize: 12)),
+                          value: 'Office',
+                          groupValue: target,
+                          activeColor: const Color(0xFFE03E2D),
+                          contentPadding: EdgeInsets.zero,
+                          onChanged: (v) => setDs(() {
+                            target = v!;
+                            if (_offices.isNotEmpty) selectedOfficeTargetId = _offices[0]['id'];
+                          }),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 110,
+                        child: RadioListTile<String>(
+                          title: const Text('By Grade', style: TextStyle(fontSize: 12)),
                           value: 'Designation',
                           groupValue: target,
                           activeColor: const Color(0xFFE03E2D),
                           contentPadding: EdgeInsets.zero,
                           onChanged: (v) => setDs(() {
                             target = v!;
-                            if (payStructures.isNotEmpty) {
-                              selectedGradeId = payStructures[0]['id'];
-                            }
+                            if (payStructures.isNotEmpty) selectedGradeId = payStructures[0]['id'];
                           }),
                         ),
                       ),
                     ],
                   ),
+                  if (target == 'Office') ...[
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<dynamic>(
+                      value: (_offices.any((o) => o['id'] == selectedOfficeTargetId)) ? selectedOfficeTargetId : null,
+                      hint: const Text('Select Company Office / Branch'),
+                      items: _offices
+                          .map((o) => DropdownMenuItem<dynamic>(
+                                value: o['id'],
+                                child: Text('🏢 ${o['office_code']} - ${o['office_name']}'),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setDs(() => selectedOfficeTargetId = v),
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
                   if (target == 'Designation') ...[
                     const SizedBox(height: 8),
                     DropdownButtonFormField<dynamic>(

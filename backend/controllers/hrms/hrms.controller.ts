@@ -36,8 +36,10 @@ exports.getSalaryComponents = async (req, res) => {
 exports.createSalaryComponent = async (req, res) => {
   try {
     const { hr_salary_components } = req.propertyDb.models;
+    const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
     const data = await hr_salary_components.create({
       ...req.body,
+      office_id,
       outlet_id: req.user.outlet_id,
       created_by: req.user.id
     });
@@ -63,14 +65,23 @@ exports.updateSalaryComponent = async (req, res) => {
 
 exports.getPayStructures = async (req, res) => {
   try {
-    const { hr_pay_structures, hr_salary_components } = req.propertyDb.models;
+    const { hr_pay_structures, hr_salary_components, hr_offices } = req.propertyDb.models;
+    const { office_id } = req.query;
+    const where = { outlet_id: req.user.outlet_id };
+    if (office_id && office_id !== 'all' && office_id !== '0') {
+      where[Op.or] = [{ office_id: office_id }, { office_id: null }];
+    }
     const data = await hr_pay_structures.findAll({
-      where: { outlet_id: req.user.outlet_id },
-      include: [{
-        model: hr_salary_components,
-        as: 'components',
-        through: { attributes: [] }
-      }]
+      where,
+      include: [
+        {
+          model: hr_salary_components,
+          as: 'components',
+          through: { attributes: [] }
+        },
+        ...(hr_offices ? [{ model: hr_offices, as: 'office', attributes: ['id', 'office_code', 'office_name'] }] : [])
+      ],
+      order: [['id', 'ASC']]
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -80,12 +91,13 @@ exports.getPayStructures = async (req, res) => {
 
 exports.createPayStructure = async (req, res) => {
   try {
-    const { hr_pay_structures, hr_pay_structure_components, hr_salary_components } = req.propertyDb.models;
-    const { name, description, is_active, componentIds } = req.body;
+    const { hr_pay_structures, hr_pay_structure_components } = req.propertyDb.models;
+    const { name, description, is_active, componentIds, office_id } = req.body;
     const structure = await hr_pay_structures.create({
       name,
       description: description || null,
       is_active: is_active !== false,
+      office_id: office_id && office_id !== 'all' && office_id !== '0' ? parseInt(office_id) : null,
       outlet_id: req.user.outlet_id
     });
 
@@ -118,8 +130,10 @@ exports.getLeaveTypes = async (req, res) => {
 exports.createLeaveType = async (req, res) => {
   try {
     const { hr_leave_types } = req.propertyDb.models;
+    const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
     const data = await hr_leave_types.create({
       ...req.body,
+      office_id,
       outlet_id: req.user.outlet_id,
       created_by: req.user.id
     });
@@ -142,12 +156,14 @@ exports.getShifts = async (req, res) => {
 exports.createShift = async (req, res) => {
   try {
     const { hr_shifts } = req.propertyDb.models;
+    const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
     const data = await hr_shifts.create({
       name: req.body.name,
       start_time: req.body.start_time,
       end_time: req.body.end_time,
       grace_period_mins: req.body.grace_period_mins ?? 15,
       weekly_offs: req.body.weekly_offs ?? ["Sunday"],
+      office_id,
       outlet_id: req.user.outlet_id
     });
     return res.json({ success: true, data: data.toJSON() });
@@ -170,8 +186,10 @@ exports.getDesignations = async (req, res) => {
 exports.createDesignation = async (req, res) => {
   try {
     const { hr_designations } = req.propertyDb.models;
+    const office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
     const data = await hr_designations.create({
       name: req.body.name,
+      office_id,
       outlet_id: req.user.outlet_id
     });
     return res.json({ success: true, data: data.toJSON() });
@@ -185,21 +203,24 @@ exports.createDesignation = async (req, res) => {
 
 exports.getEmployees = async (req, res) => {
   try {
-    const { hr_employees, hr_designations, hr_shifts, hr_pay_structures, hr_leave_balances } = req.propertyDb.models;
-    const { status, designation_id } = req.query;
+    const { hr_employees, hr_designations, hr_shifts, hr_pay_structures, hr_leave_balances, hr_offices } = req.propertyDb.models;
+    const { status, designation_id, office_id } = req.query;
     
     const where: any = { outlet_id: req.user.outlet_id };
     if (status) where.status = status;
     if (designation_id) where.designation_id = designation_id;
+    if (office_id && office_id !== 'all' && office_id !== '0') where.office_id = office_id;
 
     const data = await hr_employees.findAll({
       where,
       include: [
+        { model: hr_offices, as: 'office' },
         { model: hr_designations, as: 'designation' },
         { model: hr_shifts, as: 'shift' },
         { model: hr_pay_structures, as: 'payStructure' },
         { model: hr_leave_balances, as: 'leaveBalances', include: ['leaveType'] }
-      ]
+      ],
+      order: [['id', 'ASC']]
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -209,10 +230,11 @@ exports.getEmployees = async (req, res) => {
 
 exports.getEmployee = async (req, res) => {
   try {
-    const { hr_employees, hr_designations, hr_shifts, hr_pay_structures, hr_leave_balances } = req.propertyDb.models;
+    const { hr_employees, hr_designations, hr_shifts, hr_pay_structures, hr_leave_balances, hr_offices } = req.propertyDb.models;
     const data = await hr_employees.findOne({
       where: { id: req.params.id, outlet_id: req.user.outlet_id },
       include: [
+        { model: hr_offices, as: 'office' },
         { model: hr_designations, as: 'designation' },
         { model: hr_shifts, as: 'shift' },
         { model: hr_pay_structures, as: 'payStructure' },
@@ -315,12 +337,75 @@ exports.createEmployee = async (req, res) => {
       return res.status(400).json({ success: false, message: `Employee code '${empCode}' is already in use by another employee.` });
     }
 
+    // Resolve Office (Mandatory)
+    const { hr_offices } = req.propertyDb.models;
+    let officeId = employeeData.office_id ? parseInt(employeeData.office_id) : null;
+    if (!officeId) {
+      const defOffice = await hr_offices.findOne({
+        where: { outlet_id: req.user.outlet_id, is_active: true },
+        order: [['id', 'ASC']]
+      });
+      if (defOffice) officeId = defOffice.id;
+    }
+    if (!officeId) {
+      return res.status(400).json({ success: false, message: 'Office selection is mandatory. Please select an Office/Branch.' });
+    }
+
+    // Hash Initial Password
+    const bcryptModule = require('bcryptjs');
+    const rawPass = String(employeeData.initial_password || employeeData.password || '123456').trim();
+    const passHash = await bcryptModule.hash(rawPass, 10);
+    delete employeeData.initial_password;
+    delete employeeData.password;
+
     const employee = await hr_employees.create({
       ...employeeData,
       employee_code: empCode,
+      office_id: officeId,
+      password_hash: passHash,
       outlet_id: req.user.outlet_id,
       created_by: req.user.id
     });
+
+    // Send Welcome Email if contact_email is available
+    if (employee.contact_email && employee.contact_email.trim() !== '') {
+      try {
+        const { sendMail } = require('../../services/email.service');
+        const assignedOffice = await hr_offices.findByPk(officeId);
+        const welcomeHtml = `
+          <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 22px; border: 1px solid #E2E8F0; border-radius: 12px; background: #ffffff;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h2 style="color: #1E3A8A; margin: 0;">Welcome to the Team!</h2>
+              <p style="color: #16A34A; font-weight: bold; margin-top: 4px;">Employee App Login Credentials</p>
+            </div>
+            <div style="background: #F8FAFC; border-radius: 8px; padding: 18px; border: 1px solid #E2E8F0;">
+              <p style="margin: 0 0 10px 0; color: #1E293B; font-size: 15px;">Hello <strong>${employee.full_name}</strong>,</p>
+              <p style="margin: 0 0 14px 0; color: #475569; font-size: 14px; line-height: 1.5;">
+                Your employee profile has been created. Use the following credentials to sign in to the Employee Mobile App:
+              </p>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 6px 0; color: #64748B; font-size: 13px;">Employee Code:</td><td style="padding: 6px 0; font-weight: bold; color: #1E293B;">${empCode}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748B; font-size: 13px;">Registered Email:</td><td style="padding: 6px 0; font-weight: bold; color: #1E293B;">${employee.contact_email}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748B; font-size: 13px;">Assigned Office:</td><td style="padding: 6px 0; font-weight: bold; color: #1E293B;">${assignedOffice ? assignedOffice.office_name : 'Head Office'}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748B; font-size: 13px;">Initial Password:</td><td style="padding: 6px 0; font-weight: bold; color: #2563EB; font-family: monospace; font-size: 15px;">${rawPass}</td></tr>
+              </table>
+              <p style="margin: 14px 0 0 0; color: #64748B; font-size: 12px; line-height: 1.4;">
+                💡 You can mark your daily geotagged GPS check-in/out and change your password anytime in the app using OTP verification.
+              </p>
+            </div>
+          </div>
+        `;
+        sendMail({
+          db: req.propertyDb,
+          outlet_id: req.user.outlet_id,
+          to: employee.contact_email,
+          subject: `🎉 Your Employee Login Credentials - ${empCode}`,
+          html: welcomeHtml
+        }).catch(mailErr => console.warn('[WELCOME EMAIL NOTICE]', mailErr.message));
+      } catch (emailErr) {
+        console.warn('[WELCOME EMAIL ERROR]', emailErr.message);
+      }
+    }
 
     const leaveTypes = await hr_leave_types.findAll({
       where: { is_active: true, outlet_id: req.user.outlet_id }
@@ -370,6 +455,13 @@ exports.updateEmployee = async (req, res) => {
         return res.status(400).json({ success: false, message: `Employee code '${employeeData.employee_code}' is already in use by another employee.` });
       }
     }
+
+    if (employeeData.password && String(employeeData.password).trim() !== '') {
+      const bcryptModule = require('bcryptjs');
+      employeeData.password_hash = await bcryptModule.hash(String(employeeData.password).trim(), 10);
+      delete employeeData.password;
+    }
+    if (employeeData.initial_password) delete employeeData.initial_password;
 
     const [updated] = await hr_employees.update(employeeData, {
       where: { id: req.params.id, outlet_id: req.user.outlet_id }
@@ -499,11 +591,13 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
 
 exports.getAttendance = async (req, res) => {
   try {
-    const { hr_attendance_punches } = req.propertyDb.models;
-    const { employee_id, month } = req.query; // month format YYYY-MM
+    const { hr_attendance_punches, hr_employees, hr_offices } = req.propertyDb.models;
+    const { employee_id, month, office_id, punch_date } = req.query; // month format YYYY-MM
     const where: any = { outlet_id: req.user.outlet_id };
     
     if (employee_id) where.employee_id = employee_id;
+    if (office_id && office_id !== 'all' && office_id !== '0') where.office_id = office_id;
+    if (punch_date) where.punch_date = punch_date;
     if (month) {
       const startDate = moment(month, 'YYYY-MM').startOf('month').format('YYYY-MM-DD');
       const endDate = moment(month, 'YYYY-MM').endOf('month').format('YYYY-MM-DD');
@@ -512,7 +606,11 @@ exports.getAttendance = async (req, res) => {
     
     const data = await hr_attendance_punches.findAll({
       where,
-      order: [['punch_date', 'ASC']]
+      include: [
+        { model: hr_employees, as: 'employee', attributes: ['id', 'employee_code', 'full_name', 'contact_email', 'mobile'] },
+        { model: hr_offices, as: 'office', attributes: ['id', 'office_code', 'office_name', 'radius_meters', 'latitude', 'longitude'] }
+      ],
+      order: [['punch_date', 'DESC'], ['id', 'DESC']]
     });
     return res.json({ success: true, data });
   } catch (err) {
@@ -740,8 +838,8 @@ exports.manualAttendance = async (req, res) => {
 
 exports.getLeaves = async (req, res) => {
   try {
-    const { hr_leave_applications, hr_employees, hr_leave_types } = req.propertyDb.models;
-    const { employee_id, status } = req.query;
+    const { hr_leave_applications, hr_employees, hr_leave_types, hr_offices } = req.propertyDb.models;
+    const { employee_id, status, office_id } = req.query;
     
     const where: any = { outlet_id: req.user.outlet_id };
     if (employee_id) where.employee_id = employee_id;
@@ -750,7 +848,12 @@ exports.getLeaves = async (req, res) => {
     const data = await hr_leave_applications.findAll({
       where,
       include: [
-        { model: hr_employees, as: 'employee' },
+        {
+          model: hr_employees,
+          as: 'employee',
+          where: (office_id && office_id !== 'all' && office_id !== '0') ? { office_id } : undefined,
+          include: hr_offices ? [{ model: hr_offices, as: 'office' }] : []
+        },
         { model: hr_leave_types, as: 'leaveType' }
       ]
     });
@@ -1042,8 +1145,13 @@ exports.previewPayroll = async (req, res) => {
     const holidayDates = holidays.map(h => h.holiday_date);
     
     const { hr_pay_structures, hr_salary_components } = req.propertyDb.models;
+    const { office_id } = req.body || {};
+    const empWhere = { status: 'Active', outlet_id: req.user.outlet_id };
+    if (office_id && office_id !== 'all' && office_id !== '0') {
+      empWhere.office_id = office_id;
+    }
     const employees = await hr_employees.findAll({
-      where: { status: 'Active', outlet_id: req.user.outlet_id },
+      where: empWhere,
       include: [
         { model: hr_shifts, as: 'shift' },
         {
@@ -1940,7 +2048,11 @@ exports.updateDesignation = async (req, res) => {
     const { name, is_active } = req.body;
     const item = await hr_designations.findOne({ where: { id, outlet_id: req.user.outlet_id } });
     if (!item) return res.status(404).json({ success: false, message: 'Designation not found' });
-    await item.update({ name, is_active: is_active !== false });
+    const payload = { name, is_active: is_active !== false };
+    if ('office_id' in req.body) {
+      payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+    }
+    await item.update(payload);
     return res.json({ success: true, data: item });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -1975,7 +2087,11 @@ exports.updateShift = async (req, res) => {
     const { name, start_time, end_time, grace_period_mins, weekly_offs, is_active } = req.body;
     const item = await hr_shifts.findOne({ where: { id, outlet_id: req.user.outlet_id } });
     if (!item) return res.status(404).json({ success: false, message: 'Shift not found' });
-    await item.update({ name, start_time, end_time, grace_period_mins, weekly_offs, is_active: is_active !== false });
+    const payload = { name, start_time, end_time, grace_period_mins, weekly_offs, is_active: is_active !== false };
+    if ('office_id' in req.body) {
+      payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+    }
+    await item.update(payload);
     return res.json({ success: true, data: item });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -2010,7 +2126,11 @@ exports.updateLeaveType = async (req, res) => {
     const { name, annual_quota, is_paid, is_active } = req.body;
     const item = await hr_leave_types.findOne({ where: { id, outlet_id: req.user.outlet_id } });
     if (!item) return res.status(404).json({ success: false, message: 'Leave type not found' });
-    await item.update({ name, annual_quota, is_paid, is_active: is_active !== false });
+    const payload = { name, annual_quota, is_paid, is_active: is_active !== false };
+    if ('office_id' in req.body) {
+      payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+    }
+    await item.update(payload);
     return res.json({ success: true, data: item });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -2069,7 +2189,11 @@ exports.updatePayStructure = async (req, res) => {
     const item = await hr_pay_structures.findOne({ where: { id, outlet_id: req.user.outlet_id } });
     if (!item) return res.status(404).json({ success: false, message: 'Pay structure not found' });
     
-    await item.update({ name, description: description || null, is_active: is_active !== false });
+    const updatePayload = { name, description: description || null, is_active: is_active !== false };
+    if ('office_id' in req.body) {
+      updatePayload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
+    }
+    await item.update(updatePayload);
     
     if (Array.isArray(componentIds)) {
       // Clear old components and bulk insert new ones
@@ -3427,6 +3551,10 @@ exports.receiveBiometricPushWebhook = async (req: any, res: any) => {
     return res.status(500).json({ ret: 0, success: false, message: err.message });
   }
 };
+
+// Export new Office Master, Employee Portal Auth, Geotagged Punch, and Dashboard Overview functions
+const portalCtrl = require('./hrms_office_portal.controller');
+Object.assign(exports, portalCtrl);
 
 module.exports = exports;
 export default exports;

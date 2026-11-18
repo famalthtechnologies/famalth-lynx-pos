@@ -13,8 +13,9 @@ exports.getDamageReport = async (req: any, res: any) => {
         im.item_name     AS item,
         im.brand         AS brand,
         im.item_group    AS category,
-        di.qty           AS qty,
+        COALESCE(NULLIF(di.qty, 0), CASE WHEN di.amount > 0 AND di.rate > 0 THEN ROUND(di.amount / di.rate, 2) ELSE 1 END) AS qty,
         di.rate          AS rate,
+        COALESCE(NULLIF(di.amount, 0), (COALESCE(NULLIF(di.qty, 0), 1) * di.rate)) AS amount,
         di.remarks       AS reason,
         u.username       AS "user"
 

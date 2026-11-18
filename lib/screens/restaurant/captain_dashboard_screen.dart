@@ -25,7 +25,14 @@ import '../auth/waiter_auth_screen.dart';
 import '../dashboard/retailer_console_screen.dart';
 
 class CaptainDashboardScreen extends StatefulWidget {
-  const CaptainDashboardScreen({super.key});
+  final int? initialTableId;
+  final int initialSidebarTab;
+
+  const CaptainDashboardScreen({
+    super.key,
+    this.initialTableId,
+    this.initialSidebarTab = 0,
+  });
 
   @override
   State<CaptainDashboardScreen> createState() => _CaptainDashboardScreenState();
@@ -39,7 +46,7 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
   Map<int, List<dynamic>> activeKotItemsByTable = {};
   Timer? _refreshTimer;
   Timer? _liveKdsTickerTimer;
-  bool isVisualCanvasView = true;
+  bool isVisualCanvasView = false;
   bool showPackingOrders = false;
   int selectedSidebarTab = 0; // 0: Dine-In Tables, 1: Packing Orders, 2: NC Orders (No Charge)
   List<dynamic> _activeTakeawayKots = [];
@@ -57,14 +64,26 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
   @override
   void initState() {
     super.initState();
+    selectedSidebarTab = widget.initialSidebarTab;
     WidgetsBinding.instance.addObserver(this);
     _loadSavedViewPreference();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final ctrl = Provider.of<RestaurantController>(context, listen: false);
       ctrl.loadFloors();
       ctrl.loadDiningAreas();
       _fetchStaffList();
       _refreshData();
+      if (widget.initialTableId != null && mounted) {
+        try {
+          final tMatch = ctrl.tables.firstWhere(
+            (t) => t['id'] == widget.initialTableId,
+            orElse: () => null,
+          );
+          if (tMatch != null) {
+            _handleTableTap(context, tMatch, ctrl);
+          }
+        } catch (_) {}
+      }
     });
 
     _startTimers();
@@ -150,14 +169,26 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
     }
   }
 
+  void _safeNavigateBack() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MobileBillingAppScreen()),
+      );
+    }
+  }
+
   Future<void> _loadSavedViewPreference() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.containsKey('captain_is_visual_canvas_view')) {
         final savedVal = prefs.getBool('captain_is_visual_canvas_view');
+        final bool isMobile = MediaQuery.of(context).size.width < 768;
         if (savedVal != null && mounted) {
           setState(() {
-            isVisualCanvasView = savedVal;
+            isVisualCanvasView = isMobile ? false : savedVal;
           });
         }
       }
@@ -2357,13 +2388,32 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
 
     final bool isMobile = MediaQuery.of(context).size.width < 768;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Captain Console / Order Desk',
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _safeNavigateBack();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            tooltip: 'Back to Billing',
+            onPressed: _safeNavigateBack,
+          ),
+          title: const Text(
+            'Captain Console / Order Desk',
+            overflow: TextOverflow.ellipsis,
+          ),
+          actions: [
+            if (isMobile)
+              Builder(
+                builder: (ctx) => IconButton(
+                  icon: const Icon(Icons.menu),
+                  tooltip: 'Floors & Categories',
+                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+                ),
+              ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh Desk',
@@ -2498,7 +2548,7 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
                               ? const Center(
                                   child: Text(
                                       'No tables configured. Please add tables in setup.'))
-                          : isVisualCanvasView
+                          : (isVisualCanvasView && !isMobile)
                               ? _buildVisualFloorCanvas(filteredTables, ctrl)
                               : LayoutBuilder(
                                   builder: (context, constraints) {
@@ -2512,7 +2562,7 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
                                     crossAxisCount: cols,
                                     crossAxisSpacing: 16,
                                     mainAxisSpacing: 16,
-                                    childAspectRatio: 0.68,
+                                    childAspectRatio: isMobile ? 0.72 : 0.68,
                                   ),
                                   itemCount: filteredTables.length,
                                   itemBuilder: (context, index) {
@@ -2949,8 +2999,9 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
           )
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   void _handleTableTap(BuildContext context, Map<String, dynamic> table,
       RestaurantController ctrl) {
@@ -3616,14 +3667,18 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
         role == 'OWNER' ||
         role == 'MANAGER' ||
         role == 'CASHIER' ||
+        role.contains('BILL') ||
         permissions.contains('RETAIL_SALES') ||
         permissions.contains('POS_SALE') ||
         permissions.contains('BILLING') ||
         permissions.contains('CREATE_SALE') ||
         permissions.contains('SALES') ||
         permissions.contains('ALL') ||
+        permissions.contains('WAITER_BILLING') ||
+        permissions.contains('ALLOW_WAITER_BILLING') ||
         PermissionService.can('RETAIL_SALES') ||
-        PermissionService.can('POS_SALE');
+        PermissionService.can('POS_SALE') ||
+        PermissionService.can('BILLING');
 
     if (!hasBillingRight) {
       final String currentStatus = ctrl.tables.firstWhere((t) => t['id'] == tableId, orElse: () => {})['status']?.toString().toLowerCase() ?? '';
@@ -3647,6 +3702,14 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
     final String tableName = (tableObj['table_name'] ?? tableObj['name'] ?? 'Table #$tableId').toString();
 
     if (mounted) {
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context, {
+          'action': 'settle',
+          'table': tableObj.isNotEmpty ? tableObj : {'id': tableId, 'table_name': tableName},
+          'kots': targetKots,
+        });
+        return;
+      }
       final isDesktop = MediaQuery.of(context).size.width >= 900;
       if (isDesktop) {
         Navigator.push(
@@ -3663,7 +3726,7 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
           _refreshData();
         });
       } else {
-        Navigator.push(
+        Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => MobileBillingAppScreen(
@@ -3673,10 +3736,7 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
               preloadedKotIds: kotIds,
             ),
           ),
-        ).then((_) {
-          ctrl.loadTables();
-          _refreshData();
-        });
+        );
       }
     }
   }
@@ -3920,7 +3980,13 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
                 children: [
                   Icon(Icons.card_giftcard, color: Colors.purple),
                   SizedBox(width: 8),
-                  Text('NC Order (Non-Chargeable)'),
+                  Expanded(
+                    child: Text(
+                      'NC Order (Non-Chargeable)',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ],
               ),
               content: SingleChildScrollView(
@@ -4457,14 +4523,18 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
         role == 'OWNER' ||
         role == 'MANAGER' ||
         role == 'CASHIER' ||
+        role.contains('BILL') ||
         permissions.contains('RETAIL_SALES') ||
         permissions.contains('POS_SALE') ||
         permissions.contains('BILLING') ||
         permissions.contains('CREATE_SALE') ||
         permissions.contains('SALES') ||
         permissions.contains('ALL') ||
+        permissions.contains('WAITER_BILLING') ||
+        permissions.contains('ALLOW_WAITER_BILLING') ||
         PermissionService.can('RETAIL_SALES') ||
-        PermissionService.can('POS_SALE');
+        PermissionService.can('POS_SALE') ||
+        PermissionService.can('BILLING');
 
     final int kotId = int.tryParse((kot['id'] ?? 0).toString()) ?? 0;
     final String kotNo = (kot['kot_number'] ?? kot['kot_no'] ?? '#KOT-$kotId').toString();
@@ -4491,6 +4561,15 @@ class _CaptainDashboardScreenState extends State<CaptainDashboardScreen>
     }
 
     if (mounted) {
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context, {
+          'action': 'settle',
+          'table': {'id': null, 'table_name': 'Takeaway $kotNo'},
+          'kots': [kot],
+        });
+        return;
+      }
+
       final isDesktop = MediaQuery.of(context).size.width >= 900;
       if (isDesktop) {
         Navigator.push(

@@ -654,9 +654,17 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
         final dateParsed = dmg['damage_date'] != null
             ? DateFormat('dd-MMM-yyyy').format(DateTime.parse(dmg['damage_date']))
             : '-';
-        final totalValue = CurrencyService.format(
-          double.tryParse(dmg['total_value']?.toString() ?? '') ?? 0.0,
-        );
+        final rawVal = double.tryParse(dmg['total_value']?.toString() ?? '') ?? 0.0;
+        double computedTotal = rawVal;
+        if (computedTotal == 0.0 && itemsList.isNotEmpty) {
+          for (final it in itemsList) {
+            final q = double.tryParse((it['qty'] ?? it['quantity'])?.toString() ?? '') ?? 0.0;
+            final r = double.tryParse((it['rate'] ?? it['loss_cost'])?.toString() ?? '') ?? 0.0;
+            final a = double.tryParse(it['amount']?.toString() ?? '') ?? (q * r);
+            computedTotal += a;
+          }
+        }
+        final totalValue = CurrencyService.format(computedTotal);
 
         return Card(
           elevation: 2,
@@ -813,9 +821,9 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
             ],
           ),
           ...items.map((i) {
-            final qty = double.tryParse(i['qty']?.toString() ?? '') ?? 0.0;
-            final remarks = i['remarks'] ?? i['remarks_desc'] ?? '-';
-            final rate = double.tryParse(i['rate']?.toString() ?? '') ?? 0.0;
+            final qty = double.tryParse((i['qty'] ?? i['quantity'])?.toString() ?? '') ?? 0.0;
+            final remarks = i['remarks'] ?? i['reason'] ?? i['remarks_desc'] ?? '-';
+            final rate = double.tryParse((i['rate'] ?? i['loss_cost'] ?? i['cost_rate'])?.toString() ?? '') ?? 0.0;
             final unit = i['unit'] ?? i['item_master']?['unit'] ?? '-';
             final amount = double.tryParse(i['amount']?.toString() ?? '') ?? (qty * rate);
             final itemName = (i['item_name'] ?? i['item_master']?['item_name'] ?? '-').toString();

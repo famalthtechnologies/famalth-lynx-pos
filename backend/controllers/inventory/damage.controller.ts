@@ -67,15 +67,17 @@ export const createDamage = async (req: Request, res: Response) => {
         }, { transaction: t });
 
         for (const row of items) {
-            const amount = row.qty * row.rate;
+            const qty = Number(row.qty ?? row.quantity ?? 0);
+            const rate = Number(row.rate ?? 0);
+            const amount = row.amount != null && !isNaN(Number(row.amount)) ? Number(row.amount) : (qty * rate);
             total += amount;
 
             await (req as any).propertyDb.models.damage_items.create({
                 damage_id: damage.id,
                 item_id: row.item_id,
-                qty: row.qty,
-                rate: row.rate,
-                remarks: row.remarks,
+                qty: qty,
+                rate: rate,
+                remarks: row.remarks || row.reason || '',
                 amount
             }, { transaction: t });
 
@@ -371,6 +373,8 @@ export const approveDamage = async (req: Request, res: Response) => {
                 throw new Error('Item code not found for damage entry');
             }
 
+            const itemQty = Number(row.qty ?? row.quantity ?? 0);
+
             await insertLedger({
                 db: (req as any).propertyDb,
                 outlet_id: (req as any).user.outlet_id,
@@ -378,7 +382,7 @@ export const approveDamage = async (req: Request, res: Response) => {
                 txn_date: damage.damage_date,
                 txn_type: 'DAMAGE',
                 ref_no: damage.damage_no,
-                qty_out: row.qty,
+                qty_out: itemQty,
                 transaction: t
             });
         }

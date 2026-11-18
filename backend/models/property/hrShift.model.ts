@@ -2,6 +2,7 @@ module.exports = (sequelize, DataTypes) => {
     const HrShift = sequelize.define('hr_shifts', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         outlet_id: { type: DataTypes.INTEGER, allowNull: false },
+        office_id: { type: DataTypes.INTEGER, allowNull: true },
         name: { type: DataTypes.STRING(100), allowNull: false },
         start_time: { type: DataTypes.STRING, allowNull: false },
         end_time: { type: DataTypes.STRING, allowNull: false },
@@ -17,6 +18,9 @@ module.exports = (sequelize, DataTypes) => {
 
     HrShift.associate = (models) => {
         HrShift.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
+        if (models.hr_offices) {
+            HrShift.belongsTo(models.hr_offices, { foreignKey: 'office_id', as: 'office' });
+        }
     };
 
     return HrShift;

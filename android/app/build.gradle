@@ -93,6 +93,11 @@ android {
             applicationId "com.retailpos.clinic"
             resValue "string", "app_name", "Clinic"
         }
+        employee {
+            dimension "default"
+            applicationId "com.retailpos.employee"
+            resValue "string", "app_name", "Staff Attendance"
+        }
     }
 
     buildTypes {

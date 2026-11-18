@@ -184,6 +184,13 @@ class ApiEndpoints {
   static const paymentMethods = '/api/sales/payment-methods';
 
   // HRMS Endpoints
+  static const hrmsOffices = '/api/hrms/offices';
+  static const hrmsDashboardOverview = '/api/hrms/dashboard-overview';
+  static const hrmsEmployeePunch = '/api/hrms/employee/punch';
+  static const hrmsEmployeeProfile = '/api/hrms/employee/my-profile';
+  static const hrmsEmployeeLogin = '/api/hrms/employee-auth/login';
+  static const hrmsEmployeeForgotOtp = '/api/hrms/employee-auth/forgot-password/request-otp';
+  static const hrmsEmployeeResetPassword = '/api/hrms/employee-auth/forgot-password/reset';
   static const hrmsEmployees = '/api/hrms/employees';
   static const hrmsAttendance = '/api/hrms/attendance';
   static const hrmsLeaves = '/api/hrms/leaves';
