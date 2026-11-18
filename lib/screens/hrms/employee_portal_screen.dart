@@ -1087,25 +1087,29 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 1. Employee Header Card
+          // 1. Employee Header Card (Clean Light Theme)
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: Colors.white,
               borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: borderSubtle),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
             ),
             child: Row(
               children: [
                 CircleAvatar(
                   radius: 26,
-                  backgroundColor: accentIndigo,
+                  backgroundColor: const Color(0xFFEEF2FF),
                   child: Text(
                     empName.isNotEmpty ? empName[0].toUpperCase() : 'E',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+                    style: const TextStyle(color: accentIndigo, fontWeight: FontWeight.bold, fontSize: 20),
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -1115,23 +1119,24 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                     children: [
                       Text(
                         empName,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16.5, color: primaryNavy),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         '$empCode • $desig',
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                        style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
                       ),
                       const SizedBox(height: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.1),
+                          color: const Color(0xFFEFF6FF),
                           borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFDBEAFE)),
                         ),
                         child: Text(
                           '🏢 $officeCode • $officeName',
-                          style: const TextStyle(fontSize: 11, color: Color(0xFFE2E8F0), fontWeight: FontWeight.w600),
+                          style: const TextStyle(fontSize: 11.5, color: Color(0xFF1D4ED8), fontWeight: FontWeight.w600),
                         ),
                       ),
                     ],
