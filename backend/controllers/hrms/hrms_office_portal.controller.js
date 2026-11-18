@@ -528,13 +528,12 @@ exports.employeeGeotaggedPunch = async (req, res) => {
 
     const monthStr = moment().format('YYYY-MM');
     const latestLockedRun = await hr_payroll_runs.findOne({
-      where: { status: 'Approved', outlet_id: employee.outlet_id },
-      order: [['pay_period', 'DESC']]
+      where: { status: 'Paid', outlet_id: employee.outlet_id, pay_period: monthStr }
     });
-    if (latestLockedRun && monthStr <= latestLockedRun.pay_period) {
+    if (latestLockedRun) {
       return res.status(400).json({
         success: false,
-        message: `Attendance is locked. Payroll for ${latestLockedRun.pay_period} has already been approved and paid!`
+        message: `Attendance is locked. Payroll for ${latestLockedRun.pay_period} has already been disbursed and marked Paid!`
       });
     }
 
@@ -794,7 +793,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
       today_attendance: todayPunch,
       stats: statsObj,
       month_stats: statsObj,
-      recent_punches: monthPunches.slice(0, 15)
+      recent_punches: monthPunches.filter((p) => p.punch_in !== null).slice(0, 15)
     });
   } catch (err) {
     console.error('getMyEmployeeProfile error:', err);

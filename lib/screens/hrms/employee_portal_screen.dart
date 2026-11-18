@@ -1266,26 +1266,32 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                     Expanded(
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(
-                          backgroundColor: successGreen,
+                          backgroundColor: hasPunchedIn ? const Color(0xFF94A3B8) : successGreen,
                           padding: const EdgeInsets.symmetric(vertical: 13),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        icon: const Icon(Icons.login_rounded, size: 18),
-                        label: Text(hasPunchedIn ? 'Re-Punch IN' : 'Check IN', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        onPressed: _isPunching ? null : () => _markPunch('IN'),
+                        icon: Icon(hasPunchedIn ? Icons.check_circle_rounded : Icons.login_rounded, size: 18),
+                        label: Text(
+                          hasPunchedIn ? 'Checked IN' : 'Check IN',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: (_isPunching || hasPunchedIn) ? null : () => _markPunch('IN'),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton.icon(
                         style: FilledButton.styleFrom(
-                          backgroundColor: dangerRed,
+                          backgroundColor: (!hasPunchedIn || hasPunchedOut) ? const Color(0xFF94A3B8) : dangerRed,
                           padding: const EdgeInsets.symmetric(vertical: 13),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        icon: const Icon(Icons.logout_rounded, size: 18),
-                        label: Text(hasPunchedOut ? 'Re-Punch OUT' : 'Check OUT', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        onPressed: _isPunching ? null : () => _markPunch('OUT'),
+                        icon: Icon(hasPunchedOut ? Icons.check_circle_rounded : Icons.logout_rounded, size: 18),
+                        label: Text(
+                          hasPunchedOut ? 'Checked OUT' : 'Check OUT',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: (_isPunching || !hasPunchedIn || hasPunchedOut) ? null : () => _markPunch('OUT'),
                       ),
                     ),
                   ],
@@ -1606,7 +1612,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
                   ),
                   const SizedBox(height: 10),
-                  ..._recentPunches.map((p) {
+                  ..._recentPunches.where((p) => p['punch_in'] != null).map((p) {
                     final date = p['punch_date'] ?? '';
                     final inT = p['punch_in'] != null ? DateFormat('hh:mm a').format(DateTime.parse(p['punch_in']).toLocal()) : '--:--';
                     final outT = p['punch_out'] != null ? DateFormat('hh:mm a').format(DateTime.parse(p['punch_out']).toLocal()) : '--:--';
