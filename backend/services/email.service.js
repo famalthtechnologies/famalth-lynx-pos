@@ -108,10 +108,23 @@ async function sendViaGmailOAuthApi({ clientId, clientSecret = '', refreshToken,
 async function sendMail({ db, outlet_id, to, subject, text, html, attachments }) {
     try {
         let config = null;
-        if (db && db.models && db.models.email_configurations && outlet_id) {
-            config = await db.models.email_configurations.findOne({
-                where: { outlet_id }
-            });
+        if (!db || !db.models) {
+            try {
+                db = require('../db/models/index');
+            } catch (e) {}
+        }
+        if (db && db.models && db.models.email_configurations) {
+            if (outlet_id) {
+                config = await db.models.email_configurations.findOne({
+                    where: { outlet_id }
+                });
+            }
+            if (!config) {
+                config = await db.models.email_configurations.findOne({
+                    where: { is_active: true },
+                    order: [['id', 'DESC']]
+                });
+            }
         }
         const providerType = (config?.provider_type || process.env.EMAIL_PROVIDER || '').toString().toUpperCase();
         const gmailClientId = config?.gmail_client_id || process.env.GMAIL_CLIENT_ID || process.env.GMAIL_OAUTH_CLIENT_ID;

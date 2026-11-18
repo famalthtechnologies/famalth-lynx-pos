@@ -1,8 +1,14 @@
 import express from 'express';
 const router = express.Router();
-const auth = require('../middlewares/auth.middleware');
-const propertyContext = require('../middlewares/propertyContext.middleware');
+const authRaw = require('../middlewares/auth.middleware');
+const auth = typeof authRaw === 'function' ? authRaw : (authRaw.authMiddleware || authRaw.default);
+
+const propRaw = require('../middlewares/propertyContext.middleware');
+const propertyContext = typeof propRaw === 'function' ? propRaw : (propRaw.propertyContextMiddleware || propRaw.default || ((req: any, _res: any, next: any) => next()));
+
 const ctrl = require('../controllers/hrms/hrms.controller.ts');
+
+router.use(propertyContext);
 
 // Public Webhook for Biometric Machines / Devices (Push logs)
 router.post('/biometric-punch', ctrl.receiveBiometricPushWebhook);
@@ -13,8 +19,8 @@ router.post('/employee-auth/login', ctrl.employeeLogin);
 router.post('/employee-auth/forgot-password/request-otp', ctrl.employeeRequestResetOtp);
 router.post('/employee-auth/forgot-password/reset', ctrl.employeeResetPassword);
 
-// All HRMS routes require auth and propertyContext
-router.use(auth, propertyContext);
+// All authenticated HRMS routes require auth
+router.use(auth);
 
 // Employee Portal (Authenticated App Operations)
 router.get('/employee/my-profile', ctrl.getMyEmployeeProfile);

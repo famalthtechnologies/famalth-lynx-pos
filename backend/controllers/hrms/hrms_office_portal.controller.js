@@ -162,7 +162,8 @@ exports.deleteOffice = async (req, res) => {
 
 exports.employeeLogin = async (req, res) => {
   try {
-    const { hr_employees, hr_offices, hr_shifts, hr_designations, outlets } = req.propertyDb.models;
+    const db = req.propertyDb || require('../../db/models/index');
+    const { hr_employees, hr_offices, hr_shifts, hr_designations, outlets } = db.models;
     const { username, password } = req.body;
 
     if (!username || !password) {
@@ -238,7 +239,8 @@ exports.employeeLogin = async (req, res) => {
 
 exports.employeeRequestResetOtp = async (req, res) => {
   try {
-    const { hr_employees, hr_offices, outlets } = req.propertyDb.models;
+    const db = req.propertyDb || require('../../db/models/index');
+    const { hr_employees, hr_offices, outlets } = db.models;
     const rawInput = req.body.email_or_code || req.body.login || req.body.email || req.body.employee_code || '';
 
     if (!rawInput || String(rawInput).trim() === '') {
@@ -316,27 +318,29 @@ exports.employeeRequestResetOtp = async (req, res) => {
 
     let emailSent = false;
     try {
-      await sendMail({
+      emailSent = await sendMail({
         db: req.propertyDb,
         outlet_id: employee.outlet_id,
         to: employee.contact_email,
         subject: `🔑 Password Reset OTP: ${otp} - ${companyName}`,
         html: emailHtml
       });
-      emailSent = true;
     } catch (mailErr) {
-      console.warn(`[OTP] Email delivery warning: ${mailErr.message}. OTP generated: ${otp}`);
+      console.warn(`[OTP] Email delivery warning: ${mailErr.message}.`);
+    }
+
+    if (!emailSent) {
+      return res.status(500).json({
+        success: false,
+        message: 'Could not send verification email. Please check system email settings or contact your administrator.'
+      });
     }
 
     const maskedEmail = employee.contact_email.replace(/(.{2})(.*)(?=@)/, (_gp1, gp2, gp3) => gp2 + '*'.repeat(gp3.length));
-    const responseMsg = emailSent
-      ? `Verification OTP has been sent to your email (${maskedEmail}). Valid for 15 minutes.`
-      : `OTP generated for (${maskedEmail}): ${otp} (Valid for 15 mins)`;
 
     return res.json({
       success: true,
-      otp: otp,
-      message: responseMsg
+      message: `Verification OTP has been sent to your registered email (${maskedEmail}). Please check your inbox or spam folder.`
     });
   } catch (err) {
     console.error('employeeRequestResetOtp error:', err);
@@ -346,7 +350,8 @@ exports.employeeRequestResetOtp = async (req, res) => {
 
 exports.employeeResetPassword = async (req, res) => {
   try {
-    const { hr_employees } = req.propertyDb.models;
+    const db = req.propertyDb || require('../../db/models/index');
+    const { hr_employees } = db.models;
     const rawInput = req.body.email_or_code || req.body.login || req.body.email || req.body.employee_code || '';
     const otp = req.body.otp;
     const new_password = req.body.new_password || req.body.password;
