@@ -110,6 +110,9 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
     try {
       final res = await ApiClient.post(ApiEndpoints.hrmsEmployeeLogin, {
         'login': loginId,
+        'username': loginId,
+        'email': loginId,
+        'employee_code': loginId,
         'password': pwd,
       });
 

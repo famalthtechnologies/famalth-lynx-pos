@@ -164,15 +164,18 @@ exports.employeeLogin = async (req, res) => {
   try {
     const db = req.propertyDb || require('../../db/models/index');
     const { hr_employees, hr_offices, hr_shifts, hr_designations, outlets } = db.models;
-    const { username, password } = req.body;
+    const rawUsername = req.body.username || req.body.login || req.body.email || req.body.employee_code || '';
+    const rawPassword = req.body.password || req.body.new_password || '';
 
-    if (!username || !password) {
+    if (!rawUsername || !rawPassword || String(rawUsername).trim() === '' || String(rawPassword).trim() === '') {
       return res.status(400).json({ success: false, message: 'Employee Code / Email and Password are required.' });
     }
 
-    const cleanUsername = username.trim().toLowerCase();
+    const cleanUsername = String(rawUsername).trim().toLowerCase();
+    const password = String(rawPassword).trim();
 
-    const employee = await hr_employees.findOne({
+    // Find employee(s) by employee_code or contact_email
+    const employees = await hr_employees.findAll({
       where: {
         [Op.or]: [
           { employee_code: { [Op.iLike]: cleanUsername } },
@@ -185,27 +188,38 @@ exports.employeeLogin = async (req, res) => {
         { model: hr_shifts, as: 'shift' },
         { model: hr_designations, as: 'designation' },
         { model: outlets, as: 'outlet' }
-      ]
+      ],
+      order: [['id', 'DESC']]
     });
 
-    if (!employee) {
+    if (!employees || employees.length === 0) {
       return res.status(401).json({ success: false, message: 'Employee not found or inactive account.' });
     }
 
-    let passwordMatches = false;
-    if (employee.password_hash) {
-      passwordMatches = await bcrypt.compare(password, employee.password_hash);
-    } else {
-      if (password === '123456' || password.toLowerCase() === employee.employee_code.toLowerCase()) {
-        passwordMatches = true;
-        const hashed = await bcrypt.hash(password, 10);
-        await employee.update({ password_hash: hashed });
+    // Match password across employee record(s)
+    let matchedEmployee = null;
+    for (const emp of employees) {
+      if (emp.password_hash) {
+        const matches = await bcrypt.compare(password, emp.password_hash);
+        if (matches) {
+          matchedEmployee = emp;
+          break;
+        }
+      } else {
+        if (password === '123456' || password.toLowerCase() === emp.employee_code.toLowerCase()) {
+          const hashed = await bcrypt.hash(password, 10);
+          await emp.update({ password_hash: hashed });
+          matchedEmployee = emp;
+          break;
+        }
       }
     }
 
-    if (!passwordMatches) {
+    if (!matchedEmployee) {
       return res.status(401).json({ success: false, message: 'Invalid password. Please check and try again.' });
     }
+
+    const employee = matchedEmployee;
 
     const tokenPayload = {
       id: employee.id,
