@@ -296,7 +296,7 @@ exports.employeeRequestResetOtp = async (req: any, res: any) => {
 
     // Generate 6-digit OTP
     const otp = String(Math.floor(100000 + Math.random() * 900000));
-    const expiresAt = moment().add(15, 'minutes').toDate();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
     for (const emp of employees) {
       await emp.update({
@@ -336,7 +336,7 @@ exports.employeeRequestResetOtp = async (req: any, res: any) => {
     let emailSent = false;
     try {
       emailSent = await sendMail({
-        db: req.propertyDb,
+        db: db,
         outlet_id: employee.outlet_id,
         to: employee.contact_email,
         subject: `🔑 Password Reset OTP: ${otp} - ${companyName}`,
@@ -404,8 +404,12 @@ exports.employeeResetPassword = async (req: any, res: any) => {
       return res.status(400).json({ success: false, message: 'Invalid OTP code. Please check your email.' });
     }
 
-    if (employee.reset_otp_expires_at && new Date() > new Date(employee.reset_otp_expires_at)) {
-      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' });
+    if (employee.reset_otp_expires_at) {
+      const expiresAtMs = new Date(employee.reset_otp_expires_at).getTime();
+      // Allow 2 minutes grace period for network latency / clock skew
+      if (Date.now() > (expiresAtMs + 120000)) {
+        return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' });
+      }
     }
 
     const hashed = await bcrypt.hash(new_password, 10);

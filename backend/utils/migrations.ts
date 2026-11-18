@@ -5463,7 +5463,8 @@ COMMIT;
         ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS office_id INTEGER;
         ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
         ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS reset_otp VARCHAR(10);
-        ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS reset_otp_expires_at TIMESTAMP;
+        ALTER TABLE hr_employees ADD COLUMN IF NOT EXISTS reset_otp_expires_at TIMESTAMPTZ;
+        ALTER TABLE hr_employees ALTER COLUMN reset_otp_expires_at TYPE TIMESTAMPTZ;
         CREATE INDEX IF NOT EXISTS idx_hr_employees_office_id ON hr_employees(office_id);
 
         -- 3. Geotagged Punches in Attendance
