@@ -172,7 +172,7 @@ exports.deleteOffice = async (req, res) => {
 // 2. EMPLOYEE AUTH & PASSWORD RESET (MOBILE APP)
 // ==========================================
 
-exports.employeeLogin = async (req: any, res: any) => {
+exports.employeeLogin = async (req, res) => {
   try {
     const db = req.propertyDb || require('../../db/models/index');
     const { hr_employees, hr_offices, hr_shifts, hr_designations, outlets } = db.models;
@@ -209,7 +209,7 @@ exports.employeeLogin = async (req: any, res: any) => {
     }
 
     // Match password across employee record(s)
-    let matchedEmployee: any = null;
+    let matchedEmployee = null;
     for (const emp of employees) {
       if (emp.password_hash) {
         const matches = await bcrypt.compare(password, emp.password_hash);
@@ -264,7 +264,7 @@ exports.employeeLogin = async (req: any, res: any) => {
   }
 };
 
-exports.employeeRequestResetOtp = async (req: any, res: any) => {
+exports.employeeRequestResetOtp = async (req, res) => {
   try {
     const db = req.propertyDb || require('../../db/models/index');
     const { hr_employees, hr_offices, outlets } = db.models;
@@ -352,7 +352,7 @@ exports.employeeRequestResetOtp = async (req: any, res: any) => {
         subject: `🔑 Password Reset OTP: ${otp} - ${companyName}`,
         html: emailHtml
       });
-    } catch (mailErr: any) {
+    } catch (mailErr) {
       console.warn(`[OTP] Email delivery warning: ${mailErr.message}.`);
     }
 
@@ -363,19 +363,19 @@ exports.employeeRequestResetOtp = async (req: any, res: any) => {
       });
     }
 
-    const maskedEmail = employee.contact_email.replace(/(.{2})(.*)(?=@)/, (_gp1: any, gp2: any, gp3: any) => gp2 + '*'.repeat(gp3.length));
+    const maskedEmail = employee.contact_email.replace(/(.{2})(.*)(?=@)/, (_gp1, gp2, gp3) => gp2 + '*'.repeat(gp3.length));
 
     return res.json({
       success: true,
       message: `Verification OTP has been sent to your registered email (${maskedEmail}). Please check your inbox or spam folder.`
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('employeeRequestResetOtp error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
 
-exports.employeeResetPassword = async (req: any, res: any) => {
+exports.employeeResetPassword = async (req, res) => {
   try {
     const db = req.propertyDb || require('../../db/models/index');
     const { hr_employees } = db.models;
@@ -408,7 +408,7 @@ exports.employeeResetPassword = async (req: any, res: any) => {
       return res.status(404).json({ success: false, message: 'Employee not found.' });
     }
 
-    const employee = employees.find((e: any) => e.reset_otp && e.reset_otp === String(otp).trim()) || employees[0];
+    const employee = employees.find((e) => e.reset_otp && e.reset_otp === String(otp).trim()) || employees[0];
 
     if (!employee.reset_otp || employee.reset_otp !== String(otp).trim()) {
       return res.status(400).json({ success: false, message: 'Invalid OTP code. Please check your email.' });
@@ -435,7 +435,7 @@ exports.employeeResetPassword = async (req: any, res: any) => {
       success: true,
       message: 'Password reset successful! You can now log in with your new password.'
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('employeeResetPassword error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -832,7 +832,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
       include: [{ model: hr_leave_types, as: 'leaveType' }]
     });
 
-    const leaveSummary = balances.map((b: any) => {
+    const leaveSummary = balances.map((b) => {
       const lt = b.leaveType || {};
       const allocated = parseFloat(b.allocated_quota || 0);
       const used = parseFloat(b.used_quota || 0);
@@ -849,7 +849,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
     });
 
     // Leave applications (my requests)
-    let myLeaves: any[] = [];
+    let myLeaves = [];
     if (hr_leave_applications) {
       myLeaves = await hr_leave_applications.findAll({
         where: { employee_id: employee.id },
@@ -859,7 +859,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
     }
 
     // Loans and Advances
-    let myLoans: any[] = [];
+    let myLoans = [];
     if (hr_loans) {
       myLoans = await hr_loans.findAll({
         where: { employee_id: employee.id },
@@ -868,7 +868,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
     }
 
     // Salary Revisions
-    let myRevisions: any[] = [];
+    let myRevisions = [];
     if (hr_salary_revisions) {
       myRevisions = await hr_salary_revisions.findAll({
         where: { employee_id: employee.id },
@@ -877,7 +877,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
     }
 
     // Salary Slips / Payroll history
-    let mySalarySlips: any[] = [];
+    let mySalarySlips = [];
     if (hr_payroll_details && hr_payroll_runs) {
       mySalarySlips = await hr_payroll_details.findAll({
         where: { employee_id: employee.id },
@@ -891,7 +891,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
     }
 
     // Pay Structure Details
-    let payStructure: any = null;
+    let payStructure = null;
     if (employee.pay_structure_id && hr_pay_structures) {
       payStructure = await hr_pay_structures.findByPk(employee.pay_structure_id);
     }
@@ -960,7 +960,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
       today_attendance: todayPunch,
       stats: statsObj,
       month_stats: statsObj,
-      recent_punches: monthPunches.filter((p: any) => p.punch_in !== null).slice(0, 15),
+      recent_punches: monthPunches.filter((p) => p.punch_in !== null).slice(0, 15),
       bound_device_id: employee.bound_device_id,
       bound_device_info: employee.bound_device_info
     });
@@ -1020,7 +1020,7 @@ exports.employeeRequestLoan = async (req, res) => {
       data: loan,
       message: `✅ Advance / Loan request for ₹${amount.toFixed(2)} submitted successfully. Awaiting manager approval.`
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('employeeRequestLoan error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -1074,7 +1074,7 @@ exports.employeeRequestSalaryRaise = async (req, res) => {
       data: revision,
       message: `✅ Salary raise request to ₹${newSalary.toFixed(2)} submitted successfully. Awaiting HR review.`
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('employeeRequestSalaryRaise error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -1094,7 +1094,7 @@ exports.adminResetEmployeeDevice = async (req, res) => {
 
     await employee.update({ bound_device_id: null, bound_device_info: null });
     return res.json({ success: true, message: `Device unlinked for ${employee.full_name}. Staff can now bind a new phone.` });
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -1117,11 +1117,11 @@ exports.getHrmsDashboardOverview = async (req, res) => {
     });
 
     // 2. Build employee and punch where clauses
-    const empWhere: any = {
+    const empWhere = {
       outlet_id,
       status: { [Op.or]: ['Active', 'active', null] }
     };
-    const punchWhere: any = { outlet_id, punch_date: today };
+    const punchWhere = { outlet_id, punch_date: today };
 
     if (officeFilter && officeFilter !== 'all' && officeFilter !== '0') {
       const offId = parseInt(officeFilter);
