@@ -462,15 +462,15 @@ exports.employeeChangePassword = async (req, res) => {
 exports.employeeGeotaggedPunch = async (req, res) => {
   try {
     const { hr_attendance_punches, hr_employees, hr_offices, hr_shifts, hr_payroll_runs } = req.propertyDb.models;
-    const { type, latitude, longitude } = req.body;
+    const rawType = req.body.type || req.body.punch_type || req.body.punchType || '';
 
-    if (!type || !['IN', 'OUT'].includes(type.toUpperCase())) {
+    if (!rawType || !['IN', 'OUT'].includes(String(rawType).trim().toUpperCase())) {
       return res.status(400).json({ success: false, message: "Punch type must be 'IN' or 'OUT'." });
     }
 
-    const punchType = type.toUpperCase();
-    const lat = parseFloat(latitude) || 0.0;
-    const lon = parseFloat(longitude) || 0.0;
+    const punchType = String(rawType).trim().toUpperCase();
+    const lat = parseFloat(req.body.latitude || req.body.lat) || 0.0;
+    const lon = parseFloat(req.body.longitude || req.body.lon || req.body.lng) || 0.0;
 
     let employee_id = req.user.employee_id;
     if (!employee_id) {
@@ -764,25 +764,36 @@ exports.getMyEmployeeProfile = async (req, res) => {
     }
 
     const todayStr = moment().format('YYYY-MM-DD');
-    const todayPunch = monthPunches.find(p => p.punch_date === todayStr) || null;
+    const todayPunch = monthPunches.find(p => {
+      const pDate = moment(p.punch_date).format('YYYY-MM-DD');
+      return pDate === todayStr;
+    }) || null;
 
     const empData = employee.toJSON ? employee.toJSON() : employee;
     delete empData.password_hash;
     delete empData.reset_otp;
 
+    const statsObj = {
+      month: currentMonth,
+      present_days: presentDays,
+      late_minutes: totalLateMins,
+      total_late_mins: totalLateMins,
+      overtime_hours: parseFloat(totalOvertimeHours.toFixed(1)),
+      total_overtime_hours: parseFloat(totalOvertimeHours.toFixed(1)),
+      total_worked_hours: parseFloat(totalWorkedHours.toFixed(2))
+    };
+
     return res.json({
       success: true,
       employee: empData,
+      office: employee.office || null,
+      shift: employee.shift || null,
       leave_balances: leaveSummary,
       my_leaves: myLeaves,
       today_punch: todayPunch,
-      month_stats: {
-        month: currentMonth,
-        present_days: presentDays,
-        total_worked_hours: parseFloat(totalWorkedHours.toFixed(2)),
-        total_overtime_hours: parseFloat(totalOvertimeHours.toFixed(2)),
-        total_late_mins: totalLateMins
-      },
+      today_attendance: todayPunch,
+      stats: statsObj,
+      month_stats: statsObj,
       recent_punches: monthPunches.slice(0, 15)
     });
   } catch (err) {

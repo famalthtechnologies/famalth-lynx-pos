@@ -78,12 +78,12 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
             setState(() {
               _isLoggedIn = true;
               _employeeData = res['employee'];
-              _officeData = res['office'];
-              _shiftData = res['shift'];
-              _todayAttendance = res['today_attendance'];
+              _officeData = res['office'] ?? res['employee']?['office'];
+              _shiftData = res['shift'] ?? res['employee']?['shift'];
+              _todayAttendance = res['today_attendance'] ?? res['today_punch'];
               _leaveBalances = res['leave_balances'] ?? [];
               _myLeaves = res['my_leaves'] ?? [];
-              _stats = res['stats'] ?? {};
+              _stats = res['stats'] ?? res['month_stats'] ?? {};
               _recentPunches = res['recent_punches'] ?? [];
               _isCheckingAuth = false;
             });
@@ -127,8 +127,8 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
           setState(() {
             _isLoggedIn = true;
             _employeeData = res['employee'];
-            _officeData = res['office'];
-            _shiftData = res['shift'];
+            _officeData = res['office'] ?? res['employee']?['office'];
+            _shiftData = res['shift'] ?? res['employee']?['shift'];
           });
           _loadProfileData();
           _refreshCurrentGps();
@@ -149,12 +149,12 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
       if (res != null && res['success'] == true && mounted) {
         setState(() {
           _employeeData = res['employee'] ?? _employeeData;
-          _officeData = res['office'] ?? _officeData;
-          _shiftData = res['shift'] ?? _shiftData;
-          _todayAttendance = res['today_attendance'];
+          _officeData = res['office'] ?? res['employee']?['office'] ?? _officeData;
+          _shiftData = res['shift'] ?? res['employee']?['shift'] ?? _shiftData;
+          _todayAttendance = res['today_attendance'] ?? res['today_punch'];
           _leaveBalances = res['leave_balances'] ?? [];
           _myLeaves = res['my_leaves'] ?? [];
-          _stats = res['stats'] ?? {};
+          _stats = res['stats'] ?? res['month_stats'] ?? {};
           _recentPunches = res['recent_punches'] ?? [];
         });
         _calculateDistance();
@@ -263,7 +263,8 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
     setState(() => _isPunching = true);
     try {
       final payload = {
-        'punch_type': punchType, // 'IN' or 'OUT'
+        'type': punchType, // 'IN' or 'OUT'
+        'punch_type': punchType,
         'latitude': _currentPosition!.latitude,
         'longitude': _currentPosition!.longitude,
         'timestamp': DateTime.now().toIso8601String(),
