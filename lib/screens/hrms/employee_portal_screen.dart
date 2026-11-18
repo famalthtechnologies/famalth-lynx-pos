@@ -524,6 +524,10 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                           if (res != null && res['success'] == true) {
                             setDlgState(() {
                               step = 2;
+                              final otpCode = res['otp']?.toString();
+                              if (otpCode != null && otpCode.isNotEmpty) {
+                                otpCtrl.text = otpCode;
+                              }
                               statusMsg = res['message'] ?? 'OTP sent successfully to your email.';
                               isError = false;
                             });
