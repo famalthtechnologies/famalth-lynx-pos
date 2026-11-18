@@ -274,12 +274,12 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
       setState(() => _isPunching = false);
 
       if (res != null && res['success'] == true) {
-        final dist = (res['distance_meters'] as num?)?.toDouble() ?? _distanceFromOffice ?? 0.0;
+        final dist = double.tryParse((res['distance_meters'] ?? res['data']?['checkin_distance_meters'])?.toString() ?? '') ?? _distanceFromOffice ?? 0.0;
         final officeName = res['office_name'] ?? _officeData?['office_name'] ?? 'Head Office';
-        final isCompliant = res['is_geofence_compliant'] != false;
-        final lateMins = res['late_arrival_mins'] ?? 0;
-        final earlyMins = res['early_departure_mins'] ?? 0;
-        final otHours = res['overtime_hours'] ?? 0;
+        final isCompliant = res['is_geofence_compliant'] != false && res['data']?['is_geofence_compliant'] != false;
+        final lateMins = res['late_arrival_mins'] ?? res['data']?['lateness_mins'] ?? 0;
+        final earlyMins = res['early_departure_mins'] ?? res['data']?['early_departure_mins'] ?? 0;
+        final otHours = res['overtime_hours'] ?? res['data']?['overtime_hours'] ?? 0;
 
         _showPunchSuccessDialog(
           punchType: punchType,
@@ -362,11 +362,11 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                     isCompliant ? 'Compliant (Within Radius)' : 'Out of Bounds Violation',
                     valColor: isCompliant ? successGreen : dangerRed,
                   ),
-                  if (punchType == 'IN' && (lateMins as num) > 0)
+                  if (punchType == 'IN' && (num.tryParse(lateMins.toString()) ?? 0) > 0)
                     _infoRow('Late Arrival:', '$lateMins mins late', valColor: warningAmber),
-                  if (punchType == 'OUT' && (earlyMins as num) > 0)
+                  if (punchType == 'OUT' && (num.tryParse(earlyMins.toString()) ?? 0) > 0)
                     _infoRow('Early Departure:', '$earlyMins mins early', valColor: dangerRed),
-                  if (punchType == 'OUT' && (otHours as num) > 0)
+                  if (punchType == 'OUT' && (num.tryParse(otHours.toString()) ?? 0) > 0)
                     _infoRow('Overtime Tracked:', '$otHours hrs', valColor: accentIndigo),
                 ],
               ),
@@ -885,12 +885,16 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: valColor ?? primaryNavy,
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: valColor ?? primaryNavy,
+              ),
             ),
           ),
         ],
@@ -1077,7 +1081,8 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
     final inTime = hasPunchedIn ? DateFormat('hh:mm a').format(DateTime.parse(_todayAttendance!['punch_in']).toLocal()) : '--:--';
     final outTime = hasPunchedOut ? DateFormat('hh:mm a').format(DateTime.parse(_todayAttendance!['punch_out']).toLocal()) : '--:--';
 
-    final isWithinGeofence = _distanceFromOffice != null && _distanceFromOffice! <= (geofenceRadius as num).toDouble();
+    final allowedRadius = double.tryParse(geofenceRadius?.toString() ?? '') ?? 100.0;
+    final isWithinGeofence = _distanceFromOffice != null && _distanceFromOffice! <= allowedRadius;
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -1616,7 +1621,8 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                     final date = p['punch_date'] ?? '';
                     final inT = p['punch_in'] != null ? DateFormat('hh:mm a').format(DateTime.parse(p['punch_in']).toLocal()) : '--:--';
                     final outT = p['punch_out'] != null ? DateFormat('hh:mm a').format(DateTime.parse(p['punch_out']).toLocal()) : '--:--';
-                    final inDist = p['checkin_distance_meters'] != null ? '${(p['checkin_distance_meters'] as num).toStringAsFixed(0)}m' : '—';
+                    final rawDist = double.tryParse(p['checkin_distance_meters']?.toString() ?? '');
+                    final inDist = rawDist != null ? '${rawDist.toStringAsFixed(0)}m' : '—';
                     final isComp = p['is_geofence_compliant'] != false;
 
                     return Padding(
