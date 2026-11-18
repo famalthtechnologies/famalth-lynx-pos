@@ -56,9 +56,20 @@ exports.getDamageReport = async (req, res) => {
                     item_name: itemMaster.item_name || i.item_name || '',
                     brand: itemMaster.brand || i.brand || '',
                     unit: itemMaster.unit || i.unit || '',
-                    qty: Number(i.qty ?? i.quantity ?? 0),
+                    qty: (() => {
+                        const q = Number(i.qty ?? i.quantity ?? 0);
+                        const r = Number(i.rate || 0);
+                        const a = Number(i.amount || 0);
+                        return q > 0 ? q : (a > 0 && r > 0 ? Math.round((a / r) * 100) / 100 : 1);
+                    })(),
                     rate: Number(i.rate || 0),
-                    amount: Number(i.amount != null && !isNaN(Number(i.amount)) ? i.amount : (Number(i.qty ?? i.quantity ?? 0) * Number(i.rate || 0)))
+                    amount: (() => {
+                        const a = Number(i.amount || 0);
+                        const q = Number(i.qty ?? i.quantity ?? 0);
+                        const r = Number(i.rate || 0);
+                        const effQ = q > 0 ? q : (a > 0 && r > 0 ? (a / r) : 1);
+                        return a > 0 ? a : (effQ * r);
+                    })()
                 };
             });
             return {

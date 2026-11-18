@@ -1572,6 +1572,10 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                   );
                 }).toList(),
               ),
+              _buildOfficeSelector(
+                selectedOfficeId: selectedOfficeId,
+                onChanged: (v) => setS(() => selectedOfficeId = v),
+              ),
             ]),
             onSave: () async {
               if (nameCtrl.text.trim().isEmpty ||
@@ -1911,6 +1915,10 @@ class _HrmsMastersScreenState extends State<HrmsMastersScreen>
                 ),
               ),
             ],
+            _buildOfficeSelector(
+              selectedOfficeId: selectedOfficeId,
+              onChanged: (v) => setS(() => selectedOfficeId = v),
+            ),
           ]),
           onSave: () async {
             if (nameCtrl.text.trim().isEmpty) return false;

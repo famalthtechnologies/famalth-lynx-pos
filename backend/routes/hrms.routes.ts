@@ -2,7 +2,7 @@ import express from 'express';
 const router = express.Router();
 const auth = require('../middlewares/auth.middleware');
 const propertyContext = require('../middlewares/propertyContext.middleware');
-const ctrl = require('../controllers/hrms/hrms.controller');
+const ctrl = require('../controllers/hrms/hrms.controller.ts');
 
 // Public Webhook for Biometric Machines / Devices (Push logs)
 router.post('/biometric-punch', ctrl.receiveBiometricPushWebhook);

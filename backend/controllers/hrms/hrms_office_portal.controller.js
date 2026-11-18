@@ -647,7 +647,7 @@ exports.employeeGeotaggedPunch = async (req, res) => {
 
 exports.getMyEmployeeProfile = async (req, res) => {
   try {
-    const { hr_employees, hr_offices, hr_shifts, hr_designations, hr_leave_balances, hr_leave_types, hr_attendance_punches, outlets } = req.propertyDb.models;
+    const { hr_employees, hr_offices, hr_shifts, hr_designations, hr_leave_balances, hr_leave_types, hr_leave_applications, hr_attendance_punches, outlets } = req.propertyDb.models;
     const employee_id = req.user.employee_id || req.user.id;
 
     const employee = await hr_employees.findByPk(employee_id, {
@@ -683,6 +683,15 @@ exports.getMyEmployeeProfile = async (req, res) => {
         remaining
       };
     });
+
+    let myLeaves = [];
+    if (hr_leave_applications) {
+      myLeaves = await hr_leave_applications.findAll({
+        where: { employee_id: employee.id },
+        include: [{ model: hr_leave_types, as: 'leaveType' }],
+        order: [['created_at', 'DESC']]
+      });
+    }
 
     const currentMonth = moment().format('YYYY-MM');
     const startOfMonth = moment().startOf('month').format('YYYY-MM-DD');
@@ -722,6 +731,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
       success: true,
       employee: empData,
       leave_balances: leaveSummary,
+      my_leaves: myLeaves,
       today_punch: todayPunch,
       month_stats: {
         month: currentMonth,

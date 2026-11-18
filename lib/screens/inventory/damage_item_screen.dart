@@ -670,23 +670,9 @@ class _DamageItemScreenState extends State<DamageItemScreen> {
               return;
             }
 
-            if (enteredQty > _availableStock) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Qty exceeds available stock'),
-                ),
-              );
-
-              _qty.text = _availableStock.toString();
-              _qty.selection = TextSelection.fromPosition(
-                TextPosition(offset: _qty.text.length),
-              );
-              setState(() => _remainingStock = 0);
-            } else {
-              setState(() {
-                _remainingStock = _availableStock - enteredQty;
-              });
-            }
+            setState(() {
+              _remainingStock = (_availableStock - enteredQty);
+            });
           },
         ),
       ),

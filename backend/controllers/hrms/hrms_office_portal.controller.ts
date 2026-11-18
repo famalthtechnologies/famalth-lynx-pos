@@ -682,7 +682,7 @@ exports.employeeGeotaggedPunch = async (req, res) => {
 
 exports.getMyEmployeeProfile = async (req, res) => {
   try {
-    const { hr_employees, hr_offices, hr_shifts, hr_designations, hr_leave_balances, hr_leave_types, hr_attendance_punches, outlets } = req.propertyDb.models;
+    const { hr_employees, hr_offices, hr_shifts, hr_designations, hr_leave_balances, hr_leave_types, hr_leave_applications, hr_attendance_punches, outlets } = req.propertyDb.models;
     const employee_id = req.user.employee_id || req.user.id;
 
     const employee = await hr_employees.findByPk(employee_id, {
@@ -704,7 +704,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
       include: [{ model: hr_leave_types, as: 'leaveType' }]
     });
 
-    const leaveSummary = balances.map(b => {
+    const leaveSummary = balances.map((b: any) => {
       const lt = b.leaveType || {};
       const allocated = parseFloat(b.allocated_quota || 0);
       const used = parseFloat(b.used_quota || 0);
@@ -719,6 +719,16 @@ exports.getMyEmployeeProfile = async (req, res) => {
         remaining
       };
     });
+
+    // Leave applications (my requests)
+    let myLeaves: any[] = [];
+    if (hr_leave_applications) {
+      myLeaves = await hr_leave_applications.findAll({
+        where: { employee_id: employee.id },
+        include: [{ model: hr_leave_types, as: 'leaveType' }],
+        order: [['created_at', 'DESC']]
+      });
+    }
 
     // Month metrics
     const currentMonth = moment().format('YYYY-MM');
@@ -760,6 +770,7 @@ exports.getMyEmployeeProfile = async (req, res) => {
       success: true,
       employee: empData,
       leave_balances: leaveSummary,
+      my_leaves: myLeaves,
       today_punch: todayPunch,
       month_stats: {
         month: currentMonth,
@@ -794,14 +805,20 @@ exports.getHrmsDashboardOverview = async (req, res) => {
     });
 
     // 2. Build employee and punch where clauses
-    const empWhere = { outlet_id, status: 'Active' };
-    const punchWhere = { outlet_id, punch_date: today };
+    const empWhere: any = {
+      outlet_id,
+      status: { [Op.or]: ['Active', 'active', null] }
+    };
+    const punchWhere: any = { outlet_id, punch_date: today };
 
     if (officeFilter && officeFilter !== 'all' && officeFilter !== '0') {
       const offId = parseInt(officeFilter);
       if (!isNaN(offId)) {
         empWhere.office_id = offId;
-        punchWhere.office_id = offId;
+        punchWhere[Op.or] = [
+          { office_id: offId },
+          { '$employee.office_id$': offId }
+        ];
       }
     }
 
@@ -811,10 +828,10 @@ exports.getHrmsDashboardOverview = async (req, res) => {
     const todayPunches = await hr_attendance_punches.findAll({
       where: punchWhere,
       include: [
-        { model: hr_employees, as: 'employee', attributes: ['id', 'employee_code', 'full_name', 'mobile'] },
-        { model: hr_offices, as: 'office', attributes: ['id', 'office_code', 'office_name', 'radius_meters'] }
+        { model: hr_employees, as: 'employee', required: false, attributes: ['id', 'employee_code', 'full_name', 'mobile', 'office_id'] },
+        { model: hr_offices, as: 'office', required: false, attributes: ['id', 'office_code', 'office_name', 'radius_meters'] }
       ],
-      order: [['punch_in', 'DESC']]
+      order: [['punch_in', 'DESC'], ['id', 'DESC']]
     });
 
     let presentToday = 0;
@@ -825,7 +842,10 @@ exports.getHrmsDashboardOverview = async (req, res) => {
     let geofenceViolations = 0;
 
     for (const p of todayPunches) {
-      if (p.punch_in) presentToday++;
+      const sLower = (p.status || '').toString().toLowerCase();
+      if (p.punch_in || sLower === 'present' || sLower === 'half day' || sLower === 'half-day') {
+        presentToday++;
+      }
       if (parseInt(p.lateness_mins || 0) > 0) lateArrivals++;
       if (parseInt(p.early_departure_mins || 0) > 0) earlyDepartures++;
       overtimeHours += parseFloat(p.overtime_hours || 0);
@@ -837,7 +857,7 @@ exports.getHrmsDashboardOverview = async (req, res) => {
     const onLeaveToday = await hr_leave_applications.count({
       where: {
         outlet_id,
-        status: 'Approved',
+        status: { [Op.in]: ['Approved', 'approved'] },
         start_date: { [Op.lte]: today },
         end_date: { [Op.gte]: today }
       }
@@ -852,14 +872,23 @@ exports.getHrmsDashboardOverview = async (req, res) => {
       metrics: {
         today,
         total_employees: totalEmployees,
+        totalEmployees: totalEmployees,
         present_today: presentToday,
+        presentToday: presentToday,
         absent_today: absentToday,
+        absentToday: absentToday,
         on_leave_today: onLeaveToday,
+        onLeaveToday: onLeaveToday,
         late_arrivals: lateArrivals,
+        lateArrivalsToday: lateArrivals,
         early_departures: earlyDepartures,
+        earlyDeparturesToday: earlyDepartures,
         overtime_hours: parseFloat(overtimeHours.toFixed(2)),
+        totalOvertimeHoursToday: parseFloat(overtimeHours.toFixed(2)),
         total_hours_worked: parseFloat(totalHoursWorked.toFixed(2)),
-        geofence_violations: geofenceViolations
+        totalWorkHoursToday: parseFloat(totalHoursWorked.toFixed(2)),
+        geofence_violations: geofenceViolations,
+        geofenceViolationsToday: geofenceViolations
       },
       recent_punches: todayPunches.slice(0, 30)
     });

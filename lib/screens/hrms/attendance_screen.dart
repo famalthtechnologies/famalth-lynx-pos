@@ -278,8 +278,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     final daysInMonth = DateUtils.getDaysInMonth(_currentMonth.year, _currentMonth.month);
     final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
-    bool isMarkedToday(int employeeId) {
-      return _attendancePunches.any((p) => p['employee_id'] == employeeId && p['punch_date'].toString().startsWith(todayStr));
+    bool isMarkedToday(dynamic employeeId) {
+      return _attendancePunches.any((p) => p['employee_id']?.toString() == employeeId?.toString() && p['punch_date'].toString().startsWith(todayStr));
     }
 
     final query = _searchCtrl.text.toLowerCase().trim();
@@ -401,18 +401,19 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                             child: SingleChildScrollView(
                               controller: _heatmapHorizontalController,
                               scrollDirection: Axis.horizontal,
-                              child: DataTable(
-                                headingRowColor: WidgetStateProperty.all(const Color(0xFF1E3A5F).withOpacity(0.9)),
-                                columns: [
+                              child: Builder(builder: (context) {
+                                final heatmapCols = [
                                   const DataColumn(label: Text('Employee Name', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                                   for (int i = 1; i <= daysInMonth; i++)
                                     DataColumn(label: Text(i.toString().padLeft(2, '0'), style: const TextStyle(color: Colors.white))),
-                                ],
-                                rows: filteredEmployees.map((emp) {
-                                  final empId = emp['id'] as int;
-                                  final marked = isMarkedToday(empId);
-                                  return DataRow(
-                                    cells: [
+                                ];
+                                return DataTable(
+                                  headingRowColor: WidgetStateProperty.all(const Color(0xFF1E3A5F).withOpacity(0.9)),
+                                  columns: heatmapCols,
+                                  rows: filteredEmployees.map((emp) {
+                                    final empId = emp['id'] as int;
+                                    final marked = isMarkedToday(empId);
+                                    final cells = <DataCell>[
                                       DataCell(
                                         InkWell(
                                           onTap: () {
@@ -421,7 +422,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                                                 : 1;
                                             final dateStr = '${_currentMonth.year}-${_currentMonth.month.toString().padLeft(2, '0')}-${defaultDay.toString().padLeft(2, '0')}';
                                             final punch = _attendancePunches.firstWhere(
-                                              (p) => p['employee_id'] == empId && p['punch_date'].toString().startsWith(dateStr),
+                                              (p) => p['employee_id']?.toString() == empId.toString() && p['punch_date'].toString().startsWith(dateStr),
                                               orElse: () => {},
                                             );
                                             _showPunchDialog(empId, dateStr, punch);
@@ -444,10 +445,17 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                                       ),
                                       for (int i = 1; i <= daysInMonth; i++)
                                         DataCell(_buildHeatmapCell(i, empId)),
-                                    ],
-                                  );
-                                }).toList(),
-                              ),
+                                    ];
+                                    while (cells.length < heatmapCols.length) {
+                                      cells.add(const DataCell(Text('')));
+                                    }
+                                    if (cells.length > heatmapCols.length) {
+                                      cells.removeRange(heatmapCols.length, cells.length);
+                                    }
+                                    return DataRow(cells: cells);
+                                  }).toList(),
+                                );
+                              }),
                             ),
                           ),
                         ),
@@ -463,7 +471,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
   Widget _buildHeatmapCell(int day, int employeeId) {
     final dateStr = '${_currentMonth.year}-${_currentMonth.month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
     final punch = _attendancePunches.firstWhere(
-      (p) => p['employee_id'] == employeeId && p['punch_date'].toString().startsWith(dateStr),
+      (p) => p['employee_id']?.toString() == employeeId.toString() && p['punch_date'].toString().startsWith(dateStr),
       orElse: () => {},
     );
     
@@ -563,12 +571,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
   Widget _buildAttendanceLogTab() {
     final filteredPunches = _attendancePunches.where((p) {
-      if (_selectedEmployee != 'All' && p['employee_id'].toString() != _selectedEmployee) {
+      if (_selectedEmployee != 'All' && p['employee_id']?.toString() != _selectedEmployee) {
         return false;
       }
       if (_selectedOffice != 'All') {
         final emp = _employeesList.firstWhere(
-          (e) => e['id'].toString() == p['employee_id'].toString(),
+          (e) => e['id']?.toString() == p['employee_id']?.toString(),
           orElse: () => {},
         );
         final offId = p['office_id']?.toString() ?? emp['office_id']?.toString();
@@ -645,10 +653,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                           scrollDirection: Axis.vertical,
                           child: SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
-                            child: DataTable(
-                              showCheckboxColumn: false,
-                              headingRowColor: WidgetStateProperty.all(const Color(0xFF1E3A5F)),
-                              columns: const [
+                            child: Builder(builder: (context) {
+                              const tableColumns = [
                                 DataColumn(label: Text('Date', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                                 DataColumn(label: Text('Employee', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                                 DataColumn(label: Text('Office', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
@@ -658,27 +664,28 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                                 DataColumn(label: Text('Out Time', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                                 DataColumn(label: Text('Out Dist', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                                 DataColumn(label: Text('Geofence', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                                DataColumn(label: Text('Shift Duration', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                                 DataColumn(label: Text('Work Hours', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                                 DataColumn(label: Text('Overtime', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                                DataColumn(label: Text('Shortage', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                                DataColumn(label: Text('Source', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                                 DataColumn(label: Text('Action', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                              ],
-                              rows: filteredPunches.map((punch) {
-                                final empName = _lookupEmployeeName(punch['employee_id']);
-                                final empId = punch['employee_id'] as int;
-                                final dateStr = punch['punch_date']?.toString() ?? '';
+                              ];
 
-                                return DataRow(
-                                  onSelectChanged: (selected) {
-                                    if (selected == true) {
-                                      _showGeotagInspectionDialog(punch);
-                                    }
-                                  },
-                                  cells: [
+                              return DataTable(
+                                showCheckboxColumn: false,
+                                headingRowColor: WidgetStateProperty.all(const Color(0xFF1E3A5F)),
+                                columns: tableColumns,
+                                rows: filteredPunches.map((punch) {
+                                  final empName = _lookupEmployeeName(punch['employee_id']);
+                                  final empId = int.tryParse(punch['employee_id']?.toString() ?? '') ?? 0;
+
+                                  final cells = <DataCell>[
                                     DataCell(Text(punch['punch_date']?.toString() ?? '')),
                                     DataCell(Text(empName)),
                                     DataCell(Builder(builder: (ctx) {
-                                      final emp = _employeesList.firstWhere((e) => e['id'].toString() == empId.toString(), orElse: () => {});
-                                      final offName = punch['office']?['office_name'] ?? emp['office_name'] ?? 'HO';
+                                      final emp = _employeesList.firstWhere((e) => e['id']?.toString() == empId.toString(), orElse: () => {});
+                                      final offName = punch['office']?['office_name'] ?? emp['office']?['office_name'] ?? emp['office_name'] ?? 'HO';
                                       return Text(offName.toString(), style: const TextStyle(fontSize: 11));
                                     })),
                                     DataCell(_buildStatusChip(punch['status']?.toString() ?? 'Present')),
@@ -777,11 +784,38 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                                         ),
                                       );
                                     })),
-                                    DataCell(Text(punch['punch_source']?.toString() ?? 'System')),
-                                  ],
-                                );
-                              }).toList(),
-                            ),
+                                    DataCell(Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF3F4F6),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(punch['punch_source']?.toString() ?? 'System', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                    )),
+                                    DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                                      IconButton(icon: const Icon(Icons.edit_outlined, size: 16, color: Color(0xFF2563EB)), tooltip: 'Edit Attendance', onPressed: () => _showPunchDialog(empId, punch['punch_date']?.toString() ?? '', punch)),
+                                      IconButton(icon: const Icon(Icons.location_on_outlined, size: 16, color: Color(0xFF059669)), tooltip: 'Geotag Inspection', onPressed: () => _showGeotagInspectionDialog(punch)),
+                                    ])),
+                                  ];
+
+                                  while (cells.length < tableColumns.length) {
+                                    cells.add(const DataCell(Text('—')));
+                                  }
+                                  if (cells.length > tableColumns.length) {
+                                    cells.removeRange(tableColumns.length, cells.length);
+                                  }
+
+                                  return DataRow(
+                                    onSelectChanged: (selected) {
+                                      if (selected == true) {
+                                        _showGeotagInspectionDialog(punch);
+                                      }
+                                    },
+                                    cells: cells,
+                                  );
+                                }).toList(),
+                              );
+                            }),
                           ),
                         ),
                 ),
@@ -1885,6 +1919,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                       'lateness_mins': int.tryParse(latenessCtrl.text) ?? 0,
                       'punch_source': punchSource,
                       'leave_type_id': selectedLeaveTypeId,
+                      'office_id': emp['office_id'],
                     };
 
                     await ApiClient.post('/api/hrms/attendance/manual', payload);
@@ -2431,25 +2466,25 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: SingleChildScrollView(
-                            child: DataTable(
-                              headingRowHeight: 36,
-                              dataRowMinHeight: 32,
-                              dataRowMaxHeight: 38,
-                              horizontalMargin: 12,
-                              columnSpacing: 16,
-                              columns: const [
+                            child: Builder(builder: (context) {
+                              const importCols = [
                                 DataColumn(label: Text('Code', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
                                 DataColumn(label: Text('Employee Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
                                 DataColumn(label: Text('Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
                                 DataColumn(label: Text('In', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
                                 DataColumn(label: Text('Out', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
                                 DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11))),
-                              ],
-                              rows: parsedRows.map((r) {
-                                final isMatched = r['is_matched'] == true;
-                                return DataRow(
-                                  color: !isMatched ? WidgetStateProperty.all(Colors.red.shade50) : null,
-                                  cells: [
+                              ];
+                              return DataTable(
+                                headingRowHeight: 36,
+                                dataRowMinHeight: 32,
+                                dataRowMaxHeight: 38,
+                                horizontalMargin: 12,
+                                columnSpacing: 16,
+                                columns: importCols,
+                                rows: parsedRows.map((r) {
+                                  final isMatched = r['is_matched'] == true;
+                                  final cells = <DataCell>[
                                     DataCell(Text(r['employee_code'] ?? '', style: const TextStyle(fontSize: 11))),
                                     DataCell(Row(
                                       children: [
@@ -2469,10 +2504,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
                                       ),
                                       child: Text(r['status'] ?? '', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: r['status'] == 'Present' ? Colors.green.shade800 : Colors.orange.shade800)),
                                     )),
-                                  ],
-                                );
-                              }).toList(),
-                            ),
+                                  ];
+                                  while (cells.length < importCols.length) {
+                                    cells.add(const DataCell(Text('')));
+                                  }
+                                  if (cells.length > importCols.length) {
+                                    cells.removeRange(importCols.length, cells.length);
+                                  }
+                                  return DataRow(
+                                    color: !isMatched ? WidgetStateProperty.all(Colors.red.shade50) : null,
+                                    cells: cells,
+                                  );
+                                }).toList(),
+                              );
+                            }),
                           ),
                         ),
                       ],

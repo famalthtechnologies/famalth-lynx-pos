@@ -49,20 +49,46 @@ class _HrmsDashboardScreenState extends State<HrmsDashboardScreen> {
     _loadDashboardData();
   }
 
+  String _formatPunchTime(dynamic raw) {
+    if (raw == null) return '—';
+    final s = raw.toString().trim();
+    if (s.isEmpty) return '—';
+    try {
+      final dt = DateTime.tryParse(s);
+      if (dt != null) {
+        return DateFormat('hh:mm a').format(dt.toLocal());
+      }
+    } catch (_) {}
+    if (s.contains(':')) {
+      final parts = s.split(':');
+      if (parts.length >= 2) {
+        final h = int.tryParse(parts[0]) ?? 0;
+        final m = int.tryParse(parts[1]) ?? 0;
+        final period = h >= 12 ? 'PM' : 'AM';
+        final hour12 = h == 0 ? 12 : (h > 12 ? h - 12 : h);
+        return '${hour12.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} $period';
+      }
+    }
+    return s;
+  }
+
   Future<void> _loadDashboardData() async {
     setState(() => _isLoading = true);
     try {
+      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
       final results = await Future.wait([
         ApiClient.get(ApiEndpoints.hrmsOffices, silent: true),
         ApiClient.get('${ApiEndpoints.hrmsDashboardOverview}?office_id=$_selectedOfficeId', silent: true),
         ApiClient.get(ApiEndpoints.hrmsLeaves, silent: true),
-        ApiClient.get('${ApiEndpoints.hrmsAttendance}?date=${DateFormat('yyyy-MM-dd').format(DateTime.now())}', silent: true),
+        ApiClient.get('${ApiEndpoints.hrmsAttendance}?punch_date=$todayStr', silent: true),
+        ApiClient.get(ApiEndpoints.hrmsEmployees, silent: true),
       ]);
 
       final officesRes = results[0];
       final overviewRes = results[1];
       final leavesRes = results[2];
       final attRes = results[3];
+      final empRes = results[4];
 
       if (mounted) {
         if (officesRes != null && officesRes['data'] is List) {
@@ -71,15 +97,26 @@ class _HrmsDashboardScreenState extends State<HrmsDashboardScreen> {
 
         if (overviewRes != null && overviewRes['success'] == true && overviewRes['metrics'] != null) {
           final m = overviewRes['metrics'];
-          _totalEmployees = m['totalEmployees'] ?? 0;
-          _presentToday = m['presentToday'] ?? 0;
-          _absentToday = m['absentToday'] ?? 0;
-          _onLeaveToday = m['onLeaveToday'] ?? 0;
-          _lateArrivalsToday = m['lateArrivalsToday'] ?? 0;
-          _earlyDeparturesToday = m['earlyDeparturesToday'] ?? 0;
-          _totalOvertimeHours = (m['totalOvertimeHoursToday'] as num?)?.toDouble() ?? 0.0;
-          _totalWorkHours = (m['totalWorkHoursToday'] as num?)?.toDouble() ?? 0.0;
-          _geofenceViolationsToday = m['geofenceViolationsToday'] ?? 0;
+          _totalEmployees = m['totalEmployees'] ?? m['total_employees'] ?? 0;
+          _presentToday = m['presentToday'] ?? m['present_today'] ?? 0;
+          _absentToday = m['absentToday'] ?? m['absent_today'] ?? 0;
+          _onLeaveToday = m['onLeaveToday'] ?? m['on_leave_today'] ?? 0;
+          _lateArrivalsToday = m['lateArrivalsToday'] ?? m['late_arrivals'] ?? 0;
+          _earlyDeparturesToday = m['earlyDeparturesToday'] ?? m['early_departures'] ?? 0;
+          _totalOvertimeHours = ((m['totalOvertimeHoursToday'] ?? m['overtime_hours']) as num?)?.toDouble() ?? 0.0;
+          _totalWorkHours = ((m['totalWorkHoursToday'] ?? m['total_hours_worked']) as num?)?.toDouble() ?? 0.0;
+          _geofenceViolationsToday = m['geofenceViolationsToday'] ?? m['geofence_violations'] ?? 0;
+        }
+
+        if (empRes != null && empRes['data'] is List) {
+          final allEmps = List<Map<String, dynamic>>.from(empRes['data']);
+          final filtered = _selectedOfficeId == 'all'
+              ? allEmps
+              : allEmps.where((e) => e['office_id']?.toString() == _selectedOfficeId).toList();
+          if (_totalEmployees == 0 && filtered.isNotEmpty) {
+            _totalEmployees = filtered.length;
+            _absentToday = (_totalEmployees - _presentToday - _onLeaveToday).clamp(0, 99999);
+          }
         }
 
         if (leavesRes != null && leavesRes['data'] is List) {
@@ -87,7 +124,9 @@ class _HrmsDashboardScreenState extends State<HrmsDashboardScreen> {
           _pendingLeaves = allLeaves.where((l) => (l['status'] ?? '').toString().toUpperCase() == 'PENDING').toList();
         }
 
-        if (attRes != null && attRes['data'] is List) {
+        if (overviewRes != null && overviewRes['recent_punches'] is List && (overviewRes['recent_punches'] as List).isNotEmpty) {
+          _todayPunches = List<Map<String, dynamic>>.from(overviewRes['recent_punches']);
+        } else if (attRes != null && attRes['data'] is List) {
           _todayPunches = List<Map<String, dynamic>>.from(attRes['data']);
         }
 
@@ -578,12 +617,15 @@ class _HrmsDashboardScreenState extends State<HrmsDashboardScreen> {
                 final p = _todayPunches[idx];
                 final emp = p['employee'] ?? {};
                 final empName = emp['full_name'] ?? 'Employee #${p['employee_id']}';
-                final inTime = p['punch_in'] != null ? DateFormat('hh:mm a').format(DateTime.parse(p['punch_in']).toLocal()) : '—';
-                final inDist = p['checkin_distance_meters'] != null
-                    ? '${(p['checkin_distance_meters'] as num).toStringAsFixed(0)}m'
+                final inTime = _formatPunchTime(p['punch_in']);
+                final offName = p['office']?['office_name'] ?? emp['office_name'] ?? 'office';
+                final rawDist = p['checkin_distance_meters'] ?? p['distance_meters'];
+                final inDist = rawDist != null
+                    ? '${(rawDist as num).toStringAsFixed(0)}m'
                     : '—';
                 final isComp = p['is_geofence_compliant'] != false;
-                final lateMins = p['late_arrival_mins'] ?? p['late_minutes'] ?? 0;
+                final lateMins = p['late_arrival_mins'] ?? p['late_minutes'] ?? p['lateness_mins'] ?? 0;
+                final status = p['status']?.toString() ?? 'Present';
 
                 return ListTile(
                   dense: true,
@@ -595,12 +637,36 @@ class _HrmsDashboardScreenState extends State<HrmsDashboardScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold, color: accentIndigo, fontSize: 13),
                     ),
                   ),
-                  title: Text(
-                    empName,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryNavy),
+                  title: Row(
+                    children: [
+                      Text(
+                        empName,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryNavy),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: status.toLowerCase() == 'present'
+                              ? const Color(0xFFDCFCE7)
+                              : (status.toLowerCase().contains('leave') ? const Color(0xFFFEF3C7) : const Color(0xFFF1F5F9)),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          status,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: status.toLowerCase() == 'present'
+                                ? successGreen
+                                : (status.toLowerCase().contains('leave') ? warningAmber : const Color(0xFF475569)),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   subtitle: Text(
-                    'Checked in at $inTime • $inDist from office',
+                    'Checked in: $inTime • $inDist from $offName',
                     style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                   ),
                   trailing: Row(

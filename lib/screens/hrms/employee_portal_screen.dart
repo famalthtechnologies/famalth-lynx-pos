@@ -32,6 +32,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
   Map<String, dynamic>? _shiftData;
   Map<String, dynamic>? _todayAttendance;
   List<dynamic> _leaveBalances = [];
+  List<dynamic> _myLeaves = [];
   Map<String, dynamic> _stats = {};
   List<dynamic> _recentPunches = [];
 
@@ -81,6 +82,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
               _shiftData = res['shift'];
               _todayAttendance = res['today_attendance'];
               _leaveBalances = res['leave_balances'] ?? [];
+              _myLeaves = res['my_leaves'] ?? [];
               _stats = res['stats'] ?? {};
               _recentPunches = res['recent_punches'] ?? [];
               _isCheckingAuth = false;
@@ -148,6 +150,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
           _shiftData = res['shift'] ?? _shiftData;
           _todayAttendance = res['today_attendance'];
           _leaveBalances = res['leave_balances'] ?? [];
+          _myLeaves = res['my_leaves'] ?? [];
           _stats = res['stats'] ?? {};
           _recentPunches = res['recent_punches'] ?? [];
         });
@@ -586,6 +589,273 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _showRequestLeaveDialog() async {
+    if (_leaveBalances.isEmpty) {
+      _showToast('No leave quotas assigned to your account.', isError: true);
+      return;
+    }
+
+    dynamic selectedLeaveTypeId = _leaveBalances.first['leave_type_id'] ?? _leaveBalances.first['id'];
+    DateTime startDate = DateTime.now();
+    DateTime endDate = DateTime.now();
+    final reasonCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    int calculateDays(DateTime s, DateTime e) {
+      int count = 0;
+      for (DateTime d = s; !d.isAfter(e); d = d.add(const Duration(days: 1))) {
+        if (d.weekday != DateTime.saturday && d.weekday != DateTime.sunday) {
+          count++;
+        }
+      }
+      return count == 0 ? 1 : count;
+    }
+
+    await showDialog(
+      context: context,
+      builder: (dlgCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final totalDays = calculateDays(startDate, endDate);
+          final selectedLb = _leaveBalances.firstWhere(
+            (b) => (b['leave_type_id'] ?? b['id'])?.toString() == selectedLeaveTypeId?.toString(),
+            orElse: () => _leaveBalances.first,
+          );
+          final allocated = double.tryParse((selectedLb['allocated'] ?? selectedLb['allocated_quota'] ?? 0).toString()) ?? 0;
+          final used = double.tryParse((selectedLb['used'] ?? selectedLb['used_quota'] ?? 0).toString()) ?? 0;
+          final remaining = double.tryParse((selectedLb['remaining'] ?? selectedLb['remaining_quota'] ?? (allocated - used)).toString()) ?? 0;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEEF2FF),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.beach_access, color: accentIndigo, size: 20),
+                ),
+                const SizedBox(width: 10),
+                const Text('Apply for Leave', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Select Leave Type *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<dynamic>(
+                    value: selectedLeaveTypeId,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    items: _leaveBalances.map((lb) {
+                      final id = lb['leave_type_id'] ?? lb['id'];
+                      final name = lb['name'] ?? lb['leave_type_name'] ?? 'Leave';
+                      final left = lb['remaining'] ?? lb['remaining_quota'] ?? 0;
+                      return DropdownMenuItem<dynamic>(
+                        value: id,
+                        child: Text('$name ($left day(s) left)'),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      setDialogState(() {
+                        selectedLeaveTypeId = val;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 14),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Start Date *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                            const SizedBox(height: 6),
+                            InkWell(
+                              onTap: () async {
+                                final picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: startDate,
+                                  firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                                );
+                                if (picked != null) {
+                                  setDialogState(() {
+                                    startDate = picked;
+                                    if (endDate.isBefore(startDate)) {
+                                      endDate = startDate;
+                                    }
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: borderSubtle),
+                                  borderRadius: BorderRadius.circular(10),
+                                  color: bgGrey,
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.calendar_today, size: 14, color: accentIndigo),
+                                    const SizedBox(width: 6),
+                                    Text(DateFormat('dd MMM yyyy').format(startDate), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('End Date *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                            const SizedBox(height: 6),
+                            InkWell(
+                              onTap: () async {
+                                final picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: endDate.isBefore(startDate) ? startDate : endDate,
+                                  firstDate: startDate,
+                                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                                );
+                                if (picked != null) {
+                                  setDialogState(() {
+                                    endDate = picked;
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: borderSubtle),
+                                  borderRadius: BorderRadius.circular(10),
+                                  color: bgGrey,
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.event, size: 14, color: accentIndigo),
+                                    const SizedBox(width: 6),
+                                    Text(DateFormat('dd MMM yyyy').format(endDate), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Requested Duration:', style: TextStyle(fontSize: 12, color: Colors.blue.shade900)),
+                        Text(
+                          '$totalDays Day(s)',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: totalDays > remaining ? dangerRed : successGreen),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (totalDays > remaining) ...[
+                    const SizedBox(height: 4),
+                    Text('⚠️ Requested days exceed available balance ($remaining days left).', style: const TextStyle(color: dangerRed, fontSize: 11)),
+                  ],
+                  const SizedBox(height: 12),
+
+                  const Text('Reason for Leave *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: reasonCtrl,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Family function, urgent personal work, medical visit...',
+                      hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting ? null : () => Navigator.pop(dlgCtx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: accentIndigo,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        final reason = reasonCtrl.text.trim();
+                        if (reason.isEmpty) {
+                          _showToast('Please provide a reason for the leave', isError: true);
+                          return;
+                        }
+                        if (selectedLeaveTypeId == null) {
+                          _showToast('Please select a leave type', isError: true);
+                          return;
+                        }
+
+                        setDialogState(() => isSubmitting = true);
+                        try {
+                          final payload = {
+                            'employee_id': _employeeData?['id'],
+                            'leave_type_id': selectedLeaveTypeId,
+                            'start_date': DateFormat('yyyy-MM-dd').format(startDate),
+                            'end_date': DateFormat('yyyy-MM-dd').format(endDate),
+                            'reason': reason,
+                          };
+                          final res = await ApiClient.post(ApiEndpoints.hrmsLeaves, payload);
+                          if (res != null && res['success'] == true) {
+                            if (mounted) Navigator.pop(dlgCtx);
+                            _showToast('Leave request submitted! Awaiting manager approval.');
+                            _loadProfileData();
+                          } else {
+                            final msg = res?['message'] ?? 'Failed to submit leave request';
+                            _showToast(msg.toString(), isError: true);
+                            setDialogState(() => isSubmitting = false);
+                          }
+                        } catch (e) {
+                          _showToast('Error submitting leave: $e', isError: true);
+                          setDialogState(() => isSubmitting = false);
+                        }
+                      },
+                child: isSubmitting
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Submit Request', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1121,9 +1391,19 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                       'LEAVE BALANCES & QUOTAS',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
                     ),
-                    Text(
-                      '${_leaveBalances.length} Categories',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: accentIndigo,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        elevation: 0,
+                      ),
+                      icon: const Icon(Icons.add, size: 14),
+                      label: const Text('Request Leave', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: _showRequestLeaveDialog,
                     ),
                   ],
                 ),
@@ -1136,9 +1416,9 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                 else
                   ..._leaveBalances.map((lb) {
                     final name = lb['name'] ?? lb['leave_type_name'] ?? 'Leave';
-                    final allocated = double.tryParse((lb['allocated_quota'] ?? lb['quota'] ?? 0).toString()) ?? 0;
-                    final used = double.tryParse((lb['used_quota'] ?? lb['taken'] ?? 0).toString()) ?? 0;
-                    final remaining = double.tryParse((lb['remaining_quota'] ?? lb['left'] ?? (allocated - used)).toString()) ?? 0;
+                    final allocated = double.tryParse((lb['allocated'] ?? lb['allocated_quota'] ?? lb['quota'] ?? 0).toString()) ?? 0;
+                    final used = double.tryParse((lb['used'] ?? lb['used_quota'] ?? lb['taken'] ?? 0).toString()) ?? 0;
+                    final remaining = double.tryParse((lb['remaining'] ?? lb['remaining_quota'] ?? lb['left'] ?? (allocated - used)).toString()) ?? 0;
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -1175,6 +1455,119 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                               ),
                             ),
                           ),
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 5.5 My Leave Applications
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'MY LEAVE APPLICATIONS',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                    ),
+                    Text(
+                      '${_myLeaves.length} Submitted',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (_myLeaves.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text('No leave applications submitted yet.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                  )
+                else
+                  ..._myLeaves.map((app) {
+                    final lt = app['leaveType'] ?? {};
+                    final typeName = lt['name'] ?? 'Leave';
+                    final start = app['start_date'] ?? '';
+                    final end = app['end_date'] ?? '';
+                    final days = app['total_days'] ?? '1';
+                    final status = (app['status'] ?? 'Pending').toString();
+                    final reason = app['reason'] ?? '';
+
+                    Color chipBg = const Color(0xFFFEF3C7);
+                    Color chipColor = const Color(0xFFD97706);
+                    IconData chipIcon = Icons.hourglass_top_rounded;
+                    String statusLabel = 'Pending Approval';
+
+                    if (status.toLowerCase() == 'approved') {
+                      chipBg = const Color(0xFFDCFCE7);
+                      chipColor = const Color(0xFF16A34A);
+                      chipIcon = Icons.check_circle_rounded;
+                      statusLabel = 'Approved (Auto-Logged)';
+                    } else if (status.toLowerCase() == 'rejected') {
+                      chipBg = const Color(0xFFFEE2E2);
+                      chipColor = const Color(0xFFDC2626);
+                      chipIcon = Icons.cancel_rounded;
+                      statusLabel = 'Rejected';
+                    }
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: bgGrey,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: borderSubtle),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(typeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryNavy)),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: chipBg,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(chipIcon, size: 12, color: chipColor),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      statusLabel,
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: chipColor),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$start to $end • $days day(s)',
+                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                          ),
+                          if (reason.toString().isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Reason: $reason',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
+                            ),
+                          ],
                         ],
                       ),
                     );

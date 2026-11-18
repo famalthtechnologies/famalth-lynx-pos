@@ -592,12 +592,18 @@ async function recalculateLeaveBalances(employeeId, outletId, propertyDb) {
 exports.getAttendance = async (req, res) => {
   try {
     const { hr_attendance_punches, hr_employees, hr_offices } = req.propertyDb.models;
-    const { employee_id, month, office_id, punch_date } = req.query; // month format YYYY-MM
+    const { employee_id, month, office_id, punch_date, date } = req.query; // month format YYYY-MM
     const where: any = { outlet_id: req.user.outlet_id };
     
     if (employee_id) where.employee_id = employee_id;
-    if (office_id && office_id !== 'all' && office_id !== '0') where.office_id = office_id;
-    if (punch_date) where.punch_date = punch_date;
+    if (office_id && office_id !== 'all' && office_id !== '0') {
+      where[Op.or] = [
+        { office_id: office_id },
+        { '$employee.office_id$': office_id }
+      ];
+    }
+    const targetDate = punch_date || date;
+    if (targetDate) where.punch_date = targetDate;
     if (month) {
       const startDate = moment(month, 'YYYY-MM').startOf('month').format('YYYY-MM-DD');
       const endDate = moment(month, 'YYYY-MM').endOf('month').format('YYYY-MM-DD');
@@ -607,8 +613,8 @@ exports.getAttendance = async (req, res) => {
     const data = await hr_attendance_punches.findAll({
       where,
       include: [
-        { model: hr_employees, as: 'employee', attributes: ['id', 'employee_code', 'full_name', 'contact_email', 'mobile'] },
-        { model: hr_offices, as: 'office', attributes: ['id', 'office_code', 'office_name', 'radius_meters', 'latitude', 'longitude'] }
+        { model: hr_employees, as: 'employee', required: false, attributes: ['id', 'employee_code', 'full_name', 'contact_email', 'mobile', 'office_id'] },
+        { model: hr_offices, as: 'office', required: false, attributes: ['id', 'office_code', 'office_name', 'radius_meters', 'latitude', 'longitude'] }
       ],
       order: [['punch_date', 'DESC'], ['id', 'DESC']]
     });
@@ -645,6 +651,9 @@ exports.punchIn = async (req, res) => {
 
     const today = moment().format('YYYY-MM-DD');
     const now = moment().toDate();
+
+    const empRecord = await hr_employees.findByPk(employee_id);
+    const resolvedOfficeId = req.body.office_id || empRecord?.office_id || null;
     
     const [punch, created] = await hr_attendance_punches.findOrCreate({
       where: { employee_id, punch_date: today, outlet_id: req.user.outlet_id },
@@ -653,7 +662,8 @@ exports.punchIn = async (req, res) => {
         punch_source: 'System',
         status: 'Present',
         outlet_id: req.user.outlet_id,
-        created_by: req.user.id
+        created_by: req.user.id,
+        office_id: resolvedOfficeId
       }
     });
 
@@ -770,8 +780,8 @@ exports.punchOut = async (req, res) => {
 
 exports.manualAttendance = async (req, res) => {
   try {
-    const { hr_attendance_punches, hr_payroll_runs } = req.propertyDb.models;
-    const { employee_id, punch_date, punch_in, punch_out, status, hours_worked, overtime_hours, lateness_mins, punch_source, leave_type_id } = req.body;
+    const { hr_attendance_punches, hr_employees, hr_payroll_runs } = req.propertyDb.models;
+    const { employee_id, punch_date, punch_in, punch_out, status, hours_worked, overtime_hours, lateness_mins, punch_source, leave_type_id, office_id } = req.body;
 
     const monthStr = moment(punch_date).format('YYYY-MM');
     const latestLockedRun = await hr_payroll_runs.findOne({
@@ -780,6 +790,12 @@ exports.manualAttendance = async (req, res) => {
     });
     if (latestLockedRun && monthStr <= latestLockedRun.pay_period) {
       return res.status(400).json({ success: false, message: `Attendance editing is locked. Payroll for ${latestLockedRun.pay_period} (or a later month) has already been approved and paid!` });
+    }
+
+    let resolvedOfficeId = office_id;
+    if (!resolvedOfficeId && employee_id) {
+      const emp = await hr_employees.findByPk(employee_id);
+      resolvedOfficeId = emp?.office_id || null;
     }
     
     let computedHours = 0;
@@ -807,6 +823,9 @@ exports.manualAttendance = async (req, res) => {
       punch.punch_source = punch_source || 'Manual';
       punch.updated_by = req.user.id;
       punch.leave_type_id = leave_type_id || null;
+      if (resolvedOfficeId && !punch.office_id) {
+        punch.office_id = resolvedOfficeId;
+      }
       await punch.save();
     } else {
       punch = await hr_attendance_punches.create({
@@ -821,7 +840,8 @@ exports.manualAttendance = async (req, res) => {
         lateness_mins: parseInt(lateness_mins || 0),
         punch_source: punch_source || 'Manual',
         updated_by: req.user.id,
-        leave_type_id: leave_type_id || null
+        leave_type_id: leave_type_id || null,
+        office_id: resolvedOfficeId
       });
     }
 
@@ -863,15 +883,26 @@ exports.getLeaves = async (req, res) => {
   }
 };
 
-exports.applyLeave = async (req, res) => {
+exports.applyLeave = async (req: any, res: any) => {
   try {
-    const { hr_leave_applications, hr_leave_balances, hr_payroll_runs } = req.propertyDb.models;
-    const { employee_id, leave_type_id, start_date, end_date, reason } = req.body;
+    const { hr_leave_applications, hr_leave_balances, hr_payroll_runs, hr_employees } = req.propertyDb.models;
+    const { leave_type_id, start_date, end_date, reason } = req.body;
+    let employee_id = req.body.employee_id;
+    if (!employee_id && req.user) {
+      employee_id = req.user.employee_id || req.user.id;
+    }
+    
+    if (!employee_id) {
+      return res.status(400).json({ success: false, message: 'Employee ID is required' });
+    }
+
+    const emp = await hr_employees.findByPk(employee_id);
+    const outlet_id = req.user?.outlet_id || emp?.outlet_id || 1;
     
     const startMonth = moment(start_date).format('YYYY-MM');
     const endMonth = moment(end_date).format('YYYY-MM');
     const latestLockedRun = await hr_payroll_runs.findOne({
-      where: { status: 'Approved', outlet_id: req.user.outlet_id },
+      where: { status: 'Approved', outlet_id: outlet_id },
       order: [['pay_period', 'DESC']]
     });
     if (latestLockedRun && (startMonth <= latestLockedRun.pay_period || endMonth <= latestLockedRun.pay_period)) {
@@ -892,39 +923,45 @@ exports.applyLeave = async (req, res) => {
     
     const currentYear = start.year();
     const balance = await hr_leave_balances.findOne({
-      where: { employee_id, leave_type_id, year: currentYear, outlet_id: req.user.outlet_id }
+      where: { employee_id, leave_type_id, year: currentYear }
     });
     
-    if (!balance || (balance.total_quota - balance.used_quota) < total_days) {
-      return res.status(400).json({ success: false, message: 'Insufficient leave balance' });
+    const alloc = parseFloat(balance?.allocated_quota ?? balance?.total_quota ?? 0);
+    const used = parseFloat(balance?.used_quota ?? 0);
+    if (!balance || (alloc - used) < total_days) {
+      return res.status(400).json({ success: false, message: `Insufficient leave balance. Available: ${Math.max(0, alloc - used)} day(s), Requested: ${total_days} day(s)` });
     }
     
     const application = await hr_leave_applications.create({
       employee_id, leave_type_id, start_date, end_date, total_days, reason,
       status: 'Pending',
-      outlet_id: req.user.outlet_id,
-      created_by: req.user.id
+      outlet_id: outlet_id,
+      created_by: req.user?.id || employee_id
     });
     
-    return res.json({ success: true, data: application });
-  } catch (err) {
+    return res.json({ success: true, data: application, message: 'Leave application submitted successfully for approval' });
+  } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
 
-exports.approveLeave = async (req, res) => {
+exports.approveLeave = async (req: any, res: any) => {
   try {
-    const { hr_leave_applications, hr_leave_balances, hr_attendance_punches, hr_leave_types, hr_payroll_runs } = req.propertyDb.models;
+    const { hr_leave_applications, hr_leave_balances, hr_attendance_punches, hr_leave_types, hr_payroll_runs, hr_employees } = req.propertyDb.models;
+    const outlet_id = req.user?.outlet_id || 1;
     const app = await hr_leave_applications.findOne({
-      where: { id: req.params.id, outlet_id: req.user.outlet_id },
+      where: { id: req.params.id },
       include: [{ model: hr_leave_types, as: 'leaveType' }]
     });
     if (!app) return res.status(404).json({ success: false, message: 'Leave not found' });
 
+    const emp = await hr_employees.findByPk(app.employee_id);
+    const officeId = emp?.office_id || null;
+
     const startMonth = moment(app.start_date).format('YYYY-MM');
     const endMonth = moment(app.end_date).format('YYYY-MM');
     const latestLockedRun = await hr_payroll_runs.findOne({
-      where: { status: 'Approved', outlet_id: req.user.outlet_id },
+      where: { status: 'Approved', outlet_id: outlet_id },
       order: [['pay_period', 'DESC']]
     });
     if (latestLockedRun && (startMonth <= latestLockedRun.pay_period || endMonth <= latestLockedRun.pay_period)) {
@@ -932,7 +969,7 @@ exports.approveLeave = async (req, res) => {
     }
     
     app.status = 'Approved';
-    app.approved_by = req.user.id;
+    app.approved_by = req.user?.id || 1;
     await app.save();
     
     const start = moment(app.start_date);
@@ -942,7 +979,7 @@ exports.approveLeave = async (req, res) => {
     });
     
     if (balance) {
-      balance.used_quota = (parseFloat(balance.used_quota) || 0) + app.total_days;
+      balance.used_quota = (parseFloat(balance.used_quota) || 0) + parseFloat(app.total_days || 0);
       await balance.save();
     }
     
@@ -955,34 +992,35 @@ exports.approveLeave = async (req, res) => {
       let punch = await hr_attendance_punches.findOne({
         where: {
           employee_id: app.employee_id,
-          punch_date: dateStr,
-          outlet_id: req.user.outlet_id
+          punch_date: dateStr
         }
       });
       if (punch) {
         punch.status = leaveStatus;
-        punch.punch_source = 'System';
-        punch.updated_by = req.user.id;
+        punch.punch_source = 'Leave';
+        punch.updated_by = req.user?.id || 1;
         punch.leave_type_id = app.leave_type_id;
+        if (!punch.office_id && officeId) punch.office_id = officeId;
         await punch.save();
       } else {
         await hr_attendance_punches.create({
-          outlet_id: req.user.outlet_id,
+          outlet_id: outlet_id,
+          office_id: officeId,
           employee_id: app.employee_id,
           punch_date: dateStr,
           status: leaveStatus,
-          punch_source: 'System',
-          updated_by: req.user.id,
+          punch_source: 'Leave',
+          updated_by: req.user?.id || 1,
           leave_type_id: app.leave_type_id
         });
       }
     }
 
     // Recalculate leave balances for consistency
-    await recalculateLeaveBalances(app.employee_id, req.user.outlet_id, req.propertyDb);
+    await recalculateLeaveBalances(app.employee_id, outlet_id, req.propertyDb);
     
-    return res.json({ success: true, message: 'Leave approved' });
-  } catch (err) {
+    return res.json({ success: true, message: 'Leave approved and attendance automatically recorded' });
+  } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -1023,59 +1061,64 @@ exports.createLoan = async (req, res) => {
   const transaction = await req.propertyDb.transaction();
   try {
     const { hr_loans, hr_employees, expenses, expense_categories, cash_ledger } = req.propertyDb.models;
-    const { loan_amount, employee_id, payment_method } = req.body;
+    const { loan_amount, employee_id, payment_method, status } = req.body;
     
+    const initialStatus = status || 'Pending';
     const data = await hr_loans.create({
       ...req.body,
+      status: initialStatus,
       remaining_balance: loan_amount,
       outlet_id: req.user.outlet_id,
       created_by: req.user.id
     }, { transaction });
 
-    const emp = await hr_employees.findByPk(employee_id, { transaction });
-    const empName = emp ? emp.full_name : 'Employee';
-    const empCode = emp ? emp.employee_code : '';
-    const method = payment_method || 'Cash';
+    // Only log expense and cash ledger if created as already approved/paid/active
+    if (initialStatus === 'Approved' || initialStatus === 'Paid' || initialStatus === 'Active') {
+      const emp = await hr_employees.findByPk(employee_id, { transaction });
+      const empName = emp ? emp.full_name : 'Employee';
+      const empCode = emp ? emp.employee_code : '';
+      const method = payment_method || 'Cash';
 
-    // Log Expense
-    let categoryId = null;
-    if (expenses && expense_categories) {
-      const [category] = await expense_categories.findOrCreate({
-        where: { category_name: 'Loans & Advances', outlet_id: req.user.outlet_id },
-        defaults: { category_name: 'Loans & Advances', user_id: req.user.id },
-        transaction
-      });
-      categoryId = category.id;
-      
-      await expenses.create({
-        category_id: categoryId,
-        base_amount: parseFloat(loan_amount),
-        net_payable_amount: parseFloat(loan_amount),
-        payment_date: new Date(),
-        expense_note: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
-        payment_method: method,
-        status: 'Paid',
-        outlet_id: req.user.outlet_id,
-        created_by: req.user.id
-      }, { transaction });
-    }
+      // Log Expense
+      let categoryId = null;
+      if (expenses && expense_categories) {
+        const [category] = await expense_categories.findOrCreate({
+          where: { category_name: 'Loans & Advances', outlet_id: req.user.outlet_id },
+          defaults: { category_name: 'Loans & Advances', user_id: req.user.id },
+          transaction
+        });
+        categoryId = category.id;
+        
+        await expenses.create({
+          category_id: categoryId,
+          base_amount: parseFloat(loan_amount),
+          net_payable_amount: parseFloat(loan_amount),
+          payment_date: new Date(),
+          expense_note: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
+          payment_method: method,
+          status: 'Paid',
+          outlet_id: req.user.outlet_id,
+          created_by: req.user.id
+        }, { transaction });
+      }
 
-    // Log Cash Ledger
-    if (cash_ledger) {
-      await cash_ledger.create({
-        outlet_id: req.user.outlet_id,
-        txn_date: moment().format('YYYY-MM-DD'),
-        transaction_type: 'EXPENSE',
-        reference_type: 'LOAN',
-        reference_id: data.id.toString(),
-        reference_no: `LOAN-ISSUED-${data.id}`,
-        party_name: empName,
-        payment_method: method,
-        notes: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
-        amount_out: parseFloat(loan_amount),
-        amount_in: 0,
-        created_by: req.user.id
-      }, { transaction });
+      // Log Cash Ledger
+      if (cash_ledger) {
+        await cash_ledger.create({
+          outlet_id: req.user.outlet_id,
+          txn_date: moment().format('YYYY-MM-DD'),
+          transaction_type: 'EXPENSE',
+          reference_type: 'LOAN',
+          reference_id: data.id.toString(),
+          reference_no: `LOAN-ISSUED-${data.id}`,
+          party_name: empName,
+          payment_method: method,
+          notes: `Loan Reference #${data.id} issued to ${empName} (${empCode})`,
+          amount_out: parseFloat(loan_amount),
+          amount_in: 0,
+          created_by: req.user.id
+        }, { transaction });
+      }
     }
 
     await transaction.commit();
@@ -1087,15 +1130,76 @@ exports.createLoan = async (req, res) => {
 };
 
 exports.updateLoanStatus = async (req, res) => {
+  const transaction = await req.propertyDb.transaction();
   try {
-    const { hr_loans } = req.propertyDb.models;
+    const { hr_loans, hr_employees, expenses, expense_categories, cash_ledger } = req.propertyDb.models;
     const { status } = req.body;
-    const [updated] = await hr_loans.update({ status }, {
-      where: { id: req.params.id, outlet_id: req.user.outlet_id }
+    
+    const loan = await hr_loans.findOne({
+      where: { id: req.params.id, outlet_id: req.user.outlet_id },
+      transaction
     });
-    if (!updated) return res.status(404).json({ success: false, message: 'Not found' });
+    if (!loan) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: 'Loan not found' });
+    }
+
+    const prevStatus = loan.status;
+    loan.status = status;
+    await loan.save({ transaction });
+
+    // When transitioning to Approved/Paid/Active, disburse and log expense & cash ledger if not already recorded
+    if ((status === 'Approved' || status === 'Paid' || status === 'Active') && 
+        (prevStatus === 'Pending' || prevStatus === 'Pending Approval' || prevStatus === 'Draft')) {
+      const emp = await hr_employees.findByPk(loan.employee_id, { transaction });
+      const empName = emp ? emp.full_name : 'Employee';
+      const empCode = emp ? emp.employee_code : '';
+      const method = loan.payment_method || 'Cash';
+
+      // Log Expense
+      if (expenses && expense_categories) {
+        const [category] = await expense_categories.findOrCreate({
+          where: { category_name: 'Loans & Advances', outlet_id: req.user.outlet_id },
+          defaults: { category_name: 'Loans & Advances', user_id: req.user.id },
+          transaction
+        });
+        
+        await expenses.create({
+          category_id: category.id,
+          base_amount: parseFloat(loan.loan_amount),
+          net_payable_amount: parseFloat(loan.loan_amount),
+          payment_date: new Date(),
+          expense_note: `Loan Reference #${loan.id} disbursed to ${empName} (${empCode})`,
+          payment_method: method,
+          status: 'Paid',
+          outlet_id: req.user.outlet_id,
+          created_by: req.user.id
+        }, { transaction });
+      }
+
+      // Log Cash Ledger
+      if (cash_ledger) {
+        await cash_ledger.create({
+          outlet_id: req.user.outlet_id,
+          txn_date: moment().format('YYYY-MM-DD'),
+          transaction_type: 'EXPENSE',
+          reference_type: 'LOAN',
+          reference_id: loan.id.toString(),
+          reference_no: `LOAN-ISSUED-${loan.id}`,
+          party_name: empName,
+          payment_method: method,
+          notes: `Loan Reference #${loan.id} disbursed to ${empName} (${empCode})`,
+          amount_out: parseFloat(loan.loan_amount),
+          amount_in: 0,
+          created_by: req.user.id
+        }, { transaction });
+      }
+    }
+
+    await transaction.commit();
     return res.json({ success: true, message: 'Status updated' });
   } catch (err) {
+    await transaction.rollback();
     return res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -2611,7 +2715,7 @@ exports.getRevisions = async (req, res) => {
     const { hr_salary_revisions, hr_employees } = req.propertyDb.models;
     const data = await hr_salary_revisions.findAll({
       where: { outlet_id: req.user.outlet_id },
-      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code'] }],
+      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
       order: [['id', 'DESC']]
     });
     return res.json({ success: true, data });
@@ -2625,7 +2729,7 @@ exports.getBonuses = async (req, res) => {
     const { hr_arrears, hr_employees } = req.propertyDb.models;
     const data = await hr_arrears.findAll({
       where: { outlet_id: req.user.outlet_id },
-      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code'] }],
+      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
       order: [['id', 'DESC']]
     });
     return res.json({ success: true, data });
@@ -2641,7 +2745,7 @@ exports.getApprovals = async (req, res) => {
     const leaves = await hr_leave_applications.findAll({
       where: { outlet_id: req.user.outlet_id },
       include: [
-        { model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code'] },
+        { model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] },
         { model: hr_leave_types, as: 'leaveType', attributes: ['id', 'name'] }
       ],
       order: [['id', 'DESC']]
@@ -2649,19 +2753,19 @@ exports.getApprovals = async (req, res) => {
     
     const loans = await hr_loans.findAll({
       where: { outlet_id: req.user.outlet_id },
-      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code'] }],
+      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
       order: [['id', 'DESC']]
     });
 
     const revisions = await hr_salary_revisions.findAll({
       where: { outlet_id: req.user.outlet_id, status: 'Pending' },
-      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code'] }],
+      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
       order: [['id', 'DESC']]
     });
 
     const bonuses = await hr_arrears.findAll({
       where: { outlet_id: req.user.outlet_id, status: 'Pending Approval' },
-      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code'] }],
+      include: [{ model: hr_employees, as: 'employee', attributes: ['id', 'full_name', 'employee_code', 'office_id'] }],
       order: [['id', 'DESC']]
     });
     
@@ -3015,7 +3119,8 @@ exports.autoWeeklyOffs = async (req, res) => {
               hours_worked: 0.0,
               overtime_hours: 0.0,
               lateness_mins: 0,
-              punch_source: 'System'
+              punch_source: 'System',
+              office_id: emp.office_id || null
             });
             createdCount++;
           } else if (existing.status === 'Absent') {
@@ -3281,6 +3386,7 @@ exports.bulkImportAttendance = async (req: any, res: any) => {
           status,
           punch_source: 'Excel_Import',
           remarks: row.remarks || 'Imported via Excel Attendance',
+          office_id: matchedEmp.office_id || null,
           updated_by: req.user.id
         },
         transaction
