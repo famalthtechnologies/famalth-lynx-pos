@@ -6177,19 +6177,6 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                   },
                 ),
                 _hubTile(
-                  icon: Icons.medication_rounded,
-                  color: const Color(0xFF059669),
-                  bg: const Color(0xFFD1FAE5),
-                  title: 'Pharmacy Desk',
-                  subtitle: 'Meds & Batches',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const ClinicPharmacyDeskScreen()),
-                    ).then((_) => _loadClinicData());
-                  },
-                ),
-                _hubTile(
                   icon: Icons.local_shipping_rounded,
                   color: const Color(0xFF0284C7),
                   bg: const Color(0xFFE0F2FE),

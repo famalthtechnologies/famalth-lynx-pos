@@ -294,15 +294,17 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
                     children: [
                       Text(
                         widget.appointment['status'] == 'VISITED'
-                            ? 'Reception Fee Collection & Details'
-                            : 'Reception Acceptance & Admission',
+                            ? 'Reception Fee Collection'
+                            : 'Reception Admission',
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                       ),
-                      const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
@@ -358,6 +360,7 @@ class _ClinicAcceptPayDialogState extends State<ClinicAcceptPayDialog> {
                     _isLoadingDoctors
                         ? const LinearProgressIndicator()
                         : DropdownButtonFormField<String>(
+                            isExpanded: true,
                             value: _doctors.any((d) => (d['full_name'] ?? '').toString() == _selectedDoctorName)
                                 ? _selectedDoctorName
                                 : (_doctors.isNotEmpty ? (_doctors.first['full_name'] ?? '').toString() : null),
