@@ -1291,8 +1291,9 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
           ),
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   Widget _legendDot(Color color) {
     return Container(
