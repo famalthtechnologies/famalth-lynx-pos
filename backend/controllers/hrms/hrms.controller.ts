@@ -1250,7 +1250,7 @@ exports.previewPayroll = async (req, res) => {
     
     const { hr_pay_structures, hr_salary_components } = req.propertyDb.models;
     const { office_id } = req.body || {};
-    const empWhere = { status: 'Active', outlet_id: req.user.outlet_id };
+    const empWhere: any = { status: 'Active', outlet_id: req.user.outlet_id };
     if (office_id && office_id !== 'all' && office_id !== '0') {
       empWhere.office_id = office_id;
     }
@@ -2152,7 +2152,7 @@ exports.updateDesignation = async (req, res) => {
     const { name, is_active } = req.body;
     const item = await hr_designations.findOne({ where: { id, outlet_id: req.user.outlet_id } });
     if (!item) return res.status(404).json({ success: false, message: 'Designation not found' });
-    const payload = { name, is_active: is_active !== false };
+    const payload: any = { name, is_active: is_active !== false };
     if ('office_id' in req.body) {
       payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
     }
@@ -2191,7 +2191,7 @@ exports.updateShift = async (req, res) => {
     const { name, start_time, end_time, grace_period_mins, weekly_offs, is_active } = req.body;
     const item = await hr_shifts.findOne({ where: { id, outlet_id: req.user.outlet_id } });
     if (!item) return res.status(404).json({ success: false, message: 'Shift not found' });
-    const payload = { name, start_time, end_time, grace_period_mins, weekly_offs, is_active: is_active !== false };
+    const payload: any = { name, start_time, end_time, grace_period_mins, weekly_offs, is_active: is_active !== false };
     if ('office_id' in req.body) {
       payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
     }
@@ -2230,7 +2230,7 @@ exports.updateLeaveType = async (req, res) => {
     const { name, annual_quota, is_paid, is_active } = req.body;
     const item = await hr_leave_types.findOne({ where: { id, outlet_id: req.user.outlet_id } });
     if (!item) return res.status(404).json({ success: false, message: 'Leave type not found' });
-    const payload = { name, annual_quota, is_paid, is_active: is_active !== false };
+    const payload: any = { name, annual_quota, is_paid, is_active: is_active !== false };
     if ('office_id' in req.body) {
       payload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
     }
@@ -2293,7 +2293,7 @@ exports.updatePayStructure = async (req, res) => {
     const item = await hr_pay_structures.findOne({ where: { id, outlet_id: req.user.outlet_id } });
     if (!item) return res.status(404).json({ success: false, message: 'Pay structure not found' });
     
-    const updatePayload = { name, description: description || null, is_active: is_active !== false };
+    const updatePayload: any = { name, description: description || null, is_active: is_active !== false };
     if ('office_id' in req.body) {
       updatePayload.office_id = req.body.office_id && req.body.office_id !== 'all' && req.body.office_id !== '0' ? parseInt(req.body.office_id) : null;
     }

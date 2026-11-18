@@ -25,6 +25,8 @@ class ClinicDashboardScreen extends StatefulWidget {
   final String? userRole;
   final List<String>? userPermissions;
   final bool autoOpenBooking;
+  final ClinicTab? standaloneTab;
+  final bool isStandalone;
   const ClinicDashboardScreen({
     super.key,
     this.initialIndex = 0,
@@ -32,10 +34,74 @@ class ClinicDashboardScreen extends StatefulWidget {
     this.userRole,
     this.userPermissions,
     this.autoOpenBooking = false,
+    this.standaloneTab,
+    this.isStandalone = false,
   });
 
   @override
   State<ClinicDashboardScreen> createState() => _ClinicDashboardScreenState();
+}
+
+class ClinicReceptionScreen extends StatelessWidget {
+  final bool autoOpenBooking;
+  const ClinicReceptionScreen({super.key, this.autoOpenBooking = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClinicDashboardScreen(
+      standaloneTab: ClinicTab.reception,
+      autoOpenBooking: autoOpenBooking,
+      isStandalone: true,
+    );
+  }
+}
+
+class ClinicDoctorDeskScreen extends StatelessWidget {
+  const ClinicDoctorDeskScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const ClinicDashboardScreen(
+      standaloneTab: ClinicTab.doctor,
+      isStandalone: true,
+    );
+  }
+}
+
+class ClinicPharmacyDeskScreen extends StatelessWidget {
+  const ClinicPharmacyDeskScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const ClinicDashboardScreen(
+      standaloneTab: ClinicTab.pharmacy,
+      isStandalone: true,
+    );
+  }
+}
+
+class ClinicTherapyScreen extends StatelessWidget {
+  const ClinicTherapyScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const ClinicDashboardScreen(
+      standaloneTab: ClinicTab.therapy,
+      isStandalone: true,
+    );
+  }
+}
+
+class ClinicPulseScreen extends StatelessWidget {
+  const ClinicPulseScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const ClinicDashboardScreen(
+      standaloneTab: ClinicTab.analytics,
+      isStandalone: true,
+    );
+  }
 }
 
 enum ClinicTab {
@@ -139,13 +205,14 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
 
   void _setupTabController(List<ClinicTab> tabs) {
     int initIdx = 0;
-    if (widget.initialTab != null && tabs.contains(widget.initialTab)) {
-      initIdx = tabs.indexOf(widget.initialTab!);
+    final targetTab = widget.standaloneTab ?? widget.initialTab;
+    if (targetTab != null && tabs.contains(targetTab)) {
+      initIdx = tabs.indexOf(targetTab);
     } else {
-      initIdx = widget.initialIndex.clamp(0, tabs.length - 1);
+      initIdx = widget.initialIndex.clamp(0, tabs.isEmpty ? 0 : tabs.length - 1);
     }
     final ctrl = TabController(
-      length: tabs.length,
+      length: tabs.isEmpty ? 1 : tabs.length,
       vsync: this,
       initialIndex: initIdx,
     );
@@ -225,6 +292,12 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
       }
       return [ClinicTab.reception];
     }
+
+    if (widget.standaloneTab != null && !allowed.contains(widget.standaloneTab!)) {
+      allowed.add(widget.standaloneTab!);
+    }
+
+    if (allowed.isNotEmpty) return allowed;
 
     return [];
   }
@@ -1218,6 +1291,84 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
         _userRole == 'DOCTOR_ADMIN' ||
         _userRole.isEmpty;
 
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 768;
+    final bool isStandaloneView = widget.standaloneTab != null || widget.isStandalone || widget.initialTab != null || isMobile;
+
+    final ClinicTab activeTab = widget.standaloneTab ??
+        widget.initialTab ??
+        ((_tabCtrl != null && _tabCtrl!.index < _availableTabs.length) ? _availableTabs[_tabCtrl!.index] : ClinicTab.reception);
+
+    if (isStandaloneView) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF1F5F9),
+        appBar: AppBar(
+          elevation: 0.5,
+          backgroundColor: Colors.white,
+          iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+          titleSpacing: 0,
+          leading: Navigator.canPop(context)
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
+                  onPressed: () => Navigator.pop(context),
+                )
+              : null,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: _getTabAccentColor(activeTab).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(_getTabIcon(activeTab), color: _getTabAccentColor(activeTab), size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _getTabTitle(activeTab),
+                      style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 15),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      _getTabSubtitle(activeTab),
+                      style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            if (isAdmin && (activeTab == ClinicTab.reception || activeTab == ClinicTab.doctor)) ...[
+              IconButton(
+                tooltip: _isClinicClosedToday ? 'Clinic Closed Today' : 'Clinic Open Today',
+                icon: Icon(
+                  _isClinicClosedToday ? Icons.do_not_disturb_on_rounded : Icons.check_circle_rounded,
+                  size: 20,
+                  color: _isClinicClosedToday ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+                ),
+                onPressed: _openToggleClinicClosedDialog,
+              ),
+              IconButton(
+                tooltip: 'Doctors & Profiles',
+                icon: const Icon(Icons.badge_outlined, size: 20, color: Color(0xFF0284C7)),
+                onPressed: _openDoctorManagementDialog,
+              ),
+            ],
+            _buildDeskTopActionButton(activeTab),
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: _buildTabView(activeTab),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       appBar: AppBar(
@@ -1304,19 +1455,9 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
               _fetchAnalytics();
             },
           ),
+          const SizedBox(width: 4),
+          _buildDeskTopActionButton(activeTab),
           const SizedBox(width: 8),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF0284C7),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            icon: const Icon(Icons.add_rounded, size: 18),
-            label: const Text('Book Appointment', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            onPressed: _openNewAppointmentDialog,
-          ),
-          const SizedBox(width: 14),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
@@ -1345,6 +1486,122 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
         children: _availableTabs.map((t) => _buildTabView(t)).toList(),
       ),
     );
+  }
+
+  Widget _buildDeskTopActionButton(ClinicTab tab) {
+    String label = 'Refresh';
+    IconData icon = Icons.refresh_rounded;
+    Color color = const Color(0xFF0284C7);
+    VoidCallback action = () {
+      _fetchAppointments();
+      _fetchAnalytics();
+      _fetchSubscriptions();
+    };
+
+    if (tab == ClinicTab.reception) {
+      label = 'New Booking';
+      icon = Icons.add_rounded;
+      color = const Color(0xFF0284C7);
+      action = _openNewAppointmentDialog;
+    } else if (tab == ClinicTab.therapy) {
+      label = 'New Plan';
+      icon = Icons.add_rounded;
+      color = const Color(0xFF7C3AED);
+      action = _openCreateSubscriptionDialog;
+    } else if (tab == ClinicTab.doctor) {
+      label = 'Refresh';
+      icon = Icons.refresh_rounded;
+      color = const Color(0xFF0284C7);
+      action = () {
+        _fetchAppointments();
+      };
+    } else if (tab == ClinicTab.pharmacy) {
+      label = 'Refresh';
+      icon = Icons.refresh_rounded;
+      color = const Color(0xFF059669);
+      action = () {
+        _fetchAppointments();
+      };
+    } else if (tab == ClinicTab.analytics) {
+      label = 'Sync';
+      icon = Icons.sync_rounded;
+      color = const Color(0xFF0F172A);
+      action = _fetchAnalytics;
+    }
+
+    return ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        minimumSize: const Size(60, 32),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        elevation: 0,
+      ),
+      icon: Icon(icon, size: 15),
+      label: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+      onPressed: action,
+    );
+  }
+
+  String _getTabTitle(ClinicTab tab) {
+    switch (tab) {
+      case ClinicTab.reception:
+        return 'Reception Desk (OPD)';
+      case ClinicTab.doctor:
+        return 'Doctor Consultation Desk';
+      case ClinicTab.pharmacy:
+        return 'Pharmacy Dispensing Desk';
+      case ClinicTab.therapy:
+        return 'Therapy & Packages';
+      case ClinicTab.analytics:
+        return 'Clinic Pulse & Stats';
+    }
+  }
+
+  String _getTabSubtitle(ClinicTab tab) {
+    switch (tab) {
+      case ClinicTab.reception:
+        return 'Live Tokens & Patient Queue';
+      case ClinicTab.doctor:
+        return 'Patient Consultations & Rx';
+      case ClinicTab.pharmacy:
+        return 'Prescription Meds & Billing';
+      case ClinicTab.therapy:
+        return 'Care Plans & Subscriptions';
+      case ClinicTab.analytics:
+        return 'Footfall & Revenue Analytics';
+    }
+  }
+
+  IconData _getTabIcon(ClinicTab tab) {
+    switch (tab) {
+      case ClinicTab.reception:
+        return Icons.assignment_ind_rounded;
+      case ClinicTab.doctor:
+        return Icons.medical_services_rounded;
+      case ClinicTab.pharmacy:
+        return Icons.local_pharmacy_rounded;
+      case ClinicTab.therapy:
+        return Icons.card_membership_rounded;
+      case ClinicTab.analytics:
+        return Icons.analytics_rounded;
+    }
+  }
+
+  Color _getTabAccentColor(ClinicTab tab) {
+    switch (tab) {
+      case ClinicTab.reception:
+        return const Color(0xFF0284C7);
+      case ClinicTab.doctor:
+        return const Color(0xFF0284C7);
+      case ClinicTab.pharmacy:
+        return const Color(0xFF059669);
+      case ClinicTab.therapy:
+        return const Color(0xFF7C3AED);
+      case ClinicTab.analytics:
+        return const Color(0xFF0F172A);
+    }
   }
 
   Widget _buildTabItem(ClinicTab tab) {
@@ -1654,257 +1911,294 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
   }
 
   Widget _buildFilterBar() {
+    final isMobile = MediaQuery.of(context).size.width < 900;
+
+    final datePickerWidget = PopupMenuButton<String>(
+      tooltip: 'Select Date Range Presets',
+      onSelected: (preset) async {
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        if (preset == 'TODAY') {
+          setState(() {
+            _fromDate = today;
+            _toDate = today;
+            _datePresetLabel = 'Today';
+          });
+          _fetchAppointments();
+        } else if (preset == 'TOMORROW') {
+          final tom = today.add(const Duration(days: 1));
+          setState(() {
+            _fromDate = tom;
+            _toDate = tom;
+            _datePresetLabel = 'Tomorrow';
+          });
+          _fetchAppointments();
+        } else if (preset == 'NEXT_7_DAYS') {
+          setState(() {
+            _fromDate = today;
+            _toDate = today.add(const Duration(days: 7));
+            _datePresetLabel = 'Next 7 Days';
+          });
+          _fetchAppointments();
+        } else if (preset == 'ALL_UPCOMING') {
+          setState(() {
+            _fromDate = today;
+            _toDate = today.add(const Duration(days: 60));
+            _datePresetLabel = 'All Upcoming';
+          });
+          _fetchAppointments();
+        } else if (preset == 'YESTERDAY') {
+          final yest = today.subtract(const Duration(days: 1));
+          setState(() {
+            _fromDate = yest;
+            _toDate = yest;
+            _datePresetLabel = 'Yesterday';
+          });
+          _fetchAppointments();
+        } else if (preset == 'THIS_WEEK') {
+          setState(() {
+            _fromDate = today.subtract(Duration(days: today.weekday - 1));
+            _toDate = today;
+            _datePresetLabel = 'This Week';
+          });
+          _fetchAppointments();
+        } else if (preset == 'THIS_MONTH') {
+          setState(() {
+            _fromDate = DateTime(now.year, now.month, 1);
+            _toDate = today;
+            _datePresetLabel = 'This Month';
+          });
+          _fetchAppointments();
+        } else if (preset == 'ALL_DATES') {
+          setState(() {
+            _fromDate = DateTime(2020, 1, 1);
+            _toDate = DateTime(2035, 12, 31);
+            _datePresetLabel = 'All Dates';
+          });
+          _fetchAppointments();
+        } else if (preset == 'CUSTOM') {
+          final picked = await showDateRangePicker(
+            context: context,
+            initialDateRange: DateTimeRange(start: _fromDate, end: _toDate),
+            firstDate: DateTime(2022),
+            lastDate: DateTime(2035),
+            helpText: 'Select Custom OPD Date Range',
+          );
+          if (picked != null) {
+            setState(() {
+              _fromDate = picked.start;
+              _toDate = picked.end;
+              _datePresetLabel = 'Custom';
+            });
+            _fetchAppointments();
+          }
+        }
+      },
+      itemBuilder: (ctx) => [
+        const PopupMenuItem(value: 'TODAY', child: Text('Today (Single Day - Default)')),
+        PopupMenuItem(value: 'TOMORROW', child: Text('Tomorrow (${DateFormat('EEE, dd MMM').format(DateTime.now().add(const Duration(days: 1)))})')),
+        const PopupMenuItem(value: 'NEXT_7_DAYS', child: Text('Next 7 Days (Upcoming)')),
+        const PopupMenuItem(value: 'ALL_UPCOMING', child: Text('All Upcoming Appointments')),
+        const PopupMenuDivider(),
+        const PopupMenuItem(value: 'YESTERDAY', child: Text('Yesterday')),
+        const PopupMenuItem(value: 'THIS_WEEK', child: Text('This Week (Last 7 Days)')),
+        const PopupMenuItem(value: 'THIS_MONTH', child: Text('This Month')),
+        const PopupMenuItem(value: 'ALL_DATES', child: Text('All Dates (No Date Filter)')),
+        const PopupMenuDivider(),
+        const PopupMenuItem(value: 'CUSTOM', child: Row(children: [Icon(Icons.date_range, size: 16), SizedBox(width: 8), Text('Custom Date Range...')])),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFCBD5E1)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF0284C7)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                _fromDate.year == _toDate.year && _fromDate.month == _toDate.month && _fromDate.day == _toDate.day
+                    ? '${_datePresetLabel != 'Custom' ? '$_datePresetLabel: ' : ''}${DateFormat('dd MMM yyyy').format(_fromDate)}'
+                    : '${_datePresetLabel != 'Custom' ? '$_datePresetLabel: ' : ''}${DateFormat('dd MMM').format(_fromDate)} - ${DateFormat('dd MMM yyyy').format(_toDate)}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF64748B)),
+          ],
+        ),
+      ),
+    );
+
+    final doctorDropdownWidget = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFCBD5E1)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int?>(
+          isExpanded: true,
+          value: _clinicDoctors.any((d) => d['id'] == _selectedDoctorFilterId) ? _selectedDoctorFilterId : null,
+          icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B)),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A)),
+          items: [
+            const DropdownMenuItem<int?>(
+              value: null,
+              child: Row(
+                children: [
+                  Icon(Icons.people_outline_rounded, size: 16, color: Color(0xFF0284C7)),
+                  SizedBox(width: 6),
+                  Text('All Doctors', overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            ..._clinicDoctors.map((doc) {
+              final docId = doc['id'] as int?;
+              final dName = (doc['full_name'] ?? 'Doctor').toString();
+              final spec = (doc['speciality'] ?? '').toString();
+              return DropdownMenuItem<int?>(
+                value: docId,
+                child: Row(
+                  children: [
+                    const Icon(Icons.medical_services_outlined, size: 16, color: Color(0xFF0284C7)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        spec.isNotEmpty ? '${_formatDoctorTitle(dName)} ($spec)' : _formatDoctorTitle(dName),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+          onChanged: (val) {
+            setState(() {
+              _selectedDoctorFilterId = val;
+              if (val == null) {
+                _selectedDoctorFilter = 'ALL';
+              } else {
+                final match = _clinicDoctors.firstWhere((d) => d['id'] == val, orElse: () => null);
+                _selectedDoctorFilter = match != null ? (match['full_name'] ?? '').toString() : 'ALL';
+              }
+            });
+            _fetchAppointments();
+          },
+        ),
+      ),
+    );
+
+    final searchFieldWidget = TextField(
+      controller: _searchCtrl,
+      decoration: InputDecoration(
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        hintText: 'Search patient name, phone, doctor...',
+        hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+        prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFF64748B)),
+        filled: true,
+        fillColor: const Color(0xFFF8FAFC),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5),
+        ),
+      ),
+      onSubmitted: (_) => _fetchAppointments(),
+    );
+
+    final searchButtonWidget = FilledButton.tonal(
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFF0284C7).withOpacity(0.12),
+        foregroundColor: const Color(0xFF0284C7),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      onPressed: _fetchAppointments,
+      child: const Text('Search', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+    );
+
+    final printReportButtonWidget = isMobile
+        ? IconButton(
+            tooltip: 'Print OPD Report',
+            style: IconButton.styleFrom(
+              foregroundColor: const Color(0xFF0F766E),
+              side: const BorderSide(color: Color(0xFF0F766E)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.all(8),
+            ),
+            icon: const Icon(Icons.print_rounded, size: 18),
+            onPressed: _printOpdReport,
+          )
+        : OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF0F766E),
+              side: const BorderSide(color: Color(0xFF0F766E)),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            icon: const Icon(Icons.print_rounded, size: 16),
+            label: const Text('Print OPD Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            onPressed: _printOpdReport,
+          );
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
       ),
       child: Column(
         children: [
-          Row(
-            children: [
-              // Intelligent Date Range Selector
-              PopupMenuButton<String>(
-                tooltip: 'Select Date Range Presets',
-                onSelected: (preset) async {
-                  final now = DateTime.now();
-                  final today = DateTime(now.year, now.month, now.day);
-                  if (preset == 'TODAY') {
-                    setState(() {
-                      _fromDate = today;
-                      _toDate = today;
-                      _datePresetLabel = 'Today';
-                    });
-                    _fetchAppointments();
-                  } else if (preset == 'TOMORROW') {
-                    final tom = today.add(const Duration(days: 1));
-                    setState(() {
-                      _fromDate = tom;
-                      _toDate = tom;
-                      _datePresetLabel = 'Tomorrow';
-                    });
-                    _fetchAppointments();
-                  } else if (preset == 'NEXT_7_DAYS') {
-                    setState(() {
-                      _fromDate = today;
-                      _toDate = today.add(const Duration(days: 7));
-                      _datePresetLabel = 'Next 7 Days';
-                    });
-                    _fetchAppointments();
-                  } else if (preset == 'ALL_UPCOMING') {
-                    setState(() {
-                      _fromDate = today;
-                      _toDate = today.add(const Duration(days: 60));
-                      _datePresetLabel = 'All Upcoming';
-                    });
-                    _fetchAppointments();
-                  } else if (preset == 'YESTERDAY') {
-                    final yest = today.subtract(const Duration(days: 1));
-                    setState(() {
-                      _fromDate = yest;
-                      _toDate = yest;
-                      _datePresetLabel = 'Yesterday';
-                    });
-                    _fetchAppointments();
-                  } else if (preset == 'THIS_WEEK') {
-                    setState(() {
-                      _fromDate = today.subtract(Duration(days: today.weekday - 1));
-                      _toDate = today;
-                      _datePresetLabel = 'This Week';
-                    });
-                    _fetchAppointments();
-                  } else if (preset == 'THIS_MONTH') {
-                    setState(() {
-                      _fromDate = DateTime(now.year, now.month, 1);
-                      _toDate = today;
-                      _datePresetLabel = 'This Month';
-                    });
-                    _fetchAppointments();
-                  } else if (preset == 'ALL_DATES') {
-                    setState(() {
-                      _fromDate = DateTime(2020, 1, 1);
-                      _toDate = DateTime(2035, 12, 31);
-                      _datePresetLabel = 'All Dates';
-                    });
-                    _fetchAppointments();
-                  } else if (preset == 'CUSTOM') {
-                    final picked = await showDateRangePicker(
-                      context: context,
-                      initialDateRange: DateTimeRange(start: _fromDate, end: _toDate),
-                      firstDate: DateTime(2022),
-                      lastDate: DateTime(2035),
-                      helpText: 'Select Custom OPD Date Range',
-                    );
-                    if (picked != null) {
-                      setState(() {
-                        _fromDate = picked.start;
-                        _toDate = picked.end;
-                        _datePresetLabel = 'Custom';
-                      });
-                      _fetchAppointments();
-                    }
-                  }
-                },
-                itemBuilder: (ctx) => [
-                  const PopupMenuItem(value: 'TODAY', child: Text('Today (Single Day - Default)')),
-                  PopupMenuItem(value: 'TOMORROW', child: Text('Tomorrow (${DateFormat('EEE, dd MMM').format(DateTime.now().add(const Duration(days: 1)))})')),
-                  const PopupMenuItem(value: 'NEXT_7_DAYS', child: Text('Next 7 Days (Upcoming)')),
-                  const PopupMenuItem(value: 'ALL_UPCOMING', child: Text('All Upcoming Appointments')),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(value: 'YESTERDAY', child: Text('Yesterday')),
-                  const PopupMenuItem(value: 'THIS_WEEK', child: Text('This Week (Last 7 Days)')),
-                  const PopupMenuItem(value: 'THIS_MONTH', child: Text('This Month')),
-                  const PopupMenuItem(value: 'ALL_DATES', child: Text('All Dates (No Date Filter)')),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(value: 'CUSTOM', child: Row(children: [Icon(Icons.date_range, size: 16), SizedBox(width: 8), Text('Custom Date Range...')])),
-                ],
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFCBD5E1)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.calendar_today_rounded, size: 15, color: Color(0xFF0284C7)),
-                      const SizedBox(width: 8),
-                      Text(
-                        _fromDate.year == _toDate.year && _fromDate.month == _toDate.month && _fromDate.day == _toDate.day
-                            ? '${_datePresetLabel != 'Custom' ? '$_datePresetLabel: ' : ''}${DateFormat('dd MMM yyyy').format(_fromDate)}'
-                            : '${_datePresetLabel != 'Custom' ? '$_datePresetLabel: ' : ''}${DateFormat('dd MMM').format(_fromDate)} - ${DateFormat('dd MMM yyyy').format(_toDate)}',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
-                      ),
-                      const SizedBox(width: 6),
-                      const Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF64748B)),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(width: 10),
-
-              // Doctor Filter Selector
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFCBD5E1)),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int?>(
-                    value: _clinicDoctors.any((d) => d['id'] == _selectedDoctorFilterId) ? _selectedDoctorFilterId : null,
-                    icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B)),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
-                    items: [
-                      const DropdownMenuItem<int?>(
-                        value: null,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.people_outline_rounded, size: 16, color: Color(0xFF0284C7)),
-                            SizedBox(width: 6),
-                            Text('All Doctors'),
-                          ],
-                        ),
-                      ),
-                      ..._clinicDoctors.map((doc) {
-                        final docId = doc['id'] as int?;
-                        final dName = (doc['full_name'] ?? 'Doctor').toString();
-                        final spec = (doc['speciality'] ?? '').toString();
-                        return DropdownMenuItem<int?>(
-                          value: docId,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.medical_services_outlined, size: 16, color: Color(0xFF0284C7)),
-                              const SizedBox(width: 6),
-                              Text(
-                                spec.isNotEmpty ? '${_formatDoctorTitle(dName)} ($spec)' : _formatDoctorTitle(dName),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ],
-                    onChanged: (val) {
-                      setState(() {
-                        _selectedDoctorFilterId = val;
-                        if (val == null) {
-                          _selectedDoctorFilter = 'ALL';
-                        } else {
-                          final match = _clinicDoctors.firstWhere((d) => d['id'] == val, orElse: () => null);
-                          _selectedDoctorFilter = match != null ? (match['full_name'] ?? '').toString() : 'ALL';
-                        }
-                      });
-                      _fetchAppointments();
-                    },
-                  ),
-                ),
-              ),
-
-              const SizedBox(width: 10),
-
-              // Search Input Box
-              Expanded(
-                child: TextField(
-                  controller: _searchCtrl,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                    hintText: 'Search patient name, phone, doctor, or token...',
-                    hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-                    prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFF64748B)),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5),
-                    ),
-                  ),
-                  onSubmitted: (_) => _fetchAppointments(),
-                ),
-              ),
-
-              const SizedBox(width: 8),
-
-              FilledButton.tonal(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF0284C7).withOpacity(0.12),
-                  foregroundColor: const Color(0xFF0284C7),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                onPressed: _fetchAppointments,
-                child: const Text('Search', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-              ),
-              const SizedBox(width: 8),
-
-              // Print OPD Report Button
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF0F766E),
-                  side: const BorderSide(color: Color(0xFF0F766E)),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                icon: const Icon(Icons.print_rounded, size: 16),
-                label: const Text('Print OPD Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                onPressed: _printOpdReport,
-              ),
-            ],
-          ),
+          if (isMobile) ...[
+            Row(
+              children: [
+                Expanded(child: datePickerWidget),
+                const SizedBox(width: 8),
+                Expanded(child: doctorDropdownWidget),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(child: searchFieldWidget),
+                const SizedBox(width: 6),
+                searchButtonWidget,
+                const SizedBox(width: 6),
+                printReportButtonWidget,
+              ],
+            ),
+          ] else ...[
+            Row(
+              children: [
+                datePickerWidget,
+                const SizedBox(width: 10),
+                SizedBox(width: 220, child: doctorDropdownWidget),
+                const SizedBox(width: 10),
+                Expanded(child: searchFieldWidget),
+                const SizedBox(width: 8),
+                searchButtonWidget,
+                const SizedBox(width: 8),
+                printReportButtonWidget,
+              ],
+            ),
+          ],
 
           const SizedBox(height: 10),
 
@@ -2544,7 +2838,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: const BoxDecoration(
             color: Colors.white,
             border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
@@ -2558,7 +2852,7 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
                     backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.1),
                     child: const Icon(Icons.medical_services_rounded, color: Color(0xFF0284C7), size: 20),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2567,92 +2861,100 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
                           _selectedDoctorFilter != 'ALL'
                               ? '${_formatDoctorTitle(_selectedDoctorFilter)} Consultation Desk'
                               : 'All Doctors Consultation Desk',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         Text(
                           'Daily Token Order • ${doctorQueue.length} Patients in Doctor Queue for ${DateFormat('dd MMM yyyy').format(_selectedDate)}',
                           style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
-
-                  // Doctor Filter Dropdown (backed by Doctor ID)
-                  Container(
-                    height: 36,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFCBD5E1)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    // Doctor Filter Dropdown (backed by Doctor ID)
+                    Container(
+                      height: 36,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int?>(
+                          value: _clinicDoctors.any((d) => d['id'] == _selectedDoctorFilterId) ? _selectedDoctorFilterId : null,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0284C7)),
+                          items: [
+                            const DropdownMenuItem<int?>(value: null, child: Text('👨‍⚕️ All Doctors')),
+                            ..._clinicDoctors.map((d) {
+                              final docId = d['id'] as int?;
+                              final docName = (d['full_name'] ?? 'Doctor').toString();
+                              return DropdownMenuItem<int?>(
+                                value: docId,
+                                child: Text(_formatDoctorTitle(docName)),
+                              );
+                            }),
+                          ],
+                          onChanged: (val) {
+                            setState(() {
+                              _selectedDoctorFilterId = val;
+                              if (val == null) {
+                                _selectedDoctorFilter = 'ALL';
+                              } else {
+                                final match = _clinicDoctors.firstWhere((d) => d['id'] == val, orElse: () => null);
+                                _selectedDoctorFilter = match != null ? (match['full_name'] ?? '').toString() : 'ALL';
+                              }
+                            });
+                          },
+                        ),
+                      ),
                     ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<int?>(
-                        value: _clinicDoctors.any((d) => d['id'] == _selectedDoctorFilterId) ? _selectedDoctorFilterId : null,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                        icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0284C7)),
-                        items: [
-                          const DropdownMenuItem<int?>(value: null, child: Text('👨‍⚕️ All Doctors')),
-                          ..._clinicDoctors.map((d) {
-                            final docId = d['id'] as int?;
-                            final docName = (d['full_name'] ?? 'Doctor').toString();
-                            return DropdownMenuItem<int?>(
-                              value: docId,
-                              child: Text(_formatDoctorTitle(docName)),
-                            );
-                          }),
-                        ],
-                        onChanged: (val) {
+
+                    if (isDoctorUser || _loggedInDoctorName.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      FilterChip(
+                        selected: _selectedDoctorFilterId != null && _selectedDoctorFilterId == _loggedInDoctorId,
+                        avatar: const Icon(Icons.person_pin_rounded, size: 14),
+                        label: const Text('My Patients Only', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        selectedColor: const Color(0xFF059669),
+                        backgroundColor: const Color(0xFFECFDF5),
+                        labelStyle: TextStyle(
+                          color: (_selectedDoctorFilterId != null && _selectedDoctorFilterId == _loggedInDoctorId) ? Colors.white : const Color(0xFF065F46),
+                        ),
+                        onSelected: (val) {
                           setState(() {
-                            _selectedDoctorFilterId = val;
-                            if (val == null) {
-                              _selectedDoctorFilter = 'ALL';
+                            if (val && _loggedInDoctorId != null) {
+                              _selectedDoctorFilterId = _loggedInDoctorId;
+                              _selectedDoctorFilter = _loggedInDoctorName;
                             } else {
-                              final match = _clinicDoctors.firstWhere((d) => d['id'] == val, orElse: () => null);
-                              _selectedDoctorFilter = match != null ? (match['full_name'] ?? '').toString() : 'ALL';
+                              _selectedDoctorFilterId = null;
+                              _selectedDoctorFilter = 'ALL';
                             }
                           });
                         },
                       ),
-                    ),
-                  ),
-
-                  if (isDoctorUser || _loggedInDoctorName.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    FilterChip(
-                      selected: _selectedDoctorFilterId != null && _selectedDoctorFilterId == _loggedInDoctorId,
-                      avatar: const Icon(Icons.person_pin_rounded, size: 14),
-                      label: const Text('My Patients Only', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                      selectedColor: const Color(0xFF059669),
-                      backgroundColor: const Color(0xFFECFDF5),
-                      labelStyle: TextStyle(
-                        color: (_selectedDoctorFilterId != null && _selectedDoctorFilterId == _loggedInDoctorId) ? Colors.white : const Color(0xFF065F46),
-                      ),
-                      onSelected: (val) {
-                        setState(() {
-                          if (val && _loggedInDoctorId != null) {
-                            _selectedDoctorFilterId = _loggedInDoctorId;
-                            _selectedDoctorFilter = _loggedInDoctorName;
-                          } else {
-                            _selectedDoctorFilterId = null;
-                            _selectedDoctorFilter = 'ALL';
-                          }
-                        });
-                      },
-                    ),
-                  ],
-
-                  const SizedBox(width: 12),
-
-                  Wrap(
-                    spacing: 6,
-                    children: [
-                      _docFilterChip('ALL', 'All Patients (${doctorQueue.length})'),
-                      _docFilterChip('UNATTENDED', 'Waiting in Queue'),
-                      _docFilterChip('ATTENDED', 'Attended / Visited'),
                     ],
-                  ),
-                ],
+
+                    const SizedBox(width: 8),
+
+                    _docFilterChip('ALL', 'All Patients (${doctorQueue.length})'),
+                    const SizedBox(width: 4),
+                    _docFilterChip('UNATTENDED', 'Waiting in Queue'),
+                    const SizedBox(width: 4),
+                    _docFilterChip('ATTENDED', 'Attended / Visited'),
+                  ],
+                ),
               ),
             ],
           ),
@@ -4101,47 +4403,43 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
         children: [
           // Header Bar
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Icon(Icons.card_membership_rounded, color: Color(0xFF7C3AED), size: 26),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Therapy Packages & Service Subscriptions',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                      ),
-                      Text(
-                        'Manage monthly therapy packages (e.g. 6 paid + free bonus sessions), track session consumption & view ledger.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      ),
-                    ],
-                  ),
+                const Row(
+                  children: [
+                    Icon(Icons.card_membership_rounded, color: Color(0xFF7C3AED), size: 22),
+                    SizedBox(width: 8),
+                    Text(
+                      'Therapy Packages',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                    ),
+                  ],
                 ),
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF7C3AED),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    minimumSize: const Size(60, 32),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: 0,
                   ),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('New Therapy Subscription', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  icon: const Icon(Icons.add_rounded, size: 16),
+                  label: const Text('New Plan', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   onPressed: () => _openCreateSubscriptionDialog(),
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
           // Top KPI Cards
           LayoutBuilder(
@@ -4149,10 +4447,10 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
               final isWide = constraints.maxWidth > 900;
               return GridView.count(
                 crossAxisCount: isWide ? 4 : 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
                 shrinkWrap: true,
-                childAspectRatio: isWide ? 2.3 : 2.0,
+                childAspectRatio: isWide ? 2.3 : (constraints.maxWidth < 600 ? 1.05 : 1.4),
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
                   _metricCard(
@@ -4188,45 +4486,54 @@ class _ClinicDashboardScreenState extends State<ClinicDashboardScreen> with Tick
             },
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
 
           // Filters & Search Bar
-          Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _subSearchCtrl,
-                  decoration: InputDecoration(
-                    hintText: 'Search by patient name, phone, or therapy package...',
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Color(0xFF64748B)),
-                    isDense: true,
-                    filled: true,
-                    fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                  ),
-                  onSubmitted: (_) => _fetchSubscriptions(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F172A),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                onPressed: _fetchSubscriptions,
-                child: const Text('Search', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-              ),
-              const SizedBox(width: 12),
-              Wrap(
-                spacing: 6,
+              Row(
                 children: [
-                  _subFilterChip('ALL', 'All'),
-                  _subFilterChip('ACTIVE', 'Active'),
-                  _subFilterChip('EXHAUSTED', 'Exhausted'),
+                  Expanded(
+                    child: TextField(
+                      controller: _subSearchCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Search by patient name, phone, or package...',
+                        prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Color(0xFF64748B)),
+                        isDense: true,
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
+                      ),
+                      onSubmitted: (_) => _fetchSubscriptions(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF0F172A),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: _fetchSubscriptions,
+                    child: const Text('Search', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
                 ],
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _subFilterChip('ALL', 'All'),
+                    const SizedBox(width: 6),
+                    _subFilterChip('ACTIVE', 'Active'),
+                    const SizedBox(width: 6),
+                    _subFilterChip('EXHAUSTED', 'Exhausted'),
+                  ],
+                ),
               ),
             ],
           ),

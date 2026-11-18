@@ -213,4 +213,10 @@ class TokenStorage {
     final mod = (user?['business_module'] ?? user?['outlet_module'] ?? user?['outlet_type'] ?? 'ALL').toString().toUpperCase();
     return ModuleCapability.hasHrms(mod);
   }
+
+  static bool isHrmsOnlySync() {
+    final user = _cachedUser;
+    final mod = (user?['business_module'] ?? user?['outlet_module'] ?? user?['outlet_type'] ?? 'ALL').toString().toUpperCase();
+    return ModuleCapability.isHrmsOnly(mod);
+  }
 }

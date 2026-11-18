@@ -1,4 +1,5 @@
 'use strict';
+export {};
 const { Op } = require('sequelize');
 const moment = require('moment');
 const bcrypt = require('bcryptjs');
@@ -521,6 +522,69 @@ exports.employeeGeotaggedPunch = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Employee not found.' });
     }
 
+    // ==========================================
+    // ANTI-BUDDY PUNCH & DEVICE BINDING CHECKS
+    // ==========================================
+    const deviceId = (req.body.device_id || req.headers['x-device-id'] || '').toString().trim();
+    const deviceInfo = (req.body.device_info || req.headers['x-device-info'] || '').toString().trim();
+    const todayDate = moment().format('YYYY-MM-DD');
+
+    if (deviceId) {
+      // 1. Anti-Device Sharing Check:
+      // Verify if another staff member already punched attendance from this exact phone today
+      const otherPunchToday = await hr_attendance_punches.findOne({
+        where: {
+          punch_date: todayDate,
+          device_id: deviceId,
+          employee_id: { [Op.ne]: employee.id },
+          outlet_id: employee.outlet_id
+        }
+      });
+
+      if (otherPunchToday) {
+        const otherEmp = await hr_employees.findByPk(otherPunchToday.employee_id);
+        const otherName = otherEmp ? `${otherEmp.full_name} (${otherEmp.employee_code})` : 'another employee';
+        return res.status(403).json({
+          success: false,
+          message: `🚫 Buddy Punching Blocked! This device was already used today by ${otherName} to mark attendance. Multiple employees cannot punch from the same phone.`
+        });
+      }
+
+      // 2. Hardware Binding Check:
+      // Is this phone already permanently registered to another employee?
+      const boundToOther = await hr_employees.findOne({
+        where: {
+          bound_device_id: deviceId,
+          id: { [Op.ne]: employee.id },
+          outlet_id: employee.outlet_id
+        }
+      });
+
+      if (boundToOther) {
+        return res.status(403).json({
+          success: false,
+          message: `🔒 Device Locked: This device is registered to ${boundToOther.full_name} (${boundToOther.employee_code}). Attendance cannot be shared across multiple staff.`
+        });
+      }
+
+      // 3. Employee Hardware Mismatch:
+      // Has this employee already bound a different phone?
+      if (employee.bound_device_id && employee.bound_device_id !== deviceId) {
+        return res.status(403).json({
+          success: false,
+          message: `📱 Device Mismatch: Your account is locked to your primary registered phone (${employee.bound_device_info || 'Device 1'}). You cannot punch from an alternate phone. Contact HR to reset device binding.`
+        });
+      }
+
+      // Auto-bind device on first punch if not bound yet
+      if (!employee.bound_device_id) {
+        await employee.update({
+          bound_device_id: deviceId,
+          bound_device_info: deviceInfo || 'Mobile App Device'
+        });
+      }
+    }
+
     // Resolve assigned office
     let office = employee.office;
     if (!office && employee.office_id) {
@@ -607,6 +671,8 @@ exports.employeeGeotaggedPunch = async (req, res) => {
           lateness_mins: lateMins,
           status,
           punch_source: 'Mobile_GPS',
+          device_id: deviceId || null,
+          device_info: deviceInfo || null,
           updated_by: req.user.id
         });
       } else {
@@ -619,6 +685,8 @@ exports.employeeGeotaggedPunch = async (req, res) => {
           is_geofence_compliant: isCompliant,
           lateness_mins: lateMins,
           status,
+          device_id: deviceId || punch.device_id,
+          device_info: deviceInfo || punch.device_info,
           punch_source: 'Mobile_GPS'
         });
       }
@@ -694,7 +762,9 @@ exports.employeeGeotaggedPunch = async (req, res) => {
         hours_worked: hoursWorked,
         overtime_hours: overtimeHours,
         early_departure_mins: earlyMins,
-        is_geofence_compliant: overallCompliant
+        is_geofence_compliant: overallCompliant,
+        device_id: deviceId || punch.device_id,
+        device_info: deviceInfo || punch.device_info
       });
 
       const distText = distanceMeters > 1000
@@ -724,7 +794,24 @@ exports.employeeGeotaggedPunch = async (req, res) => {
 
 exports.getMyEmployeeProfile = async (req, res) => {
   try {
-    const { hr_employees, hr_offices, hr_shifts, hr_designations, hr_leave_balances, hr_leave_types, hr_leave_applications, hr_attendance_punches, outlets } = req.propertyDb.models;
+    const {
+      hr_employees,
+      hr_offices,
+      hr_shifts,
+      hr_designations,
+      hr_leave_balances,
+      hr_leave_types,
+      hr_leave_applications,
+      hr_attendance_punches,
+      hr_loans,
+      hr_salary_revisions,
+      hr_payroll_details,
+      hr_payroll_runs,
+      hr_pay_structures,
+      hr_pay_structure_components,
+      hr_salary_components,
+      outlets
+    } = req.propertyDb.models;
     const employee_id = req.user.employee_id || req.user.id;
 
     const employee = await hr_employees.findByPk(employee_id, {
@@ -770,6 +857,44 @@ exports.getMyEmployeeProfile = async (req, res) => {
         include: [{ model: hr_leave_types, as: 'leaveType' }],
         order: [['created_at', 'DESC']]
       });
+    }
+
+    // Loans and Advances
+    let myLoans: any[] = [];
+    if (hr_loans) {
+      myLoans = await hr_loans.findAll({
+        where: { employee_id: employee.id },
+        order: [['created_at', 'DESC']]
+      });
+    }
+
+    // Salary Revisions
+    let myRevisions: any[] = [];
+    if (hr_salary_revisions) {
+      myRevisions = await hr_salary_revisions.findAll({
+        where: { employee_id: employee.id },
+        order: [['created_at', 'DESC']]
+      });
+    }
+
+    // Salary Slips / Payroll history
+    let mySalarySlips: any[] = [];
+    if (hr_payroll_details && hr_payroll_runs) {
+      mySalarySlips = await hr_payroll_details.findAll({
+        where: { employee_id: employee.id },
+        include: [{
+          model: hr_payroll_runs,
+          as: 'payrollRun',
+          attributes: ['id', 'pay_period', 'run_date', 'status']
+        }],
+        order: [['id', 'DESC']]
+      });
+    }
+
+    // Pay Structure Details
+    let payStructure: any = null;
+    if (employee.pay_structure_id && hr_pay_structures) {
+      payStructure = await hr_pay_structures.findByPk(employee.pay_structure_id);
     }
 
     // Month metrics
@@ -826,16 +951,151 @@ exports.getMyEmployeeProfile = async (req, res) => {
       employee: empData,
       office: employee.office || null,
       shift: employee.shift || null,
+      pay_structure: payStructure,
       leave_balances: leaveSummary,
       my_leaves: myLeaves,
+      loans: myLoans,
+      salary_revisions: myRevisions,
+      salary_slips: mySalarySlips,
       today_punch: todayPunch,
       today_attendance: todayPunch,
       stats: statsObj,
       month_stats: statsObj,
-      recent_punches: monthPunches.filter((p: any) => p.punch_in !== null).slice(0, 15)
+      recent_punches: monthPunches.filter((p: any) => p.punch_in !== null).slice(0, 15),
+      bound_device_id: employee.bound_device_id,
+      bound_device_info: employee.bound_device_info
     });
   } catch (err) {
     console.error('getMyEmployeeProfile error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ==========================================
+// 6. REQUEST LOAN / ADVANCE
+// ==========================================
+exports.employeeRequestLoan = async (req, res) => {
+  try {
+    const { hr_loans, hr_employees } = req.propertyDb.models;
+    const employee_id = req.user.employee_id || req.user.id;
+    const employee = await hr_employees.findByPk(employee_id);
+    if (!employee) return res.status(404).json({ success: false, message: 'Employee not found.' });
+
+    const amount = parseFloat(req.body.loan_amount || req.body.amount || 0);
+    const emi = parseFloat(req.body.monthly_emi || req.body.emi || 0);
+    const notes = (req.body.notes || req.body.reason || '').trim();
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'Please specify a valid loan / advance amount.' });
+    }
+    if (!emi || emi <= 0) {
+      return res.status(400).json({ success: false, message: 'Please specify a valid monthly EMI repayment amount.' });
+    }
+    if (emi > amount) {
+      return res.status(400).json({ success: false, message: 'Monthly EMI cannot exceed total loan amount.' });
+    }
+
+    const pending = await hr_loans.findOne({
+      where: { employee_id: employee.id, status: 'Pending', outlet_id: employee.outlet_id }
+    });
+    if (pending) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already have an advance / loan request pending approval.'
+      });
+    }
+
+    const loan = await hr_loans.create({
+      outlet_id: employee.outlet_id,
+      employee_id: employee.id,
+      loan_amount: amount,
+      monthly_emi: emi,
+      remaining_balance: amount,
+      status: 'Pending',
+      notes: notes || 'Employee app advance request',
+      created_by: req.user.id || employee.id
+    });
+
+    return res.json({
+      success: true,
+      data: loan,
+      message: `✅ Advance / Loan request for ₹${amount.toFixed(2)} submitted successfully. Awaiting manager approval.`
+    });
+  } catch (err: any) {
+    console.error('employeeRequestLoan error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ==========================================
+// 7. REQUEST SALARY RAISE / REVISION
+// ==========================================
+exports.employeeRequestSalaryRaise = async (req, res) => {
+  try {
+    const { hr_salary_revisions, hr_employees } = req.propertyDb.models;
+    const employee_id = req.user.employee_id || req.user.id;
+    const employee = await hr_employees.findByPk(employee_id);
+    if (!employee) return res.status(404).json({ success: false, message: 'Employee not found.' });
+
+    const newSalary = parseFloat(req.body.requested_salary || req.body.new_salary || 0);
+    const reason = (req.body.reason || req.body.notes || '').trim();
+    const currentSalary = parseFloat(employee.base_salary || 0);
+
+    if (!newSalary || newSalary <= currentSalary) {
+      return res.status(400).json({
+        success: false,
+        message: `Requested salary (₹${newSalary.toFixed(2)}) must be greater than current base salary (₹${currentSalary.toFixed(2)}).`
+      });
+    }
+
+    const pending = await hr_salary_revisions.findOne({
+      where: { employee_id: employee.id, status: 'Pending', outlet_id: employee.outlet_id }
+    });
+    if (pending) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already have a salary raise request pending review.'
+      });
+    }
+
+    const effectiveDate = req.body.effective_date || moment().add(1, 'month').startOf('month').format('YYYY-MM-DD');
+
+    const revision = await hr_salary_revisions.create({
+      outlet_id: employee.outlet_id,
+      employee_id: employee.id,
+      previous_salary: currentSalary,
+      new_salary: newSalary,
+      effective_date: effectiveDate,
+      status: 'Pending',
+      created_by: req.user.id || employee.id
+    });
+
+    return res.json({
+      success: true,
+      data: revision,
+      message: `✅ Salary raise request to ₹${newSalary.toFixed(2)} submitted successfully. Awaiting HR review.`
+    });
+  } catch (err: any) {
+    console.error('employeeRequestSalaryRaise error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ==========================================
+// 8. UNBIND / RESET EMPLOYEE DEVICE (Admin)
+// ==========================================
+exports.adminResetEmployeeDevice = async (req, res) => {
+  try {
+    const { hr_employees } = req.propertyDb.models;
+    const { id } = req.params;
+    const employee = await hr_employees.findOne({
+      where: { id, outlet_id: req.user.outlet_id }
+    });
+    if (!employee) return res.status(404).json({ success: false, message: 'Employee not found.' });
+
+    await employee.update({ bound_device_id: null, bound_device_info: null });
+    return res.json({ success: true, message: `Device unlinked for ${employee.full_name}. Staff can now bind a new phone.` });
+  } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
 };

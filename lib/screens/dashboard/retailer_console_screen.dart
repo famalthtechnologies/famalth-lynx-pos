@@ -1877,8 +1877,22 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
     final netAmt = parseNum(record['net_amount'] ?? 0.0);
     final taxAmt = parseNum(record['tax_amount'] ?? record['total_tax'] ?? 0.0);
 
-    final String saleNo = record['sale_no']?.toString() ?? record['bill_no']?.toString() ?? record['id']?.toString() ?? '';
-    final bool hasBillNo = (record['sale_no']?.toString() ?? record['bill_no']?.toString() ?? '').trim().isNotEmpty;
+    final String againstBillNo = (record['against_bill_no'] ?? '').toString().trim().isNotEmpty
+        ? record['against_bill_no'].toString().trim()
+        : (() {
+            final notesStr = record['notes']?.toString() ?? '';
+            final match = RegExp(r'against bill #([^\s|]+)').firstMatch(notesStr);
+            return match?.group(1) ?? '';
+          })();
+
+    String saleNo = (record['sale_no'] ?? record['bill_no'] ?? '').toString().trim();
+    if (saleNo.isEmpty && againstBillNo.isNotEmpty) {
+      saleNo = againstBillNo;
+    }
+    final bool hasBillNo = saleNo.isNotEmpty && saleNo != record['id']?.toString();
+    if (saleNo.isEmpty) {
+      saleNo = record['id']?.toString() ?? '';
+    }
     final int? orderId = record['id'] == null ? null : int.tryParse(record['id'].toString());
 
     String refundStatus = record['refund_status']?.toString() ?? '';
@@ -1968,6 +1982,7 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
       refundAmount: refundAmt,
       refundPaidAt: refundPaidAt,
       refundPaymentMode: refundPaymentMode,
+      exchangeAgainstBillNo: againstBillNo.isNotEmpty ? againstBillNo : null,
       items: saleItems,
     );
   }
@@ -1987,13 +2002,17 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
         details['bill_format'] = _billFormat;
         order = SaleOrder.fromJson(details);
       } else {
-        final saleId = record['sale_id'] ?? record['sale_no'] ?? record['id'] ?? record['order_id'];
+        final saleId = record['sale_id'] ?? record['sale_no'] ?? record['bill_no'] ?? record['against_bill_no'] ?? record['id'] ?? record['order_id'];
         if (saleId != null) {
           try {
             final res = await ApiClient.get('/api/delivery/sales/$saleId');
             final details = Map<String, dynamic>.from(res['data'] ?? const {});
             if (details.isNotEmpty) {
               details['bill_format'] = _billFormat;
+              if (record['against_bill_no'] != null && details['exchange_against_bill_no'] == null) {
+                details['exchange_against_bill_no'] = record['against_bill_no'];
+              }
+              details['has_bill_no'] = true;
               order = SaleOrder.fromJson(details);
             }
           } catch (e) {
@@ -3670,10 +3689,16 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                                                   '${order['customer_name']}',
                                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                                                 ),
-                                                Text(
-                                                  'Order #${order['id']} • ${CurrencyService.symbol}${netAmt.toStringAsFixed(2)} • ${isPrepaid ? "Prepaid" : (isCredit ? "Credit" : "CoD")}',
-                                                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                                                ),
+                                                Builder(builder: (context) {
+                                                  final cardBillNo = (order['sale_no'] ?? order['bill_no'] ?? '').toString().trim();
+                                                  final cardAgainstNo = (order['against_bill_no'] ?? '').toString().trim();
+                                                  final billSub = cardBillNo.isNotEmpty ? ' • Bill #$cardBillNo' : '';
+                                                  final againstSub = cardAgainstNo.isNotEmpty ? ' (Against #$cardAgainstNo)' : '';
+                                                  return Text(
+                                                    'Order #${order['id']}$billSub$againstSub • ${CurrencyService.symbol}${netAmt.toStringAsFixed(2)} • ${isPrepaid ? "Prepaid" : (isCredit ? "Credit" : "CoD")}',
+                                                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                                  );
+                                                }),
                                               ],
                                             ),
                                           ),
@@ -3704,6 +3729,49 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
+                                      Builder(builder: (context) {
+                                        final cardBillNo = (order['sale_no'] ?? order['bill_no'] ?? '').toString().trim();
+                                        final cardAgainstNo = (order['against_bill_no'] ?? '').toString().trim();
+                                        if (cardBillNo.isEmpty && cardAgainstNo.isEmpty) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        return Padding(
+                                          padding: const EdgeInsets.only(bottom: 6.0),
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.receipt_long, size: 16, color: Colors.teal.shade700),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                'Bill No: ${cardBillNo.isNotEmpty ? cardBillNo : cardAgainstNo}',
+                                                style: TextStyle(
+                                                  color: Colors.teal.shade900,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 13,
+                                                ),
+                                              ),
+                                              if (cardAgainstNo.isNotEmpty && cardBillNo.isNotEmpty && cardAgainstNo != cardBillNo) ...[
+                                                const SizedBox(width: 8),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.purple.shade50,
+                                                    borderRadius: BorderRadius.circular(4),
+                                                    border: Border.all(color: Colors.purple.shade200),
+                                                  ),
+                                                  child: Text(
+                                                    'Against: $cardAgainstNo',
+                                                    style: TextStyle(
+                                                      color: Colors.purple.shade800,
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 11,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        );
+                                      }),
                                       Row(
                                         children: [
                                           Icon(Icons.phone_outlined, size: 16, color: Colors.grey.shade600),
@@ -3979,10 +4047,16 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                             '${order['customer_name']}',
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                           ),
-                          subtitle: Text(
-                            'Order #${order['id']} • ${CurrencyService.symbol}${netAmt.toStringAsFixed(2)} • ${isCredit ? "Credit" : (paymentMode.toUpperCase() == "EXCHANGE" ? "Exchange" : (isCod ? "CoD" : "Prepaid"))}',
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                          ),
+                          subtitle: Builder(builder: (context) {
+                            final cardBillNo = (order['sale_no'] ?? order['bill_no'] ?? '').toString().trim();
+                            final cardAgainstNo = (order['against_bill_no'] ?? '').toString().trim();
+                            final billSub = cardBillNo.isNotEmpty ? ' • Bill #$cardBillNo' : '';
+                            final againstSub = cardAgainstNo.isNotEmpty ? ' (Against #$cardAgainstNo)' : '';
+                            return Text(
+                              'Order #${order['id']}$billSub$againstSub • ${CurrencyService.symbol}${netAmt.toStringAsFixed(2)} • ${isCredit ? "Credit" : (paymentMode.toUpperCase() == "EXCHANGE" ? "Exchange" : (isCod ? "CoD" : "Prepaid"))}',
+                              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                            );
+                          }),
                           trailing: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
@@ -4005,6 +4079,49 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  Builder(builder: (context) {
+                                    final cardBillNo = (order['sale_no'] ?? order['bill_no'] ?? '').toString().trim();
+                                    final cardAgainstNo = (order['against_bill_no'] ?? '').toString().trim();
+                                    if (cardBillNo.isEmpty && cardAgainstNo.isEmpty) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 6.0),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.receipt_long, size: 16, color: Colors.teal.shade700),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Bill No: ${cardBillNo.isNotEmpty ? cardBillNo : cardAgainstNo}',
+                                            style: TextStyle(
+                                              color: Colors.teal.shade900,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          if (cardAgainstNo.isNotEmpty && cardBillNo.isNotEmpty && cardAgainstNo != cardBillNo) ...[
+                                            const SizedBox(width: 8),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.purple.shade50,
+                                                borderRadius: BorderRadius.circular(4),
+                                                border: Border.all(color: Colors.purple.shade200),
+                                              ),
+                                              child: Text(
+                                                'Against: $cardAgainstNo',
+                                                style: TextStyle(
+                                                  color: Colors.purple.shade800,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    );
+                                  }),
                                   Row(
                                     children: [
                                       Icon(Icons.phone_outlined, size: 16, color: Colors.grey.shade600),
@@ -5110,6 +5227,8 @@ class _RetailerConsoleScreenState extends State<RetailerConsoleScreen>
       final Map<String, dynamic> updatedOrder = Map<String, dynamic>.from(order);
       updatedOrder['sale_id'] = data['sale_id'] ?? updatedOrder['sale_id'];
       updatedOrder['sale_no'] = data['sale_no'] ?? updatedOrder['sale_no'];
+      updatedOrder['bill_no'] = data['bill_no'] ?? updatedOrder['bill_no'] ?? updatedOrder['sale_no'];
+      updatedOrder['against_bill_no'] = data['against_bill_no'] ?? updatedOrder['against_bill_no'];
       _printReceiptNative(updatedOrder, true, saleDetails: saleDetails);
     } else {
       _printReceiptNative(data, true, saleDetails: saleDetails);

@@ -200,6 +200,8 @@ class ApiEndpoints {
   static const hrmsEmployeeLogin = '/api/hrms/employee-auth/login';
   static const hrmsEmployeeForgotOtp = '/api/hrms/employee-auth/forgot-password/request-otp';
   static const hrmsEmployeeResetPassword = '/api/hrms/employee-auth/forgot-password/reset';
+  static const hrmsEmployeeRequestLoan = '/api/hrms/employee/request-loan';
+  static const hrmsEmployeeRequestRaise = '/api/hrms/employee/request-salary-raise';
   static const hrmsEmployees = '/api/hrms/employees';
   static const hrmsAttendance = '/api/hrms/attendance';
   static const hrmsLeaves = '/api/hrms/leaves';

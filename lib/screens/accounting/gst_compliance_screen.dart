@@ -95,21 +95,37 @@ class _GstComplianceScreenState extends State<GstComplianceScreen> with SingleTi
 
   Future<void> _exportGstr1Json() async {
     try {
-      final gstin = _data?['config']?['gstin'] ?? '27AABCR1234A1Z5';
-      final period = _data?['period']?['fp'] ?? '${_selectedMonth.toString().padLeft(2, '0')}$_selectedYear';
+      String gstin = '27AABCR1234A1Z5';
+      final cfg = _data?['config'];
+      if (cfg is Map && cfg['gstin'] != null && cfg['gstin'].toString().isNotEmpty) {
+        gstin = cfg['gstin'].toString();
+      } else if (cfg is List && cfg.isNotEmpty && cfg[0] is Map && cfg[0]['gstin'] != null) {
+        gstin = cfg[0]['gstin'].toString();
+      }
+
+      String period = '${_selectedMonth.toString().padLeft(2, '0')}$_selectedYear';
+      final p = _data?['period'];
+      if (p is Map && p['fp'] != null) {
+        period = p['fp'].toString();
+      }
 
       final res = await ApiClient.get(
         ApiEndpoints.taxGstr1Export,
         queryParams: {
           'outlet_id': widget.outletId,
-          'from_date': _data?['period']?['from_date'],
-          'to_date': _data?['period']?['to_date'],
+          'from_date': p is Map ? p['from_date'] : null,
+          'to_date': p is Map ? p['to_date'] : null,
           'gstin': gstin,
         },
       );
 
       final jsonContent = const JsonEncoder.withIndent('  ').convert(res);
-      final dir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+      Directory? dir;
+      try {
+        dir = await getDownloadsDirectory();
+      } catch (_) {}
+      dir ??= await getApplicationDocumentsDirectory();
+
       final filePath = '${dir.path}/GSTR1_${gstin}_$period.json';
       final file = File(filePath);
       await file.writeAsString(jsonContent);
@@ -142,8 +158,16 @@ class _GstComplianceScreenState extends State<GstComplianceScreen> with SingleTi
   }
 
   void _showFileViaGspDialog() {
-    final gstin = _data?['config']?['gstin'] ?? '27AABCR1234A1Z5';
-    final provider = _data?['config']?['gsp_provider'] ?? 'SANDBOX';
+    final cfg = _data?['config'];
+    String gstin = '27AABCR1234A1Z5';
+    String provider = 'SANDBOX';
+    if (cfg is Map) {
+      gstin = (cfg['gstin'] ?? gstin).toString();
+      provider = (cfg['gsp_provider'] ?? provider).toString();
+    } else if (cfg is List && cfg.isNotEmpty && cfg[0] is Map) {
+      gstin = (cfg[0]['gstin'] ?? gstin).toString();
+      provider = (cfg[0]['gsp_provider'] ?? provider).toString();
+    }
     final otpCtrl = TextEditingController(text: '123456');
 
     showDialog(
@@ -272,11 +296,16 @@ class _GstComplianceScreenState extends State<GstComplianceScreen> with SingleTi
   }
 
   void _showGatewayConfigDialog() {
-    final currentConfig = _data?['config'] ?? {};
-    final gstinCtrl = TextEditingController(text: currentConfig['gstin'] ?? '27AABCR1234A1Z5');
-    final legalNameCtrl = TextEditingController(text: currentConfig['legal_name'] ?? 'RetailSale Supermarket Enterprises');
-    final panCtrl = TextEditingController(text: currentConfig['pan_number'] ?? 'AABCR1234A');
-    String selectedGsp = currentConfig['gsp_provider'] ?? 'SANDBOX';
+    final cfg = _data?['config'];
+    final currentConfig = (cfg is Map)
+        ? cfg
+        : (cfg is List && cfg.isNotEmpty && cfg[0] is Map)
+            ? cfg[0]
+            : <String, dynamic>{};
+    final gstinCtrl = TextEditingController(text: (currentConfig['gstin'] ?? '27AABCR1234A1Z5').toString());
+    final legalNameCtrl = TextEditingController(text: (currentConfig['legal_name'] ?? 'RetailSale Supermarket Enterprises').toString());
+    final panCtrl = TextEditingController(text: (currentConfig['pan_number'] ?? 'AABCR1234A').toString());
+    String selectedGsp = (currentConfig['gsp_provider'] ?? 'SANDBOX').toString();
 
     showDialog(
       context: context,

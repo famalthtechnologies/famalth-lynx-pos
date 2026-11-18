@@ -103,8 +103,8 @@ class _HrmsDashboardScreenState extends State<HrmsDashboardScreen> {
           _onLeaveToday = m['onLeaveToday'] ?? m['on_leave_today'] ?? 0;
           _lateArrivalsToday = m['lateArrivalsToday'] ?? m['late_arrivals'] ?? 0;
           _earlyDeparturesToday = m['earlyDeparturesToday'] ?? m['early_departures'] ?? 0;
-          _totalOvertimeHours = ((m['totalOvertimeHoursToday'] ?? m['overtime_hours']) as num?)?.toDouble() ?? 0.0;
-          _totalWorkHours = ((m['totalWorkHoursToday'] ?? m['total_hours_worked']) as num?)?.toDouble() ?? 0.0;
+          _totalOvertimeHours = double.tryParse((m['totalOvertimeHoursToday'] ?? m['overtime_hours'])?.toString() ?? '') ?? 0.0;
+          _totalWorkHours = double.tryParse((m['totalWorkHoursToday'] ?? m['total_hours_worked'])?.toString() ?? '') ?? 0.0;
           _geofenceViolationsToday = m['geofenceViolationsToday'] ?? m['geofence_violations'] ?? 0;
         }
 
@@ -619,12 +619,12 @@ class _HrmsDashboardScreenState extends State<HrmsDashboardScreen> {
                 final empName = emp['full_name'] ?? 'Employee #${p['employee_id']}';
                 final inTime = _formatPunchTime(p['punch_in']);
                 final offName = p['office']?['office_name'] ?? emp['office_name'] ?? 'office';
-                final rawDist = p['checkin_distance_meters'] ?? p['distance_meters'];
-                final inDist = rawDist != null
-                    ? '${(rawDist as num).toStringAsFixed(0)}m'
+                final rawDistVal = double.tryParse((p['checkin_distance_meters'] ?? p['distance_meters'])?.toString() ?? '');
+                final inDist = rawDistVal != null
+                    ? '${rawDistVal.toStringAsFixed(0)}m'
                     : '—';
                 final isComp = p['is_geofence_compliant'] != false;
-                final lateMins = p['late_arrival_mins'] ?? p['late_minutes'] ?? p['lateness_mins'] ?? 0;
+                final lateMinsVal = num.tryParse((p['late_arrival_mins'] ?? p['late_minutes'] ?? p['lateness_mins'])?.toString() ?? '') ?? 0;
                 final status = p['status']?.toString() ?? 'Present';
 
                 return ListTile(
@@ -672,12 +672,12 @@ class _HrmsDashboardScreenState extends State<HrmsDashboardScreen> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if ((lateMins as num) > 0)
+                      if (lateMinsVal > 0)
                         Container(
                           margin: const EdgeInsets.only(right: 6),
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(4)),
-                          child: Text('$lateMins m late', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: warningAmber)),
+                          child: Text('$lateMinsVal m late', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: warningAmber)),
                         ),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

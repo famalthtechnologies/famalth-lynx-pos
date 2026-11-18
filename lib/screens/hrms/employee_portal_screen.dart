@@ -1,7 +1,12 @@
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
@@ -35,6 +40,13 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
   List<dynamic> _myLeaves = [];
   Map<String, dynamic> _stats = {};
   List<dynamic> _recentPunches = [];
+  List<dynamic> _loans = [];
+  List<dynamic> _salaryRevisions = [];
+  List<dynamic> _salarySlips = [];
+  Map<String, dynamic>? _payStructure;
+  String? _boundDeviceId;
+  String? _boundDeviceInfo;
+  int _selectedNavIndex = 0;
 
   // GPS Location State
   Position? _currentPosition;
@@ -85,6 +97,12 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
               _myLeaves = res['my_leaves'] ?? [];
               _stats = res['stats'] ?? res['month_stats'] ?? {};
               _recentPunches = res['recent_punches'] ?? [];
+              _loans = res['loans'] ?? [];
+              _salaryRevisions = res['salary_revisions'] ?? [];
+              _salarySlips = res['salary_slips'] ?? [];
+              _payStructure = res['pay_structure'];
+              _boundDeviceId = res['bound_device_id'] ?? res['employee']?['bound_device_id'];
+              _boundDeviceInfo = res['bound_device_info'] ?? res['employee']?['bound_device_info'];
               _isCheckingAuth = false;
             });
             _refreshCurrentGps();
@@ -156,6 +174,12 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
           _myLeaves = res['my_leaves'] ?? [];
           _stats = res['stats'] ?? res['month_stats'] ?? {};
           _recentPunches = res['recent_punches'] ?? [];
+          _loans = res['loans'] ?? [];
+          _salaryRevisions = res['salary_revisions'] ?? [];
+          _salarySlips = res['salary_slips'] ?? [];
+          _payStructure = res['pay_structure'];
+          _boundDeviceId = res['bound_device_id'] ?? res['employee']?['bound_device_id'];
+          _boundDeviceInfo = res['bound_device_info'] ?? res['employee']?['bound_device_info'];
         });
         _calculateDistance();
       }
@@ -251,6 +275,25 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
     return r * c;
   }
 
+  static Future<String> _getDeviceFingerprint() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? id = prefs.getString('lynx_emp_device_uuid');
+    if (id == null || id.isEmpty) {
+      final randPart = (Random().nextInt(900000) + 100000).toString();
+      id = 'DEV-${DateTime.now().millisecondsSinceEpoch.toRadixString(36).toUpperCase()}-$randPart';
+      await prefs.setString('lynx_emp_device_uuid', id);
+    }
+    return id;
+  }
+
+  static String _getDeviceInfo() {
+    try {
+      return '${Platform.operatingSystem.toUpperCase()} ${Platform.operatingSystemVersion}';
+    } catch (_) {
+      return 'Mobile App Device';
+    }
+  }
+
   Future<void> _markPunch(String punchType) async {
     if (_currentPosition == null) {
       await _refreshCurrentGps();
@@ -262,11 +305,16 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
 
     setState(() => _isPunching = true);
     try {
+      final devId = await _getDeviceFingerprint();
+      final devInfo = _getDeviceInfo();
+
       final payload = {
         'type': punchType, // 'IN' or 'OUT'
         'punch_type': punchType,
         'latitude': _currentPosition!.latitude,
         'longitude': _currentPosition!.longitude,
+        'device_id': devId,
+        'device_info': devInfo,
         'timestamp': DateTime.now().toIso8601String(),
       };
 
@@ -314,6 +362,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
     showDialog(
       context: context,
       builder: (dlgCtx) => AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
@@ -336,42 +385,45 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
             ),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Your $punchType attendance has been geotagged and securely recorded.',
-              style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: bgGrey,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: borderSubtle),
+        content: SizedBox(
+          width: 380,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Your $punchType attendance has been geotagged and securely recorded.',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
               ),
-              child: Column(
-                children: [
-                  _infoRow('Time:', DateFormat('hh:mm:ss a').format(DateTime.now())),
-                  _infoRow('Assigned Office:', officeName),
-                  _infoRow('Distance from Office:', '${distance.toStringAsFixed(1)} meters'),
-                  _infoRow(
-                    'Geofence Status:',
-                    isCompliant ? 'Compliant (Within Radius)' : 'Out of Bounds Violation',
-                    valColor: isCompliant ? successGreen : dangerRed,
-                  ),
-                  if (punchType == 'IN' && (num.tryParse(lateMins.toString()) ?? 0) > 0)
-                    _infoRow('Late Arrival:', '$lateMins mins late', valColor: warningAmber),
-                  if (punchType == 'OUT' && (num.tryParse(earlyMins.toString()) ?? 0) > 0)
-                    _infoRow('Early Departure:', '$earlyMins mins early', valColor: dangerRed),
-                  if (punchType == 'OUT' && (num.tryParse(otHours.toString()) ?? 0) > 0)
-                    _infoRow('Overtime Tracked:', '$otHours hrs', valColor: accentIndigo),
-                ],
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: bgGrey,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: borderSubtle),
+                ),
+                child: Column(
+                  children: [
+                    _infoRow('Time:', DateFormat('hh:mm:ss a').format(DateTime.now())),
+                    _infoRow('Assigned Office:', officeName),
+                    _infoRow('Distance from Office:', '${distance.toStringAsFixed(1)} meters'),
+                    _infoRow(
+                      'Geofence Status:',
+                      isCompliant ? 'Compliant (Within Radius)' : 'Out of Bounds Violation',
+                      valColor: isCompliant ? successGreen : dangerRed,
+                    ),
+                    if (punchType == 'IN' && (num.tryParse(lateMins.toString()) ?? 0) > 0)
+                      _infoRow('Late Arrival:', '$lateMins mins late', valColor: warningAmber),
+                    if (punchType == 'OUT' && (num.tryParse(earlyMins.toString()) ?? 0) > 0)
+                      _infoRow('Early Departure:', '$earlyMins mins early', valColor: dangerRed),
+                    if (punchType == 'OUT' && (num.tryParse(otHours.toString()) ?? 0) > 0)
+                      _infoRow('Overtime Tracked:', '$otHours hrs', valColor: accentIndigo),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           FilledButton(
@@ -867,6 +919,652 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
     );
   }
 
+  Future<void> _showRequestLoanDialog() async {
+    final amountCtrl = TextEditingController();
+    final emiCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    bool isSubmitting = false;
+
+    await showDialog(
+      context: context,
+      builder: (dlgCtx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          final amt = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+          final emi = double.tryParse(emiCtrl.text.trim()) ?? 0.0;
+          final months = (amt > 0 && emi > 0) ? (amt / emi).ceil() : 0;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.account_balance_wallet_rounded, color: warningAmber, size: 20),
+                ),
+                const SizedBox(width: 10),
+                const Text('Request Advance / Loan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Request an employee salary advance or loan. Requires management approval.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 14),
+
+                  const Text('Loan Amount (₹) *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: amountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. 10000',
+                      prefixText: '₹ ',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onChanged: (_) => setDlgState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+
+                  const Text('Monthly EMI Repayment (₹) *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: emiCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. 2000',
+                      prefixText: '₹ ',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onChanged: (_) => setDlgState(() {}),
+                  ),
+                  if (months > 0) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text('Estimated Repayment Term: ~$months month(s)', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8))),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+
+                  const Text('Purpose / Reason *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: reasonCtrl,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Medical emergency, urgent home repair, travel...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting ? null : () => Navigator.pop(dlgCtx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: accentIndigo,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        final loanAmt = double.tryParse(amountCtrl.text.trim()) ?? 0;
+                        final loanEmi = double.tryParse(emiCtrl.text.trim()) ?? 0;
+                        final reason = reasonCtrl.text.trim();
+
+                        if (loanAmt <= 0) {
+                          _showToast('Please enter a valid loan amount', isError: true);
+                          return;
+                        }
+                        if (loanEmi <= 0) {
+                          _showToast('Please enter a valid monthly EMI amount', isError: true);
+                          return;
+                        }
+                        if (loanEmi > loanAmt) {
+                          _showToast('Monthly EMI cannot exceed total loan amount', isError: true);
+                          return;
+                        }
+                        if (reason.isEmpty) {
+                          _showToast('Please provide a reason or purpose', isError: true);
+                          return;
+                        }
+
+                        setDlgState(() => isSubmitting = true);
+                        try {
+                          final res = await ApiClient.post(ApiEndpoints.hrmsEmployeeRequestLoan, {
+                            'loan_amount': loanAmt,
+                            'monthly_emi': loanEmi,
+                            'notes': reason,
+                          });
+                          if (res != null && res['success'] == true) {
+                            if (mounted) Navigator.pop(dlgCtx);
+                            _showToast(res['message']?.toString() ?? 'Loan request submitted successfully!');
+                            _loadProfileData();
+                          } else {
+                            final msg = res?['message'] ?? 'Failed to submit loan request';
+                            _showToast(msg.toString(), isError: true);
+                            setDlgState(() => isSubmitting = false);
+                          }
+                        } catch (e) {
+                          _showToast('Error requesting loan: $e', isError: true);
+                          setDlgState(() => isSubmitting = false);
+                        }
+                      },
+                child: isSubmitting
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Submit Request', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showRequestSalaryRaiseDialog() async {
+    final currentSalary = double.tryParse(_employeeData?['base_salary']?.toString() ?? '0') ?? 0.0;
+    final newSalaryCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    DateTime effectiveDate = DateTime.now().add(const Duration(days: 15));
+    bool isSubmitting = false;
+
+    await showDialog(
+      context: context,
+      builder: (dlgCtx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          final requested = double.tryParse(newSalaryCtrl.text.trim()) ?? 0.0;
+          final hikePercent = (currentSalary > 0 && requested > currentSalary)
+              ? (((requested - currentSalary) / currentSalary) * 100).toStringAsFixed(1)
+              : null;
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDCFCE7),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.trending_up_rounded, color: successGreen, size: 20),
+                ),
+                const SizedBox(width: 10),
+                const Text('Request Salary Raise', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Propose a salary revision based on performance and achievements.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 14),
+
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: bgGrey,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: borderSubtle),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Current Base Salary:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                        Text('₹${currentSalary.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: primaryNavy)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  const Text('Proposed New Salary (₹) *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: newSalaryCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. ${(currentSalary * 1.15).toStringAsFixed(0)}',
+                      prefixText: '₹ ',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onChanged: (_) => setDlgState(() {}),
+                  ),
+                  if (hikePercent != null) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDCFCE7),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text('Proposed Increment: +$hikePercent% (₹${(requested - currentSalary).toStringAsFixed(2)})', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF15803D))),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+
+                  const Text('Proposed Effective Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: effectiveDate,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (picked != null) {
+                        setDlgState(() => effectiveDate = picked);
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: borderSubtle),
+                        borderRadius: BorderRadius.circular(10),
+                        color: bgGrey,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(DateFormat('dd MMMM yyyy').format(effectiveDate), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          const Icon(Icons.calendar_today, size: 16, color: accentIndigo),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  const Text('Justification & Accomplishments *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: reasonCtrl,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: 'Describe targets met, projects completed, additional responsibilities handled...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting ? null : () => Navigator.pop(dlgCtx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: successGreen,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        final proposed = double.tryParse(newSalaryCtrl.text.trim()) ?? 0;
+                        final reason = reasonCtrl.text.trim();
+
+                        if (proposed <= currentSalary) {
+                          _showToast('Proposed salary must be higher than current salary (₹${currentSalary.toStringAsFixed(2)})', isError: true);
+                          return;
+                        }
+                        if (reason.isEmpty) {
+                          _showToast('Please provide accomplishments or reasons for the raise', isError: true);
+                          return;
+                        }
+
+                        setDlgState(() => isSubmitting = true);
+                        try {
+                          final res = await ApiClient.post(ApiEndpoints.hrmsEmployeeRequestRaise, {
+                            'requested_salary': proposed,
+                            'effective_date': DateFormat('yyyy-MM-dd').format(effectiveDate),
+                            'reason': reason,
+                          });
+                          if (res != null && res['success'] == true) {
+                            if (mounted) Navigator.pop(dlgCtx);
+                            _showToast(res['message']?.toString() ?? 'Salary raise request submitted!');
+                            _loadProfileData();
+                          } else {
+                            final msg = res?['message'] ?? 'Failed to submit salary raise request';
+                            _showToast(msg.toString(), isError: true);
+                            setDlgState(() => isSubmitting = false);
+                          }
+                        } catch (e) {
+                          _showToast('Error requesting raise: $e', isError: true);
+                          setDlgState(() => isSubmitting = false);
+                        }
+                      },
+                child: isSubmitting
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Submit Request', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _printSalarySlipPdf(Map<String, dynamic> slip) async {
+    try {
+      final pdfDoc = pw.Document();
+      final period = slip['payrollRun']?['pay_period'] ?? '2026-11';
+      final empName = _employeeData?['full_name'] ?? 'Employee';
+      final empCode = _employeeData?['employee_code'] ?? 'EMP-0002';
+      final desig = _employeeData?['designation']?['name'] ?? _employeeData?['designation_name'] ?? 'Staff Member';
+      final office = _officeData?['office_name'] ?? 'Head Office';
+      final bankName = _employeeData?['bank_name'] ?? '-';
+      final bankAcc = _employeeData?['bank_account_no'] ?? '-';
+      final ifsc = _employeeData?['bank_ifsc'] ?? '-';
+
+      final prorated = double.tryParse(slip['prorated_salary']?.toString() ?? '0') ?? 0.0;
+      final bonuses = double.tryParse(slip['bonuses']?.toString() ?? '0') ?? 0.0;
+      final otPay = double.tryParse(slip['overtime_pay']?.toString() ?? '0') ?? 0.0;
+      final commission = double.tryParse(slip['sales_commission']?.toString() ?? '0') ?? 0.0;
+      final grossPay = double.tryParse(slip['gross_pay']?.toString() ?? '0') ?? 0.0;
+      final netPay = double.tryParse(slip['net_pay']?.toString() ?? '0') ?? 0.0;
+
+      final statDeduct = double.tryParse(slip['statutory_deductions']?.toString() ?? '0') ?? 0.0;
+      final loanEmi = double.tryParse(slip['loan_emi']?.toString() ?? '0') ?? 0.0;
+      final shortage = double.tryParse(slip['shortage_penalties']?.toString() ?? '0') ?? 0.0;
+      final totalDeduct = double.tryParse(slip['total_deductions']?.toString() ?? '0') ?? 0.0;
+
+      final daysPresent = slip['days_present'] ?? 0;
+      final daysAbsent = slip['days_absent'] ?? 0;
+      final daysLeave = slip['days_on_leave'] ?? 0;
+
+      pdfDoc.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context ctx) {
+            return pw.Container(
+              padding: const pw.EdgeInsets.all(24),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Center(
+                    child: pw.Column(
+                      children: [
+                        pw.Text('FAMALTH TECHNOLOGIES', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                        pw.SizedBox(height: 4),
+                        pw.Text('OFFICIAL SALARY PAYSLIP', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900)),
+                        pw.Text('Pay Period: $period', style: const pw.TextStyle(fontSize: 11)),
+                        pw.Divider(thickness: 1.2),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(height: 10),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('Employee: $empName ($empCode)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                          pw.Text('Designation: $desig', style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text('Branch / Office: $office', style: const pw.TextStyle(fontSize: 10)),
+                        ],
+                      ),
+                      pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          pw.Text('Days Present: $daysPresent', style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text('Days Absent: $daysAbsent', style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text('Paid Leaves: $daysLeave', style: const pw.TextStyle(fontSize: 10)),
+                        ],
+                      ),
+                    ],
+                  ),
+                  pw.SizedBox(height: 14),
+                  pw.Table(
+                    border: pw.TableBorder.all(color: PdfColors.grey400),
+                    children: [
+                      pw.TableRow(
+                        decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('EARNINGS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('AMOUNT (INR)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('DEDUCTIONS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('AMOUNT (INR)', textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                        ],
+                      ),
+                      pw.TableRow(
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Earned Base Salary', style: const pw.TextStyle(fontSize: 9))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(prorated.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Statutory (PF/ESI/TDS)', style: const pw.TextStyle(fontSize: 9))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(statDeduct.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
+                        ],
+                      ),
+                      pw.TableRow(
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Bonuses / Incentives', style: const pw.TextStyle(fontSize: 9))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(bonuses.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Loan / Advance EMI', style: const pw.TextStyle(fontSize: 9))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(loanEmi.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
+                        ],
+                      ),
+                      pw.TableRow(
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Overtime / Commission', style: const pw.TextStyle(fontSize: 9))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text((otPay + commission).toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Shortage / Penalties', style: const pw.TextStyle(fontSize: 9))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(shortage.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: const pw.TextStyle(fontSize: 9))),
+                        ],
+                      ),
+                      pw.TableRow(
+                        decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Gross Earnings', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(grossPay.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Total Deductions', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(totalDeduct.toStringAsFixed(2), textAlign: pw.TextAlign.right, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10))),
+                        ],
+                      ),
+                    ],
+                  ),
+                  pw.SizedBox(height: 16),
+                  pw.Container(
+                    padding: const pw.EdgeInsets.all(10),
+                    decoration: pw.BoxDecoration(color: PdfColors.green50, border: pw.Border.all(color: PdfColors.green400)),
+                    child: pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text('NET TAKE-HOME PAY:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                        pw.Text('INR ${netPay.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14, color: PdfColors.green900)),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(height: 12),
+                  pw.Text('Disbursed To Account: $bankName | A/C: $bankAcc | IFSC: $ifsc', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                  pw.Spacer(),
+                  pw.Divider(),
+                  pw.Center(child: pw.Text('This is a computer-generated salary slip and requires no physical signature.', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600))),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => pdfDoc.save(),
+        name: 'Salary_Slip_${period}_$empCode.pdf',
+      );
+    } catch (e) {
+      _showToast('Error generating PDF slip: $e', isError: true);
+    }
+  }
+
+  void _showSalarySlipModal(Map<String, dynamic> slip) {
+    final period = slip['payrollRun']?['pay_period'] ?? '2026-11';
+    final gross = double.tryParse(slip['gross_pay']?.toString() ?? '0') ?? 0.0;
+    final net = double.tryParse(slip['net_pay']?.toString() ?? '0') ?? 0.0;
+    final prorated = double.tryParse(slip['prorated_salary']?.toString() ?? '0') ?? 0.0;
+    final bonuses = double.tryParse(slip['bonuses']?.toString() ?? '0') ?? 0.0;
+    final deductions = double.tryParse(slip['total_deductions']?.toString() ?? '0') ?? 0.0;
+    final daysPresent = slip['days_present'] ?? 0;
+    final daysAbsent = slip['days_absent'] ?? 0;
+    final daysLeave = slip['days_on_leave'] ?? 0;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (bctx) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Salary Payslip — $period', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: primaryNavy)),
+                    const SizedBox(height: 2),
+                    const Text('Official Disbursed Salary Breakdown', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(bctx),
+                ),
+              ],
+            ),
+            const Divider(height: 20),
+            Expanded(
+              child: ListView(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFDCFCE7),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFBBF7D0)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('NET TAKE-HOME PAY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF166534), letterSpacing: 0.8)),
+                            SizedBox(height: 2),
+                            Text('Deposited to registered bank', style: TextStyle(fontSize: 11, color: Color(0xFF15803D))),
+                          ],
+                        ),
+                        Text(
+                          '₹${net.toStringAsFixed(2)}',
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: Color(0xFF166534)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: bgGrey,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: borderSubtle),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _metricTile(label: 'Present Days', value: '$daysPresent', icon: Icons.calendar_today_rounded, color: successGreen),
+                        _metricTile(label: 'Absent Days', value: '$daysAbsent', icon: Icons.event_busy_rounded, color: dangerRed),
+                        _metricTile(label: 'Paid Leaves', value: '$daysLeave', icon: Icons.beach_access_rounded, color: accentIndigo),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: borderSubtle),
+                    ),
+                    child: Column(
+                      children: [
+                        _infoRow('Earned Base Salary:', '₹${prorated.toStringAsFixed(2)}'),
+                        _infoRow('Bonuses & Incentives:', '₹${bonuses.toStringAsFixed(2)}', valColor: successGreen),
+                        _infoRow('Gross Earnings:', '₹${gross.toStringAsFixed(2)}', valColor: primaryNavy),
+                        const Divider(height: 16),
+                        _infoRow('Total Deductions:', '₹${deductions.toStringAsFixed(2)}', valColor: dangerRed),
+                        const Divider(height: 16),
+                        _infoRow('Net Payable Amount:', '₹${net.toStringAsFixed(2)}', valColor: successGreen),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFDBEAFE)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.account_balance_rounded, size: 20, color: Color(0xFF1D4ED8)),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Bank: ${_employeeData?['bank_name'] ?? '-'} • A/C: ${_employeeData?['bank_account_no'] ?? '-'} • IFSC: ${_employeeData?['bank_ifsc'] ?? '-'}',
+                            style: const TextStyle(fontSize: 11.5, color: Color(0xFF1E40AF), fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: accentIndigo,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.print_rounded, size: 20),
+              label: const Text('Print / Save Payslip PDF', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              onPressed: () {
+                Navigator.pop(bctx);
+                _printSalarySlipPdf(slip);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showToast(String msg, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -886,10 +1584,11 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
         children: [
           Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
           const SizedBox(width: 8),
-          Flexible(
+          Expanded(
             child: Text(
               value,
               textAlign: TextAlign.right,
+              softWrap: true,
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
@@ -934,7 +1633,16 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
           ],
         ),
         actions: [
-          if (_isLoggedIn)
+          if (_isLoggedIn) ...[
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded, color: accentIndigo),
+              tooltip: 'Refresh Data',
+              onPressed: () async {
+                await _loadProfileData();
+                await _refreshCurrentGps();
+                _showToast('Synced with server');
+              },
+            ),
             IconButton(
               icon: const Icon(Icons.logout_rounded, color: dangerRed),
               tooltip: 'Logout',
@@ -944,11 +1652,50 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                   _isLoggedIn = false;
                   _employeeData = null;
                   _officeData = null;
+                  _selectedNavIndex = 0;
                 });
               },
             ),
+          ],
         ],
       ),
+      bottomNavigationBar: _isLoggedIn
+          ? Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: borderSubtle)),
+              ),
+              child: BottomNavigationBar(
+                currentIndex: _selectedNavIndex,
+                onTap: (idx) => setState(() => _selectedNavIndex = idx),
+                type: BottomNavigationBarType.fixed,
+                backgroundColor: Colors.white,
+                selectedItemColor: accentIndigo,
+                unselectedItemColor: const Color(0xFF94A3B8),
+                selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 11),
+                elevation: 0,
+                items: const [
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.how_to_reg_rounded),
+                    label: 'Attendance',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.payments_rounded),
+                    label: 'Salary & Slips',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.account_balance_wallet_rounded),
+                    label: 'Loans',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.person_rounded),
+                    label: 'Profile',
+                  ),
+                ],
+              ),
+            )
+          : null,
       body: _isLoggedIn ? _buildLoggedInView() : _buildLoginView(),
     );
   }
@@ -1066,13 +1813,127 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
   // 2. LOGGED IN EMPLOYEE PORTAL VIEW
   // -------------------------------------------------------------
   Widget _buildLoggedInView() {
+    switch (_selectedNavIndex) {
+      case 1:
+        return _buildSalaryTab();
+      case 2:
+        return _buildLoansTab();
+      case 3:
+        return _buildProfileTab();
+      case 0:
+      default:
+        return _buildAttendanceTab();
+    }
+  }
+
+  // -------------------------------------------------------------
+  // SHARED HEADER CARD
+  // -------------------------------------------------------------
+  Widget _buildHeaderCard() {
     final empName = _employeeData?['full_name'] ?? 'Employee';
     final empCode = _employeeData?['employee_code'] ?? '';
     final desig = _employeeData?['designation']?['name'] ?? _employeeData?['designation_name'] ?? 'Staff Member';
     final officeName = _officeData?['office_name'] ?? 'Head Office';
     final officeCode = _officeData?['office_code'] ?? 'HO-01';
+    final hasDeviceLock = (_boundDeviceId != null && _boundDeviceId!.isNotEmpty);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderSubtle),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: const Color(0xFFEEF2FF),
+            child: Text(
+              empName.isNotEmpty ? empName[0].toUpperCase() : 'E',
+              style: const TextStyle(color: accentIndigo, fontWeight: FontWeight.bold, fontSize: 20),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  empName,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16.5, color: primaryNavy),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$empCode • $desig',
+                  style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFFDBEAFE)),
+                      ),
+                      child: Text(
+                        '🏢 $officeCode • $officeName',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF1D4ED8), fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: hasDeviceLock ? const Color(0xFFF0FDF4) : const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: hasDeviceLock ? const Color(0xFFBBF7D0) : const Color(0xFFFDE68A)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            hasDeviceLock ? Icons.phonelink_lock_rounded : Icons.phonelink_setup_rounded,
+                            size: 11,
+                            color: hasDeviceLock ? successGreen : warningAmber,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            hasDeviceLock ? 'Device Bound 🔒' : 'Phone Unbound',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: hasDeviceLock ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------
+  // TAB 0: ATTENDANCE & PUNCHES
+  // -------------------------------------------------------------
+  Widget _buildAttendanceTab() {
     final geofenceRadius = _officeData?['geofence_radius_meters'] ?? 100;
-    // final shiftName = _shiftData?['name'] ?? 'General Shift';
     final shiftStart = _shiftData?['start_time'] ?? '09:00 AM';
     final shiftEnd = _shiftData?['end_time'] ?? '05:00 PM';
 
@@ -1092,64 +1953,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 1. Employee Header Card (Clean Light Theme)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: borderSubtle),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 26,
-                  backgroundColor: const Color(0xFFEEF2FF),
-                  child: Text(
-                    empName.isNotEmpty ? empName[0].toUpperCase() : 'E',
-                    style: const TextStyle(color: accentIndigo, fontWeight: FontWeight.bold, fontSize: 20),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        empName,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16.5, color: primaryNavy),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '$empCode • $desig',
-                        style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFDBEAFE)),
-                        ),
-                        child: Text(
-                          '🏢 $officeCode • $officeName',
-                          style: const TextStyle(fontSize: 11.5, color: Color(0xFF1D4ED8), fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _buildHeaderCard(),
           const SizedBox(height: 14),
 
           // 2. Live GPS & Geotagged Attendance Card
@@ -1656,6 +2460,800 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------
+  // TAB 1: SALARY & OFFICIAL PAYSLIPS
+  // -------------------------------------------------------------
+  Widget _buildSalaryTab() {
+    final baseSalary = double.tryParse((_employeeData?['base_salary'] ?? 0).toString()) ?? 0;
+    final structureName = _payStructure?['name'] ?? 'Standard Pay Structure';
+
+    return RefreshIndicator(
+      onRefresh: _loadProfileData,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildHeaderCard(),
+          const SizedBox(height: 14),
+
+          // 1. Current Compensation Card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: borderSubtle),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.02),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.account_balance_wallet_outlined, color: accentIndigo, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'CURRENT COMPENSATION',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                        ),
+                      ],
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: accentIndigo,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        elevation: 0,
+                      ),
+                      icon: const Icon(Icons.trending_up_rounded, size: 14),
+                      label: const Text('Request Raise', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: _showRequestSalaryRaiseDialog,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Base Monthly Salary', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                      const SizedBox(height: 4),
+                      Text(
+                        '₹${NumberFormat('#,##,###.##').format(baseSalary)}',
+                        style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'Structure: $structureName',
+                          style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 11, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 2. Official Payslips Section
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'OFFICIAL SALARY SLIPS',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                    ),
+                    Text(
+                      '${_salarySlips.length} Available',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_salarySlips.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                      child: Text('No salary slips published for your profile yet.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                    ),
+                  )
+                else
+                  ..._salarySlips.map((slip) {
+                    final period = slip['payrollRun']?['pay_period'] ?? 'Period';
+                    final netPay = double.tryParse((slip['net_pay'] ?? 0).toString()) ?? 0;
+                    final grossPay = double.tryParse((slip['gross_earnings'] ?? 0).toString()) ?? 0;
+                    final deductions = double.tryParse((slip['total_deductions'] ?? 0).toString()) ?? 0;
+                    final status = slip['status'] ?? 'Paid';
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: bgGrey,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: borderSubtle),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                period,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: primaryNavy),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFDCFCE7),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  status,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF15803D)),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Net Take-Home', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '₹${NumberFormat('#,##,###.##').format(netPay)}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: successGreen),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text('Gross: ₹${NumberFormat('#,##,###').format(grossPay)}', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  Text('Deductions: ₹${NumberFormat('#,##,###').format(deductions)}', style: const TextStyle(fontSize: 11, color: dangerRed)),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          const Divider(height: 1, color: borderSubtle),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                icon: const Icon(Icons.visibility_outlined, size: 14, color: primaryNavy),
+                                label: const Text('View Slip', style: TextStyle(fontSize: 11, color: primaryNavy, fontWeight: FontWeight.bold)),
+                                onPressed: () => _showSalarySlipModal(slip),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: accentIndigo,
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                icon: const Icon(Icons.print_rounded, size: 14),
+                                label: const Text('Print PDF', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                onPressed: () => _printSalarySlipPdf(slip),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 3. Salary Revision Requests
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'SALARY RAISE REQUESTS',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                    ),
+                    Text(
+                      '${_salaryRevisions.length} Total',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_salaryRevisions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                      child: Text('No salary revision requests logged.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                    ),
+                  )
+                else
+                  ..._salaryRevisions.map((rev) {
+                    final oldSal = double.tryParse((rev['previous_salary'] ?? rev['current_salary'] ?? 0).toString()) ?? 0;
+                    final newSal = double.tryParse((rev['revised_salary'] ?? rev['requested_salary'] ?? 0).toString()) ?? 0;
+                    final effDate = rev['effective_date'] ?? '';
+                    final status = (rev['status'] ?? 'Pending').toString();
+                    final reason = rev['notes'] ?? rev['reason'] ?? '';
+
+                    Color chipBg = const Color(0xFFFEF3C7);
+                    Color chipColor = const Color(0xFFD97706);
+                    if (status.toLowerCase() == 'approved') {
+                      chipBg = const Color(0xFFDCFCE7);
+                      chipColor = const Color(0xFF16A34A);
+                    } else if (status.toLowerCase() == 'rejected') {
+                      chipBg = const Color(0xFFFEE2E2);
+                      chipColor = const Color(0xFFDC2626);
+                    }
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: bgGrey,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: borderSubtle),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '₹${NumberFormat('#,##,###').format(oldSal)} → ₹${NumberFormat('#,##,###').format(newSal)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryNavy),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: chipBg,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  status,
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: chipColor),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (effDate.toString().isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text('Effective: $effDate', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                          ],
+                          if (reason.toString().isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text('Reason: $reason', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic)),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------
+  // TAB 2: LOANS & ADVANCES
+  // -------------------------------------------------------------
+  Widget _buildLoansTab() {
+    double totalBorrowed = 0;
+    double totalBalance = 0;
+    double monthlyEmi = 0;
+
+    for (final l in _loans) {
+      final status = (l['status'] ?? '').toString().toLowerCase();
+      final amt = double.tryParse((l['loan_amount'] ?? 0).toString()) ?? 0;
+      final emi = double.tryParse((l['monthly_emi'] ?? 0).toString()) ?? 0;
+      final bal = double.tryParse((l['remaining_balance'] ?? amt).toString()) ?? 0;
+      if (status != 'rejected') {
+        totalBorrowed += amt;
+      }
+      if (status == 'approved' || status == 'active' || status == 'pending') {
+        totalBalance += bal;
+        monthlyEmi += emi;
+      }
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadProfileData,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildHeaderCard(),
+          const SizedBox(height: 14),
+
+          // Quick Stats & Action Button
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: borderSubtle),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.02),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.handshake_outlined, color: accentIndigo, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'LOANS & ADVANCES',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                        ),
+                      ],
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: accentIndigo,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        elevation: 0,
+                      ),
+                      icon: const Icon(Icons.add, size: 14),
+                      label: const Text('Request Loan', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: _showRequestLoanDialog,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _metricTile(
+                        label: 'Total Borrowed',
+                        value: '₹${NumberFormat('#,##,###').format(totalBorrowed)}',
+                        icon: Icons.account_balance_rounded,
+                        color: const Color(0xFF6366F1),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _metricTile(
+                        label: 'Outstanding',
+                        value: '₹${NumberFormat('#,##,###').format(totalBalance)}',
+                        icon: Icons.pending_actions_rounded,
+                        color: warningAmber,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _metricTile(
+                        label: 'Monthly EMI',
+                        value: '₹${NumberFormat('#,##,###').format(monthlyEmi)}',
+                        icon: Icons.calendar_today_rounded,
+                        color: accentIndigo,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Loan Records List
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'LOAN & ADVANCE APPLICATIONS',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                    ),
+                    Text(
+                      '${_loans.length} Total',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_loans.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: Text('No loan or salary advance requests found.', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                    ),
+                  )
+                else
+                  ..._loans.map((loan) {
+                    final amount = double.tryParse((loan['loan_amount'] ?? 0).toString()) ?? 0;
+                    final emi = double.tryParse((loan['monthly_emi'] ?? 0).toString()) ?? 0;
+                    final balance = double.tryParse((loan['remaining_balance'] ?? amount).toString()) ?? 0;
+                    final status = (loan['status'] ?? 'Pending').toString();
+                    final type = loan['loan_type'] ?? 'Salary Advance';
+                    final notes = loan['notes'] ?? loan['reason'] ?? '';
+                    final date = loan['created_at'] != null ? DateFormat('dd MMM yyyy').format(DateTime.parse(loan['created_at']).toLocal()) : '';
+
+                    Color chipBg = const Color(0xFFFEF3C7);
+                    Color chipColor = const Color(0xFFD97706);
+                    if (status.toLowerCase() == 'approved' || status.toLowerCase() == 'active') {
+                      chipBg = const Color(0xFFDCFCE7);
+                      chipColor = const Color(0xFF16A34A);
+                    } else if (status.toLowerCase() == 'rejected') {
+                      chipBg = const Color(0xFFFEE2E2);
+                      chipColor = const Color(0xFFDC2626);
+                    } else if (status.toLowerCase() == 'paid' || status.toLowerCase() == 'closed') {
+                      chipBg = const Color(0xFFEFF6FF);
+                      chipColor = const Color(0xFF2563EB);
+                    }
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: bgGrey,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: borderSubtle),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    type,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: primaryNavy),
+                                  ),
+                                  if (date.isNotEmpty) ...[
+                                    const SizedBox(width: 8),
+                                    Text('($date)', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  ],
+                                ],
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: chipBg,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  status,
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: chipColor),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Total Loan', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '₹${NumberFormat('#,##,###').format(amount)}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: primaryNavy),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  const Text('Monthly EMI', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '₹${NumberFormat('#,##,###').format(emi)} / mo',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryNavy),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  const Text('Balance', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '₹${NumberFormat('#,##,###').format(balance)}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: warningAmber),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          if (notes.toString().isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text('Reason: $notes', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic)),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------
+  // TAB 3: COMPLETE EMPLOYEE PROFILE & KYC
+  // -------------------------------------------------------------
+  Widget _buildProfileTab() {
+    final emp = _employeeData ?? {};
+    final empName = emp['full_name'] ?? '—';
+    final fatherName = emp['father_name'] ?? '—';
+    final empCode = emp['employee_code'] ?? '—';
+    final email = emp['email'] ?? '—';
+    final mobile = emp['mobile_no'] ?? emp['mobile_number'] ?? emp['phone'] ?? '—';
+    final gender = emp['gender'] ?? '—';
+    final dob = emp['dob'] ?? emp['date_of_birth'] ?? '—';
+    final bloodGroup = emp['blood_group'] ?? '—';
+
+    final desig = emp['designation']?['name'] ?? emp['designation_name'] ?? '—';
+    final dept = emp['department'] ?? emp['department_name'] ?? 'Operations';
+    final doj = emp['doj'] ?? emp['date_of_joining'] ?? '—';
+
+    final bankName = emp['bank_name'] ?? '—';
+    final bankAcc = emp['bank_account_no'] ?? emp['account_number'] ?? '—';
+    final ifsc = emp['bank_ifsc'] ?? emp['ifsc_code'] ?? '—';
+    final pan = emp['pan_number'] ?? emp['pan_no'] ?? '—';
+    final uan = emp['uan_number'] ?? emp['uan_no'] ?? '—';
+    final esi = emp['esi_number'] ?? emp['esi_no'] ?? '—';
+
+    final boundDev = _boundDeviceId ?? emp['bound_device_id'] ?? 'Not Yet Bound (Auto-binds on Punch)';
+    final boundInfo = _boundDeviceInfo ?? emp['bound_device_info'] ?? '—';
+
+    return RefreshIndicator(
+      onRefresh: _loadProfileData,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildHeaderCard(),
+          const SizedBox(height: 14),
+
+          // 1. Device Security & Anti-Buddy Punch Enforcement
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.security_rounded, color: successGreen, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'DEVICE SECURITY & ANTI-BUDDY PUNCH',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFBBF7D0)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.shield_rounded, color: successGreen, size: 20),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Loophole Protection Active: Your attendance can only be punched from this registered device. Shared-phone or buddy punching across accounts is automatically blocked.',
+                          style: TextStyle(fontSize: 11.5, color: Color(0xFF166534), height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _profileField('Device ID / Token', boundDev),
+                _profileField('Hardware / OS Info', boundInfo),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 2. Personal Information
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'PERSONAL DETAILS',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                ),
+                const SizedBox(height: 10),
+                _profileField('Full Name', empName),
+                _profileField("Father's Name", fatherName),
+                _profileField('Employee Code', empCode),
+                _profileField('Email Address', email),
+                _profileField('Mobile Phone', mobile),
+                _profileField('Gender', gender),
+                _profileField('Date of Birth', dob),
+                _profileField('Blood Group', bloodGroup),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 3. Employment & Shift
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'EMPLOYMENT & ASSIGNMENT',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                ),
+                const SizedBox(height: 10),
+                _profileField('Department', dept),
+                _profileField('Designation', desig),
+                _profileField('Joining Date', doj),
+                _profileField('Assigned Office', '${_officeData?['office_name'] ?? 'Head Office'} (${_officeData?['office_code'] ?? 'HO-01'})'),
+                _profileField('Shift Hours', '${_shiftData?['start_time'] ?? '09:00 AM'} - ${_shiftData?['end_time'] ?? '05:00 PM'}'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 4. Bank & Statutory KYC
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'BANK & STATUTORY KYC',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF64748B), letterSpacing: 0.8),
+                ),
+                const SizedBox(height: 10),
+                _profileField('Bank Name', bankName),
+                _profileField('Bank Account No.', bankAcc),
+                _profileField('IFSC Code', ifsc),
+                _profileField('PAN Number', pan),
+                _profileField('UAN / PF Number', uan),
+                _profileField('ESI Number', esi),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _profileField(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5, color: primaryNavy),
+            ),
+          ),
         ],
       ),
     );

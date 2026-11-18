@@ -26,6 +26,9 @@ router.use(auth);
 router.get('/employee/my-profile', ctrl.getMyEmployeeProfile);
 router.post('/employee/punch', ctrl.employeeGeotaggedPunch);
 router.post('/employee/change-password', ctrl.employeeChangePassword);
+router.post('/employee/request-loan', ctrl.employeeRequestLoan);
+router.post('/employee/request-salary-raise', ctrl.employeeRequestSalaryRaise);
+router.post('/employees/:id/reset-device', ctrl.adminResetEmployeeDevice);
 
 // HRMS Dashboard Overview with Office Filter
 router.get('/dashboard-overview', ctrl.getHrmsDashboardOverview);

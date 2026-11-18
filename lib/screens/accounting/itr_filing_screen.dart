@@ -21,21 +21,29 @@ class _ItrFilingScreenState extends State<ItrFilingScreen> with SingleTickerProv
   bool _isLoading = true;
   String? _errorMessage;
 
-  String _selectedFy = '2024-25';
-  String _selectedAy = '2025-26';
+  late String _selectedFy;
+  late String _selectedAy;
 
   Map<String, dynamic>? _data;
 
-  final List<Map<String, String>> _taxYears = [
-    {'fy': '2023-24', 'ay': '2024-25'},
-    {'fy': '2024-25', 'ay': '2025-26'},
-    {'fy': '2025-26', 'ay': '2026-27'},
-    {'fy': '2026-27', 'ay': '2027-28'},
-  ];
+  late final List<Map<String, String>> _taxYears;
 
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    final startYear = now.month >= 4 ? now.year : now.year - 1;
+    _selectedFy = '$startYear-${(startYear + 1).toString().substring(2)}';
+    _selectedAy = '${startYear + 1}-${(startYear + 2).toString().substring(2)}';
+
+    _taxYears = [
+      {'fy': '${startYear + 1}-${(startYear + 2).toString().substring(2)}', 'ay': '${startYear + 2}-${(startYear + 3).toString().substring(2)}'},
+      {'fy': '$startYear-${(startYear + 1).toString().substring(2)}', 'ay': '${startYear + 1}-${(startYear + 2).toString().substring(2)}'},
+      {'fy': '${startYear - 1}-${startYear.toString().substring(2)}', 'ay': '$startYear-${(startYear + 1).toString().substring(2)}'},
+      {'fy': '${startYear - 2}-${(startYear - 1).toString().substring(2)}', 'ay': '${startYear - 1}-${startYear.toString().substring(2)}'},
+      {'fy': '${startYear - 3}-${(startYear - 2).toString().substring(2)}', 'ay': '${startYear - 2}-${(startYear - 1).toString().substring(2)}'},
+    ];
+
     _tabController = TabController(length: 3, vsync: this);
     _loadItrSummary();
   }
@@ -95,7 +103,11 @@ class _ItrFilingScreenState extends State<ItrFilingScreen> with SingleTickerProv
       );
 
       final jsonContent = const JsonEncoder.withIndent('  ').convert(res);
-      final dir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+      Directory? dir;
+      try {
+        dir = await getDownloadsDirectory();
+      } catch (_) {}
+      dir ??= await getApplicationDocumentsDirectory();
       final filePath = '${dir.path}/ITR4_${pan}_$_selectedAy.json';
       final file = File(filePath);
       await file.writeAsString(jsonContent);
@@ -595,8 +607,18 @@ class _ItrFilingScreenState extends State<ItrFilingScreen> with SingleTickerProv
             headers: ['Particulars', 'Source Ledger / Balance', 'Amount (₹)'],
             rows: [
               [
-                'Cash in hand & Bank Balances',
-                'Active Bank Accounts Master & Cash Drawer',
+                'Cash in Hand',
+                'Physical Cash Drawer (Cash Ledger)',
+                CurrencyService.format(balanceSheet['cash_in_hand']),
+              ],
+              [
+                'Bank Balances',
+                'Active Company Bank Accounts Master',
+                CurrencyService.format(balanceSheet['bank_balances']),
+              ],
+              [
+                'Total Cash & Bank Balance',
+                'Total Cash in Hand + Bank Balances',
                 CurrencyService.format(balanceSheet['cash_and_bank_balance']),
               ],
               [
@@ -611,8 +633,18 @@ class _ItrFilingScreenState extends State<ItrFilingScreen> with SingleTickerProv
               ],
               [
                 'Stock-in-Trade (Closing Inventory Valuation)',
-                'Stock Ledger & Item Valuation',
+                'Stock Ledger & Item Cost Valuation',
                 CurrencyService.format(balanceSheet['stock_in_trade']),
+              ],
+              [
+                'Fixed Assets (Capital & Infrastructure)',
+                'Capital Assets & Office Infrastructure Master',
+                CurrencyService.format(balanceSheet['fixed_assets']),
+              ],
+              [
+                'Business Loans & Borrowings',
+                'Active Loan & EMI Liabilities Master',
+                CurrencyService.format(balanceSheet['loans_borrowings']),
               ],
             ],
           ),

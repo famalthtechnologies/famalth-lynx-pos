@@ -40,7 +40,6 @@ import 'mobile_damage_item_sheet.dart';
 import '../../core/permissions/module_capability.dart';
 import '../clinic/clinic_dashboard_screen.dart';
 import '../clinic/clinic_doctor_management_dialog.dart';
-import '../clinic/public_appointment_booking_screen.dart';
 import '../hrms/attendance_screen.dart';
 import '../hrms/employee_portal_screen.dart';
 import '../hrms/employee_screen.dart';
@@ -144,8 +143,8 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
   bool _isClinicEnabled = TokenStorage.isClinicModuleActiveSync();
   bool _isHrmsEnabled = TokenStorage.isHrmsModuleActiveSync();
   bool _isClinicOnly = false;
-  bool _isHrmsOnly = false;
-  String _activeModuleView = 'RETAIL'; // 'RETAIL', 'RESTAURANT', 'CLINIC', 'HRMS'
+  bool _isHrmsOnly = TokenStorage.isHrmsOnlySync();
+  String _activeModuleView = 'RETAIL'; // 'RETAIL', 'RESTAURANT', 'CLINIC'
 
   // Clinic Telemetry
   int _clinicAppointmentsToday = 0;
@@ -209,16 +208,12 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
       final isHrmsOnly = ModuleCapability.isHrmsOnly(mod);
 
       String view = 'RETAIL';
-      if (isHrmsOnly) {
-        view = 'HRMS';
-      } else if (isClinicOnly) {
+      if (isClinicOnly || (isClinic && !isRest)) {
         view = 'CLINIC';
       } else if (isRest) {
         view = 'RESTAURANT';
-      } else if (isClinic) {
-        view = 'CLINIC';
-      } else if (isHrms) {
-        view = 'HRMS';
+      } else {
+        view = 'RETAIL';
       }
 
       if (mounted) {
@@ -321,8 +316,8 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
             _hrmsOnLeaveToday = m['onLeaveToday'] ?? 0;
             _hrmsLateArrivalsToday = m['lateArrivalsToday'] ?? 0;
             _hrmsEarlyDeparturesToday = m['earlyDeparturesToday'] ?? 0;
-            _hrmsOvertimeHoursToday = (m['totalOvertimeHoursToday'] as num?)?.toDouble() ?? 0.0;
-            _hrmsWorkHoursToday = (m['totalWorkHoursToday'] as num?)?.toDouble() ?? 0.0;
+            _hrmsOvertimeHoursToday = double.tryParse(m['totalOvertimeHoursToday']?.toString() ?? '') ?? 0.0;
+            _hrmsWorkHoursToday = double.tryParse(m['totalWorkHoursToday']?.toString() ?? '') ?? 0.0;
             _hrmsGeofenceViolationsToday = m['geofenceViolationsToday'] ?? 0;
             _loadingHrms = false;
           });
@@ -1960,6 +1955,10 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isHrmsOnly) {
+      return _buildHrmsOnlyNoticeScreen();
+    }
+
     final List<Widget> children;
     if (_activeModuleView == 'CLINIC' || _isClinicOnly) {
       children = [
@@ -1967,14 +1966,6 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
         _buildPosBillingView(),
         _buildClinicAppointmentsQueueView(),
         _buildOrdersHistoryView(),
-        _buildStoreProfileView(),
-      ];
-    } else if (_activeModuleView == 'HRMS' || _isHrmsOnly) {
-      children = [
-        _buildHrmsDashboardView(),
-        const AttendanceScreen(),
-        const EmployeeScreen(),
-        const PayrollScreen(),
         _buildStoreProfileView(),
       ];
     } else if (_isRestaurantEnabled) {
@@ -2032,13 +2023,10 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                   if (_activeModuleView == 'CLINIC' || _isClinicOnly) {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const PublicAppointmentBookingScreen()),
+                      MaterialPageRoute(
+                        builder: (_) => const ClinicReceptionScreen(autoOpenBooking: true),
+                      ),
                     ).then((_) => _loadClinicData());
-                  } else if (_activeModuleView == 'HRMS' || _isHrmsOnly) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const AttendanceScreen()),
-                    ).then((_) => _loadHrmsData());
                   } else if (_isRestaurantEnabled) {
                     _showNewOrderChooserSheet();
                   } else {
@@ -2047,28 +2035,22 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                 },
                 backgroundColor: (_activeModuleView == 'CLINIC' || _isClinicOnly)
                     ? const Color(0xFF0D9488)
-                    : (_activeModuleView == 'HRMS' || _isHrmsOnly)
-                        ? const Color(0xFF4F46E5)
-                        : _isRestaurantEnabled
-                            ? const Color(0xFFFF7A1A)
-                            : const Color(0xFF2563EB),
+                    : _isRestaurantEnabled
+                        ? const Color(0xFFFF7A1A)
+                        : const Color(0xFF2563EB),
                 elevation: 4,
                 icon: Icon(
                   (_activeModuleView == 'CLINIC' || _isClinicOnly)
                       ? Icons.add_circle_outline_rounded
-                      : (_activeModuleView == 'HRMS' || _isHrmsOnly)
-                          ? Icons.fingerprint_rounded
-                          : Icons.add,
+                      : Icons.add,
                   color: Colors.white,
                 ),
                 label: Text(
                   (_activeModuleView == 'CLINIC' || _isClinicOnly)
                       ? 'New Appointment'
-                      : (_activeModuleView == 'HRMS' || _isHrmsOnly)
-                          ? 'Staff Punch'
-                          : _isRestaurantEnabled
-                              ? 'New Order'
-                              : 'New Bill',
+                      : _isRestaurantEnabled
+                          ? 'New Order'
+                          : 'New Bill',
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                 ),
               )
@@ -5043,13 +5025,10 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
   Widget _buildBottomNav() {
     final int safeTab = _currentTab.clamp(0, 4);
     final isClinic = _activeModuleView == 'CLINIC' || _isClinicOnly;
-    final isHrms = _activeModuleView == 'HRMS' || _isHrmsOnly;
 
     Color selectedColor = const Color(0xFF2563EB);
     if (isClinic) {
       selectedColor = const Color(0xFF0D9488);
-    } else if (isHrms) {
-      selectedColor = const Color(0xFF4F46E5);
     } else if (_isRestaurantEnabled) {
       selectedColor = const Color(0xFFFF7A1A);
     }
@@ -5081,14 +5060,6 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
         ),
         const BottomNavigationBarItem(icon: Icon(Icons.receipt_long_rounded), label: 'Bills & Rx'),
         const BottomNavigationBarItem(icon: Icon(Icons.local_hospital_rounded), label: 'Clinic'),
-      ];
-    } else if (isHrms) {
-      navItems = [
-        const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-        const BottomNavigationBarItem(icon: Icon(Icons.fingerprint_rounded), label: 'Punch In'),
-        const BottomNavigationBarItem(icon: Icon(Icons.badge_rounded), label: 'Staff'),
-        const BottomNavigationBarItem(icon: Icon(Icons.payments_rounded), label: 'Payroll'),
-        const BottomNavigationBarItem(icon: Icon(Icons.corporate_fare_rounded), label: 'Company'),
       ];
     } else if (_isRestaurantEnabled) {
       navItems = [
@@ -5195,9 +5166,6 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
     if (_isClinicEnabled) {
       availableViews.add({'key': 'CLINIC', 'label': 'Clinic & OPD', 'icon': Icons.local_hospital_rounded, 'color': const Color(0xFF0D9488)});
     }
-    if (_isHrmsEnabled) {
-      availableViews.add({'key': 'HRMS', 'label': 'HR & Staff', 'icon': Icons.badge_rounded, 'color': const Color(0xFF4F46E5)});
-    }
 
     if (availableViews.length <= 1) return const SizedBox.shrink();
 
@@ -5219,7 +5187,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                 setState(() {
                   _activeModuleView = v['key'];
                   if (v['key'] == 'CLINIC') _loadClinicData(silent: false);
-                  if (v['key'] == 'HRMS') _loadHrmsData(silent: false);
+                  if (v['key'] == 'RESTAURANT') _loadRestaurantTables(silent: false);
                 });
               },
               borderRadius: BorderRadius.circular(9),
@@ -5264,7 +5232,547 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
   }
 
   // -------------------------------------------------------------
-  // CLINIC & HEALTHCARE OPERATIONS DASHBOARD & HUB
+  // HRMS STAFF ATTENDANCE SUMMARY CARD (For Retail, Restaurant, Clinic)
+  // -------------------------------------------------------------
+  Widget _buildHrmsStaffAttendanceDashboardCard() {
+    if (!_isHrmsEnabled) return const SizedBox.shrink();
+
+    final int present = _hrmsPresentToday;
+    final int onLeave = _hrmsOnLeaveToday;
+    final int total = _hrmsStaffTotal;
+    final int absent = _hrmsAbsentToday > 0
+        ? _hrmsAbsentToday
+        : (total - present - onLeave).clamp(0, total);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEF2FF),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.badge_rounded, color: Color(0xFF4F46E5), size: 16),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    "TODAY'S STAFF ATTENDANCE",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+              InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AttendanceScreen()),
+                  ).then((_) => _loadHrmsData(silent: true));
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'View Log',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF4F46E5),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, size: 14, color: Color(0xFF4F46E5)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFBBF7D0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF16A34A),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Text('Present', style: TextStyle(fontSize: 10, color: Color(0xFF15803D), fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$present',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF16A34A)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFECACA)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFDC2626),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Text('Absent', style: TextStyle(fontSize: 10, color: Color(0xFFB91C1C), fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$absent',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFFDC2626)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF64748B),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Text('Total Staff', style: TextStyle(fontSize: 10, color: Color(0xFF475569), fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$total',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (onLeave > 0) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF7ED),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFED7AA)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFEA580C),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text('Leave', style: TextStyle(fontSize: 10, color: Color(0xFFC2410C), fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '$onLeave',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFFEA580C)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // -------------------------------------------------------------
+  // HRMS ONLY INFORMATIONAL BARRIER SCREEN
+  // Shown when only HRMS is active (Billing app is for Retail/Restaurant/Clinic)
+  // -------------------------------------------------------------
+  Widget _buildHrmsOnlyNoticeScreen() {
+    final propCtrl = Provider.of<PropertyInfoController>(context);
+    final propertyName = propCtrl.data?.propertyName ?? 'Your Business';
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.point_of_sale_rounded, color: Color(0xFF2563EB), size: 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    propertyName,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const Text(
+                    'Billing Application',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
+            tooltip: 'Refresh Modules',
+            onPressed: () {
+              _checkActiveModules();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626)),
+            tooltip: 'Sign Out',
+            onPressed: () async {
+              await TokenStorage.clear();
+              if (!mounted) return;
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const MobileBillingAuthScreen()),
+                (route) => false,
+              );
+            },
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 96,
+                  height: 96,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFFBFDBFE), width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF2563EB).withValues(alpha: 0.1),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.storefront_rounded, size: 48, color: Color(0xFF2563EB)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Billing App for Retail, Restaurant & Clinic',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'This mobile application is built exclusively for point-of-sale billing in Retail Stores, Restaurant Dine-In / Takeaway, and Clinic OPDs.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF64748B),
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.info_outline_rounded, color: Color(0xFFD97706), size: 22),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Only HRMS Module is Active',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF92400E),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Your account only has the HRMS (Staff & Payroll) module active. Standalone HRMS does not use point-of-sale billing features and is not operated through this billing app.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.amber.shade900,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'SUPPORTED BILLING MODULES',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF94A3B8),
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _moduleShowcaseTile(
+                        icon: Icons.storefront_rounded,
+                        color: const Color(0xFF2563EB),
+                        title: 'Retail POS & Barcode Billing',
+                        desc: 'Products, Barcode scanning, Cash/Digital tender',
+                      ),
+                      const Divider(height: 16, color: Color(0xFFF1F5F9)),
+                      _moduleShowcaseTile(
+                        icon: Icons.restaurant_rounded,
+                        color: const Color(0xFFFF7A1A),
+                        title: 'Restaurant & Dining POS',
+                        desc: 'Floor tables, KOT kitchen tickets, Dine-in bills',
+                      ),
+                      const Divider(height: 16, color: Color(0xFFF1F5F9)),
+                      _moduleShowcaseTile(
+                        icon: Icons.local_hospital_rounded,
+                        color: const Color(0xFF0D9488),
+                        title: 'Clinic & OPD Billing',
+                        desc: 'Doctor tokens, OPD queue, Prescriptions & fees',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 28),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4F46E5),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.fingerprint_rounded, size: 20),
+                    label: const Text(
+                      'Open Employee Attendance App',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const EmployeePortalScreen()),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF475569),
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                        label: const Text('Refresh Status', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                        onPressed: () => _checkActiveModules(),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFDC2626),
+                          side: const BorderSide(color: Color(0xFFFECACA)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.logout_rounded, size: 16),
+                        label: const Text('Sign Out', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                        onPressed: () async {
+                          await TokenStorage.clear();
+                          if (!mounted) return;
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(builder: (_) => const MobileBillingAuthScreen()),
+                            (route) => false,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _moduleShowcaseTile({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String desc,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color, size: 18),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+              ),
+              Text(
+                desc,
+                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
   // -------------------------------------------------------------
   Widget _buildClinicDashboardView() {
     final propCtrl = Provider.of<PropertyInfoController>(context);
@@ -5274,6 +5782,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
       onRefresh: () async {
         _loadPulseAndOrders();
         await _loadClinicData(silent: false);
+        if (_isHrmsEnabled) await _loadHrmsData(silent: true);
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -5459,6 +5968,10 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
             ),
             const SizedBox(height: 14),
 
+            if (_isHrmsEnabled) ...[
+              _buildHrmsStaffAttendanceDashboardCard(),
+            ],
+
             // Quick Clinic Action Buttons
             Row(
               children: [
@@ -5475,7 +5988,9 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                     onPressed: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const PublicAppointmentBookingScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => const ClinicReceptionScreen(autoOpenBooking: true),
+                        ),
                       ).then((_) => _loadClinicData());
                     },
                   ),
@@ -5494,7 +6009,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialTab: ClinicTab.doctor)),
+                      MaterialPageRoute(builder: (_) => const ClinicDoctorDeskScreen()),
                     ).then((_) => _loadClinicData());
                   },
                 ),
@@ -5507,7 +6022,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialTab: ClinicTab.reception)),
+                  MaterialPageRoute(builder: (_) => const ClinicReceptionScreen()),
                 ).then((_) => _loadClinicData());
               },
               borderRadius: BorderRadius.circular(14),
@@ -5595,7 +6110,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialTab: ClinicTab.reception)),
+                      MaterialPageRoute(builder: (_) => const ClinicReceptionScreen()),
                     ).then((_) => _loadClinicData());
                   },
                 ),
@@ -5608,7 +6123,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialTab: ClinicTab.doctor)),
+                      MaterialPageRoute(builder: (_) => const ClinicDoctorDeskScreen()),
                     ).then((_) => _loadClinicData());
                   },
                 ),
@@ -5621,7 +6136,9 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const PublicAppointmentBookingScreen()),
+                      MaterialPageRoute(
+                        builder: (_) => const ClinicReceptionScreen(autoOpenBooking: true),
+                      ),
                     ).then((_) => _loadClinicData());
                   },
                 ),
@@ -5642,7 +6159,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialTab: ClinicTab.therapy)),
+                      MaterialPageRoute(builder: (_) => const ClinicTherapyScreen()),
                     ).then((_) => _loadClinicData());
                   },
                 ),
@@ -5668,7 +6185,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialTab: ClinicTab.pharmacy)),
+                      MaterialPageRoute(builder: (_) => const ClinicPharmacyDeskScreen()),
                     ).then((_) => _loadClinicData());
                   },
                 ),
@@ -5705,7 +6222,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialIndex: 4)),
+                      MaterialPageRoute(builder: (_) => const ClinicPulseScreen()),
                     ).then((_) => _loadClinicData());
                   },
                 ),
@@ -5729,6 +6246,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
   // -------------------------------------------------------------
   // HRMS & WORKFORCE OPERATIONS DASHBOARD & HUB
   // -------------------------------------------------------------
+  // ignore: unused_element
   Widget _buildHrmsDashboardView() {
     final propCtrl = Provider.of<PropertyInfoController>(context);
     final propertyName = propCtrl.data?.propertyName ?? 'HRMS & Staff';
@@ -6343,7 +6861,9 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                     onPressed: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const PublicAppointmentBookingScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => const ClinicReceptionScreen(autoOpenBooking: true),
+                        ),
                       ).then((_) => _loadClinicData());
                     },
                   ),
@@ -6372,11 +6892,11 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                               const Text('OPD Console & Doctor Desk', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: textDark)),
                               TextButton.icon(
                                 icon: const Icon(Icons.open_in_new_rounded, size: 14),
-                                label: const Text('Open Full Desk', style: TextStyle(fontSize: 12)),
+                                label: const Text('Open Reception', style: TextStyle(fontSize: 12)),
                                 onPressed: () {
                                   Navigator.push(
                                     context,
-                                    MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialTab: ClinicTab.reception)),
+                                    MaterialPageRoute(builder: (_) => const ClinicReceptionScreen()),
                                   ).then((_) => _loadClinicData());
                                 },
                               ),
@@ -6397,7 +6917,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                                   onPressed: () {
                                     Navigator.push(
                                       context,
-                                      MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialTab: ClinicTab.doctor)),
+                                      MaterialPageRoute(builder: (_) => const ClinicDoctorDeskScreen()),
                                     ).then((_) => _loadClinicData());
                                   },
                                 ),
@@ -6410,7 +6930,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                                   onPressed: () {
                                     Navigator.push(
                                       context,
-                                      MaterialPageRoute(builder: (_) => const ClinicDashboardScreen(initialTab: ClinicTab.therapy)),
+                                      MaterialPageRoute(builder: (_) => const ClinicTherapyScreen()),
                                     ).then((_) => _loadClinicData());
                                   },
                                 ),
@@ -6487,6 +7007,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
       onRefresh: () async {
         _loadPulseAndOrders();
         await _loadCatalogAndMetadata();
+        if (_isHrmsEnabled) await _loadHrmsData(silent: true);
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -6625,6 +7146,10 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
               ),
             ),
             const SizedBox(height: 14),
+
+            if (_isHrmsEnabled) ...[
+              _buildHrmsStaffAttendanceDashboardCard(),
+            ],
 
             // Quick Billing & Scan Action Bar
             Row(
@@ -6971,6 +7496,7 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
       onRefresh: () async {
         _loadPulseAndOrders();
         await _loadRestaurantTables(silent: false);
+        if (_isHrmsEnabled) await _loadHrmsData(silent: true);
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -7145,6 +7671,10 @@ class _MobileBillingAppScreenState extends State<MobileBillingAppScreen> {
                 ),
               ),
               const SizedBox(height: 14),
+            ],
+
+            if (_isHrmsEnabled) ...[
+              _buildHrmsStaffAttendanceDashboardCard(),
             ],
 
             // Live Tables Telemetry Radar Bar
