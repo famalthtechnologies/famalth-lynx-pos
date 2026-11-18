@@ -518,6 +518,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                         try {
                           final res = await ApiClient.post(ApiEndpoints.hrmsEmployeeForgotOtp, {
                             'login': input,
+                            'email_or_code': input,
                           });
                           setDlgState(() => isSubmitting = false);
                           if (res != null && res['success'] == true) {
@@ -559,6 +560,7 @@ class _EmployeePortalScreenState extends State<EmployeePortalScreen> {
                         try {
                           final res = await ApiClient.post(ApiEndpoints.hrmsEmployeeResetPassword, {
                             'login': codeOrEmailCtrl.text.trim(),
+                            'email_or_code': codeOrEmailCtrl.text.trim(),
                             'otp': otp,
                             'new_password': newP,
                           });

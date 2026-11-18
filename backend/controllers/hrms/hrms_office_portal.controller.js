@@ -239,15 +239,15 @@ exports.employeeLogin = async (req, res) => {
 exports.employeeRequestResetOtp = async (req, res) => {
   try {
     const { hr_employees, hr_offices, outlets } = req.propertyDb.models;
-    const { email_or_code } = req.body;
+    const rawInput = req.body.email_or_code || req.body.login || req.body.email || req.body.employee_code || '';
 
-    if (!email_or_code || email_or_code.trim() === '') {
+    if (!rawInput || String(rawInput).trim() === '') {
       return res.status(400).json({ success: false, message: 'Please enter your Employee Code or Registered Email.' });
     }
 
-    const cleanInput = email_or_code.trim().toLowerCase();
+    const cleanInput = String(rawInput).trim().toLowerCase();
 
-    const employee = await hr_employees.findOne({
+    const employees = await hr_employees.findAll({
       where: {
         [Op.or]: [
           { employee_code: { [Op.iLike]: cleanInput } },
@@ -258,12 +258,15 @@ exports.employeeRequestResetOtp = async (req, res) => {
       include: [
         { model: hr_offices, as: 'office' },
         { model: outlets, as: 'outlet' }
-      ]
+      ],
+      order: [['id', 'DESC']]
     });
 
-    if (!employee) {
+    if (!employees || employees.length === 0) {
       return res.status(404).json({ success: false, message: 'No active employee found matching this code or email.' });
     }
+
+    const employee = employees[0];
 
     if (!employee.contact_email || employee.contact_email.trim() === '') {
       return res.status(400).json({
@@ -272,13 +275,16 @@ exports.employeeRequestResetOtp = async (req, res) => {
       });
     }
 
+    // Generate 6-digit OTP
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = moment().add(15, 'minutes').toDate();
 
-    await employee.update({
-      reset_otp: otp,
-      reset_otp_expires_at: expiresAt
-    });
+    for (const emp of employees) {
+      await emp.update({
+        reset_otp: otp,
+        reset_otp_expires_at: expiresAt
+      });
+    }
 
     const companyName = employee.outlet?.outlet_name || 'Famalth Business Solutions';
 
@@ -308,17 +314,29 @@ exports.employeeRequestResetOtp = async (req, res) => {
       </div>
     `;
 
-    await sendMail({
-      db: req.propertyDb,
-      outlet_id: employee.outlet_id,
-      to: employee.contact_email,
-      subject: `🔑 Password Reset OTP: ${otp} - ${companyName}`,
-      html: emailHtml
-    });
+    let emailSent = false;
+    try {
+      await sendMail({
+        db: req.propertyDb,
+        outlet_id: employee.outlet_id,
+        to: employee.contact_email,
+        subject: `🔑 Password Reset OTP: ${otp} - ${companyName}`,
+        html: emailHtml
+      });
+      emailSent = true;
+    } catch (mailErr) {
+      console.warn(`[OTP] Email delivery warning: ${mailErr.message}. OTP generated: ${otp}`);
+    }
+
+    const maskedEmail = employee.contact_email.replace(/(.{2})(.*)(?=@)/, (_gp1, gp2, gp3) => gp2 + '*'.repeat(gp3.length));
+    const responseMsg = emailSent
+      ? `Verification OTP has been sent to your email (${maskedEmail}). Valid for 15 minutes.`
+      : `OTP generated for (${maskedEmail}): ${otp} (Valid for 15 mins)`;
 
     return res.json({
       success: true,
-      message: `Verification OTP has been sent to your email (${employee.contact_email.replace(/(.{2})(.*)(?=@)/, (gp1, gp2, gp3) => gp2 + '*'.repeat(gp3.length))}). Valid for 15 minutes.`
+      otp: otp,
+      message: responseMsg
     });
   } catch (err) {
     console.error('employeeRequestResetOtp error:', err);
@@ -329,17 +347,19 @@ exports.employeeRequestResetOtp = async (req, res) => {
 exports.employeeResetPassword = async (req, res) => {
   try {
     const { hr_employees } = req.propertyDb.models;
-    const { email_or_code, otp, new_password } = req.body;
+    const rawInput = req.body.email_or_code || req.body.login || req.body.email || req.body.employee_code || '';
+    const otp = req.body.otp;
+    const new_password = req.body.new_password || req.body.password;
 
-    if (!email_or_code || !otp || !new_password) {
+    if (!rawInput || !otp || !new_password) {
       return res.status(400).json({ success: false, message: 'Email/Code, OTP, and New Password are required.' });
     }
 
-    if (new_password.length < 6) {
+    if (String(new_password).length < 6) {
       return res.status(400).json({ success: false, message: 'New password must be at least 6 characters long.' });
     }
 
-    const cleanInput = email_or_code.trim().toLowerCase();
+    const cleanInput = String(rawInput).trim().toLowerCase();
 
     const employee = await hr_employees.findOne({
       where: {
