@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
+import '../../core/api/endpoints.dart';
 import '../../core/currency/currency_service.dart';
 
 class ExpenseEntryScreen extends StatefulWidget {
@@ -50,8 +51,13 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
   Future<void> _fetchExpenses() async {
     setState(() => _loading = true);
     try {
-      final res = await ApiClient.get('/api/restaurant/expenses?recurrent=false');
-      if (res['success'] == true && res['data'] is List) {
+      dynamic res;
+      try {
+        res = await ApiClient.get('/api/restaurant/expenses?recurrent=false', silent: true);
+      } catch (_) {
+        res = await ApiClient.get(ApiEndpoints.financeExpenses, silent: true);
+      }
+      if (res != null && res['success'] == true && res['data'] is List) {
         setState(() {
           _expenseHistory = res['data'] as List;
         });
@@ -59,7 +65,7 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
     } catch (e) {
       debugPrint('Error loading non-recurring expenses: $e');
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -78,17 +84,26 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
     try {
       final payload = {
         'description': title,
+        'expense_note': title,
         'amount': amount,
         'category': _selectedCategory,
+        'category_name': _selectedCategory,
         'payment_mode': _selectedPaymentMode,
+        'payment_method': _selectedPaymentMode,
         'vendor_name': _vendorCtrl.text.trim(),
         'notes': _notesCtrl.text.trim(),
         'is_recurrent': false,
         'txn_date': DateTime.now().toIso8601String(),
+        'payment_date': DateTime.now().toIso8601String(),
       };
 
-      final res = await ApiClient.post('/api/restaurant/expenses', payload);
-      if (res['success'] == true) {
+      dynamic res;
+      try {
+        res = await ApiClient.post('/api/restaurant/expenses', payload);
+      } catch (_) {
+        res = await ApiClient.post(ApiEndpoints.financeExpenses, payload);
+      }
+      if (res != null && (res['success'] == true || res['id'] != null || res['data'] != null)) {
         _titleCtrl.clear();
         _amountCtrl.clear();
         _vendorCtrl.clear();
@@ -199,7 +214,7 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Non-Recurring Expenses Entry'),
+        title: const Text('Petty Cash & Expenses', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
         actions: [
@@ -234,10 +249,10 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
                             separatorBuilder: (_, __) => const Divider(),
                             itemBuilder: (context, index) {
                               final item = _expenseHistory[index];
-                              final desc = item['description'] ?? 'Expense';
-                              final amt = double.tryParse(item['amount']?.toString() ?? '0') ?? 0.0;
-                              final cat = item['category'] ?? 'General';
-                              final pMode = item['payment_mode'] ?? 'CASH';
+                              final desc = item['description'] ?? item['expense_note'] ?? item['note'] ?? 'Expense';
+                              final amt = double.tryParse((item['amount'] ?? item['net_payable_amount'] ?? item['total_amount'] ?? '0').toString()) ?? 0.0;
+                              final cat = item['category_name'] ?? item['category'] ?? 'General';
+                              final pMode = item['payment_method'] ?? item['payment_mode'] ?? 'CASH';
 
                               return ListTile(
                                 leading: CircleAvatar(

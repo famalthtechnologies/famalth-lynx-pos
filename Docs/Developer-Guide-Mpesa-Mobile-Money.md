@@ -94,9 +94,9 @@ Mounted under `/api/mpesa`:
   - Commits atomic transaction updating sale payment method to `MPESA` and balancing ledger.
 
 ### 2. Protected Endpoints (Requires JWT)
-- `GET /api/mpesa/config` — Retrieve outlet M-Pesa configuration.
-- `POST /api/mpesa/config` — Save encrypted Daraja credentials (Admin only).
-- `POST /api/mpesa/stk-push` — Dispatch STK Push to customer phone. Body:
+- `GET /api/mpesa/config` - Retrieve outlet M-Pesa configuration.
+- `POST /api/mpesa/config` - Save encrypted Daraja credentials (Admin only).
+- `POST /api/mpesa/stk-push` - Dispatch STK Push to customer phone. Body:
   ```json
   {
     "phone": "254712345678",
@@ -105,7 +105,7 @@ Mounted under `/api/mpesa`:
     "transactionDesc": "Famalth Lynx Checkout"
   }
   ```
-- `POST /api/mpesa/stk-query` — Poll STK status by `checkoutRequestId`.
+- `POST /api/mpesa/stk-query` - Poll STK status by `checkoutRequestId`.
 
 ---
 

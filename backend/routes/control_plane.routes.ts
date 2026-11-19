@@ -83,6 +83,10 @@ router.get('/maintenance-status', MaintenanceController.getStatus);
 router.post('/maintenance', MaintenanceController.setMaintenance);
 router.post('/maintenance/advance-notice', MaintenanceController.setAdvanceNotice);
 
+// 12. Real-Time Server Health & Telemetry
+router.get('/system/health', requireControlPlaneAuth, ControlPlaneController.getServerHealth);
+router.get('/server-health', requireControlPlaneAuth, ControlPlaneController.getServerHealth);
+
 // 11. SaaS Licensor Subscription Billing Profile (Admin Console)
 router.get('/subscription-billing-config', requireControlPlaneAuth, ControlPlaneController.getSubscriptionBillingConfig);
 router.post('/subscription-billing-config', requireControlPlaneAuth, requireStaffRole(['SUPER_ADMIN', 'RESELLER_ADMIN', 'OWNER', 'DEVELOPER']), ControlPlaneController.saveSubscriptionBillingConfig);

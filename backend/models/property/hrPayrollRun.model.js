@@ -4,6 +4,7 @@ module.exports = (sequelize, DataTypes) => {
     const HrPayrollRun = sequelize.define('hr_payroll_runs', {
         id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         outlet_id: { type: DataTypes.INTEGER, allowNull: false },
+        office_id: { type: DataTypes.INTEGER, allowNull: true },
         pay_period: { type: DataTypes.STRING(7), allowNull: false },
         run_date: { type: DataTypes.DATEONLY, allowNull: false },
         status: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'Draft' },
@@ -20,6 +21,9 @@ module.exports = (sequelize, DataTypes) => {
     });
     HrPayrollRun.associate = (models) => {
         HrPayrollRun.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
+        if (models.hr_offices) {
+            HrPayrollRun.belongsTo(models.hr_offices, { foreignKey: 'office_id', as: 'office' });
+        }
         HrPayrollRun.hasMany(models.hr_payroll_details, { foreignKey: 'payroll_run_id', as: 'details' });
     };
     return HrPayrollRun;

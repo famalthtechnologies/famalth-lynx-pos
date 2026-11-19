@@ -2780,6 +2780,13 @@ class PosInvoicePrinter {
     if (order.hasBillNo) {
       return 'Bill No';
     }
+    final sNo = order.saleNo.trim();
+    if (sNo.isNotEmpty && !sNo.startsWith('#') && int.tryParse(sNo) == null) {
+      return 'Bill No';
+    }
+    if ((order.exchangeAgainstBillNo ?? '').trim().isNotEmpty) {
+      return 'Bill No';
+    }
     return 'Order No';
   }
 

@@ -12,13 +12,18 @@ class SalesController extends ChangeNotifier {
   List<Item> items = [];
   List<SaleScheme> schemes = [];
   List<SaleCustomer> customers = [];
+  bool hasMoreItems = true;
+  int currentItemPage = 1;
 
-  Future<void> loadInitialData() async {
+  Future<void> loadInitialData({int page = 1, int limit = 50}) async {
     loading = true;
     notifyListeners();
 
-    final itemRes = await ApiClient.get(ApiEndpoints.items);
-    items = (itemRes['data'] as List).map((e) => Item.fromJson(e)).toList();
+    final itemRes = await ApiClient.get('${ApiEndpoints.items}?page=$page&limit=$limit');
+    final List rawItems = (itemRes['data'] as List?) ?? [];
+    items = rawItems.map((e) => Item.fromJson(e)).toList();
+    hasMoreItems = itemRes['hasMore'] ?? (items.length >= limit);
+    currentItemPage = page;
 
     final schemeRes = await ApiClient.get(ApiEndpoints.salesSchemes);
     schemes =
@@ -30,6 +35,25 @@ class SalesController extends ChangeNotifier {
 
     loading = false;
     notifyListeners();
+  }
+
+  Future<List<Item>> loadMoreItems({int limit = 50}) async {
+    if (!hasMoreItems) return [];
+    final nextPage = currentItemPage + 1;
+    final itemRes = await ApiClient.get('${ApiEndpoints.items}?page=$nextPage&limit=$limit');
+    final List rawItems = (itemRes['data'] as List?) ?? [];
+    final newItems = rawItems.map((e) => Item.fromJson(e)).toList();
+    hasMoreItems = itemRes['hasMore'] ?? (newItems.length >= limit);
+    currentItemPage = nextPage;
+
+    final existingIds = items.map((i) => i.id).toSet();
+    for (final it in newItems) {
+      if (!existingIds.contains(it.id)) {
+        items.add(it);
+      }
+    }
+    notifyListeners();
+    return newItems;
   }
 
   Future<String> getNextSaleNo() async {

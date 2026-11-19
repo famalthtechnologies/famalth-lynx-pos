@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:jwt_decode/jwt_decode.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
+import '../permissions/module_capability.dart';
 
 class TokenStorage {
   static const _key = 'auth_token';
@@ -165,12 +166,57 @@ class TokenStorage {
   }
 
   static Future<String> getBusinessModule() async {
+    final outletCode = await getOutletCode();
+    String? brandModule;
+    if (outletCode != null && outletCode.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      brandModule = prefs.getString('brand_module_$outletCode');
+    }
     final user = await getUser();
-    return (user?['business_module'] ?? user?['outlet_module'] ?? user?['outlet_type'] ?? 'ALL').toString().toUpperCase();
+    return (brandModule ?? user?['business_module'] ?? user?['outlet_module'] ?? user?['outlet_type'] ?? 'ALL').toString().toUpperCase();
   }
 
   static Future<bool> isRestaurantModuleActive() async {
     final mod = await getBusinessModule();
-    return mod == 'ALL' || mod == 'RESTAURANT' || mod == 'HOTEL' || mod == 'CAFE' || mod == 'DINE_IN';
+    return ModuleCapability.hasRestaurant(mod);
+  }
+
+  static Future<bool> isRetailModuleActive() async {
+    final mod = await getBusinessModule();
+    return ModuleCapability.hasRetail(mod);
+  }
+
+  static Future<bool> isClinicModuleActive() async {
+    final mod = await getBusinessModule();
+    return ModuleCapability.hasClinic(mod);
+  }
+
+  static Future<bool> isHrmsModuleActive() async {
+    final mod = await getBusinessModule();
+    return ModuleCapability.hasHrms(mod);
+  }
+
+  static bool isRestaurantModuleActiveSync() {
+    final user = _cachedUser;
+    final mod = (user?['business_module'] ?? user?['outlet_module'] ?? user?['outlet_type'] ?? 'ALL').toString().toUpperCase();
+    return ModuleCapability.hasRestaurant(mod);
+  }
+
+  static bool isClinicModuleActiveSync() {
+    final user = _cachedUser;
+    final mod = (user?['business_module'] ?? user?['outlet_module'] ?? user?['outlet_type'] ?? 'ALL').toString().toUpperCase();
+    return ModuleCapability.hasClinic(mod);
+  }
+
+  static bool isHrmsModuleActiveSync() {
+    final user = _cachedUser;
+    final mod = (user?['business_module'] ?? user?['outlet_module'] ?? user?['outlet_type'] ?? 'ALL').toString().toUpperCase();
+    return ModuleCapability.hasHrms(mod);
+  }
+
+  static bool isHrmsOnlySync() {
+    final user = _cachedUser;
+    final mod = (user?['business_module'] ?? user?['outlet_module'] ?? user?['outlet_type'] ?? 'ALL').toString().toUpperCase();
+    return ModuleCapability.isHrmsOnly(mod);
   }
 }

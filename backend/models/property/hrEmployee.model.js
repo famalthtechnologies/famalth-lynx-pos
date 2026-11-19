@@ -33,6 +33,10 @@ module.exports = (sequelize, DataTypes) => {
         terminated_date: { type: DataTypes.DATEONLY, allowNull: true },
         termination_reason: { type: DataTypes.TEXT, allowNull: true },
         payroll_start_date: { type: DataTypes.DATEONLY, allowNull: true },
+        office_id: { type: DataTypes.INTEGER, allowNull: true },
+        password_hash: { type: DataTypes.STRING(255), allowNull: true },
+        reset_otp: { type: DataTypes.STRING(10), allowNull: true },
+        reset_otp_expires_at: { type: DataTypes.DATE, allowNull: true },
         created_by: { type: DataTypes.INTEGER, allowNull: true }
     }, {
         tableName: 'hr_employees',
@@ -42,6 +46,7 @@ module.exports = (sequelize, DataTypes) => {
     });
     HrEmployee.associate = (models) => {
         HrEmployee.belongsTo(models.outlets, { foreignKey: 'outlet_id', as: 'outlet' });
+        HrEmployee.belongsTo(models.hr_offices, { foreignKey: 'office_id', as: 'office' });
         HrEmployee.belongsTo(models.hr_pay_structures, { foreignKey: 'pay_structure_id', as: 'payStructure' });
         HrEmployee.belongsTo(models.hr_designations, { foreignKey: 'designation_id', as: 'designation' });
         HrEmployee.belongsTo(models.hr_shifts, { foreignKey: 'shift_id', as: 'shift' });

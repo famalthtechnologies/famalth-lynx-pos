@@ -871,11 +871,11 @@ exports.createExpense = async (req, res) => {
         const deductions = req.body.deductions || [];
         const vendor_id = req.body.vendor_id ? Number(req.body.vendor_id) : null;
         let category_id = req.body.category_id;
-        const category_name = String(req.body.category_name || '').trim();
+        const category_name = String(req.body.category_name || req.body.category || '').trim();
         const invoice_ref_no = req.body.invoice_ref_no ? String(req.body.invoice_ref_no).trim() : null;
-        const payment_date = dateKey(req.body.payment_date || new Date());
+        const payment_date = dateKey(req.body.payment_date || req.body.txn_date || new Date());
         const payment_method = String(req.body.payment_method || req.body.payment_mode || 'CASH').trim();
-        const expense_note = req.body.expense_note || req.body.note || null;
+        const expense_note = req.body.expense_note || req.body.note || req.body.description || null;
         const status = req.body.status || 'Paid';
 
         if (!category_id && !category_name) throw new Error('Category is required');

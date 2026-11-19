@@ -112,10 +112,10 @@ graph LR
 ```
 
 * **Tax Management API Endpoints**:
-  * `GET /api/settings/tax-groups` — Fetch all configured tax groups and component splits.
-  * `POST /api/settings/tax-groups` — Create custom multi-component tax group.
-  * `PUT /api/settings/tax-groups/:id` — Update tax rates and calculation modes.
-  * `DELETE /api/settings/tax-groups/:id` — Safely remove unused tax group.
+  * `GET /api/settings/tax-groups` - Fetch all configured tax groups and component splits.
+  * `POST /api/settings/tax-groups` - Create custom multi-component tax group.
+  * `PUT /api/settings/tax-groups/:id` - Update tax rates and calculation modes.
+  * `DELETE /api/settings/tax-groups/:id` - Safely remove unused tax group.
 
 ---
 

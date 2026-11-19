@@ -45,7 +45,7 @@ Before adding employees, configure your organizational structure:
 2. Click **Create Shift ➕**.
 3. Set Shift Parameters:
    - **Shift Name**: e.g., *Morning Shift*, *Evening Rush Shift*, *General Shift*.
-   - **Start Time & End Time**: e.g., 09:00 AM – 06:00 PM.
+   - **Start Time & End Time**: e.g., 09:00 AM - 06:00 PM.
    - **Grace Period (mins)**: e.g., 15 minutes allowed for late punch-in without penalty.
    - **Half-Day Minimum Hours**: e.g., 4.5 hours.
 4. Click **Save Shift**.

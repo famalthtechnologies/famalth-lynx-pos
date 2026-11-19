@@ -74,25 +74,25 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 *No JWT required.*
 
-- `POST /api/public/outlet/check` — Check outlet registration status.
-- `POST /api/public/outlet` — Register new outlet terminal.
-- `GET /api/public/property-info` — Retrieve public store branding.
-- `POST /api/public/recovery/verify-pin` — Verify owner master recovery PIN.
-- `POST /api/public/recovery/execute` — Execute automated database recovery.
-- `POST /api/public/emergency-reset/request-otp` — Send SMS/Email password reset OTP.
-- `POST /api/public/emergency-reset/verify-and-reset` — Set new admin password with OTP.
-- `POST /api/public/system/check-update` — Check for new software version binaries.
+- `POST /api/public/outlet/check` - Check outlet registration status.
+- `POST /api/public/outlet` - Register new outlet terminal.
+- `GET /api/public/property-info` - Retrieve public store branding.
+- `POST /api/public/recovery/verify-pin` - Verify owner master recovery PIN.
+- `POST /api/public/recovery/execute` - Execute automated database recovery.
+- `POST /api/public/emergency-reset/request-otp` - Send SMS/Email password reset OTP.
+- `POST /api/public/emergency-reset/verify-and-reset` - Set new admin password with OTP.
+- `POST /api/public/system/check-update` - Check for new software version binaries.
 
 ---
 
 ## 3. Authentication APIs (`/api/auth`)
 
-- `POST /api/auth/login` — Authenticate store user (email/password) and issue JWT token.
-- `POST /api/auth/pin-login` — High-speed PIN login for waiters/cashiers with outlet & username resolution.
-- `GET /api/auth/quick-users` — List quick-login staff enabled for dropdown PIN selection.
-- `POST /api/auth/refresh` — Refresh expired JWT token.
-- `POST /api/auth/change-password` — Change current user password.
-- `POST /api/auth/logout` — Invalidate user session.
+- `POST /api/auth/login` - Authenticate store user (email/password) and issue JWT token.
+- `POST /api/auth/pin-login` - High-speed PIN login for waiters/cashiers with outlet & username resolution.
+- `GET /api/auth/quick-users` - List quick-login staff enabled for dropdown PIN selection.
+- `POST /api/auth/refresh` - Refresh expired JWT token.
+- `POST /api/auth/change-password` - Change current user password.
+- `POST /api/auth/logout` - Invalidate user session.
 
 ---
 
@@ -100,36 +100,36 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 *Requires: JWT + `INVENTORY` License Module.*
 
-- `GET /api/sales` — List sales invoices with date range, cashier, and customer filters.
-- `POST /api/sales` — Commit new POS sale transaction (atomic stock deduction & loyalty credit).
-- `GET /api/sales/:id` — Retrieve full sale details, tax split, and payment records.
-- `PUT /api/sales/:id` — Update sale bill details (Admin only).
-- `POST /api/sales/:id/void` — Void/cancel sales invoice and restore stock.
-- `POST /api/sales/:id/reprint` — Generate audited receipt reprint payload.
-- `GET /api/sales/customer/:phone` — Retrieve sales history for customer.
+- `GET /api/sales` - List sales invoices with date range, cashier, and customer filters.
+- `POST /api/sales` - Commit new POS sale transaction (atomic stock deduction & loyalty credit).
+- `GET /api/sales/:id` - Retrieve full sale details, tax split, and payment records.
+- `PUT /api/sales/:id` - Update sale bill details (Admin only).
+- `POST /api/sales/:id/void` - Void/cancel sales invoice and restore stock.
+- `POST /api/sales/:id/reprint` - Generate audited receipt reprint payload.
+- `GET /api/sales/customer/:phone` - Retrieve sales history for customer.
 
 ---
 
 ## 5. Inventory, Items, Modifiers & Stock Taking (`/api/inventory`)
 
-- `GET /api/inventory/items` — List items with search, category, Veg/Non-Veg, and low stock filters.
-- `POST /api/inventory/items` — Create new item master record.
-- `PUT /api/inventory/items/:id` — Update item details, pricing, dietary flags, and barcode.
-- `DELETE /api/inventory/items/:id` — Deactivate item.
-- `GET /api/inventory/categories` — List item categories.
-- `POST /api/inventory/categories` — Create item category.
-- `GET /api/inventory/modifiers` — List item modifiers and add-on groups (e.g. Extra Cheese).
-- `POST /api/inventory/modifiers` — Create modifier with price and optional raw material recipe link.
-- `PUT /api/inventory/modifiers/:id` — Edit modifier properties and pricing.
-- `DELETE /api/inventory/modifiers/:id` — Remove modifier.
-- `GET /api/stock-taking` — Retrieve stock audit sheet with current balances and variances.
-- `POST /api/stock-taking/reconcile` — Commit physical count and post adjustment variance journal.
-- `GET /api/inventory/stock-locations` — List warehouse locations & racks.
-- `POST /api/inventory/transfers/request` — Create multi-branch stock transfer request.
-- `POST /api/inventory/transfers/dispatch` — Dispatch stock to target branch.
-- `POST /api/inventory/transfers/receive` — Accept inward transfer at target outlet.
-- `POST /api/inventory/damages` — Record damaged inventory write-off.
-- `POST /api/inventory/assembly/produce` — Run BOM assembly production batch.
+- `GET /api/inventory/items` - List items with search, category, Veg/Non-Veg, and low stock filters.
+- `POST /api/inventory/items` - Create new item master record.
+- `PUT /api/inventory/items/:id` - Update item details, pricing, dietary flags, and barcode.
+- `DELETE /api/inventory/items/:id` - Deactivate item.
+- `GET /api/inventory/categories` - List item categories.
+- `POST /api/inventory/categories` - Create item category.
+- `GET /api/inventory/modifiers` - List item modifiers and add-on groups (e.g. Extra Cheese).
+- `POST /api/inventory/modifiers` - Create modifier with price and optional raw material recipe link.
+- `PUT /api/inventory/modifiers/:id` - Edit modifier properties and pricing.
+- `DELETE /api/inventory/modifiers/:id` - Remove modifier.
+- `GET /api/stock-taking` - Retrieve stock audit sheet with current balances and variances.
+- `POST /api/stock-taking/reconcile` - Commit physical count and post adjustment variance journal.
+- `GET /api/inventory/stock-locations` - List warehouse locations & racks.
+- `POST /api/inventory/transfers/request` - Create multi-branch stock transfer request.
+- `POST /api/inventory/transfers/dispatch` - Dispatch stock to target branch.
+- `POST /api/inventory/transfers/receive` - Accept inward transfer at target outlet.
+- `POST /api/inventory/damages` - Record damaged inventory write-off.
+- `POST /api/inventory/assembly/produce` - Run BOM assembly production batch.
 
 ---
 
@@ -137,12 +137,12 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 *Requires: JWT + `PURCHASE` License Module.*
 
-- `GET /api/purchase-orders` — List purchase orders with status filter.
-- `POST /api/purchase-orders` — Create new purchase order (supports integer net rounding for VAT-inclusive).
-- `GET /api/purchase-orders/:id` — Retrieve purchase order details.
-- `PUT /api/purchase-orders/:id` — Update pending purchase order.
-- `POST /api/purchase-orders/:id/approve` — Manager approval of PO.
-- `POST /api/purchase-orders/:id/cancel` — Cancel purchase order.
+- `GET /api/purchase-orders` - List purchase orders with status filter.
+- `POST /api/purchase-orders` - Create new purchase order (supports integer net rounding for VAT-inclusive).
+- `GET /api/purchase-orders/:id` - Retrieve purchase order details.
+- `PUT /api/purchase-orders/:id` - Update pending purchase order.
+- `POST /api/purchase-orders/:id/approve` - Manager approval of PO.
+- `POST /api/purchase-orders/:id/cancel` - Cancel purchase order.
 
 ---
 
@@ -150,459 +150,459 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 
 > **DOCTRINE**: GRNs are **NEVER auto-generated**. They require manual operator physical counting and inward verification.
 
-- `GET /api/receiving` — List Goods Receiving Notes (GRNs).
-- `POST /api/receiving` — Commit manual operator-verified GRN and credit stock into inventory.
-- `GET /api/receiving/:id` — Retrieve GRN details and linked PO.
-- `PUT /api/receiving/:id` — Modify receiving entry (Admin audit).
+- `GET /api/receiving` - List Goods Receiving Notes (GRNs).
+- `POST /api/receiving` - Commit manual operator-verified GRN and credit stock into inventory.
+- `GET /api/receiving/:id` - Retrieve GRN details and linked PO.
+- `PUT /api/receiving/:id` - Modify receiving entry (Admin audit).
 
 ---
 
 ## 8. Suppliers & Vendors (`/api/suppliers`, `/api/payment-methods`)
 
-- `GET /api/suppliers` — List suppliers with outstanding balances.
-- `POST /api/suppliers` — Create supplier master profile (state is optional; opening balance auto-syncs to COA).
-- `PUT /api/suppliers/:id` — Update supplier details & credit limit.
-- `POST /api/suppliers/:id/payments` — Settle supplier invoice using custom payment methods.
-- `POST /api/suppliers/return` — Process return to supplier (Debit Note).
-- `POST /api/suppliers/return-refund` — Settle supplier refund/adjustment.
-- `GET /api/payment-methods` — List payment methods with linked `coa_account_id`.
-- `POST /api/payment-methods` — Create custom payment method linked to COA Asset account.
-- `PUT /api/payment-methods/:id` — Update payment method and COA binding.
+- `GET /api/suppliers` - List suppliers with outstanding balances.
+- `POST /api/suppliers` - Create supplier master profile (state is optional; opening balance auto-syncs to COA).
+- `PUT /api/suppliers/:id` - Update supplier details & credit limit.
+- `POST /api/suppliers/:id/payments` - Settle supplier invoice using custom payment methods.
+- `POST /api/suppliers/return` - Process return to supplier (Debit Note).
+- `POST /api/suppliers/return-refund` - Settle supplier refund/adjustment.
+- `GET /api/payment-methods` - List payment methods with linked `coa_account_id`.
+- `POST /api/payment-methods` - Create custom payment method linked to COA Asset account.
+- `PUT /api/payment-methods/:id` - Update payment method and COA binding.
 
 ---
 
 ## 9. Restaurant, Tables, KOTs & KDS (`/api/restaurant`)
 
-- `GET /api/restaurant/floors` — List floors and dining areas.
-- `POST /api/restaurant/floors` — Create dining floor.
-- `GET /api/restaurant/tables` — List tables with live availability status and assigned staff.
-- `POST /api/restaurant/tables` — Create new dining table.
-- `POST /api/restaurant/tables/bulk-import` — Bulk import dining tables from Excel/CSV template.
-- `POST /api/restaurant/tables/:id/assign` — Assign table or section to specific waiter/captain.
-- `PUT /api/restaurant/tables/:id/status` — Update table status (`OCCUPIED`, `AVAILABLE`).
-- `POST /api/restaurant/tables/transfer` — Transfer active order to another table.
-- `POST /api/restaurant/tables/merge` — Merge multiple tables for group dining.
-- `GET /api/restaurant/kots/active` — Live active KOTs stream for KDS.
-- `POST /api/restaurant/kots` — Create & fire new KOT to kitchen (supports multi-client tickets per table).
-- `PUT /api/restaurant/kots/:id/items/:itemId/status` — Bump-bar update (`COOKING` -> `DONE`).
-- `POST /api/restaurant/kots/:id/settle` — Settle table and generate POS invoice.
-- `POST /api/restaurant/reservations` — Create table reservation.
-- `POST /api/v1/qr-order` — Public customer QR code table self-ordering submission.
+- `GET /api/restaurant/floors` - List floors and dining areas.
+- `POST /api/restaurant/floors` - Create dining floor.
+- `GET /api/restaurant/tables` - List tables with live availability status and assigned staff.
+- `POST /api/restaurant/tables` - Create new dining table.
+- `POST /api/restaurant/tables/bulk-import` - Bulk import dining tables from Excel/CSV template.
+- `POST /api/restaurant/tables/:id/assign` - Assign table or section to specific waiter/captain.
+- `PUT /api/restaurant/tables/:id/status` - Update table status (`OCCUPIED`, `AVAILABLE`).
+- `POST /api/restaurant/tables/transfer` - Transfer active order to another table.
+- `POST /api/restaurant/tables/merge` - Merge multiple tables for group dining.
+- `GET /api/restaurant/kots/active` - Live active KOTs stream for KDS.
+- `POST /api/restaurant/kots` - Create & fire new KOT to kitchen (supports multi-client tickets per table).
+- `PUT /api/restaurant/kots/:id/items/:itemId/status` - Bump-bar update (`COOKING` -> `DONE`).
+- `POST /api/restaurant/kots/:id/settle` - Settle table and generate POS invoice.
+- `POST /api/restaurant/reservations` - Create table reservation.
+- `POST /api/v1/qr-order` - Public customer QR code table self-ordering submission.
 
 ---
 
 ## 10. Accounting, COA, Vouchers & Loans (`/api/accounting`)
 
-- `GET /api/accounting/coa` — Retrieve hierarchical Chart of Accounts tree.
-- `POST /api/accounting/coa` — Create ledger account.
-- `POST /api/accounting/coa/seed` — Seed default retail/restaurant accounts.
-- `GET /api/accounting/vouchers` — Search accounting vouchers (JV, PV, RV, CV).
-- `POST /api/accounting/vouchers` — Post balanced double-entry voucher.
-- `GET /api/accounting/banks` — List company bank accounts.
-- `POST /api/accounting/banks` — Register bank account.
-- `GET /api/accounting/loans-assets` — List loans and amortized asset schedules.
-- `POST /api/accounting/loans` — Register business loan.
-- `POST /api/accounting/loans/pay-emi` — Post monthly EMI installment.
+- `GET /api/accounting/coa` - Retrieve hierarchical Chart of Accounts tree.
+- `POST /api/accounting/coa` - Create ledger account.
+- `POST /api/accounting/coa/seed` - Seed default retail/restaurant accounts.
+- `GET /api/accounting/vouchers` - Search accounting vouchers (JV, PV, RV, CV).
+- `POST /api/accounting/vouchers` - Post balanced double-entry voucher.
+- `GET /api/accounting/banks` - List company bank accounts.
+- `POST /api/accounting/banks` - Register bank account.
+- `GET /api/accounting/loans-assets` - List loans and amortized asset schedules.
+- `POST /api/accounting/loans` - Register business loan.
+- `POST /api/accounting/loans/pay-emi` - Post monthly EMI installment.
 
 ---
 
 ## 11. Finance & Ledgers (`/api/finance`)
 
-- `GET /api/finance/cash-ledger` — Retrieve daily cashbook transactions.
-- `POST /api/finance/expenses` — Record expense entry.
-- `GET /api/finance/recurring-expenses` — List recurring expense templates.
+- `GET /api/finance/cash-ledger` - Retrieve daily cashbook transactions.
+- `POST /api/finance/expenses` - Record expense entry.
+- `GET /api/finance/recurring-expenses` - List recurring expense templates.
 
 ---
 
 ## 12. HRMS & Staff Payroll (`/api/hrms`)
 
-- `GET /api/hrms/employees` — List employee directory.
-- `POST /api/hrms/employees` — Onboard new employee.
-- `GET /api/hrms/shifts` — List work shifts.
-- `POST /api/hrms/shifts` — Create work shift.
-- `POST /api/hrms/attendance/punch` — Record employee punch-in / punch-out.
-- `GET /api/hrms/attendance/daily-grid` — Daily employee attendance grid.
-- `POST /api/hrms/payroll/calculate` — Run monthly gross-to-net payroll engine.
-- `POST /api/hrms/payroll/finalize` — Finalize payroll and generate payslips.
+- `GET /api/hrms/employees` - List employee directory.
+- `POST /api/hrms/employees` - Onboard new employee.
+- `GET /api/hrms/shifts` - List work shifts.
+- `POST /api/hrms/shifts` - Create work shift.
+- `POST /api/hrms/attendance/punch` - Record employee punch-in / punch-out.
+- `GET /api/hrms/attendance/daily-grid` - Daily employee attendance grid.
+- `POST /api/hrms/payroll/calculate` - Run monthly gross-to-net payroll engine.
+- `POST /api/hrms/payroll/finalize` - Finalize payroll and generate payslips.
 
 ---
 
 ## 13. Customer App & Rider Delivery (`/api/delivery`)
 
-- `GET /api/delivery/catalog` — Public customer shopping catalog.
-- `POST /api/delivery/orders` — Place online delivery order.
-- `GET /api/delivery/orders/:id/track` — Real-time order delivery tracking.
-- `POST /api/delivery/rider/login` — Rider mobile authentication.
-- `PUT /api/delivery/rider/orders/:id/status` — Rider updates delivery status (`PICKED_UP`, `DELIVERED`).
+- `GET /api/delivery/catalog` - Public customer shopping catalog.
+- `POST /api/delivery/orders` - Place online delivery order.
+- `GET /api/delivery/orders/:id/track` - Real-time order delivery tracking.
+- `POST /api/delivery/rider/login` - Rider mobile authentication.
+- `PUT /api/delivery/rider/orders/:id/status` - Rider updates delivery status (`PICKED_UP`, `DELIVERED`).
 
 ---
 
 ## 14. Lucky Draw & Raffle Campaigns (`/api/lucky-draw`)
 
-- `GET /api/lucky-draw/campaigns` — List lucky draw campaigns.
-- `POST /api/lucky-draw/campaigns` — Create new raffle campaign.
-- `GET /api/lucky-draw/campaigns/:id/stats` — Retrieve participant counts and ticket stats.
-- `POST /api/lucky-draw/campaigns/:id/draw` — Execute certified random winner draw.
+- `GET /api/lucky-draw/campaigns` - List lucky draw campaigns.
+- `POST /api/lucky-draw/campaigns` - Create new raffle campaign.
+- `GET /api/lucky-draw/campaigns/:id/stats` - Retrieve participant counts and ticket stats.
+- `POST /api/lucky-draw/campaigns/:id/draw` - Execute certified random winner draw.
 
 ---
 
 ## 15. Night Audit & EOD Reconciliation (`/api/night-audit`)
 
-- `GET /api/night-audit/status` — Check day-end closing status.
-- `POST /api/night-audit/validate` — Validate open registers, unbilled KOTs, and cash.
-- `POST /api/night-audit/execute` — Finalize day-end closing and lock daily ledger.
+- `GET /api/night-audit/status` - Check day-end closing status.
+- `POST /api/night-audit/validate` - Validate open registers, unbilled KOTs, and cash.
+- `POST /api/night-audit/execute` - Finalize day-end closing and lock daily ledger.
 
 ---
 
 ## 16. B2B Marketplace & Trade Chat (`/api/community`)
 
-- `GET /api/community/conversations` — Fetch 1-on-1 chats and trade channels.
-- `POST /api/community/conversations` — Initiate new supplier conversation.
-- `GET /api/community/messages` — Retrieve chat history.
-- `POST /api/community/messages` — Send direct message or PO reference.
-- `GET /api/community/merchants` — List verified marketplace suppliers.
+- `GET /api/community/conversations` - Fetch 1-on-1 chats and trade channels.
+- `POST /api/community/conversations` - Initiate new supplier conversation.
+- `GET /api/community/messages` - Retrieve chat history.
+- `POST /api/community/messages` - Send direct message or PO reference.
+- `GET /api/community/merchants` - List verified marketplace suppliers.
 
 ---
 
 ## 17. Famalth Lynx AI Assistant (`/api/ai-assist`)
 
-- `POST /api/ai-assist/chat` — Conversational natural language query and actions.
-- `POST /api/ai-assist/voice-command` — Handle transcribed voice shortcuts.
+- `POST /api/ai-assist/chat` - Conversational natural language query and actions.
+- `POST /api/ai-assist/voice-command` - Handle transcribed voice shortcuts.
 
 ---
 
 ## 18. Autonomous Background Agents (`/api/v1/agent`)
 
-- `GET /api/v1/agent/proposals` — List pending autonomous agent proposals.
-- `POST /api/v1/agent/proposals/:id/approve` — Approve and execute proposal.
-- `POST /api/v1/agent/proposals/:id/reject` — Reject proposal.
-- `GET /api/v1/agent/audit-logs` — Audit log of autonomous agent activities.
+- `GET /api/v1/agent/proposals` - List pending autonomous agent proposals.
+- `POST /api/v1/agent/proposals/:id/approve` - Approve and execute proposal.
+- `POST /api/v1/agent/proposals/:id/reject` - Reject proposal.
+- `GET /api/v1/agent/audit-logs` - Audit log of autonomous agent activities.
 
 ---
 
 ## 19. AI Cart Intelligence & Recommendations (`/api/v1/intelligence`)
 
-- `GET /api/v1/intelligence/recommendations` — Fetch live basket cross-sell suggestions.
-- `GET /api/v1/intelligence/customer-insights/:id` — RFM customer lifetime analytics.
+- `GET /api/v1/intelligence/recommendations` - Fetch live basket cross-sell suggestions.
+- `GET /api/v1/intelligence/customer-insights/:id` - RFM customer lifetime analytics.
 
 ---
 
 ## 20. Plugin Marketplace & Sandbox (`/api/v1/plugins`)
 
-- `GET /api/v1/plugins/marketplace` — Discover available plugins.
-- `GET /api/v1/plugins/installed` — List installed plugins.
-- `POST /api/v1/plugins/install` — Install plugin.
-- `POST /api/v1/plugins/:id/toggle` — Enable or disable plugin.
+- `GET /api/v1/plugins/marketplace` - Discover available plugins.
+- `GET /api/v1/plugins/installed` - List installed plugins.
+- `POST /api/v1/plugins/install` - Install plugin.
+- `POST /api/v1/plugins/:id/toggle` - Enable or disable plugin.
 
 ---
 
 ## 21. Workflow Automation Engine (`/api/v1/workflows`)
 
-- `GET /api/v1/workflows/rules` — List workflow trigger rules.
-- `POST /api/v1/workflows/rules/:id/toggle` — Toggle workflow active state.
-- `POST /api/v1/workflows/trigger` — Emit manual event into workflow engine.
+- `GET /api/v1/workflows/rules` - List workflow trigger rules.
+- `POST /api/v1/workflows/rules/:id/toggle` - Toggle workflow active state.
+- `POST /api/v1/workflows/trigger` - Emit manual event into workflow engine.
 
 ---
 
 ## 22. Developer API Keys & Webhooks (`/api/v1/developer`)
 
-- `GET /api/v1/developer/ecosystem/info` — Ecosystem telemetry & version.
-- `GET /api/v1/developer/api-keys` — List integration API keys.
-- `POST /api/v1/developer/api-keys` — Generate new developer API key.
-- `GET /api/v1/developer/webhooks` — List registered webhook URLs.
-- `POST /api/v1/developer/webhooks` — Register new outbound webhook.
+- `GET /api/v1/developer/ecosystem/info` - Ecosystem telemetry & version.
+- `GET /api/v1/developer/api-keys` - List integration API keys.
+- `POST /api/v1/developer/api-keys` - Generate new developer API key.
+- `GET /api/v1/developer/webhooks` - List registered webhook URLs.
+- `POST /api/v1/developer/webhooks` - Register new outbound webhook.
 
 ---
 
 ## 23. WhatsApp Cloud API & Queue (`/api/whatsapp`)
 
-- `GET /api/whatsapp/config` — Retrieve WhatsApp API credentials.
-- `POST /api/whatsapp/config` — Configure Meta Cloud API token and phone number ID.
-- `POST /api/whatsapp/config/test` — Test WhatsApp connectivity.
-- `GET /api/whatsapp/templates` — List approved WhatsApp message templates.
-- `POST /api/whatsapp/send-invoice` — Enqueue digital invoice PDF message.
+- `GET /api/whatsapp/config` - Retrieve WhatsApp API credentials.
+- `POST /api/whatsapp/config` - Configure Meta Cloud API token and phone number ID.
+- `POST /api/whatsapp/config/test` - Test WhatsApp connectivity.
+- `GET /api/whatsapp/templates` - List approved WhatsApp message templates.
+- `POST /api/whatsapp/send-invoice` - Enqueue digital invoice PDF message.
 
 ---
 
 ## 24. WhatsApp Webhooks (`/api/whatsapp-webhook`)
 
-- `GET /api/whatsapp-webhook` — Meta webhook verification challenge.
-- `POST /api/whatsapp-webhook` — Ingest inbound customer message events.
+- `GET /api/whatsapp-webhook` - Meta webhook verification challenge.
+- `POST /api/whatsapp-webhook` - Ingest inbound customer message events.
 
 ---
 
 ## 25. Sticky Notes System (`/api/user-notes`)
 
-- `GET /api/user-notes` — List user notes & pinned memos.
-- `POST /api/user-notes` — Create new sticky note.
-- `PUT /api/user-notes/:id` — Update note content, color, or pin status.
-- `PUT /api/user-notes/:id/trash` — Move note to trash.
-- `PUT /api/user-notes/:id/restore` — Restore note from trash.
-- `DELETE /api/user-notes/:id/permanent` — Permanently delete note.
+- `GET /api/user-notes` - List user notes & pinned memos.
+- `POST /api/user-notes` - Create new sticky note.
+- `PUT /api/user-notes/:id` - Update note content, color, or pin status.
+- `PUT /api/user-notes/:id/trash` - Move note to trash.
+- `PUT /api/user-notes/:id/restore` - Restore note from trash.
+- `DELETE /api/user-notes/:id/permanent` - Permanently delete note.
 
 ---
 
 ## 26. Multi-Tax Groups (`/api/tax-groups`)
 
-- `GET /api/tax-groups` — List tax groups (GST, VAT, Sales Tax, CESS).
-- `POST /api/tax-groups` — Create new flat or compound tax group.
-- `PUT /api/tax-groups/:id` — Update tax group components.
-- `DELETE /api/tax-groups/:id` — Deactivate tax group.
+- `GET /api/tax-groups` - List tax groups (GST, VAT, Sales Tax, CESS).
+- `POST /api/tax-groups` - Create new flat or compound tax group.
+- `PUT /api/tax-groups/:id` - Update tax group components.
+- `DELETE /api/tax-groups/:id` - Deactivate tax group.
 
 ---
 
 ## 27. User & Role Management (`/api/users`)
 
-- `GET /api/users` — List store users and assigned roles.
-- `POST /api/users` — Create new cashier/staff user.
-- `PUT /api/users/:id` — Update user details or permissions.
-- `POST /api/users/:id/reset-password` — Reset staff password.
+- `GET /api/users` - List store users and assigned roles.
+- `POST /api/users` - Create new cashier/staff user.
+- `PUT /api/users/:id` - Update user details or permissions.
+- `POST /api/users/:id/reset-password` - Reset staff password.
 
 ---
 
 ## 28. Reports & Analytics (`/api/reports`, `/api/analytics`)
 
-- `GET /api/reports/sales` — Comprehensive sales report with tax splits.
-- `GET /api/reports/stock-balance` — Current inventory balance & valuation.
-- `GET /api/reports/stock-ledger` — Historical transaction stock ledger.
-- `GET /api/reports/trial-balance` — Real-time Trial Balance statement.
-- `GET /api/reports/profit-loss` — Period Profit & Loss statement.
-- `GET /api/reports/balance-sheet` — Certified Balance Sheet.
-- `GET /api/reports/cashier-handover` — Cashier shift handover audit.
-- `GET /api/analytics/dashboard-summary` — Real-time sales, gross profit, and visitor metrics.
+- `GET /api/reports/sales` - Comprehensive sales report with tax splits.
+- `GET /api/reports/stock-balance` - Current inventory balance & valuation.
+- `GET /api/reports/stock-ledger` - Historical transaction stock ledger.
+- `GET /api/reports/trial-balance` - Real-time Trial Balance statement.
+- `GET /api/reports/profit-loss` - Period Profit & Loss statement.
+- `GET /api/reports/balance-sheet` - Certified Balance Sheet.
+- `GET /api/reports/cashier-handover` - Cashier shift handover audit.
+- `GET /api/analytics/dashboard-summary` - Real-time sales, gross profit, and visitor metrics.
 
 ---
 
 ## 29. Operations & Audit Trail (`/api/operations`, `/api/audit`)
 
-- `GET /api/audit/logs` — Immutable audit trail of all system mutations.
-- `GET /api/operations/summary` — Operations intelligence overview.
+- `GET /api/audit/logs` - Immutable audit trail of all system mutations.
+- `GET /api/operations/summary` - Operations intelligence overview.
 
 ---
 
 ## 30. Notifications (`/api/notifications`)
 
-- `GET /api/notifications` — Retrieve user notifications.
-- `PUT /api/notifications/:id/read` — Mark notification as read.
+- `GET /api/notifications` - Retrieve user notifications.
+- `PUT /api/notifications/:id/read` - Mark notification as read.
 
 ---
 
 ## 31. System Server Time (`/api/system`)
 
-- `GET /api/system/server-time` — Synchronize client clock with database server time.
+- `GET /api/system/server-time` - Synchronize client clock with database server time.
 
 ---
 
 ## 32. 1-Click Cloud Migration Gateway (`/api/public/migration`)
 
-- `GET /api/public/migration/ping` — Verify cloud migration gateway reachability.
-- `POST /api/public/migration/export-bundle` — Export complete local store database snapshot.
-- `POST /api/public/migration/import-bundle` — Ingest snapshot onto cloud server with ID translation.
-- `POST /api/public/migration/sync-online-to-offline` — Pull down cloud database to local offline node.
+- `GET /api/public/migration/ping` - Verify cloud migration gateway reachability.
+- `POST /api/public/migration/export-bundle` - Export complete local store database snapshot.
+- `POST /api/public/migration/import-bundle` - Ingest snapshot onto cloud server with ID translation.
+- `POST /api/public/migration/sync-online-to-offline` - Pull down cloud database to local offline node.
 
 ---
 
 
 ## 33. Quick Users & PIN Authentication (`/api/auth`)
 
-- `GET /api/auth/quick-users?outlet_code=...&role=...` — Pre-login active staff members configured for fast dropdown selection.
-- `POST /api/auth/pin-login` — Scoped authentication using `outlet_code`, `username`, `pin`, and `role`.
+- `GET /api/auth/quick-users?outlet_code=...&role=...` - Pre-login active staff members configured for fast dropdown selection.
+- `POST /api/auth/pin-login` - Scoped authentication using `outlet_code`, `username`, `pin`, and `role`.
 
 ---
 
 ## 34. Multi-Country Tax Seeding & Integrity (`/api/settings/tax-groups`)
 
-- `POST /api/settings/tax-groups/seed-country` — Auto-seed legal fiscal tax slabs for detected country (IN, DE, US, KE, BR, GB).
-- `POST /api/settings/tax-groups/replace-and-delete` — Atomic reassignment of linked items to target tax group before deleting old group.
-- `DELETE /api/settings/tax-groups/:id` — Safe delete tax group with linked item count protection.
+- `POST /api/settings/tax-groups/seed-country` - Auto-seed legal fiscal tax slabs for detected country (IN, DE, US, KE, BR, GB).
+- `POST /api/settings/tax-groups/replace-and-delete` - Atomic reassignment of linked items to target tax group before deleting old group.
+- `DELETE /api/settings/tax-groups/:id` - Safe delete tax group with linked item count protection.
 
 ---
 
 
 ## 35. Contactless QR Table Dining & Multi-Seat Portal (`/api/restaurant/dining`)
 
-- `GET /api/v1/restaurant/dining/table-info?outlet_id=...&table_id=...&seat=...&client_tag=...` — Retrieve public menu, categories, per-seat bills, and combined table bills.
-- `POST /api/v1/restaurant/dining/place-order` — Place dining order with `seat`, `client_tag`, `sub_table`, and `payment_method`. Generates kitchen KOT tickets, records revision snapshots, and notifies floor captain.
-- `POST /api/v1/restaurant/dining/pay-bill` — Settle per-seat or combined table bills with transaction ID and payment mode (UPI, Cash, Online Gateway).
-- `GET /api/v1/restaurant/dining/public-tables?outlet_id=...` — List active dining tables and floor areas for digital self-service.
+- `GET /api/v1/restaurant/dining/table-info?outlet_id=...&table_id=...&seat=...&client_tag=...` - Retrieve public menu, categories, per-seat bills, and combined table bills.
+- `POST /api/v1/restaurant/dining/place-order` - Place dining order with `seat`, `client_tag`, `sub_table`, and `payment_method`. Generates kitchen KOT tickets, records revision snapshots, and notifies floor captain.
+- `POST /api/v1/restaurant/dining/pay-bill` - Settle per-seat or combined table bills with transaction ID and payment mode (UPI, Cash, Online Gateway).
+- `GET /api/v1/restaurant/dining/public-tables?outlet_id=...` - List active dining tables and floor areas for digital self-service.
 
 ---
 
 ## 36. M-Pesa & Mobile Money Gateway (`/api/mpesa`)
 
-- `POST /api/mpesa/callback` — Public asynchronous webhook callback for Safaricom Daraja STK push results.
-- `GET /api/mpesa/config` — Retrieve outlet M-Pesa Till / Paybill credentials.
-- `POST /api/mpesa/config` — Save encrypted M-Pesa shortcode, passkey, and Daraja API keys (Admin only).
-- `POST /api/mpesa/stk-push` — Trigger instant M-Pesa STK push prompt on customer mobile device.
-- `POST /api/mpesa/stk-query` — Poll real-time status of initiated STK push transaction.
+- `POST /api/mpesa/callback` - Public asynchronous webhook callback for Safaricom Daraja STK push results.
+- `GET /api/mpesa/config` - Retrieve outlet M-Pesa Till / Paybill credentials.
+- `POST /api/mpesa/config` - Save encrypted M-Pesa shortcode, passkey, and Daraja API keys (Admin only).
+- `POST /api/mpesa/stk-push` - Trigger instant M-Pesa STK push prompt on customer mobile device.
+- `POST /api/mpesa/stk-query` - Poll real-time status of initiated STK push transaction.
 
 ---
 
 ## 37. Multi-Gateway Payment Configuration (`/api/payments/gateways`)
 
-- `GET /api/payments/gateways/config` — Retrieve omnichannel payment configuration (Razorpay, Stripe, Square, PayPal, M-Pesa, UPI) with masked credentials.
-- `POST /api/payments/gateways/config` — Save and encrypt multi-gateway API credentials and settlement modes (Admin only).
+- `GET /api/payments/gateways/config` - Retrieve omnichannel payment configuration (Razorpay, Stripe, Square, PayPal, M-Pesa, UPI) with masked credentials.
+- `POST /api/payments/gateways/config` - Save and encrypt multi-gateway API credentials and settlement modes (Admin only).
 
 ---
 
 ## 38. Plugin Developer Studio & Sandbox Engine (`/api/v1/plugins`)
 
-- `POST /api/v1/plugins/developer/test-hook` — Execute in-sandbox test hook (`onInit`, `onPaymentCreate`, `onSaleComplete`, `onKotCreated`) with live benchmark timer and console logs.
-- `POST /api/v1/plugins/developer/deploy` — Compile TypeScript/JavaScript plugin manifest and publish to outlet or global marketplace.
-- `GET /api/v1/plugins/reports/third-party-orders` — Comprehensive audit report for third-party food aggregators (Zomato, Swiggy, UberEats) and B2B marketplace orders with commission breakdowns.
-- `GET /api/v1/plugins/marketplace` — Paginated marketplace listings with category filters and verified developer badges.
+- `POST /api/v1/plugins/developer/test-hook` - Execute in-sandbox test hook (`onInit`, `onPaymentCreate`, `onSaleComplete`, `onKotCreated`) with live benchmark timer and console logs.
+- `POST /api/v1/plugins/developer/deploy` - Compile TypeScript/JavaScript plugin manifest and publish to outlet or global marketplace.
+- `GET /api/v1/plugins/reports/third-party-orders` - Comprehensive audit report for third-party food aggregators (Zomato, Swiggy, UberEats) and B2B marketplace orders with commission breakdowns.
+- `GET /api/v1/plugins/marketplace` - Paginated marketplace listings with category filters and verified developer badges.
 
 ---
 
 ## 39. Public Outlet Onboarding & OTP Verification (`/api/public/outlet`)
 
-- `POST /api/public/outlet/send-otp` — Request 6-digit SMS and email verification code before branch provisioning.
-- `POST /api/public/outlet/verify-otp` — Cryptographically verify OTP and obtain authorization token for branch registration.
-- `POST /api/public/outlet` — Provision branch database schema and trigger automated welcome email with admin credentials.
+- `POST /api/public/outlet/send-otp` - Request 6-digit SMS and email verification code before branch provisioning.
+- `POST /api/public/outlet/verify-otp` - Cryptographically verify OTP and obtain authorization token for branch registration.
+- `POST /api/public/outlet` - Provision branch database schema and trigger automated welcome email with admin credentials.
 
 ---
 
 ## 40. Operations Document Modification & Differential Revisions
 
-- `PUT /api/purchase-orders/:id` — Modify approved or draft Purchase Order with recalculation of tax groups and line item revisions.
-- `PUT /api/receiving/:id` — Amend Goods Receiving Note (GRN) with differential stock ledger adjustments (`delta_in`, `delta_out`) and accounts payable sync.
-- `PUT /api/inventory/request/:id` — Update internal departmental material requisition quantities and priority.
-- `PUT /api/inventory/issue/:id` — Revise stock issue/dispatch quantities with automated inventory restoration or deduction.
+- `PUT /api/purchase-orders/:id` - Modify approved or draft Purchase Order with recalculation of tax groups and line item revisions.
+- `PUT /api/receiving/:id` - Amend Goods Receiving Note (GRN) with differential stock ledger adjustments (`delta_in`, `delta_out`) and accounts payable sync.
+- `PUT /api/inventory/request/:id` - Update internal departmental material requisition quantities and priority.
+- `PUT /api/inventory/issue/:id` - Revise stock issue/dispatch quantities with automated inventory restoration or deduction.
 
 ---
 
 ## 41. Enterprise SaaS Control Plane & IAM (`/api/v1/control-plane`)
 
-- `GET /api/v1/control-plane/auth/setup-status` — Check air-gapped system initialization status and admin account count.
-- `POST /api/v1/control-plane/auth/initialize-master` — First-time master owner bootstrap creation.
-- `POST /api/v1/control-plane/auth/login` — Dedicated JWT login for master staff members (SuperAdmin, Reseller, Developer, Support).
-- `GET /api/v1/control-plane/auth/me` — Fetch current staff profile, role, and active permissions.
-- `GET /api/v1/control-plane/staff` — List staff accounts with role filters.
-- `POST /api/v1/control-plane/staff` — Create staff account with assigned role and reseller scoping.
-- `GET /api/v1/control-plane/fleet/overview` — Aggregated KPI metrics: active tenants, connected outlets, grace periods, open tickets, MRR/ARR.
-- `GET /api/v1/control-plane/tenants` — Paginated tenant directory with active licenses and assigned Relationship Managers.
-- `PATCH /api/v1/control-plane/tenants/:id/status` — Kill-switch or activate tenant organization.
-- `POST /api/v1/control-plane/tenants/:tenantId/assign-rm` — Assign personal Relationship Manager to tenant.
-- `POST /api/v1/control-plane/tenants/:tenantId/modify-license` — Modify license tiers, expiry dates, and terminal quotas.
-- `POST /api/v1/control-plane/licenses/approve-payment/:tenantId` — Approve subscription payment, extend validity, and trigger vector PDF invoice.
-- `GET /api/v1/control-plane/license-and-rm-status` — Heartbeat called by client POS terminals for 30-day quota guard and RM profile card.
-- `GET /api/v1/control-plane/invoices/download/:tenantId` — Stream crisp vector PDF subscription invoice (`subscriptionInvoicePdf.service.ts`).
-- `GET /api/v1/control-plane/renewals/export` — Export upcoming tenant renewals CSV.
-- `POST /api/v1/control-plane/support/tickets` — Outlet cashier ticket submission.
-- `GET /api/v1/control-plane/support/tickets` — Support queue with status and priority filters.
-- `POST /api/v1/control-plane/support/tickets/:id/messages` — Post real-time chat message on ticket thread.
-- `POST /api/v1/control-plane/support/tickets/:id/resolve` — Mark support ticket resolved with diagnostic notes.
+- `GET /api/v1/control-plane/auth/setup-status` - Check air-gapped system initialization status and admin account count.
+- `POST /api/v1/control-plane/auth/initialize-master` - First-time master owner bootstrap creation.
+- `POST /api/v1/control-plane/auth/login` - Dedicated JWT login for master staff members (SuperAdmin, Reseller, Developer, Support).
+- `GET /api/v1/control-plane/auth/me` - Fetch current staff profile, role, and active permissions.
+- `GET /api/v1/control-plane/staff` - List staff accounts with role filters.
+- `POST /api/v1/control-plane/staff` - Create staff account with assigned role and reseller scoping.
+- `GET /api/v1/control-plane/fleet/overview` - Aggregated KPI metrics: active tenants, connected outlets, grace periods, open tickets, MRR/ARR.
+- `GET /api/v1/control-plane/tenants` - Paginated tenant directory with active licenses and assigned Relationship Managers.
+- `PATCH /api/v1/control-plane/tenants/:id/status` - Kill-switch or activate tenant organization.
+- `POST /api/v1/control-plane/tenants/:tenantId/assign-rm` - Assign personal Relationship Manager to tenant.
+- `POST /api/v1/control-plane/tenants/:tenantId/modify-license` - Modify license tiers, expiry dates, and terminal quotas.
+- `POST /api/v1/control-plane/licenses/approve-payment/:tenantId` - Approve subscription payment, extend validity, and trigger vector PDF invoice.
+- `GET /api/v1/control-plane/license-and-rm-status` - Heartbeat called by client POS terminals for 30-day quota guard and RM profile card.
+- `GET /api/v1/control-plane/invoices/download/:tenantId` - Stream crisp vector PDF subscription invoice (`subscriptionInvoicePdf.service.ts`).
+- `GET /api/v1/control-plane/renewals/export` - Export upcoming tenant renewals CSV.
+- `POST /api/v1/control-plane/support/tickets` - Outlet cashier ticket submission.
+- `GET /api/v1/control-plane/support/tickets` - Support queue with status and priority filters.
+- `POST /api/v1/control-plane/support/tickets/:id/messages` - Post real-time chat message on ticket thread.
+- `POST /api/v1/control-plane/support/tickets/:id/resolve` - Mark support ticket resolved with diagnostic notes.
 
 ---
 
 ## 42. Sandboxed Data Doctor & Schema Studio (`/api/v1/control-plane/support`)
 
-- `POST /api/v1/control-plane/support/data-doctor/execute` — Execute sandboxed diagnostic SQL query strictly scoped to tenant database with audit logging.
-- `GET /api/v1/control-plane/support/data-doctor/schema` — Retrieve dynamic database schema dictionary and table definitions.
-- `POST /api/v1/control-plane/support/analyze-error` — Automatic regex diagnostic analysis of client POS exception traces.
+- `POST /api/v1/control-plane/support/data-doctor/execute` - Execute sandboxed diagnostic SQL query strictly scoped to tenant database with audit logging.
+- `GET /api/v1/control-plane/support/data-doctor/schema` - Retrieve dynamic database schema dictionary and table definitions.
+- `POST /api/v1/control-plane/support/analyze-error` - Automatic regex diagnostic analysis of client POS exception traces.
 
 ---
 
 ## 43. Clinic Management & OPD Healthcare Suite (`/api/clinic`)
 
-- `GET /api/clinic/appointments` — List appointments filtered by date, doctor, status, and patient search query.
-- `POST /api/clinic/appointments` — Register patient and issue sequential OPD token number.
-- `PATCH /api/clinic/appointments/:id/status` — Update appointment state (`WAITING`, `IN_CONSULTATION`, `COMPLETED`, `CANCELLED`, `NO_SHOW`).
-- `POST /api/clinic/appointments/:id/prescription` — Save doctor consultation vitals, complaints, diagnosis, prescribed medicines, and lab investigations.
-- `POST /api/clinic/appointments/:id/send-to-billing` — Convert prescribed medicines and consultation fees into draft sales invoice for pharmacy checkout.
-- `POST /api/clinic/appointments/:id/accept-and-pay` — Settle consultation fee with Cash, UPI, or Card, generating an official invoice.
-- `PATCH /api/clinic/appointments/:id/billing-complete` — Mark appointment billing status as completed.
-- `GET /api/clinic/doctors` — Retrieve doctor directory with specialties, degrees, room numbers, and consultation fees.
-- `POST /api/clinic/doctors` — Create doctor profile and consulting schedule.
-- `PUT /api/clinic/doctors/:id` — Update doctor profile, consultation fee, or cabin allocation.
-- `DELETE /api/clinic/doctors/:id` — Archive or remove doctor profile.
-- `GET /api/clinic/medicines` — Search clinic pharmacy inventory with real-time stock balances and expiry dates.
-- `GET /api/clinic/patient-history` — Retrieve patient historical consultations, past vitals, and previous prescriptions.
-- `GET /api/clinic/patient-credit` — Check outstanding credit balance for patient ledger.
-- `POST /api/clinic/patient-credit/settle` — Post payment against patient outstanding credit.
-- `GET /api/clinic/clinical-tests` — Retrieve master catalog of diagnostic laboratory investigations.
-- `POST /api/clinic/clinical-tests` — Add or modify diagnostic laboratory test definitions.
-- `GET /api/clinic/analytics` — Clinic revenue analytics, doctor-wise patient counts, and OPD fee totals.
-- `GET /api/clinic/operating-status` — Check whether clinic is open today and public online booking enabled.
-- `POST /api/clinic/toggle-closed-today` — Emergency holiday closure toggle.
-- `GET /api/clinic/subscriptions` — List multi-session therapy packages (Physiotherapy, Dental, Dialysis).
-- `POST /api/clinic/subscriptions` — Enroll patient in therapy package.
-- `POST /api/clinic/subscriptions/:id/consume` — Punch and deduct completed therapy session.
-- `GET /api/clinic/subscriptions/:id/ledger` — View session punch history and remaining balance.
+- `GET /api/clinic/appointments` - List appointments filtered by date, doctor, status, and patient search query.
+- `POST /api/clinic/appointments` - Register patient and issue sequential OPD token number.
+- `PATCH /api/clinic/appointments/:id/status` - Update appointment state (`WAITING`, `IN_CONSULTATION`, `COMPLETED`, `CANCELLED`, `NO_SHOW`).
+- `POST /api/clinic/appointments/:id/prescription` - Save doctor consultation vitals, complaints, diagnosis, prescribed medicines, and lab investigations.
+- `POST /api/clinic/appointments/:id/send-to-billing` - Convert prescribed medicines and consultation fees into draft sales invoice for pharmacy checkout.
+- `POST /api/clinic/appointments/:id/accept-and-pay` - Settle consultation fee with Cash, UPI, or Card, generating an official invoice.
+- `PATCH /api/clinic/appointments/:id/billing-complete` - Mark appointment billing status as completed.
+- `GET /api/clinic/doctors` - Retrieve doctor directory with specialties, degrees, room numbers, and consultation fees.
+- `POST /api/clinic/doctors` - Create doctor profile and consulting schedule.
+- `PUT /api/clinic/doctors/:id` - Update doctor profile, consultation fee, or cabin allocation.
+- `DELETE /api/clinic/doctors/:id` - Archive or remove doctor profile.
+- `GET /api/clinic/medicines` - Search clinic pharmacy inventory with real-time stock balances and expiry dates.
+- `GET /api/clinic/patient-history` - Retrieve patient historical consultations, past vitals, and previous prescriptions.
+- `GET /api/clinic/patient-credit` - Check outstanding credit balance for patient ledger.
+- `POST /api/clinic/patient-credit/settle` - Post payment against patient outstanding credit.
+- `GET /api/clinic/clinical-tests` - Retrieve master catalog of diagnostic laboratory investigations.
+- `POST /api/clinic/clinical-tests` - Add or modify diagnostic laboratory test definitions.
+- `GET /api/clinic/analytics` - Clinic revenue analytics, doctor-wise patient counts, and OPD fee totals.
+- `GET /api/clinic/operating-status` - Check whether clinic is open today and public online booking enabled.
+- `POST /api/clinic/toggle-closed-today` - Emergency holiday closure toggle.
+- `GET /api/clinic/subscriptions` - List multi-session therapy packages (Physiotherapy, Dental, Dialysis).
+- `POST /api/clinic/subscriptions` - Enroll patient in therapy package.
+- `POST /api/clinic/subscriptions/:id/consume` - Punch and deduct completed therapy session.
+- `GET /api/clinic/subscriptions/:id/ledger` - View session punch history and remaining balance.
 
 ---
 
 ## 44. Public Patient Portal & Appointments (`/api/public/clinic`)
 
-- `GET /api/public/clinic/cities` — Retrieve cities where clinic doctors operate.
-- `GET /api/public/clinic/specialities` — Retrieve medical specialties for search filtering.
-- `GET /api/public/clinic/doctors` — Search public doctor directory by city and specialty.
-- `POST /api/public/clinic/request-email-otp` — Request 6-digit email OTP for patient identity verification.
-- `POST /api/public/clinic/verify-email-otp` — Cryptographically verify email OTP.
-- `POST /api/public/clinic/appointment` — Book self-service appointment slot.
-- `GET /api/public/clinic/patient-history` — Patient self-service portal to view past visits and download digital prescriptions.
-- `POST /api/public/clinic/cancel-appointment` — Patient self-service appointment cancellation.
-- `GET /api/public/clinic/operating-status` — Real-time clinic open/closed notification banner.
-- `GET /api/public/clinic/my-subscriptions` — View active therapy session packages and balances.
+- `GET /api/public/clinic/cities` - Retrieve cities where clinic doctors operate.
+- `GET /api/public/clinic/specialities` - Retrieve medical specialties for search filtering.
+- `GET /api/public/clinic/doctors` - Search public doctor directory by city and specialty.
+- `POST /api/public/clinic/request-email-otp` - Request 6-digit email OTP for patient identity verification.
+- `POST /api/public/clinic/verify-email-otp` - Cryptographically verify email OTP.
+- `POST /api/public/clinic/appointment` - Book self-service appointment slot.
+- `GET /api/public/clinic/patient-history` - Patient self-service portal to view past visits and download digital prescriptions.
+- `POST /api/public/clinic/cancel-appointment` - Patient self-service appointment cancellation.
+- `GET /api/public/clinic/operating-status` - Real-time clinic open/closed notification banner.
+- `GET /api/public/clinic/my-subscriptions` - View active therapy session packages and balances.
 
 ---
 
 ## 45. System Maintenance & Lockout Engine (`/api/system/maintenance`)
 
-- `GET /api/system/maintenance-status` — Public endpoint returning active maintenance mode status, countdown, and advance notice info.
-- `POST /api/system/maintenance` — Activate or deactivate system maintenance mode, set estimated duration, and customize lockout message (SuperAdmin / Owner only).
-- `POST /api/system/maintenance/advance-notice` — Broadcast or clear scheduled maintenance advance notice banner across all store dashboards.
+- `GET /api/system/maintenance-status` - Public endpoint returning active maintenance mode status, countdown, and advance notice info.
+- `POST /api/system/maintenance` - Activate or deactivate system maintenance mode, set estimated duration, and customize lockout message (SuperAdmin / Owner only).
+- `POST /api/system/maintenance/advance-notice` - Broadcast or clear scheduled maintenance advance notice banner across all store dashboards.
 
 ---
 
 ## 46. Transport Logistics & Fleet Management (`/api/transport`)
 
-- `GET /api/transport/vehicles` — List fleet vehicles with model, ownership type, and operational status.
-- `POST /api/transport/vehicles` — Register new commercial delivery vehicle.
-- `PUT /api/transport/vehicles/:id` — Update fleet vehicle details and maintenance status.
-- `DELETE /api/transport/vehicles/:id` — Deactivate / archive delivery vehicle.
-- `GET /api/transport/drivers` — List active commercial transport drivers.
-- `POST /api/transport/drivers` — Register driver profile with license number and contact.
-- `PUT /api/transport/drivers/:id` — Update driver details and duty availability.
-- `DELETE /api/transport/drivers/:id` — Deactivate driver profile.
-- `POST /api/transport/assign-trip` — Group delivery challans into a truck run and assign vehicle + driver.
-- `POST /api/transport/verify-delivery` — Verify doorstep recipient drop-off with customer code and notes.
-- `POST /api/transport/release-trip` — Release vehicle and driver back to available fleet upon route completion.
-- `GET /api/transport/active-trips` — Monitor real-time transit status of all dispatched logistics routes.
+- `GET /api/transport/vehicles` - List fleet vehicles with model, ownership type, and operational status.
+- `POST /api/transport/vehicles` - Register new commercial delivery vehicle.
+- `PUT /api/transport/vehicles/:id` - Update fleet vehicle details and maintenance status.
+- `DELETE /api/transport/vehicles/:id` - Deactivate / archive delivery vehicle.
+- `GET /api/transport/drivers` - List active commercial transport drivers.
+- `POST /api/transport/drivers` - Register driver profile with license number and contact.
+- `PUT /api/transport/drivers/:id` - Update driver details and duty availability.
+- `DELETE /api/transport/drivers/:id` - Deactivate driver profile.
+- `POST /api/transport/assign-trip` - Group delivery challans into a truck run and assign vehicle + driver.
+- `POST /api/transport/verify-delivery` - Verify doorstep recipient drop-off with customer code and notes.
+- `POST /api/transport/release-trip` - Release vehicle and driver back to available fleet upon route completion.
+- `GET /api/transport/active-trips` - Monitor real-time transit status of all dispatched logistics routes.
 
 ---
 
 ## 47. Delivery Challan Subsystem (`/api/restaurant/challan`)
 
-- `GET /api/restaurant/challan` — Search and filter delivery challans by status, customer, and date range.
-- `POST /api/restaurant/challan` — Create and issue official transport Delivery Challan under GST Rule 55.
-- `GET /api/restaurant/challan/:id` — Retrieve full delivery challan with itemized quantities and vehicle dispatch info.
-- `PUT /api/restaurant/challan/:id` — Amend draft delivery challan before dispatch.
-- `PATCH /api/restaurant/challan/:id/status` — Update challan workflow status (`ISSUED`, `DISPATCHED`, `DELIVERED`, `BILLED`, `CANCELLED`).
-- `POST /api/restaurant/challan/:id/convert-to-sale` — Convert delivered goods challan into an official POS sales invoice.
+- `GET /api/restaurant/challan` - Search and filter delivery challans by status, customer, and date range.
+- `POST /api/restaurant/challan` - Create and issue official transport Delivery Challan under GST Rule 55.
+- `GET /api/restaurant/challan/:id` - Retrieve full delivery challan with itemized quantities and vehicle dispatch info.
+- `PUT /api/restaurant/challan/:id` - Amend draft delivery challan before dispatch.
+- `PATCH /api/restaurant/challan/:id/status` - Update challan workflow status (`ISSUED`, `DISPATCHED`, `DELIVERED`, `BILLED`, `CANCELLED`).
+- `POST /api/restaurant/challan/:id/convert-to-sale` - Convert delivered goods challan into an official POS sales invoice.
 
 ---
 
 ## 48. Multi-Tiered Storage & Enterprise Backups (`/api/backup`)
 
-- `GET /api/backup/storage-stats` — Retrieve outlet-scoped storage usage breakdown (backups, uploads, database size).
-- `GET /api/backup/enterprise-storage` — Retrieve global cross-outlet storage usage analytics (Admin Console).
-- `GET /api/backup/storage-quota` — Check metered storage plan, quota limit, and warning threshold states.
-- `POST /api/backup/tenant-backup` — Generate fast `.posbak` operational snapshot for active outlet.
-- `POST /api/backup/create-fambak` — Generate comprehensive `.fambak` archive with schema manifest (Outlet or Enterprise scope).
-- `GET /api/backup/download/:filename` — Secure streaming download supporting JWT header, signed query token, or loopback.
-- `POST /api/backup/inspect-backup` — Pre-inspect archive manifest without executing writes.
-- `POST /api/backup/restore-fambak` — Execute selective outlet restore or complete enterprise restoration from `.fambak` package.
-- `POST /api/backup/restore-tenant-backup` — Restore `.posbak` transactional state.
-- `DELETE /api/backup/:filename` — Purge backup archive from outlet storage.
-- `POST /api/backup/system-backup` — Full bare-metal backup stored in `backend/storage/enterprise/backups/`.
-- `POST /api/backup/restore-system-backup` — Restore full bare-metal system backup.
-- `GET /api/backup/cloud-backups` — List historical encrypted `.enc` snapshots.
-- `POST /api/backup/restore-cloud-backup` — 1-click cloud snapshot restoration.
-- `POST /api/backup/email-backup-link` — Dispatch off-server signed download link via email.
-- `GET /api/backup/email-download` — Public token-authenticated download endpoint.
-- `POST /api/backup/provider/retention-purge` — Execute automated retention pruning of expired backups.
-- `POST /api/backup/storage-quota/upgrade` — Upgrade monthly storage capacity quota.
+- `GET /api/backup/storage-stats` - Retrieve outlet-scoped storage usage breakdown (backups, uploads, database size).
+- `GET /api/backup/enterprise-storage` - Retrieve global cross-outlet storage usage analytics (Admin Console).
+- `GET /api/backup/storage-quota` - Check metered storage plan, quota limit, and warning threshold states.
+- `POST /api/backup/tenant-backup` - Generate fast `.posbak` operational snapshot for active outlet.
+- `POST /api/backup/create-fambak` - Generate comprehensive `.fambak` archive with schema manifest (Outlet or Enterprise scope).
+- `GET /api/backup/download/:filename` - Secure streaming download supporting JWT header, signed query token, or loopback.
+- `POST /api/backup/inspect-backup` - Pre-inspect archive manifest without executing writes.
+- `POST /api/backup/restore-fambak` - Execute selective outlet restore or complete enterprise restoration from `.fambak` package.
+- `POST /api/backup/restore-tenant-backup` - Restore `.posbak` transactional state.
+- `DELETE /api/backup/:filename` - Purge backup archive from outlet storage.
+- `POST /api/backup/system-backup` - Full bare-metal backup stored in `backend/storage/enterprise/backups/`.
+- `POST /api/backup/restore-system-backup` - Restore full bare-metal system backup.
+- `GET /api/backup/cloud-backups` - List historical encrypted `.enc` snapshots.
+- `POST /api/backup/restore-cloud-backup` - 1-click cloud snapshot restoration.
+- `POST /api/backup/email-backup-link` - Dispatch off-server signed download link via email.
+- `GET /api/backup/email-download` - Public token-authenticated download endpoint.
+- `POST /api/backup/provider/retention-purge` - Execute automated retention pruning of expired backups.
+- `POST /api/backup/storage-quota/upgrade` - Upgrade monthly storage capacity quota.
 
 ---
 
@@ -611,31 +611,31 @@ Idempotency-Key: <UUID> (Optional for safe retries)
 *Authentication: `X-API-Key` header, query parameter `?api_key=`, Bearer JWT from OAuth 2.0 PKCE, or loopback exemption for local kiosks. Strictly scoped to developer key's tenant outlet and linked branch clusters.*
 
 ### OAuth 2.0 Authorization Server & Discovery
-- `GET /api/v1/developer/.well-known/oauth-authorization-server` — RFC 8414 Authorization Server Metadata discovery endpoint for OpenAI ChatGPT Actions and external MCP hosts.
-- `GET /api/v1/developer/.well-known/openid-configuration` — OpenID Connect compatibility discovery document.
-- `GET /api/v1/developer/mcp/.well-known/oauth-authorization-server` — Discovery alias under MCP namespace.
-- `GET /api/v1/developer/oauth/authorize` — Interactive browser consent dialog for OAuth 2.0 Authorization Code flow with PKCE (`code_challenge` / `code_challenge_method=S256`).
-- `POST /api/v1/developer/oauth/authorize` — Process user sign-in and authorization grant generation.
-- `POST /api/v1/developer/oauth/token` — Exchange authorization code or API key credentials for scoped access token (`grant_type=authorization_code` or `client_credentials`).
+- `GET /api/v1/developer/.well-known/oauth-authorization-server` - RFC 8414 Authorization Server Metadata discovery endpoint for OpenAI ChatGPT Actions and external MCP hosts.
+- `GET /api/v1/developer/.well-known/openid-configuration` - OpenID Connect compatibility discovery document.
+- `GET /api/v1/developer/mcp/.well-known/oauth-authorization-server` - Discovery alias under MCP namespace.
+- `GET /api/v1/developer/oauth/authorize` - Interactive browser consent dialog for OAuth 2.0 Authorization Code flow with PKCE (`code_challenge` / `code_challenge_method=S256`).
+- `POST /api/v1/developer/oauth/authorize` - Process user sign-in and authorization grant generation.
+- `POST /api/v1/developer/oauth/token` - Exchange authorization code or API key credentials for scoped access token (`grant_type=authorization_code` or `client_credentials`).
 
 ### Protocol Transports & Metadata
-- `GET /api/v1/developer/mcp/config` — Retrieve active MCP server version, protocol capabilities, transport status, and connected outlet cluster info.
-- `GET /api/v1/developer/mcp/tools` — Enumerate all active AI tools with JSON Schema parameters, output schemas, and security scopes.
-- `POST /api/v1/developer/mcp` — Standard JSON-RPC 2.0 transport over HTTP (supports `initialize`, `tools/list`, `tools/call`, `ping`).
-- `GET /api/v1/developer/mcp/sse` — Remote MCP Server-Sent Events (SSE) streaming transport for Claude Desktop, Cursor AI, and continuous LLM streaming sessions. Emits `event: endpoint`.
-- `POST /api/v1/developer/mcp/messages` — Endpoint for client message exchange over SSE transport session.
-- `ALL /api/v1/developer/mcp/chat` — Universal compatibility alias supporting SSE (GET) and JSON-RPC 2.0 (POST).
+- `GET /api/v1/developer/mcp/config` - Retrieve active MCP server version, protocol capabilities, transport status, and connected outlet cluster info.
+- `GET /api/v1/developer/mcp/tools` - Enumerate all active AI tools with JSON Schema parameters, output schemas, and security scopes.
+- `POST /api/v1/developer/mcp` - Standard JSON-RPC 2.0 transport over HTTP (supports `initialize`, `tools/list`, `tools/call`, `ping`).
+- `GET /api/v1/developer/mcp/sse` - Remote MCP Server-Sent Events (SSE) streaming transport for Claude Desktop, Cursor AI, and continuous LLM streaming sessions. Emits `event: endpoint`.
+- `POST /api/v1/developer/mcp/messages` - Endpoint for client message exchange over SSE transport session.
+- `ALL /api/v1/developer/mcp/chat` - Universal compatibility alias supporting SSE (GET) and JSON-RPC 2.0 (POST).
 
 ### Dynamic LLM Specification Generators
-- `GET /api/v1/developer/mcp/chatgpt-openapi.json` — Dynamic OpenAPI 3.0 specification tailored for ChatGPT Custom GPT Actions, reflecting real-time outlet server URL, OAuth authorization endpoints, and tool actions.
-- `GET /api/v1/developer/mcp/gemini-tools.json` — Native Google Gemini Function Calling declaration schema for Vertex AI / Google AI Studio integration.
+- `GET /api/v1/developer/mcp/chatgpt-openapi.json` - Dynamic OpenAPI 3.0 specification tailored for ChatGPT Custom GPT Actions, reflecting real-time outlet server URL, OAuth authorization endpoints, and tool actions.
+- `GET /api/v1/developer/mcp/gemini-tools.json` - Native Google Gemini Function Calling declaration schema for Vertex AI / Google AI Studio integration.
 
 ### Direct AI Tool Execution Endpoints (OpenAPI Actions)
-- `POST /api/v1/developer/mcp/tools/execute` — Universal direct tool execution dispatcher by `tool_name` and `arguments`.
-- `POST /api/v1/developer/mcp/tools/analyze-sales` — AI tool analyzing sales revenue, order volumes, tax summaries, payment methods, and hourly velocity trends over customizable date ranges.
-- `POST /api/v1/developer/mcp/tools/create-order-bill` — AI tool creating draft or finalized POS sales orders/bills with customer info, item lines, and automated stock deductions.
-- `POST /api/v1/developer/mcp/tools/inventory-status` — AI tool inspecting real-time stock levels, low-stock reorder thresholds, and active warehouse batch counts.
-- `POST /api/v1/developer/mcp/tools/search-products` — AI tool searching product catalogs across names, barcodes, SKUs, and categories with live pricing.
+- `POST /api/v1/developer/mcp/tools/execute` - Universal direct tool execution dispatcher by `tool_name` and `arguments`.
+- `POST /api/v1/developer/mcp/tools/analyze-sales` - AI tool analyzing sales revenue, order volumes, tax summaries, payment methods, and hourly velocity trends over customizable date ranges.
+- `POST /api/v1/developer/mcp/tools/create-order-bill` - AI tool creating draft or finalized POS sales orders/bills with customer info, item lines, and automated stock deductions.
+- `POST /api/v1/developer/mcp/tools/inventory-status` - AI tool inspecting real-time stock levels, low-stock reorder thresholds, and active warehouse batch counts.
+- `POST /api/v1/developer/mcp/tools/search-products` - AI tool searching product catalogs across names, barcodes, SKUs, and categories with live pricing.
 
 ---
 

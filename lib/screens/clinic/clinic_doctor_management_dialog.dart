@@ -104,28 +104,32 @@ class _ClinicDoctorManagementDialogState extends State<ClinicDoctorManagementDia
           ],
         ),
       ),
-      contentPadding: const EdgeInsets.all(20),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       content: SizedBox(
-        width: 880,
+        width: MediaQuery.of(context).size.width < 700 ? double.maxFinite : 700,
         height: 520,
         child: Column(
           children: [
             // Top action bar
             Row(
               children: [
-                Text(
-                  '${_doctors.length} Registered Doctor${_doctors.length == 1 ? "" : "s"} in Clinic',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
+                Expanded(
+                  child: Text(
+                    '${_doctors.length} Registered Doctor${_doctors.length == 1 ? "" : "s"}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFF0284C7),
                     foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('Add Doctor Profile', style: TextStyle(fontWeight: FontWeight.bold)),
+                  icon: const Icon(Icons.add_rounded, size: 15),
+                  label: const Text('Add Doctor', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5)),
                   onPressed: () => _openDoctorFormModal(),
                 ),
               ],
@@ -178,10 +182,10 @@ class _ClinicDoctorManagementDialogState extends State<ClinicDoctorManagementDia
     final displayOpts = doc['public_display_options'] is Map ? doc['public_display_options'] : {};
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
@@ -198,100 +202,95 @@ class _ClinicDoctorManagementDialogState extends State<ClinicDoctorManagementDia
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CircleAvatar(
-                radius: 24,
+                radius: 18,
                 backgroundColor: const Color(0xFF0284C7).withOpacity(0.1),
-                child: const Icon(Icons.person_outline_rounded, color: Color(0xFF0284C7), size: 28),
+                child: const Icon(Icons.person_outline_rounded, color: Color(0xFF0284C7), size: 20),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 3,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
                           doc['full_name'] ?? 'Doctor',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A)),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
                         ),
-                        const SizedBox(width: 8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                           decoration: BoxDecoration(
                             color: isPublic ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(6),
+                            borderRadius: BorderRadius.circular(4),
                             border: Border.all(color: isPublic ? const Color(0xFF86EFAC) : const Color(0xFFCBD5E1)),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(isPublic ? Icons.public : Icons.public_off, size: 12, color: isPublic ? const Color(0xFF15803D) : const Color(0xFF64748B)),
-                              const SizedBox(width: 4),
-                              Text(
-                                isPublic ? 'Public Online' : 'Internal Only',
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isPublic ? const Color(0xFF15803D) : const Color(0xFF64748B)),
-                              ),
-                            ],
+                          child: Text(
+                            isPublic ? 'Online' : 'Internal',
+                            style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: isPublic ? const Color(0xFF15803D) : const Color(0xFF64748B)),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
-                      '${doc['speciality'] ?? 'Specialist'}  •  ${doc['qualification'] ?? ''} ${doc['registration_no'] != null && doc['registration_no'].toString().isNotEmpty ? " • Reg: ${doc['registration_no']}" : ""}',
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+                      '${doc['speciality'] ?? 'Specialist'}${doc['qualification'] != null && doc['qualification'].toString().isNotEmpty ? " • ${doc['qualification']}" : ""}',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF475569)),
                     ),
-                    Text(
-                      'Phone: ${doc['mobile'] ?? '--'}  •  WhatsApp: ${doc['whatsapp_no'] ?? '--'}  •  Email: ${doc['contact_email'] ?? '--'}',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                    ),
+                    if (doc['registration_no'] != null && doc['registration_no'].toString().isNotEmpty)
+                      Text(
+                        'Reg: ${doc['registration_no']}',
+                        style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                      ),
                   ],
                 ),
               ),
-
-              // Fee badge & Edit button
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0FDF4),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFF86EFAC)),
-                    ),
-                    child: Text(
-                      'Fee: ${CurrencyService.symbol}$fee',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF166534)),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      minimumSize: Size.zero,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                    ),
-                    icon: const Icon(Icons.edit_rounded, size: 14),
-                    label: const Text('Edit Profile & Public Settings', style: TextStyle(fontSize: 11)),
-                    onPressed: () => _openDoctorFormModal(doc),
-                  ),
-                ],
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFF86EFAC)),
+                ),
+                child: Text(
+                  '${CurrencyService.symbol}$fee',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Color(0xFF166534)),
+                ),
               ),
             ],
           ),
 
-          const Divider(height: 18),
+          const SizedBox(height: 8),
+
+          // Edit Profile Action Button
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                minimumSize: Size.zero,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              ),
+              icon: const Icon(Icons.edit_rounded, size: 12),
+              label: const Text('Edit Profile', style: TextStyle(fontSize: 11)),
+              onPressed: () => _openDoctorFormModal(doc),
+            ),
+          ),
+
+          const Divider(height: 16),
 
           // Statistics & Public Display Flags
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _statBadge(Icons.groups_rounded, '$totalPatients Patients', const Color(0xFF0284C7)),
-              const SizedBox(width: 8),
-              _statBadge(Icons.account_balance_wallet_rounded, 'OPD Fees: ${CurrencyService.symbol}$totalFees', const Color(0xFF059669)),
-              const SizedBox(width: 8),
-              _statBadge(Icons.medication_rounded, 'Referred Rx Sales: ${CurrencyService.symbol}$medSales', const Color(0xFF7C3AED)),
-              const Spacer(),
-              // Public display tags
+              _statBadge(Icons.account_balance_wallet_rounded, 'Fees: ${CurrencyService.symbol}$totalFees', const Color(0xFF059669)),
+              _statBadge(Icons.medication_rounded, 'Rx Sales: ${CurrencyService.symbol}$medSales', const Color(0xFF7C3AED)),
               if (isPublic) ...[
                 Text(
                   'Public Display: ${displayOpts['show_clinic_name'] == true ? "Clinic, " : ""}${displayOpts['show_doctor_name'] == true ? "Doctor, " : ""}${displayOpts['show_fees'] == true ? "Fees, " : ""}${displayOpts['show_phone'] == true ? "Contact" : ""}'.replaceAll(RegExp(r', $'), ''),
@@ -495,7 +494,13 @@ class _DoctorProfileFormDialogState extends State<_DoctorProfileFormDialog> {
         children: [
           Icon(isEdit ? Icons.edit_rounded : Icons.person_add_rounded, color: const Color(0xFF0284C7)),
           const SizedBox(width: 8),
-          Text(isEdit ? 'Edit Doctor Profile & Public Display' : 'Add New Consulting Doctor', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Expanded(
+            child: Text(
+              isEdit ? 'Edit Doctor Profile' : 'Add Doctor Profile',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
       content: SizedBox(
@@ -512,27 +517,29 @@ class _DoctorProfileFormDialogState extends State<_DoctorProfileFormDialog> {
                     child: TextField(
                       controller: _nameCtrl,
                       decoration: InputDecoration(
-                        labelText: 'Doctor Full Name * (e.g. Dr. Sneha Rao)',
+                        labelText: 'Doctor Name *',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     flex: 4,
                     child: TextField(
                       controller: _specialityCtrl,
                       decoration: InputDecoration(
-                        labelText: 'Speciality (e.g. Cardiologist)',
+                        labelText: 'Speciality',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
 
               Row(
                 children: [
@@ -540,26 +547,28 @@ class _DoctorProfileFormDialogState extends State<_DoctorProfileFormDialog> {
                     child: TextField(
                       controller: _qualificationCtrl,
                       decoration: InputDecoration(
-                        labelText: 'Qualifications (e.g. MBBS, MD)',
+                        labelText: 'Qualifications',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _regNoCtrl,
                       decoration: InputDecoration(
-                        labelText: 'Medical Reg / License #',
+                        labelText: 'Medical Reg #',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
 
               Row(
                 children: [
@@ -568,28 +577,30 @@ class _DoctorProfileFormDialogState extends State<_DoctorProfileFormDialog> {
                       controller: _feeCtrl,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                       decoration: InputDecoration(
-                        labelText: 'Consultation Fee (${CurrencyService.symbol}) *',
+                        labelText: 'Fee (${CurrencyService.symbol}) *',
                         prefixText: '${CurrencyService.symbol} ',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _expCtrl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
-                        labelText: 'Experience (Years)',
+                        labelText: 'Experience (Yrs)',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
 
               // Contact Details
               Row(
@@ -599,27 +610,29 @@ class _DoctorProfileFormDialogState extends State<_DoctorProfileFormDialog> {
                       controller: _phoneCtrl,
                       keyboardType: TextInputType.phone,
                       decoration: InputDecoration(
-                        labelText: 'Phone Number',
+                        labelText: 'Phone',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _whatsappCtrl,
                       keyboardType: TextInputType.phone,
                       decoration: InputDecoration(
-                        labelText: 'WhatsApp Number',
+                        labelText: 'WhatsApp',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
 
               Row(
                 children: [
@@ -628,33 +641,36 @@ class _DoctorProfileFormDialogState extends State<_DoctorProfileFormDialog> {
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
                       decoration: InputDecoration(
-                        labelText: 'Email Address',
+                        labelText: 'Email',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _cityCtrl,
                       decoration: InputDecoration(
-                        labelText: 'Practicing City (e.g. New Delhi)',
+                        labelText: 'City',
                         isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
 
               TextField(
                 controller: _bioCtrl,
                 maxLines: 2,
                 decoration: InputDecoration(
-                  labelText: 'Doctor Bio / Clinical Expertise Summary',
+                  labelText: 'Doctor Bio / Summary',
                   isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ),
@@ -672,31 +688,37 @@ class _DoctorProfileFormDialogState extends State<_DoctorProfileFormDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      alignment: WrapAlignment.spaceBetween,
                       children: [
-                        const Icon(Icons.access_time_filled_rounded, color: Color(0xFF16A34A), size: 18),
-                        const SizedBox(width: 8),
-                        const Expanded(
-                          child: Text(
-                            'Doctor Consultation Schedule & Working Hours',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF166534)),
-                          ),
+                        const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.access_time_filled_rounded, color: Color(0xFF16A34A), size: 16),
+                            SizedBox(width: 6),
+                            Text(
+                              'Consultation Schedule',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF166534)),
+                            ),
+                          ],
                         ),
-                        // Quick Presets
-                        TextButton(
-                          onPressed: () => setState(() => _selectedDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']),
-                          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                          child: const Text('Mon-Sat', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
-                        ),
-                        TextButton(
-                          onPressed: () => setState(() => _selectedDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']),
-                          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                          child: const Text('Mon-Fri', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
-                        ),
-                        TextButton(
-                          onPressed: () => setState(() => _selectedDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']),
-                          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                          child: const Text('All 7 Days', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextButton(
+                              onPressed: () => setState(() => _selectedDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']),
+                              style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 6)),
+                              child: const Text('Mon-Sat', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
+                            ),
+                            TextButton(
+                              onPressed: () => setState(() => _selectedDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']),
+                              style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 6)),
+                              child: const Text('All Days', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
+                            ),
+                          ],
                         ),
                       ],
                     ),

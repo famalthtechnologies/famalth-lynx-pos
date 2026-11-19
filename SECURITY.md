@@ -13,7 +13,7 @@ We actively issue security patches and updates for the following supported versi
 
 ## 🔒 Reporting a Vulnerability
 
-Because **RetailSale** handles critical enterprise operations—including point-of-sale transactions, customer data, employee payroll, and financial ledgers—we take security vulnerabilities very seriously.
+Because **RetailSale** handles critical enterprise operations-including point-of-sale transactions, customer data, employee payroll, and financial ledgers-we take security vulnerabilities very seriously.
 
 > [!IMPORTANT]
 > **Please DO NOT report security vulnerabilities through public GitHub issues.**

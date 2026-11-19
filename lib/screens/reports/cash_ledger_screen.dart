@@ -289,7 +289,7 @@ class _CashLedgerScreenState extends State<CashLedgerScreen>
         if (_selectedOutletId == null && currentOutletId != null) {
           _selectedOutletId = currentOutletId;
           ctrl.outletId = _selectedOutletId;
-        }
+        } 
       });
     }
   }

@@ -19,10 +19,12 @@ class EmployeeScreen extends StatefulWidget {
 class _EmployeeScreenState extends State<EmployeeScreen> {
   bool _isLoading = false;
   String _searchQuery = '';
+  String _selectedOfficeFilter = 'all';
   List<Map<String, dynamic>> _employees = [];
   List<Map<String, dynamic>> _designations = [];
   List<Map<String, dynamic>> _shifts = [];
   List<Map<String, dynamic>> _payStructures = [];
+  List<Map<String, dynamic>> _offices = [];
 
   @override
   void initState() {
@@ -38,12 +40,14 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
         ApiClient.get(ApiEndpoints.hrmsDesignations),
         ApiClient.get(ApiEndpoints.hrmsShifts),
         ApiClient.get(ApiEndpoints.hrmsPayStructures),
+        ApiClient.get('/api/hrms/offices'),
       ]);
       setState(() {
         _employees = List<Map<String, dynamic>>.from(results[0]['data'] ?? []);
         _designations = List<Map<String, dynamic>>.from(results[1]['data'] ?? []);
         _shifts = List<Map<String, dynamic>>.from(results[2]['data'] ?? []);
         _payStructures = List<Map<String, dynamic>>.from(results[3]['data'] ?? []);
+        _offices = List<Map<String, dynamic>>.from(results[4]['data'] ?? []);
       });
     } catch (e) {
       // show empty list on error
@@ -55,6 +59,10 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
   @override
   Widget build(BuildContext context) {
     final filtered = _employees.where((e) {
+      if (_selectedOfficeFilter != 'all') {
+        final offId = (e['office_id'] ?? e['office']?['id'])?.toString();
+        if (offId != _selectedOfficeFilter) return false;
+      }
       final name = (e['full_name'] ?? '').toString().toLowerCase();
       final code = (e['employee_code'] ?? '').toString().toLowerCase();
       final q = _searchQuery.toLowerCase();
@@ -89,22 +97,75 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Search bar
+          // Search and Office Filter bar
           Container(
             color: Colors.white,
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Search by name or code…',
-                hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
-                prefixIcon: const Icon(Icons.search, color: Color(0xFF9CA3AF)),
-                filled: true,
-                fillColor: const Color(0xFFF3F4F6),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                contentPadding: const EdgeInsets.symmetric(vertical: 0),
-              ),
-              onChanged: (v) => setState(() => _searchQuery = v),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search by name or code…',
+                      hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
+                      prefixIcon: const Icon(Icons.search, color: Color(0xFF9CA3AF)),
+                      filled: true,
+                      fillColor: const Color(0xFFF3F4F6),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    ),
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    height: 48,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3F4F6),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedOfficeFilter,
+                        isExpanded: true,
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: Color(0xFF4B5563)),
+                        items: [
+                          const DropdownMenuItem(
+                            value: 'all',
+                            child: Row(
+                              children: [
+                                Icon(Icons.location_city_rounded, size: 16, color: Color(0xFF2563EB)),
+                                SizedBox(width: 6),
+                                Expanded(child: Text('All Offices', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                              ],
+                            ),
+                          ),
+                          ..._offices.map((o) => DropdownMenuItem(
+                            value: o['id'].toString(),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.store_mall_directory_outlined, size: 16, color: Color(0xFF6B7280)),
+                                const SizedBox(width: 6),
+                                Expanded(child: Text('${o['office_code']} • ${o['office_name']}', style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis)),
+                              ],
+                            ),
+                          )),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() => _selectedOfficeFilter = val);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           // Section header
@@ -176,6 +237,9 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
     }
 
     final status = emp['status'] ?? 'Active';
+    final officeName = emp['office'] != null
+        ? (emp['office'] is Map ? (emp['office']['office_name'] ?? emp['office']['office_code'] ?? '') : emp['office'].toString())
+        : (emp['office_name'] ?? '');
     
     String shiftStr = '';
     if (emp['shift'] != null) {
@@ -271,6 +335,20 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
                           ),
                           const SizedBox(width: 6),
                         ],
+                        if (officeName.toString().isNotEmpty) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                                color: const Color(0xFFF0FDF4),
+                                borderRadius: BorderRadius.circular(4)),
+                            child: Text('📍 ${officeName}',
+                                style: const TextStyle(
+                                    color: Color(0xFF15803D),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
                         if (approver1 != null)
                           _buildLevelBadge('Level 1'),
                         if (approver2 != null) ...[
@@ -327,6 +405,7 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => _AddEmployeeForm(
         employees: _employees,
+        initialOffices: _offices,
         onSaved: _loadAll,
       ),
     );
@@ -379,11 +458,13 @@ class _EmployeeScreenState extends State<EmployeeScreen> {
 // ═══════════════════════════════════════════════════════
 class _AddEmployeeForm extends StatefulWidget {
   final List<Map<String, dynamic>> employees;
+  final List<Map<String, dynamic>>? initialOffices;
   final VoidCallback onSaved;
   final Map<String, dynamic>? employee;
 
   const _AddEmployeeForm({
     required this.employees,
+    this.initialOffices,
     required this.onSaved,
     this.employee,
   });
@@ -419,6 +500,10 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
 
   // Section 2: Work Info
   DateTime? _hireDate;
+  List<Map<String, dynamic>> _offices = [];
+  int? _officeId;
+  final _passwordCtrl = TextEditingController(text: '123456');
+  bool _obscurePassword = true;
   int? _designationId;
   int? _shiftId;
   bool _requiresAttendance = true;
@@ -471,6 +556,7 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
       _hireDate = emp['hire_date'] != null ? DateTime.tryParse(emp['hire_date'].toString()) : null;
       _designationId = emp['designation_id'] as int?;
       _shiftId = emp['shift_id'] as int?;
+      _officeId = emp['office_id'] as int?;
       _requiresAttendance = emp['requires_attendance'] == true;
       _payIfUnmarked = emp['pay_if_unmarked'] == true;
       _approver1Id = emp['level1_approver_id'] as int?;
@@ -530,6 +616,7 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
         ApiClient.get(ApiEndpoints.users),
         ApiClient.get(ApiEndpoints.hrmsLeaveTypes),
         ApiClient.get(ApiEndpoints.hrmsSalaryComponents),
+        ApiClient.get('/api/hrms/offices'),
       ]);
 
       final allComponents = List<Map<String, dynamic>>.from(results[5]['data'] ?? []);
@@ -570,6 +657,13 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
         _payStructures= List<Map<String, dynamic>>.from(results[2]['data'] ?? []);
         _users        = List<Map<String, dynamic>>.from(results[3]['data'] ?? []);
         _leaveTypes   = List<Map<String, dynamic>>.from(results[4]['data'] ?? []);
+        _offices      = List<Map<String, dynamic>>.from(results[6]['data'] ?? (widget.initialOffices ?? []));
+        if (_offices.isEmpty && widget.initialOffices != null && widget.initialOffices!.isNotEmpty) {
+          _offices = List<Map<String, dynamic>>.from(widget.initialOffices!);
+        }
+        if (_officeId == null && _offices.isNotEmpty) {
+          _officeId = _offices.first['id'] as int?;
+        }
 
         for (final lt in _leaveTypes) {
           final ltId = lt['id'] as int;
@@ -605,6 +699,48 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
   }
 
   // ── Quick-add dialogs ──────────────────────────────────
+
+  Future<void> _quickAddOffice() async {
+    final nameCtrl = TextEditingController();
+    final codeCtrl = TextEditingController(text: 'OFF-${DateTime.now().millisecondsSinceEpoch % 10000}');
+    final addressCtrl = TextEditingController();
+    final radiusCtrl = TextEditingController(text: '200');
+
+    final created = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _QuickAddDialog(
+        title: 'New Office / Branch',
+        icon: Icons.location_city_rounded,
+        iconColor: const Color(0xFF2563EB),
+        iconBg: const Color(0xFFEFF6FF),
+        fields: [
+          _QField(ctrl: nameCtrl, label: 'Office / Branch Name *', hint: 'e.g. Head Office / Sector 18 Branch', icon: Icons.business),
+          _QField(ctrl: codeCtrl, label: 'Office Code *', hint: 'e.g. HQ-01', icon: Icons.tag),
+          _QField(ctrl: addressCtrl, label: 'Address / Location', hint: 'e.g. Floor 2, Main Market', icon: Icons.map_outlined),
+          _QField(ctrl: radiusCtrl, label: 'GPS Geofence Radius (meters) *', hint: '200', icon: Icons.radar, keyboardType: TextInputType.number),
+        ],
+        onSave: () async {
+          if (nameCtrl.text.trim().isEmpty) return null;
+          final res = await ApiClient.post('/api/hrms/offices', {
+            'office_name': nameCtrl.text.trim(),
+            'office_code': codeCtrl.text.trim().isEmpty ? 'OFF-01' : codeCtrl.text.trim(),
+            'address': addressCtrl.text.trim(),
+            'radius_meters': int.tryParse(radiusCtrl.text.trim()) ?? 200,
+            'latitude': 28.6139,
+            'longitude': 77.2090,
+          });
+          return res['data'] as Map<String, dynamic>?;
+        },
+      ),
+    );
+    if (created != null) {
+      setState(() {
+        _offices.add(created);
+        _officeId = (created['id'] as num?)?.toInt();
+      });
+    }
+  }
 
   Future<void> _quickAddDesignation() async {
     final ctrl = TextEditingController();
@@ -686,21 +822,48 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
         return false;
       }
     } else if (step == 1) {
+      if (_officeId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Office / Branch is required! Please select or add an assigned office.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
+        );
+        return false;
+      }
+      if (widget.employee == null && _passwordCtrl.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Initial Login Password is required! Please enter a password for the employee app.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
+        );
+        return false;
+      }
       if (_hireDate == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hire Date is required! Please select a hire date.'))
+          const SnackBar(
+            content: Text('Hire Date is required! Please select a hire date.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
         );
         return false;
       }
       if (_designationId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Designation is required! Please select a designation.'))
+          const SnackBar(
+            content: Text('Designation is required! Please select a designation.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
         );
         return false;
       }
       if (_shiftId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Shift is required! Please select a shift.'))
+          const SnackBar(
+            content: Text('Shift is required! Please select a shift.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
         );
         return false;
       }
@@ -708,15 +871,64 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
       final baseSalary = double.tryParse(_baseSalaryCtrl.text.trim()) ?? 0.0;
       if (baseSalary <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Base Salary must be greater than zero! Please enter a valid base salary.'))
+          const SnackBar(
+            content: Text('Base Salary must be greater than zero! Please enter a valid base salary.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
+        );
+        return false;
+      }
+      if (baseSalary > 100000000) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Base Salary cannot exceed ₹100,000,000.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
+        );
+        return false;
+      }
+      final commission = double.tryParse(_commissionCtrl.text.trim()) ?? 0.0;
+      if (commission < 0 || commission > 100) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Commission % must be between 0% and 100%. If entering a target sales amount, use the Target Amount field below.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
+        );
+        return false;
+      }
+      final tgtAmt = double.tryParse(_commissionTargetAmountCtrl.text.trim()) ?? 0.0;
+      if (tgtAmt < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Commission Target Amount cannot be negative.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
         );
         return false;
       }
       if (_payStructureId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pay Grade (Pay Structure) is required! Please select a grade.'))
+          const SnackBar(
+            content: Text('Pay Grade (Pay Structure) is required! Please select a grade.'),
+            backgroundColor: Color(0xFFDC2626),
+          )
         );
         return false;
+      }
+    } else if (step == 4) {
+      for (final entry in _leaveQuotaControllers.entries) {
+        final text = entry.value.text.trim();
+        final quota = double.tryParse(text);
+        if (quota == null || quota < 0 || quota > 365) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Leave quota must be a valid number between 0 and 365 days.'),
+              backgroundColor: Color(0xFFDC2626),
+            )
+          );
+          return false;
+        }
       }
     }
     return true;
@@ -739,7 +951,7 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
   }
 
   Future<void> _save() async {
-    for (int step = 0; step < 4; step++) {
+    for (int step = 0; step <= 4; step++) {
       if (!_validateStep(step)) {
         setState(() {
           _currentStep = step;
@@ -1123,6 +1335,36 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionLabel('Work Details'),
+        _smartDropdown<int>(
+          label: 'Office / Branch *',
+          icon: Icons.location_city_rounded,
+          value: _officeId,
+          items: _offices,
+          labelKey: 'office_name',
+          emptyHint: 'No offices configured — tap to add',
+          addLabel: '+ Add New Office / Branch',
+          onAddNew: _quickAddOffice,
+          onChanged: (v) => setState(() => _officeId = v),
+        ),
+        const SizedBox(height: 12),
+        if (widget.employee == null) ...[
+          TextFormField(
+            controller: _passwordCtrl,
+            obscureText: _obscurePassword,
+            decoration: InputDecoration(
+              labelText: 'Initial Login Password *',
+              helperText: 'Temporary password sent to employee via welcome email',
+              prefixIcon: const Icon(Icons.lock_outline, size: 18),
+              suffixIcon: IconButton(
+                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, size: 18),
+                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+              ),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         _dateTile(
           label: 'Hire Date *',
           value: _fmtDate(_hireDate),
@@ -1644,10 +1886,16 @@ class _AddEmployeeFormState extends State<_AddEmployeeForm> {
 
     // Build item list: existing items + sentinel "Add New"
     final List<DropdownMenuItem<int>> menuItems = [
-      ...items.map((m) => DropdownMenuItem<int>(
-        value: m['id'] as int?,
-        child: Text(m[labelKey]?.toString() ?? ''),
-      )),
+      ...items.map((m) {
+        String title = m[labelKey]?.toString() ?? '';
+        if (m['office_code'] != null && m['office_code'].toString().isNotEmpty) {
+          title = '${m['office_code']} • $title';
+        }
+        return DropdownMenuItem<int>(
+          value: (m['id'] as num?)?.toInt(),
+          child: Text(title),
+        );
+      }),
       DropdownMenuItem<int>(
         value: _kAddNew,
         child: Row(
@@ -3049,7 +3297,7 @@ class _EmployeeDetailScreenState extends State<_EmployeeDetailScreen>
                     'remaining_balance': amount,
                     'notes': notesCtrl.text.trim(),
                     'payment_method': paymentMethod,
-                    'status': 'Active',
+                    'status': 'Pending',
                   });
                   Navigator.pop(ctx);
                   await _loadLoans();

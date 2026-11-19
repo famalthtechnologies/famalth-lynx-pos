@@ -199,6 +199,8 @@ models.assembly_headers =
 models.assembly_items =
     require('../../models/property/assemblyItem.model')(propertyDb_1.default, sequelize_1.DataTypes);
 // HRMS
+models.hr_offices =
+    require('../../models/property/hrOffice.model')(propertyDb_1.default, sequelize_1.DataTypes);
 models.hr_salary_components =
     require('../../models/property/hrSalaryComponent.model')(propertyDb_1.default, sequelize_1.DataTypes);
 models.hr_pay_structures =

@@ -492,7 +492,6 @@ export class BackupManagementController {
 
       const userOutletCode = String((req as any).outlet_code || req.user?.outlet_code || req.outlet?.outlet_code || req.outlet?.code || '');
 
-      const requestedScope = String(req.body?.scope || '').toUpperCase();
       if (requestedScope === 'ALL' && !isLoopback && !isCloud && !isMasterAdmin) {
         return res.status(403).json({
           success: false,

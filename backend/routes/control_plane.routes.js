@@ -70,6 +70,9 @@ router.get('/announcements/active', controlPlane_controller_1.default.getActiveA
 router.get('/maintenance-status', maintenance_controller_1.default.getStatus);
 router.post('/maintenance', maintenance_controller_1.default.setMaintenance);
 router.post('/maintenance/advance-notice', maintenance_controller_1.default.setAdvanceNotice);
+// 12. Real-Time Server Health & Telemetry
+router.get('/system/health', controlPlaneAuth_middleware_1.requireControlPlaneAuth, controlPlane_controller_1.default.getServerHealth);
+router.get('/server-health', controlPlaneAuth_middleware_1.requireControlPlaneAuth, controlPlane_controller_1.default.getServerHealth);
 /* ==========================================================================
    SUPPORT CONSOLE & DATA DOCTOR ROUTES (Outlet-Wise Helpdesk & Query Studio)
    ========================================================================== */

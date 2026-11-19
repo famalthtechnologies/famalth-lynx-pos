@@ -158,10 +158,24 @@ export async function sendMail({
   try {
     let config: any = null;
 
-    if (db && db.models && db.models.email_configurations && outlet_id) {
-      config = await db.models.email_configurations.findOne({
-        where: { outlet_id }
-      });
+    if (!db || !db.models) {
+      try {
+        db = require('../db/models/index');
+      } catch (e) {}
+    }
+
+    if (db && db.models && db.models.email_configurations) {
+      if (outlet_id) {
+        config = await db.models.email_configurations.findOne({
+          where: { outlet_id }
+        });
+      }
+      if (!config) {
+        config = await db.models.email_configurations.findOne({
+          where: { is_active: true },
+          order: [['id', 'DESC']]
+        });
+      }
     }
 
     const providerType = (config?.provider_type || process.env.EMAIL_PROVIDER || '').toString().toUpperCase();

@@ -8,7 +8,7 @@ module.exports = (sequelize, DataTypes) => {
         loan_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
         monthly_emi: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
         remaining_balance: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
-        status: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'Active' },
+        status: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'Pending' },
         notes: { type: DataTypes.TEXT, allowNull: true },
         created_by: { type: DataTypes.INTEGER, allowNull: false }
     }, {

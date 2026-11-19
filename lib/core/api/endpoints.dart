@@ -139,6 +139,15 @@ class ApiEndpoints {
   static const accountingProfitLoss = '/api/accounting/reports/profit-loss';
   static const accountingBalanceSheet = '/api/accounting/reports/balance-sheet';
   static const accountingBrs = '/api/accounting/reports/brs';
+
+  // Statutory Tax Compliance (GST & ITR) Endpoints
+  static const taxGstSummary = '/api/accounting/tax/gst-summary';
+  static const taxGstr1Export = '/api/accounting/tax/gstr1-export';
+  static const taxGspFileGstr1 = '/api/accounting/tax/gsp-file-gstr1';
+  static const taxItrSummary = '/api/accounting/tax/itr-summary';
+  static const taxItr4Export = '/api/accounting/tax/itr4-export';
+  static const taxConfig = '/api/accounting/tax/config';
+  static const taxFilings = '/api/accounting/tax/filings';
   static const sales = '/api/sales';
   static const commissionRules = '/api/sales/commission-rules';
   static const salesSchemes = '/api/sales/schemes';
@@ -184,6 +193,15 @@ class ApiEndpoints {
   static const paymentMethods = '/api/sales/payment-methods';
 
   // HRMS Endpoints
+  static const hrmsOffices = '/api/hrms/offices';
+  static const hrmsDashboardOverview = '/api/hrms/dashboard-overview';
+  static const hrmsEmployeePunch = '/api/hrms/employee/punch';
+  static const hrmsEmployeeProfile = '/api/hrms/employee/my-profile';
+  static const hrmsEmployeeLogin = '/api/hrms/employee-auth/login';
+  static const hrmsEmployeeForgotOtp = '/api/hrms/employee-auth/forgot-password/request-otp';
+  static const hrmsEmployeeResetPassword = '/api/hrms/employee-auth/forgot-password/reset';
+  static const hrmsEmployeeRequestLoan = '/api/hrms/employee/request-loan';
+  static const hrmsEmployeeRequestRaise = '/api/hrms/employee/request-salary-raise';
   static const hrmsEmployees = '/api/hrms/employees';
   static const hrmsAttendance = '/api/hrms/attendance';
   static const hrmsLeaves = '/api/hrms/leaves';

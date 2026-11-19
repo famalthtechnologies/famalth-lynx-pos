@@ -1,0 +1,10 @@
+const fs = require('fs');
+const file = 'lib/screens/hrms/employee_portal_screen.dart';
+let txt = fs.readFileSync(file, 'utf8');
+txt = txt.replace('TokenStorage.getToken()', 'TokenStorage.read()');
+txt = txt.replace('TokenStorage.saveToken(_employeeToken!)', 'TokenStorage.save(_employeeToken!)');
+txt = txt.replace('TokenStorage.clearToken()', 'TokenStorage.clear()');
+txt = txt.replace("import '../../core/currency/currency_service.dart';", "// import currency service");
+txt = txt.replace("final shiftName = _shiftData?['name'] ?? 'General Shift';", "// final shiftName = _shiftData?['name'] ?? 'General Shift';");
+fs.writeFileSync(file, txt, 'utf8');
+console.log('Fixed TokenStorage methods in employee_portal_screen.dart');

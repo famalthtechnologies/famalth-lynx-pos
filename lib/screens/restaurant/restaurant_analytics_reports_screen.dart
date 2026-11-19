@@ -384,12 +384,66 @@ class _RestaurantAnalyticsReportsScreenState
     return list;
   }
 
+  // Helper to intelligently resolve order type (Dine-In, Takeaway, NC, Delivery)
+  String _resolveSaleOrderType(SalesReport sale) {
+    final ot = sale.orderType.toUpperCase().trim();
+    final notes = sale.notes.toLowerCase();
+    final source = sale.saleSource.toLowerCase();
+
+    if (ot == 'NC' ||
+        sale.paymentMode.toUpperCase() == 'NC' ||
+        notes.contains('nc order') ||
+        notes.contains('complimentary') ||
+        notes.contains('no charge')) {
+      return 'NC';
+    }
+    if (ot.contains('TAKEAWAY') ||
+        ot.contains('TAKE_AWAY') ||
+        ot.contains('PARCEL') ||
+        ot.contains('PACKING') ||
+        notes.contains('takeaway') ||
+        notes.contains('parcel') ||
+        source.contains('takeaway')) {
+      return 'TAKEAWAY';
+    }
+    if (ot.contains('DELIVERY') || notes.contains('delivery') || source.contains('delivery')) {
+      return 'DELIVERY';
+    }
+    if (ot.contains('DINE') || ot.contains('TABLE') || notes.contains('table:') || notes.contains('table #')) {
+      return 'DINE_IN';
+    }
+
+    // Check matching KOT in loaded _kots
+    for (final kot in _kots) {
+      final int? saleHeaderId = kot['sales_header_id'] != null ? int.tryParse(kot['sales_header_id'].toString()) : null;
+      final String? kotSaleNo = kot['sales_header'] is Map ? kot['sales_header']['sale_no']?.toString() : null;
+      final String kotNo = (kot['kot_no'] ?? '').toString();
+      final bool matches = (saleHeaderId != null && saleHeaderId == sale.id) ||
+          (kotSaleNo != null && kotSaleNo == sale.saleNo) ||
+          (kotNo.isNotEmpty && notes.contains(kotNo.toLowerCase()));
+      if (matches) {
+        final String kt = (kot['kottype'] ?? kot['service_type'] ?? '').toString().toLowerCase();
+        final String s = (kot['status'] ?? '').toString().toLowerCase();
+        if (kt == 'nc' || s.contains('nc')) return 'NC';
+        if (kt == 'takeaway' || kt == 'packing' || kt == 'parcel') return 'TAKEAWAY';
+        if (kt == 'delivery') return 'DELIVERY';
+        return 'DINE_IN';
+      }
+    }
+
+    // Default restaurant sale in Restaurant Analytics fallback to DINE_IN
+    return 'DINE_IN';
+  }
+
   // 7. Takeaway / Order Type Rows
   List<_AggRow> get _takeawayRows {
-    final Map<String, _AggRow> map = {};
+    final Map<String, _AggRow> map = {
+      'DINE_IN': const _AggRow(name: 'DINE_IN', group: 'Dine-In Restaurant'),
+      'TAKEAWAY': const _AggRow(name: 'TAKEAWAY', group: 'Takeaway / Parcel'),
+    };
     for (final sale in _sales) {
-      final type = sale.orderType.trim().isEmpty ? 'DINE_IN' : sale.orderType.toUpperCase();
-      final current = map[type] ?? _AggRow(name: type);
+      final type = _resolveSaleOrderType(sale);
+      final current = map[type] ?? _AggRow(name: type, group: type == 'NC' ? 'NC / Complimentary' : (type == 'DELIVERY' ? 'Home Delivery' : type));
       map[type] = current.copyWith(
         amount: current.amount + sale.netAmount,
         count: current.count + 1,
@@ -426,8 +480,8 @@ class _RestaurantAnalyticsReportsScreenState
         double ncQty = 0;
         if (kot['items'] is List) {
           for (final it in kot['items']) {
-            final q = double.tryParse((it['qty'] ?? 1).toString()) ?? 1.0;
-            final r = double.tryParse((it['rate'] ?? it['price'] ?? 0).toString()) ?? 0.0;
+            final q = double.tryParse((it['quantity'] ?? it['qty'] ?? 1).toString()) ?? 1.0;
+            final r = double.tryParse((it['rate'] ?? it['price'] ?? it['item_rate'] ?? (it['item'] is Map ? (it['item']['retail_sale_price'] ?? it['item']['rate'] ?? it['item']['mrp'] ?? 0) : 0)).toString()) ?? 0.0;
             ncQty += q;
             if (ncTotal <= 0) ncTotal += (q * r);
           }
@@ -601,8 +655,8 @@ class _RestaurantAnalyticsReportsScreenState
     double delivery = 0;
     double nc = 0;
     for (final sale in _sales) {
-      final type = sale.orderType.toUpperCase();
-      if (type == 'NC' || sale.paymentMode.toUpperCase() == 'NC') {
+      final type = _resolveSaleOrderType(sale);
+      if (type == 'NC') {
         nc += sale.netAmount;
       } else if (type == 'TAKEAWAY') {
         takeaway += sale.netAmount;
@@ -800,10 +854,14 @@ class _RestaurantAnalyticsReportsScreenState
   Widget build(BuildContext context) {
     final activeRows = _getCurrentActiveRows();
     final double grandTotalRevenue = activeRows.fold(0.0, (s, r) => s + r.amount);
+    final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Restaurant Analytics & Sales Reports'),
+        title: Text(
+          isMobile ? 'Restaurant Analytics' : 'Restaurant Analytics & Sales Reports',
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
             tooltip: 'Export Excel',
@@ -826,58 +884,90 @@ class _RestaurantAnalyticsReportsScreenState
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.all(isMobile ? 12 : 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildOutletScopeSelector(),
                   // 1. Top Filters
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: Wrap(
-                      spacing: 16,
-                      runSpacing: 16,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        _dateField('From Date', _fromCtrl, _pickFromDate),
-                        _dateField('To Date', _toCtrl, _pickToDate),
-                        SizedBox(
-                          width: 240,
-                          child: TextField(
-                            controller: _searchCtrl,
-                            onChanged: (_) => setState(() {}),
-                            decoration: InputDecoration(
-                              labelText: 'Filter Reports',
-                              hintText: 'Search menu item, waiter, table...',
-                              prefixIcon: const Icon(Icons.search),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
+                    child: isMobile
+                        ? Column(
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(child: _dateField('From Date', _fromCtrl, _pickFromDate)),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: _dateField('To Date', _toCtrl, _pickToDate)),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: _searchCtrl,
+                                onChanged: (_) => setState(() {}),
+                                decoration: InputDecoration(
+                                  labelText: 'Filter Reports',
+                                  hintText: 'Search menu item, waiter, table...',
+                                  prefixIcon: const Icon(Icons.search, size: 20),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ],
+                          )
+                        : Wrap(
+                            spacing: 16,
+                            runSpacing: 16,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              _dateField('From Date', _fromCtrl, _pickFromDate, 170),
+                              _dateField('To Date', _toCtrl, _pickToDate, 170),
+                              SizedBox(
+                                width: 240,
+                                child: TextField(
+                                  controller: _searchCtrl,
+                                  onChanged: (_) => setState(() {}),
+                                  decoration: InputDecoration(
+                                    labelText: 'Filter Reports',
+                                    hintText: 'Search menu item, waiter, table...',
+                                    prefixIcon: const Icon(Icons.search),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
 
                   // 2. Executive KPI Cards
-                  Wrap(
-                    spacing: 14,
-                    runSpacing: 14,
-                    children: [
-                      SizedBox(width: 230, child: _kpiCard('Total Revenue', _money(grandTotalRevenue), Icons.account_balance_wallet, const Color(0xFF16A34A))),
-                      SizedBox(width: 230, child: _kpiCard('Total Active Categories', '${_categoryRows.length}', Icons.category, const Color(0xFF2563EB))),
-                      SizedBox(width: 230, child: _kpiCard('Dine-In Sales', _money(_takeawayRows.firstWhere((r) => r.name == 'DINE_IN', orElse: () => const _AggRow(name: 'DINE_IN')).amount), Icons.restaurant, const Color(0xFF0F766E))),
-                      SizedBox(width: 230, child: _kpiCard('Takeaway Sales', _money(_takeawayRows.firstWhere((r) => r.name == 'TAKEAWAY', orElse: () => const _AggRow(name: 'TAKEAWAY')).amount), Icons.takeout_dining, const Color(0xFFEA580C))),
-                      SizedBox(width: 230, child: _kpiCard('NC Consumption', _money(_ncRows.fold(0.0, (s, r) => s + r.amount)), Icons.card_giftcard, const Color(0xFF7C3AED))),
-                    ],
+                  Builder(
+                    builder: (context) {
+                      final double screenWidth = MediaQuery.of(context).size.width;
+                      final double kpiWidth = isMobile ? ((screenWidth - 24 - 10) / 2).floorToDouble() : 230.0;
+                      final double fullMobileWidth = screenWidth - 24;
+
+                      return Wrap(
+                        spacing: isMobile ? 10 : 14,
+                        runSpacing: isMobile ? 10 : 14,
+                        children: [
+                          SizedBox(width: kpiWidth, child: _kpiCard('Total Revenue', _money(grandTotalRevenue), Icons.account_balance_wallet, const Color(0xFF16A34A))),
+                          SizedBox(width: kpiWidth, child: _kpiCard('Active Categories', '${_categoryRows.length}', Icons.category, const Color(0xFF2563EB))),
+                          SizedBox(width: kpiWidth, child: _kpiCard('Dine-In Sales', _money(_takeawayRows.firstWhere((r) => r.name == 'DINE_IN', orElse: () => const _AggRow(name: 'DINE_IN')).amount), Icons.restaurant, const Color(0xFF0F766E))),
+                          SizedBox(width: kpiWidth, child: _kpiCard('Takeaway Sales', _money(_takeawayRows.firstWhere((r) => r.name == 'TAKEAWAY', orElse: () => const _AggRow(name: 'TAKEAWAY')).amount), Icons.takeout_dining, const Color(0xFFEA580C))),
+                          SizedBox(width: isMobile ? fullMobileWidth : 230.0, child: _kpiCard('NC Consumption', _money(_ncRows.fold(0.0, (s, r) => s + r.amount)), Icons.card_giftcard, const Color(0xFF7C3AED))),
+                        ],
+                      );
+                    },
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
 
                   // 3. Category Tab Bar
                   SingleChildScrollView(
@@ -1005,26 +1095,27 @@ class _RestaurantAnalyticsReportsScreenState
     );
   }
 
-  Widget _dateField(String label, TextEditingController controller, VoidCallback onTap) {
-    return SizedBox(
-      width: 170,
-      child: TextField(
-        controller: controller,
-        readOnly: true,
-        onTap: onTap,
-        decoration: InputDecoration(
-          labelText: label,
-          suffixIcon: const Icon(Icons.calendar_month_outlined, size: 18),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        ),
+  Widget _dateField(String label, TextEditingController controller, VoidCallback onTap, [double? width]) {
+    final field = TextField(
+      controller: controller,
+      readOnly: true,
+      onTap: onTap,
+      decoration: InputDecoration(
+        labelText: label,
+        suffixIcon: const Icon(Icons.calendar_month_outlined, size: 18),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
+    if (width != null) {
+      return SizedBox(width: width, child: field);
+    }
+    return field;
   }
 
   Widget _kpiCard(String title, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -1033,21 +1124,22 @@ class _RestaurantAnalyticsReportsScreenState
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: color, size: 24),
+            child: Icon(icon, color: color, size: 20),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(title, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                const SizedBox(height: 4),
-                Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF1E293B))),
+                Text(title, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 2),
+                Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF1E293B)), maxLines: 1, overflow: TextOverflow.ellipsis),
               ],
             ),
           ),

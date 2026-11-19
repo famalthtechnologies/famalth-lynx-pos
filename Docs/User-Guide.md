@@ -90,10 +90,10 @@ flowchart LR
 
 ## 🛠️ System Administration & Setup References
 
-- ⚙️ **[Settings Guide](./Settings-Guide.md)** — Thermal printer layouts, invoice numbering sequences, and company legal info.
-- 📥 **[Retailer Installation & Update Guide](./Retailer-Installation-Guide.md)** — Installing new cashier terminals and software updates.
-- 🛡️ **[Owner Recovery & Data Safety Guide](./Owner-Recovery-Sync-Data-Protection-Guide.md)** — Master PIN recovery, OTP login resets, and Google Drive backups.
-- 📁 **[Config and Sync Files Guide](./Config-And-Sync-Files-Guide.md)** — Client configuration reference for `server_config.json`.
+- ⚙️ **[Settings Guide](./Settings-Guide.md)** - Thermal printer layouts, invoice numbering sequences, and company legal info.
+- 📥 **[Retailer Installation & Update Guide](./Retailer-Installation-Guide.md)** - Installing new cashier terminals and software updates.
+- 🛡️ **[Owner Recovery & Data Safety Guide](./Owner-Recovery-Sync-Data-Protection-Guide.md)** - Master PIN recovery, OTP login resets, and Google Drive backups.
+- 📁 **[Config and Sync Files Guide](./Config-And-Sync-Files-Guide.md)** - Client configuration reference for `server_config.json`.
 
 ---
 

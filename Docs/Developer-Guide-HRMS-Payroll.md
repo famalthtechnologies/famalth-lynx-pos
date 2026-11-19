@@ -90,26 +90,26 @@ flowchart TD
 Mounted under `/api/hrms` (Requires JWT & Property Context):
 
 ### 1. Masters Endpoints
-- `GET /api/hrms/salary-components` — Retrieve earning/deduction definitions.
-- `POST /api/hrms/salary-components` — Create salary component.
-- `GET /api/hrms/shifts` — List configured work shifts.
-- `POST /api/hrms/shifts` — Create new shift timing.
-- `GET /api/hrms/leave-types` — List configured leave categories & annual quotas.
-- `GET /api/hrms/designations` — List company designations.
+- `GET /api/hrms/salary-components` - Retrieve earning/deduction definitions.
+- `POST /api/hrms/salary-components` - Create salary component.
+- `GET /api/hrms/shifts` - List configured work shifts.
+- `POST /api/hrms/shifts` - Create new shift timing.
+- `GET /api/hrms/leave-types` - List configured leave categories & annual quotas.
+- `GET /api/hrms/designations` - List company designations.
 
 ### 2. Employee Endpoints
-- `GET /api/hrms/employees` — List all employees with pagination & department filters.
-- `GET /api/hrms/employees/next-code` — Auto-generate next sequential employee ID.
-- `GET /api/hrms/employees/:id` — Retrieve full employee profile with compensation history.
-- `POST /api/hrms/employees` — Onboard new employee.
-- `PUT /api/hrms/employees/:id` — Update employee profile or department transfer.
+- `GET /api/hrms/employees` - List all employees with pagination & department filters.
+- `GET /api/hrms/employees/next-code` - Auto-generate next sequential employee ID.
+- `GET /api/hrms/employees/:id` - Retrieve full employee profile with compensation history.
+- `POST /api/hrms/employees` - Onboard new employee.
+- `PUT /api/hrms/employees/:id` - Update employee profile or department transfer.
 
 ### 3. Attendance & Payroll Endpoints
-- `POST /api/hrms/attendance/punch` — Record punch-in or punch-out event.
-- `GET /api/hrms/attendance/daily-grid` — Retrieve daily presence grid for outlet.
-- `POST /api/hrms/payroll/calculate` — Execute automated monthly gross-to-net salary run.
-- `POST /api/hrms/payroll/finalize` — Finalize payroll and post expense entries to General Ledger.
-- `GET /api/hrms/payroll/payslip/:id/pdf` — Render authenticated employee payslip PDF.
+- `POST /api/hrms/attendance/punch` - Record punch-in or punch-out event.
+- `GET /api/hrms/attendance/daily-grid` - Retrieve daily presence grid for outlet.
+- `POST /api/hrms/payroll/calculate` - Execute automated monthly gross-to-net salary run.
+- `POST /api/hrms/payroll/finalize` - Finalize payroll and post expense entries to General Ledger.
+- `GET /api/hrms/payroll/payslip/:id/pdf` - Render authenticated employee payslip PDF.
 
 ---
 

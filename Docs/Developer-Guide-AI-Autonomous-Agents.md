@@ -91,14 +91,14 @@ Mounted at `/api/v1/intelligence/recommendations`:
 
 ## 📡 REST API Endpoint Specifications
 
-- `POST /api/ai-assist/chat` — Submit conversational prompt to Lynx AI.
-- `POST /api/ai-assist/voice-command` — Dispatch transcribed voice shortcut.
-- `GET /api/v1/agent/proposals` — Retrieve pending autonomous agent proposals.
-- `POST /api/v1/agent/proposals/:id/approve` — Approve and execute agent proposal.
-- `POST /api/v1/agent/proposals/:id/reject` — Reject proposal with feedback reason.
-- `GET /api/v1/agent/audit-logs` — Full audit trail of all agent actions.
-- `GET /api/v1/intelligence/recommendations` — Fetch live basket recommendations for current POS cart.
-- `GET /api/v1/intelligence/customer-insights/:id` — Retrieve RFM (Recency, Frequency, Monetary) analytics for customer.
+- `POST /api/ai-assist/chat` - Submit conversational prompt to Lynx AI.
+- `POST /api/ai-assist/voice-command` - Dispatch transcribed voice shortcut.
+- `GET /api/v1/agent/proposals` - Retrieve pending autonomous agent proposals.
+- `POST /api/v1/agent/proposals/:id/approve` - Approve and execute agent proposal.
+- `POST /api/v1/agent/proposals/:id/reject` - Reject proposal with feedback reason.
+- `GET /api/v1/agent/audit-logs` - Full audit trail of all agent actions.
+- `GET /api/v1/intelligence/recommendations` - Fetch live basket recommendations for current POS cart.
+- `GET /api/v1/intelligence/customer-insights/:id` - Retrieve RFM (Recency, Frequency, Monetary) analytics for customer.
 
 ---
 

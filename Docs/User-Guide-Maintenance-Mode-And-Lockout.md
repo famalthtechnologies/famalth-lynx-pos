@@ -17,7 +17,7 @@ This guide is written for **Store Owners, Cashiers, Branch Managers, and DevOps 
 
 ## 1. What is System Maintenance Mode & Why is it Used?
 
-During critical server operations—such as database schema upgrades, major version updates, cloud data synchronization, or server hardware maintenance—writing new invoices or stock movements can lead to corrupted ledgers or mismatched inventory numbers.
+During critical server operations-such as database schema upgrades, major version updates, cloud data synchronization, or server hardware maintenance-writing new invoices or stock movements can lead to corrupted ledgers or mismatched inventory numbers.
 
 To guarantee **100% data integrity**, Famalth Lynx provides an automated **Two-Stage Maintenance Safeguard**:
 

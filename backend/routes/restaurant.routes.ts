@@ -104,5 +104,12 @@ router.post('/dining/resolve-waiter-call', diningCtrl.resolveWaiterCall);
 router.post('/tables/:id/assistance', diningCtrl.callTableWaiter);
 router.post('/tables/assistance/resolve', diningCtrl.resolveWaiterCall);
 
+// Restaurant Petty Cash / Non-Recurring Expenses
+const advancedFinanceCtrl = require('../controllers/finance/advancedFinance.controller');
+router.get('/expenses', advancedFinanceCtrl.getExpenseReport);
+router.post('/expenses', advancedFinanceCtrl.createExpense);
+router.put('/expenses/:id', advancedFinanceCtrl.updateExpense);
+router.delete('/expenses/:id', advancedFinanceCtrl.deleteExpense);
+
 module.exports = router;
 export default router;

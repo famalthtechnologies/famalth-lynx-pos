@@ -62,6 +62,10 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
   bool isLoadingItems = false;
 
   final ScrollController _categoryScrollController = ScrollController();
+  final ScrollController _menuGridScrollController = ScrollController();
+  int _menuPage = 1;
+  bool _isLoadingMoreMenu = false;
+  bool _hasMoreMenu = true;
 
   // Order Meta Bar details
   String _kotNumber = 'Fetching...';
@@ -80,6 +84,7 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
   @override
   void initState() {
     super.initState();
+    _menuGridScrollController.addListener(_onMenuGridScroll);
     _clientTag = (widget.clientTag != null && widget.clientTag!.isNotEmpty) ? widget.clientTag! : 'Bill 1';
     if (!_availableClientTags.contains(_clientTag)) {
       _availableClientTags.add(_clientTag);
@@ -193,8 +198,19 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
     }
   }
 
+  void _onMenuGridScroll() {
+    if (!_menuGridScrollController.hasClients) return;
+    if (_menuGridScrollController.position.pixels >= _menuGridScrollController.position.maxScrollExtent - 250 &&
+        !_isLoadingMoreMenu &&
+        _hasMoreMenu) {
+      _loadMoreMenuItems();
+    }
+  }
+
   @override
   void dispose() {
+    _menuGridScrollController.removeListener(_onMenuGridScroll);
+    _menuGridScrollController.dispose();
     _clockTimer?.cancel();
     _categoryScrollController.dispose();
     settingsCtrl.dispose();
@@ -722,10 +738,14 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
   }
 
   Future<void> _fetchItems() async {
-    setState(() => isLoadingItems = true);
+    setState(() {
+      isLoadingItems = true;
+      _menuPage = 1;
+    });
     try {
-      final res = await ApiClient.get(ApiEndpoints.items);
+      final res = await ApiClient.get('${ApiEndpoints.items}?page=1&limit=50');
       final List rawData = res['data'] ?? [];
+      final bool hasMore = res['hasMore'] ?? (rawData.length >= 50);
       // Filter out non-saleable items (e.g. raw materials like Mozzarella Cheese Raw) and inactive items
       final List data = rawData.where((item) {
         final bool isSaleable = item['is_saleable'] != false &&
@@ -761,11 +781,61 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
         filteredItems = data;
         categories = cats.toList();
         _activeSchemes = schemesList;
+        _hasMoreMenu = hasMore;
       });
+      _applyFilter();
     } catch (e) {
       debugPrint('Error loading items: $e');
     } finally {
-      setState(() => isLoadingItems = false);
+      if (mounted) setState(() => isLoadingItems = false);
+    }
+  }
+
+  Future<void> _loadMoreMenuItems() async {
+    if (_isLoadingMoreMenu || !_hasMoreMenu) return;
+    setState(() => _isLoadingMoreMenu = true);
+    final nextPage = _menuPage + 1;
+    try {
+      final res = await ApiClient.get('${ApiEndpoints.items}?page=$nextPage&limit=50');
+      final List rawData = res['data'] ?? [];
+      final bool hasMore = res['hasMore'] ?? (rawData.length >= 50);
+      final List data = rawData.where((item) {
+        final bool isSaleable = item['is_saleable'] != false &&
+            item['is_saleable'] != 0 &&
+            item['is_saleable'].toString().toLowerCase() != 'false' &&
+            item['is_saleable'].toString().toLowerCase() != 'no' &&
+            item['is_saleable'].toString() != '0';
+        final bool isActive = item['is_active'] != false &&
+            item['is_active'] != 0 &&
+            item['is_active'].toString().toLowerCase() != 'false' &&
+            item['is_active'].toString() != '0';
+        return isSaleable && isActive;
+      }).toList();
+
+      final existingIds = allItems.map((e) => (e is Map ? e['id'] : e.id)).toSet();
+      final newItems = <dynamic>[];
+      for (final item in data) {
+        final id = (item is Map ? item['id'] : item.id);
+        if (!existingIds.contains(id)) {
+          newItems.add(item);
+          final cat = item['category']?.toString() ?? item['item_group']?.toString();
+          if (cat != null && cat.isNotEmpty && !categories.contains(cat)) {
+            categories.add(cat);
+          }
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _menuPage = nextPage;
+        _hasMoreMenu = hasMore;
+        allItems.addAll(newItems);
+      });
+      _applyFilter();
+    } catch (e) {
+      debugPrint('Error loading more menu items: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingMoreMenu = false);
     }
   }
 
@@ -1811,14 +1881,18 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
                                               ? 1.0
                                               : (cellWidth / targetHeight).clamp(0.4, 3.0);
 
-                                          return GridView.builder(
-                                            padding: const EdgeInsets.all(12),
-                                            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                              crossAxisCount: crossAxisCount,
-                                              mainAxisSpacing: spacing,
-                                              crossAxisSpacing: spacing,
-                                              childAspectRatio: childAspectRatio,
-                                            ),
+                                          return Column(
+                                            children: [
+                                              Expanded(
+                                                child: GridView.builder(
+                                                  controller: _menuGridScrollController,
+                                                  padding: const EdgeInsets.all(12),
+                                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                                    crossAxisCount: crossAxisCount,
+                                                    mainAxisSpacing: spacing,
+                                                    crossAxisSpacing: spacing,
+                                                    childAspectRatio: childAspectRatio,
+                                                  ),
                                             itemCount: filteredItems.length,
                                             itemBuilder: (context, idx) {
                                               final item = filteredItems[idx];
@@ -2099,7 +2173,23 @@ class _KotBuilderScreenState extends State<KotBuilderScreen> {
                                                 ),
                                               );
                                             },
-                                          );
+                                          ),
+                                        ),
+                                        if (_isLoadingMoreMenu)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(vertical: 8),
+                                            color: const Color(0xFFF1F5F9),
+                                            child: const Row(
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFF7A1A))),
+                                                SizedBox(width: 8),
+                                                Text('Loading 50 more menu items...', style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                                              ],
+                                            ),
+                                          ),
+                                      ],
+                                    );
                                         },
                                       ),
                           )

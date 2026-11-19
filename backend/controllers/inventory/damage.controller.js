@@ -61,14 +61,18 @@ const createDamage = async (req, res) => {
             approval_status: header.approval_status || 'PENDING'
         }, { transaction: t });
         for (const row of items) {
-            const amount = row.qty * row.rate;
+            const rawQty = Number(row.qty ?? row.quantity ?? 0);
+            const rate = Number(row.rate ?? 0);
+            const rawAmt = Number(row.amount != null && !isNaN(Number(row.amount)) ? row.amount : 0);
+            const qty = rawQty > 0 ? rawQty : (rawAmt > 0 && rate > 0 ? (rawAmt / rate) : 1);
+            const amount = rawAmt > 0 ? rawAmt : (qty * rate);
             total += amount;
             await req.propertyDb.models.damage_items.create({
                 damage_id: damage.id,
                 item_id: row.item_id,
-                qty: row.qty,
-                rate: row.rate,
-                remarks: row.remarks,
+                qty: qty,
+                rate: rate,
+                remarks: row.remarks || row.reason || '',
                 amount
             }, { transaction: t });
             await req.propertyDb.models.system_notifications.create({

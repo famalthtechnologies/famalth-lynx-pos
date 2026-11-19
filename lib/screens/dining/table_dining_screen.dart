@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/endpoints.dart';
-import '../../core/auth/token_storage.dart';
 import '../../core/config/app_config.dart';
 import '../../core/currency/currency_service.dart';
 import '../../widgets/app_setup_qr_dialog.dart';
@@ -73,6 +72,12 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchQuery = '';
 
+  // Pagination & Continuous Batch Scrolling (20 items per batch)
+  final ScrollController _mainScrollController = ScrollController();
+  static const int _pageSize = 20;
+  int _displayedItemLimit = 20;
+  bool _isLoadingMoreItems = false;
+
   // Order & Payment
   String _paymentMethod = 'PAY_LATER'; // 'PAY_LATER' | 'ONLINE'
   final TextEditingController _specialInstructionsCtrl = TextEditingController();
@@ -91,8 +96,12 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     _selectedTableName = (widget.tableName != null && widget.tableName!.isNotEmpty) ? widget.tableName! : (_selectedTableId.isNotEmpty ? 'Table $_selectedTableId' : '');
     _currentSeat = widget.seatNumber;
     _currentClientTag = widget.clientTag ?? (_currentSeat != null && _currentSeat!.isNotEmpty ? 'Bill $_currentSeat' : null);
+    _mainScrollController.addListener(_handleContinuousScroll);
     _searchCtrl.addListener(() {
-      setState(() => _searchQuery = _searchCtrl.text.toLowerCase().trim());
+      setState(() {
+        _searchQuery = _searchCtrl.text.toLowerCase().trim();
+        _displayedItemLimit = _pageSize;
+      });
     });
     _loadAvailableTables();
     _initializeDiningSession();
@@ -105,8 +114,34 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
     });
   }
 
+  void _handleContinuousScroll() {
+    if (_currentMainTab != 0) return;
+    if (!_mainScrollController.hasClients) return;
+
+    final maxScroll = _mainScrollController.position.maxScrollExtent;
+    final currentScroll = _mainScrollController.position.pixels;
+    if (maxScroll - currentScroll <= 350 && !_isLoadingMoreItems) {
+      final totalFiltered = _getFilteredItems().length;
+      if (_displayedItemLimit < totalFiltered) {
+        setState(() {
+          _isLoadingMoreItems = true;
+        });
+        Future.delayed(const Duration(milliseconds: 150), () {
+          if (mounted) {
+            setState(() {
+              _displayedItemLimit = (_displayedItemLimit + _pageSize).clamp(0, totalFiltered);
+              _isLoadingMoreItems = false;
+            });
+          }
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
+    _mainScrollController.removeListener(_handleContinuousScroll);
+    _mainScrollController.dispose();
     _liveOrdersPollTimer?.cancel();
     _searchCtrl.dispose();
     _specialInstructionsCtrl.dispose();
@@ -1655,6 +1690,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
         child: Stack(
           children: [
             CustomScrollView(
+              controller: _mainScrollController,
               slivers: [
                 // 1. RESTAURANT & TABLE HEADER
                 SliverToBoxAdapter(
@@ -2306,6 +2342,11 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
   // --- FOOD MENU SLIVERS ---
 
   List<Widget> _buildFoodMenuSlivers(List<dynamic> filteredItems, String currency) {
+    final int totalCount = filteredItems.length;
+    final int visibleCount = totalCount.clamp(0, _displayedItemLimit);
+    final visibleItems = filteredItems.take(visibleCount).toList();
+    final bool hasMore = visibleCount < totalCount;
+
     return [
       // Search & Dietary Filter
       SliverToBoxAdapter(
@@ -2319,7 +2360,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
 
       // Food Catalog List
       SliverPadding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         sliver: filteredItems.isEmpty
             ? const SliverToBoxAdapter(
                 child: Padding(
@@ -2332,13 +2373,47 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
             : SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
-                    final item = filteredItems[index];
+                    final item = visibleItems[index];
                     return _buildFoodItemCard(item, currency);
                   },
-                  childCount: filteredItems.length,
+                  childCount: visibleItems.length,
                 ),
               ),
       ),
+
+      // Continuous Scrolling Progress Indicator when more items exist
+      if (hasMore)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(primaryOrange),
+                ),
+              ),
+            ),
+          ),
+        )
+      else if (filteredItems.isNotEmpty && totalCount > _pageSize)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 90),
+            child: Center(
+              child: Text(
+                'Showing all $totalCount items',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8), fontWeight: FontWeight.w500),
+              ),
+            ),
+          ),
+        )
+      else
+        const SliverToBoxAdapter(
+          child: SizedBox(height: 80),
+        ),
     ];
   }
 
@@ -2731,20 +2806,30 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: primaryOrange.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: primaryOrange.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Icon(Icons.receipt_long, size: 14, color: primaryOrange),
                     ),
-                    child: const Icon(Icons.receipt_long, size: 14, color: primaryOrange),
-                  ),
-                  const SizedBox(width: 6),
-                  Text('KOT #$kotNo', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: darkBg)),
-                ],
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'KOT #$kotNo',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: darkBg),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
@@ -2946,33 +3031,40 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: primaryOrange.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(6),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: primaryOrange.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Icon(Icons.receipt_long, size: 14, color: primaryOrange),
                         ),
-                        child: const Icon(Icons.receipt_long, size: 14, color: primaryOrange),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        billNo.isNotEmpty ? 'Bill #$billNo (KOT #$kotNo)' : 'KOT #$kotNo',
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: darkBg),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _formatOrderTime(createdTimeStr),
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                  ),
-                ],
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            billNo.isNotEmpty ? 'Bill #$billNo (KOT #$kotNo)' : 'KOT #$kotNo',
+                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5, color: darkBg),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _formatOrderTime(createdTimeStr),
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
@@ -4618,6 +4710,7 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
       onSelected: (sel) {
         setState(() {
           _dietaryFilter = sel ? value : 'ALL';
+          _displayedItemLimit = _pageSize;
         });
       },
     );
@@ -4637,7 +4730,10 @@ class _TableDiningScreenState extends State<TableDiningScreen> with SingleTicker
           final isSelected = _selectedCategory == cat;
 
           return InkWell(
-            onTap: () => setState(() => _selectedCategory = cat),
+            onTap: () => setState(() {
+              _selectedCategory = cat;
+              _displayedItemLimit = _pageSize;
+            }),
             borderRadius: BorderRadius.circular(10),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),

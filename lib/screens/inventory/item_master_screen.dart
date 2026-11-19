@@ -24,6 +24,7 @@ import '../../models/inventory/settings/master_model.dart';
 import '../../utils/inclusive_rate_helper.dart';
 import '../../widgets/entry_shortcuts.dart';
 import 'item_barcode_manager_screen.dart';
+import '../../core/printing/official_rate_list_printer.dart';
 import 'stock_transfer_screen.dart';
 import 'stock_taking_screen.dart';
 import 'bom_setup_dialog.dart';
@@ -347,7 +348,7 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
     if (!_tableVerticalController.hasClients) return;
     final maxScroll = _tableVerticalController.position.maxScrollExtent;
     final currentScroll = _tableVerticalController.position.pixels;
-    // Auto load next 50 reel-style when user scrolls near the bottom
+    // Auto load next 50 items when user scrolls near the bottom
     if (currentScroll >= maxScroll - 200) {
       _loadMoreItems();
     }
@@ -1751,6 +1752,17 @@ class _ItemMasterScreenState extends State<ItemMasterScreen> {
                   ),
                 ),
               ],
+            ),
+            IconButton(
+              icon: const Icon(Icons.print_rounded),
+              tooltip: 'Print Official Rate List (Inspection Schedule)',
+              onPressed: () {
+                OfficialRateListPrinter.showPrintOptionsDialog(
+                  context: context,
+                  currentItems: _filtered,
+                  currentCategory: _selectedGroup?.groupName,
+                );
+              },
             ),
             IconButton(
               icon: const Icon(Icons.qr_code_2),

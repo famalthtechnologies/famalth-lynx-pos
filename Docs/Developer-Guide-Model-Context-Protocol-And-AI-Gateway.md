@@ -197,28 +197,28 @@ The server automatically compiles and serves runtime specs dynamically matched t
 Mounted on `/api/v1/developer` via `backend/routes/developer.routes.ts`:
 
 ### API Keys & OAuth
-- `GET /api/v1/developer/api-keys` — List active developer credentials.
-- `POST /api/v1/developer/api-keys` — Issue new API Key & Client Secret.
-- `DELETE /api/v1/developer/api-keys/:id` — Revoke developer credentials.
-- `GET/POST /api/v1/developer/oauth/authorize` — OAuth 2.0 authorization code issuance.
-- `POST /api/v1/developer/oauth/token` — OAuth 2.0 token exchange (code exchange & client credentials).
-- `GET /api/v1/developer/.well-known/oauth-authorization-server` — RFC 8414 server metadata.
+- `GET /api/v1/developer/api-keys` - List active developer credentials.
+- `POST /api/v1/developer/api-keys` - Issue new API Key & Client Secret.
+- `DELETE /api/v1/developer/api-keys/:id` - Revoke developer credentials.
+- `GET/POST /api/v1/developer/oauth/authorize` - OAuth 2.0 authorization code issuance.
+- `POST /api/v1/developer/oauth/token` - OAuth 2.0 token exchange (code exchange & client credentials).
+- `GET /api/v1/developer/.well-known/oauth-authorization-server` - RFC 8414 server metadata.
 
 ### Model Context Protocol (MCP) Transports
-- `POST /api/v1/developer/mcp` — Standard JSON-RPC 2.0 endpoint.
-- `GET /api/v1/developer/mcp/sse` — Server-Sent Events stream for remote MCP clients.
-- `POST /api/v1/developer/mcp/messages` — SSE message delivery endpoint.
-- `GET /api/v1/developer/mcp/tools` — JSON list of all available tool schemas.
-- `GET /api/v1/developer/mcp/config` — Server diagnostics, uptime, and MCP capabilities.
-- `GET /api/v1/developer/mcp/chatgpt-openapi.json` — OpenAPI 3.0 specification for Custom GPTs.
-- `GET /api/v1/developer/mcp/gemini-tools.json` — Google Gemini tool calling declarations.
+- `POST /api/v1/developer/mcp` - Standard JSON-RPC 2.0 endpoint.
+- `GET /api/v1/developer/mcp/sse` - Server-Sent Events stream for remote MCP clients.
+- `POST /api/v1/developer/mcp/messages` - SSE message delivery endpoint.
+- `GET /api/v1/developer/mcp/tools` - JSON list of all available tool schemas.
+- `GET /api/v1/developer/mcp/config` - Server diagnostics, uptime, and MCP capabilities.
+- `GET /api/v1/developer/mcp/chatgpt-openapi.json` - OpenAPI 3.0 specification for Custom GPTs.
+- `GET /api/v1/developer/mcp/gemini-tools.json` - Google Gemini tool calling declarations.
 
 ### Direct Action Endpoints
-- `POST /api/v1/developer/mcp/tools/execute` — Execute any tool directly by name.
-- `POST /api/v1/developer/mcp/tools/analyze-sales` — Direct sales analytics execution.
-- `POST /api/v1/developer/mcp/tools/create-order-bill` — Direct POS order billing.
-- `POST /api/v1/developer/mcp/tools/inventory-status` — Direct stock status execution.
-- `POST /api/v1/developer/mcp/tools/search-products` — Direct product search.
+- `POST /api/v1/developer/mcp/tools/execute` - Execute any tool directly by name.
+- `POST /api/v1/developer/mcp/tools/analyze-sales` - Direct sales analytics execution.
+- `POST /api/v1/developer/mcp/tools/create-order-bill` - Direct POS order billing.
+- `POST /api/v1/developer/mcp/tools/inventory-status` - Direct stock status execution.
+- `POST /api/v1/developer/mcp/tools/search-products` - Direct product search.
 
 ---
 

@@ -242,7 +242,7 @@ export const modifyRequest = async (req: Request, res: Response) => {
             where: { request_id: id },
             transaction: t
         });
-        const existingById = new Map(existingItems.map((item: any) => [String(item.id), item]));
+        const existingById = new Map<string, any>(existingItems.map((item: any) => [String(item.id), item]));
         const normalizedItems = items.map((item: any) => {
             const existingItem = item.id ? existingById.get(String(item.id)) : null;
             return {

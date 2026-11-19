@@ -654,9 +654,17 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
         final dateParsed = dmg['damage_date'] != null
             ? DateFormat('dd-MMM-yyyy').format(DateTime.parse(dmg['damage_date']))
             : '-';
-        final totalValue = CurrencyService.format(
-          double.tryParse(dmg['total_value']?.toString() ?? '') ?? 0.0,
-        );
+        final rawVal = double.tryParse(dmg['total_value']?.toString() ?? '') ?? 0.0;
+        double computedTotal = rawVal;
+        if (computedTotal == 0.0 && itemsList.isNotEmpty) {
+          for (final it in itemsList) {
+            final q = double.tryParse((it['qty'] ?? it['quantity'])?.toString() ?? '') ?? 0.0;
+            final r = double.tryParse((it['rate'] ?? it['loss_cost'])?.toString() ?? '') ?? 0.0;
+            final a = double.tryParse(it['amount']?.toString() ?? '') ?? (q * r);
+            computedTotal += a;
+          }
+        }
+        final totalValue = CurrencyService.format(computedTotal);
 
         return Card(
           elevation: 2,
@@ -701,7 +709,30 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                     ),
                     const SizedBox(height: 8),
-                    _buildItemsTable(itemsList, showValue: true),
+                    _buildItemsTable(itemsList, showValue: true),
+                    if (dmg['approval_status'] == 'APPROVED') ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FDF4),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFBBF7D0)),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.inventory_2_outlined, size: 16, color: Color(0xFF16A34A)),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '✓ Stock quantities deducted from physical inventory ledger upon approval.',
+                                style: TextStyle(fontSize: 12, color: Color(0xFF15803D), fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     if (dmg['rejection_reason'] != null &&
                         dmg['rejection_reason'].toString().isNotEmpty) ...[
                       const SizedBox(height: 12),
@@ -813,11 +844,20 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
             ],
           ),
           ...items.map((i) {
-            final qty = double.tryParse(i['qty']?.toString() ?? '') ?? 0.0;
-            final remarks = i['remarks'] ?? i['remarks_desc'] ?? '-';
-            final rate = double.tryParse(i['rate']?.toString() ?? '') ?? 0.0;
+            double qty = double.tryParse((i['qty'] ?? i['quantity'])?.toString() ?? '') ?? 0.0;
+            final remarks = i['remarks'] ?? i['reason'] ?? i['remarks_desc'] ?? '-';
+            final rate = double.tryParse((i['rate'] ?? i['loss_cost'] ?? i['cost_rate'])?.toString() ?? '') ?? 0.0;
             final unit = i['unit'] ?? i['item_master']?['unit'] ?? '-';
-            final amount = double.tryParse(i['amount']?.toString() ?? '') ?? (qty * rate);
+            double amount = double.tryParse(i['amount']?.toString() ?? '') ?? 0.0;
+            if (qty <= 0 && rate > 0 && amount > 0) {
+              qty = amount / rate;
+            } else if (qty <= 0) {
+              qty = 1.0;
+            }
+            if (amount <= 0 && rate > 0) {
+              amount = qty * rate;
+            }
+            final qtyStr = qty == qty.roundToDouble() ? qty.toInt().toString() : qty.toStringAsFixed(2);
             final itemName = (i['item_name'] ?? i['item_master']?['item_name'] ?? '-').toString();
             final brand = (i['brand'] ?? i['item_master']?['brand'] ?? '').toString().trim();
 
@@ -835,7 +875,7 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
                 ),
                 Padding(
                   padding: const EdgeInsets.all(8.0),
-                  child: Text('$qty', style: const TextStyle(fontSize: 12), textAlign: TextAlign.right),
+                  child: Text(qtyStr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.right),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(8.0),
@@ -859,8 +899,18 @@ class _ApprovalCenterScreenState extends State<ApprovalCenterScreen> with Single
     Color fg = Colors.grey.shade700;
 
     if (s == 'APPROVED') {
-      bg = Colors.green.shade50;
-      fg = Colors.green.shade700;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(6)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle_outline, size: 13, color: Colors.green.shade700),
+            const SizedBox(width: 4),
+            Text('APPROVED (Stock Deducted)', style: TextStyle(color: Colors.green.shade700, fontSize: 11, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      );
     } else if (s == 'REJECTED') {
       bg = Colors.red.shade50;
       fg = Colors.red.shade700;

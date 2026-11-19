@@ -237,6 +237,8 @@ models.assembly_items =
     require('../../models/property/assemblyItem.model')(propertyDb, DataTypes);
 
 // HRMS
+models.hr_offices =
+    require('../../models/property/hrOffice.model')(propertyDb, DataTypes);
 models.hr_salary_components =
     require('../../models/property/hrSalaryComponent.model')(propertyDb, DataTypes);
 models.hr_pay_structures =

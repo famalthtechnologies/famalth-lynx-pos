@@ -56,17 +56,26 @@ const resolveOutletId = async (req) => {
 
 const resolveOrderBillNo = async (req, order, outlet_id) => {
     if (!order) return null;
-    const sale = await req.propertyDb.models.sales_headers.findOne({
+
+    // 1. Direct match on sales_headers notes
+    let sale = await req.propertyDb.models.sales_headers.findOne({
         where: {
             outlet_id,
-            notes: `Auto-generated from delivery order #${order.id}`,
+            [Op.or]: [
+                { notes: `Auto-generated from delivery order #${order.id}` },
+                { notes: { [Op.like]: `%delivery order #${order.id}%` } },
+                { notes: { [Op.like]: `%order #${order.id}%` } }
+            ],
+            is_deleted: false,
             is_latest: true
-        }
+        },
+        order: [['id', 'DESC']]
     });
     if (sale) {
         return sale.sale_no;
     }
 
+    // 2. If it is an EXCHANGE order or replacement order
     if (order.payment_mode === 'EXCHANGE' || (order.notes && order.notes.includes('Exchange order for return'))) {
         const match = order.notes ? order.notes.match(/against bill #([^\s|]+)/) : null;
         if (match && match[1]) {
@@ -79,13 +88,111 @@ const resolveOrderBillNo = async (req, order, outlet_id) => {
             const origSale = await req.propertyDb.models.sales_headers.findOne({
                 where: {
                     outlet_id,
-                    notes: `Auto-generated from delivery order #${originalOrderId}`,
+                    [Op.or]: [
+                        { notes: `Auto-generated from delivery order #${originalOrderId}` },
+                        { notes: { [Op.like]: `%delivery order #${originalOrderId}%` } },
+                        { notes: { [Op.like]: `%order #${originalOrderId}%` } }
+                    ],
+                    is_deleted: false,
                     is_latest: true
-                }
+                },
+                order: [['id', 'DESC']]
             });
             if (origSale) {
                 return origSale.sale_no;
             }
+        }
+    }
+
+    // 3. If this is the original order that was returned and exchanged
+    if (order.return_status === 'EXCHANGED' || order.refund_status === 'EXCHANGED' || order.return_type === 'EXCHANGE') {
+        const replacementOrder = await req.propertyDb.models.customer_orders.findOne({
+            where: {
+                outlet_id,
+                notes: {
+                    [Op.like]: `Exchange order for return #${order.id}%`
+                }
+            },
+            order: [['id', 'DESC']]
+        });
+        if (replacementOrder) {
+            const match = replacementOrder.notes ? replacementOrder.notes.match(/against bill #([^\s|]+)/) : null;
+            if (match && match[1]) {
+                return match[1];
+            }
+            const replSale = await req.propertyDb.models.sales_headers.findOne({
+                where: {
+                    outlet_id,
+                    [Op.or]: [
+                        { notes: `Auto-generated from delivery order #${replacementOrder.id}` },
+                        { notes: { [Op.like]: `%delivery order #${replacementOrder.id}%` } },
+                        { notes: { [Op.like]: `%order #${replacementOrder.id}%` } }
+                    ],
+                    is_deleted: false,
+                    is_latest: true
+                },
+                order: [['id', 'DESC']]
+            });
+            if (replSale) {
+                return replSale.sale_no;
+            }
+        }
+    }
+
+    // 4. Check if order.notes itself has "against bill #..."
+    if (order.notes) {
+        const match = order.notes.match(/against bill #([^\s|]+)/);
+        if (match && match[1]) {
+            return match[1];
+        }
+    }
+
+    return null;
+};
+
+const resolveAgainstBillNo = async (req, order, outlet_id) => {
+    if (!order) return null;
+    if (order.notes) {
+        const match = order.notes.match(/against bill #([^\s|]+)/);
+        if (match && match[1]) {
+            return match[1];
+        }
+    }
+
+    if (order.payment_mode === 'EXCHANGE' || (order.notes && order.notes.includes('Exchange order for return'))) {
+        const returnOrderMatch = order.notes ? order.notes.match(/Exchange order for return #(\d+)/) : null;
+        if (returnOrderMatch && returnOrderMatch[1]) {
+            const origOrderId = parseInt(returnOrderMatch[1]);
+            const origSale = await req.propertyDb.models.sales_headers.findOne({
+                where: {
+                    outlet_id,
+                    [Op.or]: [
+                        { notes: `Auto-generated from delivery order #${origOrderId}` },
+                        { notes: { [Op.like]: `%delivery order #${origOrderId}%` } },
+                        { notes: { [Op.like]: `%order #${origOrderId}%` } }
+                    ],
+                    is_deleted: false,
+                    is_latest: true
+                },
+                order: [['id', 'DESC']]
+            });
+            if (origSale) return origSale.sale_no;
+        }
+    }
+
+    if (order.return_status === 'EXCHANGED' || order.refund_status === 'EXCHANGED' || order.return_type === 'EXCHANGE') {
+        const replacementOrder = await req.propertyDb.models.customer_orders.findOne({
+            where: {
+                outlet_id,
+                notes: {
+                    [Op.like]: `Exchange order for return #${order.id}%`
+                }
+            },
+            order: [['id', 'DESC']]
+        });
+        if (replacementOrder && replacementOrder.notes) {
+            const match = replacementOrder.notes.match(/against bill #([^\s|]+)/);
+            if (match && match[1]) return match[1];
         }
     }
     return null;
@@ -739,19 +846,28 @@ exports.listOrders = async (req, res) => {
         const sales = orderIds.length > 0 ? await req.propertyDb.models.sales_headers.findAll({
             where: {
                 outlet_id,
-                notes: {
-                    [Op.or]: orderIds.map(id => `Auto-generated from delivery order #${id}`)
-                },
-                is_latest: true
+                [Op.or]: [
+                    {
+                        notes: {
+                            [Op.or]: orderIds.map(id => `Auto-generated from delivery order #${id}`)
+                        }
+                    },
+                    ...orderIds.map(id => ({ notes: { [Op.like]: `%delivery order #${id}%` } })),
+                    ...orderIds.map(id => ({ notes: { [Op.like]: `%order #${id}%` } }))
+                ],
+                is_latest: true,
+                is_deleted: false
             }
         }) : [];
 
         const saleMap = {};
         for (const sale of sales) {
-            const match = String(sale.notes || '').match(/#(\d+)$/);
+            const match = String(sale.notes || '').match(/order #(\d+)/i) || String(sale.notes || '').match(/#(\d+)/);
             if (match) {
                 const orderId = parseInt(match[1]);
-                saleMap[orderId] = { id: sale.id, sale_no: sale.sale_no };
+                if (!saleMap[orderId]) {
+                    saleMap[orderId] = { id: sale.id, sale_no: sale.sale_no };
+                }
             }
         }
 
@@ -792,6 +908,9 @@ exports.listOrders = async (req, res) => {
             if (!json.sale_no) {
                 json.sale_no = await resolveOrderBillNo(req, json, outlet_id);
             }
+            json.bill_no = json.sale_no;
+            json.against_bill_no = await resolveAgainstBillNo(req, json, outlet_id);
+            json.has_bill_no = Boolean(json.sale_no || json.against_bill_no);
             json.refund_details = orderRefundsMap[o.id] || null;
 
             // Check if a subscription discount was actually applied to the order (amount < 0)
@@ -4497,7 +4616,12 @@ exports.finalReceiveReturn = async (req, res) => {
 
         await order.save({ transaction: t });
         await t.commit();
-        res.json({ success: true, message: 'Return processed completely.', data: order });
+        const orderData = order.toJSON();
+        orderData.sale_no = await resolveOrderBillNo(req, orderData, outlet_id);
+        orderData.bill_no = orderData.sale_no;
+        orderData.against_bill_no = await resolveAgainstBillNo(req, orderData, outlet_id);
+        orderData.has_bill_no = Boolean(orderData.sale_no || orderData.against_bill_no);
+        res.json({ success: true, message: 'Return processed completely.', data: orderData });
     } catch (error) {
         await t.rollback();
         res.status(500).json({ success: false, error: error.message });
@@ -5130,12 +5254,14 @@ exports.getSaleDetailsPublic = async (req, res) => {
         if (!isNaN(num) && num > 0) {
             whereConditions.push({ id: num });
             whereConditions.push({ notes: `Auto-generated from delivery order #${num}` });
+            whereConditions.push({ notes: { [Op.like]: `%delivery order #${num}%` } });
+            whereConditions.push({ notes: { [Op.like]: `%order #${num}%` } });
         }
         if (param.length > 0) {
             whereConditions.push({ sale_no: param });
         }
 
-        const sale = await req.propertyDb.models.sales_headers.findOne({
+        let sale = await req.propertyDb.models.sales_headers.findOne({
             where: {
                 [Op.or]: whereConditions,
                 is_latest: true,
@@ -5174,6 +5300,56 @@ exports.getSaleDetailsPublic = async (req, res) => {
             ]
         });
 
+        // Fallback: If not found directly and num > 0, lookup customer_orders by order ID
+        let orderObj = null;
+        if (!sale && !isNaN(num) && num > 0) {
+            orderObj = await req.propertyDb.models.customer_orders.findByPk(num);
+            if (orderObj) {
+                const billNo = await resolveOrderBillNo(req, orderObj, orderObj.outlet_id);
+                if (billNo) {
+                    sale = await req.propertyDb.models.sales_headers.findOne({
+                        where: {
+                            outlet_id: orderObj.outlet_id,
+                            sale_no: billNo,
+                            is_latest: true,
+                            is_deleted: false
+                        },
+                        order: [['id', 'DESC']],
+                        include: [
+                            {
+                                model: req.propertyDb.models.sales_items,
+                                as: 'items',
+                                include: [
+                                    {
+                                        model: req.propertyDb.models.item_master,
+                                        as: 'item',
+                                        attributes: ['id', 'rate', 'retail_sale_price', 'tax_type', 'tax_percent', 'brand', 'is_tax_inclusive'],
+                                        include: [
+                                            {
+                                                model: req.propertyDb.models.tax_groups,
+                                                as: 'tax_group',
+                                                include: [
+                                                    {
+                                                        model: req.propertyDb.models.tax_group_components,
+                                                        as: 'components'
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                model: req.propertyDb.models.customer_repayments,
+                                as: 'repayments',
+                                required: false
+                            }
+                        ]
+                    });
+                }
+            }
+        }
+
         if (!sale) {
             return res.status(404).json({ success: false, message: 'Sale not found' });
         }
@@ -5204,6 +5380,28 @@ exports.getSaleDetailsPublic = async (req, res) => {
             where: { sale_id: sale.id }
         });
         saleJson.refunds = refunds;
+
+        // Populate exchange references and order ID
+        const targetOrder = orderObj || (await req.propertyDb.models.customer_orders.findOne({
+            where: {
+                outlet_id: sale.outlet_id,
+                notes: { [Op.like]: `%${sale.sale_no}%` }
+            }
+        })) || (!isNaN(num) && num > 0 ? await req.propertyDb.models.customer_orders.findByPk(num) : null);
+
+        const againstBillNo = await resolveAgainstBillNo(req, targetOrder || {
+            id: num,
+            notes: sale.notes,
+            payment_mode: sale.payment_mode
+        }, sale.outlet_id);
+
+        if (againstBillNo) {
+            saleJson.exchange_against_bill_no = againstBillNo;
+        }
+        if (targetOrder) {
+            saleJson.order_id = targetOrder.id;
+        }
+        saleJson.has_bill_no = true;
 
         res.json({ success: true, data: saleJson });
     } catch (error) {

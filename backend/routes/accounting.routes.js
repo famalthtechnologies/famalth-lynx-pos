@@ -12,6 +12,7 @@ const voucherCtrl = require('../controllers/finance/accountingVoucher.controller
 const reportsCtrl = require('../controllers/finance/financialReports.controller');
 const loanCtrl = require('../controllers/finance/loanEmi.controller');
 const coaCtrl = require('../controllers/finance/chartOfAccounts.controller');
+const taxCtrl = require('../controllers/finance/taxCompliance.controller');
 router.use(auth, license('REPORTS'));
 // Chart of Accounts (COA) Direct Master Endpoints
 router.get('/coa', coaCtrl.getAccounts);
@@ -42,5 +43,14 @@ router.get('/reports/trial-balance', reportsCtrl.getTrialBalance);
 router.get('/reports/profit-loss', reportsCtrl.getProfitAndLoss);
 router.get('/reports/balance-sheet', reportsCtrl.getBalanceSheet);
 router.get('/reports/brs', reportsCtrl.getBankReconciliation);
+// Statutory Tax Compliance (GST & ITR) Endpoints
+router.get('/tax/gst-summary', taxCtrl.getGstSummary);
+router.get('/tax/gstr1-export', taxCtrl.exportGstr1Json);
+router.post('/tax/gsp-file-gstr1', taxCtrl.fileGstr1ViaGsp);
+router.get('/tax/itr-summary', taxCtrl.getItrSummary);
+router.get('/tax/itr4-export', taxCtrl.exportItr4Json);
+router.get('/tax/config', taxCtrl.getTaxConfig);
+router.post('/tax/config', taxCtrl.saveTaxConfig);
+router.get('/tax/filings', taxCtrl.getFilingHistory);
 module.exports = router;
 exports.default = router;

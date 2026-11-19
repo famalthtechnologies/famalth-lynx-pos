@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:dropdown_search/dropdown_search.dart';
 
 import '../../controllers/reports/supplier_payments_report_controller.dart';
 import '../../core/config/date_time_service.dart';
@@ -396,21 +397,38 @@ class _SupplierPaymentsReportScreenState extends State<SupplierPaymentsReportScr
           ),
           SizedBox(
             width: 250,
-            child: DropdownButtonFormField<String>(
-              initialValue: selectedSupplierId,
-              decoration: const InputDecoration(
-                labelText: 'Vendor / Supplier',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                const DropdownMenuItem(value: 'ALL', child: Text('All Vendors')),
-                ...ctrl.suppliers.map(
-                  (s) => DropdownMenuItem(
-                    value: s.id.toString(),
-                    child: Text(s.supplierName),
+            child: DropdownSearch<String>(
+              selectedItem: selectedSupplierId,
+              items: (filter, props) => [
+                'ALL',
+                ...ctrl.suppliers.map((s) => s.id.toString()),
+              ],
+              itemAsString: (id) {
+                if (id == 'ALL') return 'All Vendors';
+                final s = ctrl.suppliers.cast<dynamic>().firstWhere(
+                  (e) => e.id.toString() == id,
+                  orElse: () => null,
+                );
+                return s != null ? s.supplierName : id;
+              },
+              popupProps: const PopupProps.menu(
+                showSearchBox: true,
+                searchFieldProps: TextFieldProps(
+                  decoration: InputDecoration(
+                    hintText: 'Search vendor...',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   ),
                 ),
-              ],
+              ),
+              decoratorProps: const DropDownDecoratorProps(
+                decoration: InputDecoration(
+                  labelText: 'Vendor / Supplier',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                ),
+              ),
               onChanged: (value) {
                 setState(() {
                   selectedSupplierId = value ?? 'ALL';

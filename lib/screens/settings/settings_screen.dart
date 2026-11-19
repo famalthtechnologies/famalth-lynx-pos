@@ -514,10 +514,11 @@ class _SettingsScreenState extends State<SettingsScreen> with TickerProviderStat
       {'key': 'PURCHASES', 'label': 'Purchases & GRNs'},
       {'key': 'FINANCE', 'label': 'Expenses & Cash'},
       {'key': 'HRMS', 'label': 'Attendance & Payroll'},
+      {'key': 'CLINIC', 'label': 'Clinic & OPD Visits'},
       {'key': 'AUDIT_LOGS', 'label': 'Audit Logs'},
     ];
 
-    final selectedModules = {'SALES', 'INVENTORY', 'PURCHASES', 'FINANCE', 'HRMS', 'AUDIT_LOGS'};
+    final selectedModules = {'SALES', 'INVENTORY', 'PURCHASES', 'FINANCE', 'HRMS', 'CLINIC', 'AUDIT_LOGS'};
     String dateFilterType = 'OLDER_THAN';
     int olderThanYears = 5;
     DateTime? startDate;

@@ -26,6 +26,10 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   String _runStatus = 'Draft';
   List<Map<String, dynamic>> _previewData = [];
   int? _activeRunId;
+  String _selectedOfficeId = 'all';
+  String _selectedScheduleOfficeId = 'all';
+  String _selectedApprovalsOfficeId = 'all';
+  List<Map<String, dynamic>> _offices = [];
   
   // Tab Lists data
   List<Map<String, dynamic>> _revisions = [];
@@ -314,6 +318,14 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   Future<void> _loadTabContent() async {
     setState(() => _loadingTab = true);
     try {
+      if (_offices.isEmpty) {
+        try {
+          final offRes = await ApiClient.get(ApiEndpoints.hrmsOffices);
+          if (offRes['success'] == true && offRes['data'] is List) {
+            _offices = List<Map<String, dynamic>>.from(offRes['data']);
+          }
+        } catch (_) {}
+      }
       if (_tabController.index == 0) {
         await _checkPayrollStatus();
         final period = DateFormat('yyyy-MM').format(_currentMonth);
@@ -376,7 +388,11 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   Future<void> _fetchPreviewData() async {
     final period = DateFormat('yyyy-MM').format(_currentMonth);
     try {
-      final res = await ApiClient.post('/api/hrms/payroll/preview', {'pay_period': period});
+      final payload = {
+        'pay_period': period,
+        if (_selectedOfficeId != 'all') 'office_id': int.tryParse(_selectedOfficeId),
+      };
+      final res = await ApiClient.post('/api/hrms/payroll/preview', payload);
       if (res['success'] == true && res['data'] != null) {
         setState(() {
           _previewData = List<Map<String, dynamic>>.from(res['data'] ?? []);
@@ -595,6 +611,48 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
               ),
               const SizedBox(width: 12),
               _buildStatusChip(_runStatus),
+              const SizedBox(width: 10),
+              Container(
+                height: 34,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFCBD5E1)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.location_city, size: 14, color: Color(0xFF64748B)),
+                    const SizedBox(width: 6),
+                    DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedOfficeId,
+                        isDense: true,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF1E293B), fontWeight: FontWeight.w600),
+                        items: [
+                          const DropdownMenuItem(value: 'all', child: Text('🏢 All Offices & Branches')),
+                          ..._offices.map((o) => DropdownMenuItem(
+                                value: o['id'].toString(),
+                                child: Text('${o['office_code']} - ${o['office_name']}'),
+                              )),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              _selectedOfficeId = val;
+                              _previewData.clear();
+                              _showPreview = false;
+                            });
+                            _fetchPreviewData();
+                            _loadTabContent();
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
           Wrap(
@@ -624,7 +682,8 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   onPressed: _previewData.isNotEmpty ? () async {
                     try {
                       await ApiClient.post('/api/hrms/payroll/run', {
-                        'pay_period': DateFormat('yyyy-MM').format(_currentMonth)
+                        'pay_period': DateFormat('yyyy-MM').format(_currentMonth),
+                        if (_selectedOfficeId != 'all') 'office_id': int.tryParse(_selectedOfficeId),
                       });
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Payroll processed successfully!'), backgroundColor: Color(0xFF059669)),
@@ -1028,11 +1087,8 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             child: SingleChildScrollView(
               controller: _tableScrollController,
               scrollDirection: Axis.horizontal,
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
-                dataRowMinHeight: 48,
-                dataRowMaxHeight: 52,
-                columns: [
+              child: Builder(builder: (context) {
+                final tableCols = [
                   if (_activeRunId != null)
                     DataColumn(
                       label: Checkbox(
@@ -1080,8 +1136,14 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   const DataColumn(label: Text('Net Pay', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
                   if (_activeRunId != null)
                     const DataColumn(label: Text('Action', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F)))),
-                ],
-                rows: filteredData.map((row) {
+                ];
+
+                return DataTable(
+                  headingRowColor: WidgetStateProperty.all(const Color(0xFFF9FAFB)),
+                  dataRowMinHeight: 48,
+                  dataRowMaxHeight: 52,
+                  columns: tableCols,
+                  rows: filteredData.map((row) {
                   final rowId = row['id'] as int? ?? 0;
                   final name = row['employee_name']?.toString() ?? row['employee']?['full_name']?.toString() ?? '—';
                   final code = row['employee_code']?.toString() ?? row['employee']?['employee_code']?.toString() ?? '—';
@@ -1135,95 +1197,103 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   if (paymentStatus == 'Paid') dotColor = Colors.green;
                   if (paymentStatus == 'On Hold' || paymentStatus == 'Hold') dotColor = Colors.amber;
   
-                  return DataRow(
-                    cells: [
-                      if (_activeRunId != null)
-                        DataCell(
-                          Checkbox(
-                            value: _selectedRowIds.contains(rowId),
-                            onChanged: (val) {
-                              setState(() {
-                                if (val == true) {
-                                  _selectedRowIds.add(rowId);
-                                } else {
-                                  _selectedRowIds.remove(rowId);
-                                }
-                              });
-                            },
-                          ),
-                        ),
+                  final rowCells = <DataCell>[
+                    if (_activeRunId != null)
                       DataCell(
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-                            ),
-                            const SizedBox(width: 8),
-                            Text('$name ($code)', style: const TextStyle(fontWeight: FontWeight.w600)),
-                          ],
+                        Checkbox(
+                          value: _selectedRowIds.contains(rowId),
+                          onChanged: (val) {
+                            setState(() {
+                              if (val == true) {
+                                _selectedRowIds.add(rowId);
+                              } else {
+                                _selectedRowIds.remove(rowId);
+                              }
+                            });
+                          },
                         ),
                       ),
-                      DataCell(Text(CurrencyService.format(basicVal))),
-                      DataCell(Text(CurrencyService.format(hra))),
-                      DataCell(Text(CurrencyService.format(da))),
-                      DataCell(Text(CurrencyService.format(arrears), style: const TextStyle(color: Color(0xFF059669)))),
-                      DataCell(Text(CurrencyService.format(commission), style: const TextStyle(color: Color(0xFF059669)))),
-                      DataCell(Text(CurrencyService.format(emiPenalties), style: const TextStyle(color: Color(0xFFDC2626)))),
-                      DataCell(Text(CurrencyService.format(bonus), style: const TextStyle(color: Color(0xFF059669)))),
-                      DataCell(Text(CurrencyService.format(tcs), style: const TextStyle(color: Color(0xFFDC2626)))),
-                      DataCell(Text(CurrencyService.format(tds), style: const TextStyle(color: Color(0xFFDC2626)))),
-                      DataCell(Text(CurrencyService.format(epf), style: const TextStyle(color: Color(0xFFDC2626)))),
-                      DataCell(Text(CurrencyService.format(esi), style: const TextStyle(color: Color(0xFFDC2626)))),
-                      DataCell(Text(CurrencyService.format(deductions), style: const TextStyle(color: Color(0xFFDC2626)))),
-                      DataCell(Text(paidDays.toStringAsFixed(1))),
-                      DataCell(Text('${workHours.toStringAsFixed(1)} hrs')),
-                      DataCell(Text('${otHours.toStringAsFixed(1)} hrs')),
-                      DataCell(Text(CurrencyService.format(otAdd), style: const TextStyle(color: Color(0xFF059669)))),
-                      DataCell(Text('${lessHours.toStringAsFixed(1)} hrs')),
-                      DataCell(Text(CurrencyService.format(lessHoursDed), style: const TextStyle(color: Color(0xFFDC2626)))),
-                      DataCell(Text('$lateMins mins')),
-                      DataCell(Text(leaves.toStringAsFixed(1))),
-                      DataCell(Text(unpaidLeaves.toStringAsFixed(1))),
-                      DataCell(Text(CurrencyService.format(unpaidLeaveDed), style: const TextStyle(color: Color(0xFFDC2626)))),
-                      DataCell(Text(absent.toStringAsFixed(1))),
-                      DataCell(Text('${reqHours.toStringAsFixed(1)} hrs')),
-                      DataCell(Text('${doneHours.toStringAsFixed(1)} hrs')),
-                      DataCell(Text(CurrencyService.format(absentDed))),
-                      DataCell(Text('$weekdays')),
-                      DataCell(Text('$holidays')),
-                      DataCell(Text(CurrencyService.format(net), style: TextStyle(fontWeight: FontWeight.bold, color: net < 0 ? const Color(0xFFDC2626) : const Color(0xFF059669)))),
-                      if (_activeRunId != null)
-                        DataCell(
-                          ElevatedButton(
-                            onPressed: () => _showSingleEmployeePaymentDialog(
-                              rowId,
-                              name,
-                              paymentStatus,
-                              breakdown?['payment_method']?.toString(),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: paymentStatus == 'Paid' ? Colors.grey : const Color(0xFF059669),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            ),
-                            child: Text(
-                              paymentStatus == 'Paid' ? 'Details' : 'Pay',
-                              style: const TextStyle(color: Colors.white, fontSize: 11),
-                            ),
+                    DataCell(
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+                          ),
+                          const SizedBox(width: 8),
+                          Text('$name ($code)', style: const TextStyle(fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                    DataCell(Text(CurrencyService.format(basicVal))),
+                    DataCell(Text(CurrencyService.format(hra))),
+                    DataCell(Text(CurrencyService.format(da))),
+                    DataCell(Text(CurrencyService.format(arrears), style: const TextStyle(color: Color(0xFF059669)))),
+                    DataCell(Text(CurrencyService.format(commission), style: const TextStyle(color: Color(0xFF059669)))),
+                    DataCell(Text(CurrencyService.format(emiPenalties), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(CurrencyService.format(bonus), style: const TextStyle(color: Color(0xFF059669)))),
+                    DataCell(Text(CurrencyService.format(tcs), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(CurrencyService.format(tds), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(CurrencyService.format(epf), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(CurrencyService.format(esi), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(CurrencyService.format(deductions), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(paidDays.toStringAsFixed(1))),
+                    DataCell(Text('${workHours.toStringAsFixed(1)} hrs')),
+                    DataCell(Text('${otHours.toStringAsFixed(1)} hrs')),
+                    DataCell(Text(CurrencyService.format(otAdd), style: const TextStyle(color: Color(0xFF059669)))),
+                    DataCell(Text('${lessHours.toStringAsFixed(1)} hrs')),
+                    DataCell(Text(CurrencyService.format(lessHoursDed), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text('$lateMins mins')),
+                    DataCell(Text(leaves.toStringAsFixed(1))),
+                    DataCell(Text(unpaidLeaves.toStringAsFixed(1))),
+                    DataCell(Text(CurrencyService.format(unpaidLeaveDed), style: const TextStyle(color: Color(0xFFDC2626)))),
+                    DataCell(Text(absent.toStringAsFixed(1))),
+                    DataCell(Text('${reqHours.toStringAsFixed(1)} hrs')),
+                    DataCell(Text('${doneHours.toStringAsFixed(1)} hrs')),
+                    DataCell(Text(CurrencyService.format(absentDed))),
+                    DataCell(Text('$weekdays')),
+                    DataCell(Text('$holidays')),
+                    DataCell(Text(CurrencyService.format(net), style: TextStyle(fontWeight: FontWeight.bold, color: net < 0 ? const Color(0xFFDC2626) : const Color(0xFF059669)))),
+                    if (_activeRunId != null)
+                      DataCell(
+                        ElevatedButton(
+                          onPressed: () => _showSingleEmployeePaymentDialog(
+                            rowId,
+                            name,
+                            paymentStatus,
+                            breakdown?['payment_method']?.toString(),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: paymentStatus == 'Paid' ? Colors.grey : const Color(0xFF059669),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          child: Text(
+                            paymentStatus == 'Paid' ? 'Details' : 'Pay',
+                            style: const TextStyle(color: Colors.white, fontSize: 11),
                           ),
                         ),
-                    ],
-                  );
+                      ),
+                  ];
+
+                  while (rowCells.length < tableCols.length) {
+                    rowCells.add(const DataCell(Text('—')));
+                  }
+                  if (rowCells.length > tableCols.length) {
+                    rowCells.removeRange(tableCols.length, rowCells.length);
+                  }
+
+                  return DataRow(cells: rowCells);
                 }).toList(),
-              ),
-            ),
+              );
+            }),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _legendDot(Color color) {
     return Container(
@@ -1571,12 +1641,82 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   }
 
   // ================= TAB 5: PAY SCHEDULE =================
+  Widget _buildOfficeScheduleBar() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.location_city_rounded, color: Color(0xFF2563EB), size: 20),
+          ),
+          const SizedBox(width: 12),
+          const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Schedule Office Scope:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6B7280))),
+              Text('Branch-Wise or Company-Wide Schedule', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+            ],
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedScheduleOfficeId,
+                items: [
+                  const DropdownMenuItem(
+                    value: 'all',
+                    child: Text('🏢 All Offices (Consolidated Default)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                  ..._offices.map((o) => DropdownMenuItem(
+                    value: o['id'].toString(),
+                    child: Text('🏢 ${o['office_code']} - ${o['office_name']}', style: const TextStyle(fontSize: 12)),
+                  )),
+                ],
+                onChanged: (v) {
+                  if (v != null) {
+                    setState(() => _selectedScheduleOfficeId = v);
+                    _loadTabContent();
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPayScheduleTab() {
     if (_loadingTab) return const Center(child: CircularProgressIndicator(color: Color(0xFFE03E2D)));
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _buildOfficeScheduleBar(),
         _payScheduleCard(
           title: 'Salary Calculation Method',
           child: Column(
@@ -1759,12 +1899,92 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
   }
 
   // ================= TAB 6: APPROVALS =================
+  Widget _buildApprovalsOfficeFilterBar() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.filter_alt_outlined, color: Color(0xFF6B7280), size: 18),
+          const SizedBox(width: 8),
+          const Text('Filter Approvals by Office:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF374151))),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedApprovalsOfficeId,
+                items: [
+                  const DropdownMenuItem(
+                    value: 'all',
+                    child: Text('🏢 All Offices & Branches', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                  ..._offices.map((o) => DropdownMenuItem(
+                    value: o['id'].toString(),
+                    child: Text('🏢 ${o['office_code']} - ${o['office_name']}', style: const TextStyle(fontSize: 12)),
+                  )),
+                ],
+                onChanged: (v) {
+                  if (v != null) {
+                    setState(() => _selectedApprovalsOfficeId = v);
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildApprovalsTab() {
     if (_loadingTab) return const Center(child: CircularProgressIndicator(color: Color(0xFFE03E2D)));
+
+    final filteredLeaves = _leaveApprovals.where((a) {
+      if (_selectedApprovalsOfficeId == 'all') return true;
+      final emp = a['employee'];
+      return emp != null && emp['office_id']?.toString() == _selectedApprovalsOfficeId;
+    }).toList();
+
+    final filteredLoans = _loanApprovals.where((a) {
+      if (_selectedApprovalsOfficeId == 'all') return true;
+      final emp = a['employee'];
+      return emp != null && emp['office_id']?.toString() == _selectedApprovalsOfficeId;
+    }).toList();
+
+    final filteredRevisions = _revisionApprovals.where((a) {
+      if (_selectedApprovalsOfficeId == 'all') return true;
+      final emp = a['employee'];
+      return emp != null && emp['office_id']?.toString() == _selectedApprovalsOfficeId;
+    }).toList();
+
+    final filteredBonuses = _bonusApprovals.where((a) {
+      if (_selectedApprovalsOfficeId == 'all') return true;
+      final emp = a['employee'];
+      return emp != null && emp['office_id']?.toString() == _selectedApprovalsOfficeId;
+    }).toList();
 
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 12),
       children: [
+        _buildApprovalsOfficeFilterBar(),
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text('Leave Applications Log', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E3A5F))),
@@ -1780,20 +2000,48 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                 DataColumn(label: Text('Leave Type', style: TextStyle(fontWeight: FontWeight.bold))),
                 DataColumn(label: Text('Duration', style: TextStyle(fontWeight: FontWeight.bold))),
                 DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
               ],
-              rows: _leaveApprovals.map((app) {
+              rows: filteredLeaves.map((app) {
                 final emp = app['employee'] ?? {};
                 final name = emp['full_name']?.toString() ?? '—';
                 final lt = app['leaveType'] ?? {};
                 final type = lt['name']?.toString() ?? 'Leave';
                 final days = app['total_days']?.toString() ?? '0';
                 final status = app['status']?.toString() ?? 'Pending';
+                final isPending = status.toLowerCase() == 'pending' || status.toLowerCase() == 'pending approval';
 
                 return DataRow(cells: [
                   DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
                   DataCell(Text(type)),
                   DataCell(Text('$days Day(s)')),
                   DataCell(_buildStatusChip(status)),
+                  DataCell(
+                    isPending
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.check_circle_outline, color: Color(0xFF059669), size: 20),
+                                onPressed: () => _approveLeave(app['id'] as int),
+                                tooltip: 'Approve Leave',
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.highlight_off, color: Color(0xFFDC2626), size: 20),
+                                onPressed: () => _rejectLeave(app['id'] as int),
+                                tooltip: 'Reject Leave',
+                              ),
+                            ],
+                          )
+                        : Text(
+                            status.toLowerCase() == 'approved' ? 'Approved' : '—',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: status.toLowerCase() == 'approved' ? const Color(0xFF059669) : Colors.grey,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                  ),
                 ]);
               }).toList(),
             ),
@@ -1815,19 +2063,51 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                 DataColumn(label: Text('Amount', style: TextStyle(fontWeight: FontWeight.bold))),
                 DataColumn(label: Text('Remaining Balance', style: TextStyle(fontWeight: FontWeight.bold))),
                 DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold))),
+                DataColumn(label: Text('Actions', style: TextStyle(fontWeight: FontWeight.bold))),
               ],
-              rows: _loanApprovals.map((loan) {
+              rows: filteredLoans.map((loan) {
                 final emp = loan['employee'] ?? {};
                 final name = emp['full_name']?.toString() ?? '—';
                 final amt = double.tryParse(loan['loan_amount']?.toString() ?? '0') ?? 0;
                 final bal = double.tryParse(loan['remaining_balance']?.toString() ?? '0') ?? 0;
-                final status = loan['status']?.toString() ?? 'Active';
+                final rawStatus = loan['status']?.toString() ?? 'Pending';
+                final isPending = rawStatus.toLowerCase() == 'pending' || rawStatus.toLowerCase() == 'pending approval' || rawStatus.toLowerCase() == 'pending_approval';
 
                 return DataRow(cells: [
                   DataCell(Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
                   DataCell(Text(CurrencyService.format(amt))),
                   DataCell(Text(CurrencyService.format(bal))),
-                  DataCell(_buildStatusChip(status)),
+                  DataCell(_buildStatusChip(rawStatus)),
+                  DataCell(
+                    isPending
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.check_circle_outline, color: Color(0xFF059669), size: 20),
+                                onPressed: () => _approveLoan(loan['id'] as int),
+                                tooltip: 'Approve & Mark Paid',
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.highlight_off, color: Color(0xFFDC2626), size: 20),
+                                onPressed: () => _rejectLoan(loan['id'] as int),
+                                tooltip: 'Reject Loan',
+                              ),
+                            ],
+                          )
+                        : Text(
+                            rawStatus.toLowerCase() == 'approved' || rawStatus.toLowerCase() == 'paid' || rawStatus.toLowerCase() == 'active'
+                                ? 'Approved'
+                                : '—',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: rawStatus.toLowerCase() == 'approved' || rawStatus.toLowerCase() == 'paid' || rawStatus.toLowerCase() == 'active'
+                                  ? const Color(0xFF059669)
+                                  : Colors.grey,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                  ),
                 ]);
               }).toList(),
             ),
@@ -1985,6 +2265,46 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     }
   }
 
+  Future<void> _approveLoan(int id) async {
+    try {
+      await ApiClient.put('/api/hrms/loans/$id/status', {'status': 'Approved'});
+      _loadTabContent();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Advance/Loan approved! Marked as Paid.'), backgroundColor: Color(0xFF059669)));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error approving advance/loan: $e')));
+    }
+  }
+
+  Future<void> _rejectLoan(int id) async {
+    try {
+      await ApiClient.put('/api/hrms/loans/$id/status', {'status': 'Rejected'});
+      _loadTabContent();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Advance/Loan rejected.'), backgroundColor: Color(0xFFDC2626)));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error rejecting advance/loan: $e')));
+    }
+  }
+
+  Future<void> _approveLeave(int id) async {
+    try {
+      await ApiClient.put('/api/hrms/leaves/$id/approve', {});
+      _loadTabContent();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Leave application approved!'), backgroundColor: Color(0xFF059669)));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error approving leave: $e')));
+    }
+  }
+
+  Future<void> _rejectLeave(int id) async {
+    try {
+      await ApiClient.put('/api/hrms/leaves/$id/reject', {});
+      _loadTabContent();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Leave application rejected.'), backgroundColor: Color(0xFFDC2626)));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error rejecting leave: $e')));
+    }
+  }
+
   // ================= UTILS & HELPERS =================
   Widget _payScheduleCard({required String title, required Widget child}) {
     return Container(
@@ -2051,6 +2371,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     DateTime effectiveDate = DateTime.now();
     String target = 'All';
     dynamic selectedGradeId;
+    dynamic selectedOfficeTargetId;
 
     showDialog(
       context: context,
@@ -2100,30 +2421,72 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                 ),
                 const SizedBox(height: 16),
                 const Text('Target Employees', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF4B5563))),
-                Row(
+                Wrap(
+                  spacing: 4,
                   children: [
-                    Expanded(
+                    SizedBox(
+                      width: 90,
                       child: RadioListTile<String>(
-                        title: const Text('All', style: TextStyle(fontSize: 13)),
+                        title: const Text('All', style: TextStyle(fontSize: 12)),
                         value: 'All',
                         groupValue: target,
                         activeColor: const Color(0xFFE03E2D),
                         contentPadding: EdgeInsets.zero,
-                        onChanged: (v) => setDs(() => target = v!),
+                        onChanged: (v) => setDs(() {
+                          target = v!;
+                          selectedGradeId = null;
+                          selectedOfficeTargetId = null;
+                        }),
                       ),
                     ),
-                    Expanded(
+                    SizedBox(
+                      width: 120,
                       child: RadioListTile<String>(
-                        title: const Text('By Grade', style: TextStyle(fontSize: 13)),
+                        title: const Text('By Office', style: TextStyle(fontSize: 12)),
+                        value: 'Office',
+                        groupValue: target,
+                        activeColor: const Color(0xFFE03E2D),
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (v) => setDs(() {
+                          target = v!;
+                          if (_offices.isNotEmpty) selectedOfficeTargetId = _offices[0]['id'];
+                        }),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 110,
+                      child: RadioListTile<String>(
+                        title: const Text('By Grade', style: TextStyle(fontSize: 12)),
                         value: 'Designation',
                         groupValue: target,
                         activeColor: const Color(0xFFE03E2D),
                         contentPadding: EdgeInsets.zero,
-                        onChanged: (v) => setDs(() => target = v!),
+                        onChanged: (v) => setDs(() {
+                          target = v!;
+                          if (payStructures.isNotEmpty) selectedGradeId = payStructures[0]['id'];
+                        }),
                       ),
                     ),
                   ],
                 ),
+                if (target == 'Office') ...[
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<dynamic>(
+                    value: (_offices.any((o) => o['id'] == selectedOfficeTargetId)) ? selectedOfficeTargetId : null,
+                    hint: const Text('Select Company Office / Branch'),
+                    items: _offices
+                        .map((o) => DropdownMenuItem<dynamic>(
+                              value: o['id'],
+                              child: Text('🏢 ${o['office_code']} - ${o['office_name']}'),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDs(() => selectedOfficeTargetId = v),
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ],
                 if (target == 'Designation') ...[
                   const SizedBox(height: 8),
                   DropdownButtonFormField<dynamic>(
@@ -2258,6 +2621,7 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
     final reasonCtrl = TextEditingController(text: 'Diwali Bonus');
     String target = 'All';
     dynamic selectedGradeId;
+    dynamic selectedOfficeTargetId;
     String paymentMode = 'Payroll';
     String paymentMethod = 'Cash';
 
@@ -2269,6 +2633,8 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
             final active = employees.where((e) => e['status']?.toString().toLowerCase() == 'active').toList();
             if (target == 'All') {
               return active;
+            } else if (target == 'Office') {
+              return active.where((e) => e['office_id'] == selectedOfficeTargetId).toList();
             } else {
               return active.where((e) => e['pay_structure_id'] == selectedGradeId).toList();
             }
@@ -2380,11 +2746,13 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                   ],
                   const SizedBox(height: 16),
                   const Text('Target Employees', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF4B5563))),
-                  Row(
+                  Wrap(
+                    spacing: 4,
                     children: [
-                      Expanded(
+                      SizedBox(
+                        width: 90,
                         child: RadioListTile<String>(
-                          title: const Text('All', style: TextStyle(fontSize: 13)),
+                          title: const Text('All', style: TextStyle(fontSize: 12)),
                           value: 'All',
                           groupValue: target,
                           activeColor: const Color(0xFFE03E2D),
@@ -2392,26 +2760,58 @@ class _PayrollScreenState extends State<PayrollScreen> with SingleTickerProvider
                           onChanged: (v) => setDs(() {
                             target = v!;
                             selectedGradeId = null;
+                            selectedOfficeTargetId = null;
                           }),
                         ),
                       ),
-                      Expanded(
+                      SizedBox(
+                        width: 120,
                         child: RadioListTile<String>(
-                          title: const Text('By Grade', style: TextStyle(fontSize: 13)),
+                          title: const Text('By Office', style: TextStyle(fontSize: 12)),
+                          value: 'Office',
+                          groupValue: target,
+                          activeColor: const Color(0xFFE03E2D),
+                          contentPadding: EdgeInsets.zero,
+                          onChanged: (v) => setDs(() {
+                            target = v!;
+                            if (_offices.isNotEmpty) selectedOfficeTargetId = _offices[0]['id'];
+                          }),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 110,
+                        child: RadioListTile<String>(
+                          title: const Text('By Grade', style: TextStyle(fontSize: 12)),
                           value: 'Designation',
                           groupValue: target,
                           activeColor: const Color(0xFFE03E2D),
                           contentPadding: EdgeInsets.zero,
                           onChanged: (v) => setDs(() {
                             target = v!;
-                            if (payStructures.isNotEmpty) {
-                              selectedGradeId = payStructures[0]['id'];
-                            }
+                            if (payStructures.isNotEmpty) selectedGradeId = payStructures[0]['id'];
                           }),
                         ),
                       ),
                     ],
                   ),
+                  if (target == 'Office') ...[
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<dynamic>(
+                      value: (_offices.any((o) => o['id'] == selectedOfficeTargetId)) ? selectedOfficeTargetId : null,
+                      hint: const Text('Select Company Office / Branch'),
+                      items: _offices
+                          .map((o) => DropdownMenuItem<dynamic>(
+                                value: o['id'],
+                                child: Text('🏢 ${o['office_code']} - ${o['office_name']}'),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setDs(() => selectedOfficeTargetId = v),
+                      decoration: InputDecoration(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
                   if (target == 'Designation') ...[
                     const SizedBox(height: 8),
                     DropdownButtonFormField<dynamic>(

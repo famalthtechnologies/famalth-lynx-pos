@@ -1,4 +1,4 @@
-# Famalth Lynx — Retailer Installation and Update Guide
+# Famalth Lynx - Retailer Installation and Update Guide
 
 This guide is designed for retail store owners, administrators, and IT technicians to set up, update, and manage the Famalth Lynx POS & ERP system.
 

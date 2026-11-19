@@ -1,6 +1,6 @@
 # User Guide: Model Context Protocol (MCP) & AI Assistant Integration (ChatGPT, Claude, Gemini, Cursor)
 
-This guide is written for **Store Owners, Managers, Cashiers, and Business Analysts** using **Famalth Lynx**. It explains how to connect state-of-the-art AI assistants—including **ChatGPT, Anthropic Claude, Google Gemini, and Cursor / AI IDEs**—directly to your store's live database using the **Model Context Protocol (MCP)** and developer API keys.
+This guide is written for **Store Owners, Managers, Cashiers, and Business Analysts** using **Famalth Lynx**. It explains how to connect state-of-the-art AI assistants-including **ChatGPT, Anthropic Claude, Google Gemini, and Cursor / AI IDEs**-directly to your store's live database using the **Model Context Protocol (MCP)** and developer API keys.
 
 ---
 

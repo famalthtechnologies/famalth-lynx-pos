@@ -98,15 +98,15 @@ stateDiagram-v2
 
 Mounted under `/api/inventory`, `/api/sales`, `/api/receiving`, `/api/purchase-orders`:
 
-- `POST /api/sales` — Atomically commit POS sale transaction.
-- `GET /api/sales/:id` — Retrieve sale details with tax splits and payment records.
-- `POST /api/inventory/assembly/produce` — Execute BOM assembly batch.
-- `POST /api/inventory/transfers/request` — Create multi-branch stock request.
-- `POST /api/inventory/transfers/dispatch` — Dispatch stock transfer (locks goods in transit).
-- `POST /api/inventory/transfers/receive` — Accept stock transfer at destination outlet.
-- `POST /api/purchase-orders` — Create purchase order to vendor.
-- `POST /api/receiving` — Commit Goods Receiving Note (GRN) against vendor PO.
-- `POST /api/inventory/damages` — Record damaged inventory write-off.
+- `POST /api/sales` - Atomically commit POS sale transaction.
+- `GET /api/sales/:id` - Retrieve sale details with tax splits and payment records.
+- `POST /api/inventory/assembly/produce` - Execute BOM assembly batch.
+- `POST /api/inventory/transfers/request` - Create multi-branch stock request.
+- `POST /api/inventory/transfers/dispatch` - Dispatch stock transfer (locks goods in transit).
+- `POST /api/inventory/transfers/receive` - Accept stock transfer at destination outlet.
+- `POST /api/purchase-orders` - Create purchase order to vendor.
+- `POST /api/receiving` - Commit Goods Receiving Note (GRN) against vendor PO.
+- `POST /api/inventory/damages` - Record damaged inventory write-off.
 
 ---
 
